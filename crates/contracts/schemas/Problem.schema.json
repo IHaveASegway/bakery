@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Problem",
+  "description": "An error body, `application/problem+json` (RFC 9457).",
+  "type": "object",
+  "properties": {
+    "detail": {
+      "description": "What went wrong this time, for a person to read.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "instance": {
+      "description": "The request path this occurrence concerns.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "description": "The HTTP status code.",
+      "type": "integer",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0
+    },
+    "title": {
+      "description": "A short summary that does not change between occurrences.",
+      "type": "string"
+    },
+    "type": {
+      "description": "A URI reference naming the problem type; `about:blank` when the status says it all.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "title",
+    "status"
+  ]
+}

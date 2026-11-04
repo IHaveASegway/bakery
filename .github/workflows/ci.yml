@@ -91,6 +91,16 @@ jobs:
       - name: Bundle the API without deploying it (the bytes firewall scans)
         working-directory: workers/api
         run: pnpm exec wrangler deploy --dry-run --outdir dist
+      - name: The API's WebAssembly stays inside its budget (workers/api/budgets.json, spike S1 plus 25%)
+        run: |
+          wasm=workers/api/build/index_bg.wasm
+          size="$(stat -c %s "$wasm")"
+          budget="$(jq -r '.wasm_bytes' workers/api/budgets.json)"
+          echo "index_bg.wasm is $size bytes; the budget is $budget"
+          if [ "$size" -gt "$budget" ]; then
+            echo "::error file=workers/api/budgets.json::the API's WebAssembly, $size bytes, is over its budget of $budget bytes"
+            exit 1
+          fi
       # The web app: build, test, typecheck, lint, format
       - run: pnpm build
       - run: pnpm test

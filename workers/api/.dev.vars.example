@@ -1,0 +1,17 @@
+# Names only. Copy to .dev.vars (git-ignored, never committed) and fill in sandbox or test values
+# locally; in production each is a Worker secret (docs/security.md, "Secrets inventory").
+
+# Signs the session cookie and API tokens (HMAC-SHA256). PR 3.
+SESSION_HMAC_KEY=
+# Derives account ids from provider ids, so no raw id is stored. PR 3.
+ACCOUNT_HMAC_KEY=
+# The Stripe sandbox's restricted key; the Worker refuses any key that is not a sandbox key. PR 5.
+STRIPE_SECRET_KEY=
+# Verifies Stripe webhook signatures. PR 5.
+STRIPE_WEBHOOK_SECRET=
+# The Google OAuth client's secret, for the code exchange. PR 3.
+GOOGLE_CLIENT_SECRET=
+# The GitHub OAuth app's secret, for the code exchange. PR 3.
+GITHUB_CLIENT_SECRET=
+# Turnstile's secret for siteverify; Turnstile's documented test secret locally. PR 3.
+TURNSTILE_SECRET=

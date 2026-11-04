@@ -1,0 +1,4 @@
+{
+  "_comment": "Fitness function (docs/delivery.md, quality gates): the wasm-opt'ed module may not exceed spike S1's size plus 25%: 437,223 B on 2026-11-04. Raise it only with a line saying what the bytes buy.",
+  "wasm_bytes": 546529
+}

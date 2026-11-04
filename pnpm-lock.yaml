@@ -44,6 +44,9 @@ importers:
       typescript-eslint:
         specifier: ^8.72.0
         version: 8.72.1(eslint@10.14.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.3)
+      wrangler:
+        specifier: 'catalog:'
+        version: 4.157.0(@types/node@26.6.6)
 
   apps/web:
     dependencies:

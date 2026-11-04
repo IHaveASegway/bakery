@@ -1,0 +1,44 @@
+// The Worker bakery-api (docs/delivery.md, "Toolchain pins"). Local-only until PR 11: nothing here
+// is deployed before launch, and no account id or secret is ever written in this file.
+{
+  "name": "bakery-api",
+  "main": "build/worker/shim.mjs", // worker-build's output
+  // The newest date the workerd inside Wrangler 4.152.0 accepts; 2026-11-04 fails to start there.
+  "compatibility_date": "2026-11-04",
+  "build": { "command": "worker-build --release" },
+
+  // The deploy target from PR 11. Harmless on `wrangler dev`, which ignores routes.
+  "routes": [{ "pattern": "api.bakery.ihaveasegway.com", "custom_domain": true }],
+  "workers_dev": false, // the zone, with its WAF rule, is the only way in
+  "preview_urls": false, // a Worker with a Durable Object gets no Version URLs anyway
+  "limits": { "cpu_ms": 300 }, // twice the planned argon2id hash; applies on Workers Paid (PR 11)
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } }, // invocation logs record location fields
+
+  "durable_objects": {
+    "bindings": [{ "name": "CONTROL", "class_name": "Control" }],
+  },
+  // Declarative class lifecycle: each change is a deploy and a rollback boundary.
+  "exports": {
+    "Control": { "type": "durable-object", "storage": "sqlite" },
+  },
+
+  "queues": {
+    "producers": [{ "binding": "EVENTS", "queue": "bakery-events" }],
+    "consumers": [
+      {
+        "queue": "bakery-events",
+        "max_batch_size": 10,
+        "max_retries": 3,
+        "dead_letter_queue": "bakery-events-dlq",
+      },
+    ],
+  },
+
+  // The wipe at 10:00 UTC (PR 3) and the breaker and retry sweep (PR 11); placeholders for now.
+  "triggers": { "crons": ["0 10 * * *", "*/15 * * * *"] },
+
+  "vars": {
+    "ALLOWED_ORIGIN": "https://bakery.ihaveasegway.com",
+    "SANDBOX_CAP": "300",
+  },
+}

@@ -1,0 +1,16 @@
+[package]
+name = "bakery-app"
+description = "The bakery's use cases and ports. No platform dependency; adapters live in workers/api."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# Fakes for the ports, for other crates' tests. Never enabled in the Worker.
+test-support = []
+
+[dependencies]
+bakery-domain = { workspace = true }
+thiserror = { workspace = true }

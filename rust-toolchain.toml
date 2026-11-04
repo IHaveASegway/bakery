@@ -1,0 +1,5 @@
+# The single source for the Rust toolchain (docs/delivery.md, "Toolchain pins").
+[toolchain]
+channel = "1.97"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]
