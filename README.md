@@ -1,1 +1,59 @@
 # bakery
+
+A made-up bakery from the [Lab](https://ihaveasegway.com/lab/) on ihaveasegway.com, built as a running business system: online ordering, pickup and delivery scheduling, catering, billing through Stripe's sandbox, and a CRM with campaigns. Every backend is Rust on Cloudflare Workers, and state lives in SQLite-backed Durable Objects (DOs). Each visitor gets a private sandbox, seeded with synthetic history and wiped every night. It is a portfolio demo of architecture, modelled on [Joseph Peterson's site](https://github.com/IHaveASegway/website), and it is built in the open with its decisions written down.
+
+**Status:** planning. PR 1 writes the plan in `docs/` before any code, on 2026-11-04. Nothing is deployed. The open decisions are in [docs/product.md](docs/product.md#open-decisions).
+
+- [docs/README.md](docs/README.md) is the index and gives a reading order.
+- [docs/product.md](docs/product.md) covers why the bakery exists, who it is for, and the open decisions.
+- [docs/domain.md](docs/domain.md) covers the language, the aggregates, the event catalog and the state machines.
+- [docs/architecture.md](docs/architecture.md) covers the shape, the DO topology, data ownership and failure modes.
+- [docs/stack.md](docs/stack.md) lists every technology, its pin and what came second.
+- [docs/security.md](docs/security.md) covers the threat model, sign-in, privacy and the nightly wipe.
+- [docs/cost.md](docs/cost.md) prices a sandbox and the guardrails that keep the bill bounded.
+- [docs/delivery.md](docs/delivery.md) covers the repository layout, the pipeline, deploys and rollbacks.
+- [docs/operations.md](docs/operations.md) covers access setup, observability and the runbooks.
+- [docs/roadmap.md](docs/roadmap.md) lists what gets built, in which pull request, and when it counts as done.
+- [docs/adr/](docs/adr/README.md) holds the architecture decision records.
+
+## Setup
+
+The setup lands with PR 2 (the scaffold). It is written here ahead of it, so the plan can be read against it. Until PR 2 merges, `pnpm install` and the commands below do not exist.
+
+1. **Rust stable**, through `rust-toolchain.toml`, with the WebAssembly target: `rustup target add wasm32-unknown-unknown`. Then `cargo install worker-build`, the tool that compiles a `worker` crate into a Worker module ([stack.md](docs/stack.md)).
+2. **Node 26**, from `.nvmrc` (`nvm use`).
+3. **pnpm, pinned by `packageManager`.** Any pnpm switches itself to the pinned version in this repository; with none installed, `npx pnpm@<version>` does the same. Then `pnpm install`.
+4. **The hooks**, once per clone: `git config core.hooksPath .githooks`. `pnpm install` warns until they are on. The pre-commit hook runs the content firewall on staged changes and checks your commit identity; the pre-push hook refuses pushes to `main` and scans what you push.
+5. **The private rules file** for the firewall, at the same path and with the same mode as the site's: `~/.config/ihaveasegway/firewall.toml`, mode 600, backed up in the password manager ([operations.md](docs/operations.md), access setup). Without it both hooks refuse with exit 2. It is never committed, and its terms are never written anywhere else. A Claude Code cloud session has no such file and commits without the hooks, as [AGENTS.md](AGENTS.md) records.
+6. **`.dev.vars`**, copied from `.dev.vars.example` in `workers/api/` and filled with a Stripe sandbox key, a webhook secret and a cookie-signing secret. `.dev.vars` is git-ignored and never committed.
+
+## Commands
+
+All of these are planned. They are listed so the plan names what the pipeline will run, and each one exists only once the pull request that adds it has merged ([roadmap.md](docs/roadmap.md)).
+
+| Command | What it does |
+| --- | --- |
+| `cargo test` | Unit and property tests for the domain, application and seed crates, run natively |
+| `cargo clippy --all-targets -- -D warnings` | Lints the whole workspace; a warning fails |
+| `cargo fmt --check` | Checks Rust formatting |
+| `cargo deny check` | Licenses, advisories, bans and sources for every crate ([stack.md](docs/stack.md)) |
+| `pnpm dev` | Astro's dev server for the storefront at http://localhost:4321 |
+| `pnpm --filter web build` | Builds the storefront into `apps/web/dist/` |
+| `pnpm --filter api dev`, or `wrangler dev` in `workers/api/` | Runs the Rust API Worker locally with its Durable Objects |
+| `pnpm e2e` | Playwright against `wrangler dev`; build first, and install Chromium once |
+| `pnpm firewall:test` | The content firewall's self-test, with throwaway rules |
+| `scripts/verify-zone.sh` | The zone audit: DNS, DNSSEC, TLS, HSTS and redirects, shared with the site |
+
+## Deploy and roll back
+
+**Deploy:** merge the pull request. CI builds once, runs the gates, and deploys the API Worker first and the storefront Worker second, so the page never calls an endpoint that does not exist yet. The pipeline, its previews and its gates are in [delivery.md](docs/delivery.md).
+
+**Roll back:** per Worker, to a version the dashboard or the deploy summary names. Rolling back the storefront changes only static files. Rolling back the API has one limit: a rollback cannot cross a Durable Object migration (a class added, renamed or deleted), so a release that carries one rolls forward. The steps are in [delivery.md](docs/delivery.md) and [operations.md](docs/operations.md).
+
+## Privacy
+
+What a visitor should know: the bakery is a sandbox. Every visitor gets a private copy of a made-up bakery, filled with synthetic customers and orders. It holds no personal data by construction: no email, no name, no real address. Sign-in with Google learns only an opaque identifier. Payments use Stripe's test cards and never move money. Everything in a sandbox is wiped every night at 10:00 UTC (02:00 Pacific standard time, 03:00 in summer). The full promise and its inventory are in [security.md](docs/security.md), and the privacy page, `/privacy/` on the bakery's site, will state it once it exists.
+
+## License
+
+The code and the docs are MIT-licensed ([LICENSE](LICENSE)), assumed until Q35 (Q-license) is answered.

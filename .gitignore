@@ -1,0 +1,30 @@
+# Local configuration and secrets: never committed (docs/security.md, "Secrets inventory")
+.env
+.env.*
+.dev.vars
+*.local
+
+# Firewall rules live outside the repository, but refuse a stray copy too (the site's ADR 0007)
+firewall.toml
+
+# Build output and dependencies (the workspaces arrive in PR 2: docs/delivery.md)
+target/
+node_modules/
+dist/
+dist-preview/
+.astro/
+.wrangler/
+build/
+
+# Test output
+playwright-report/
+test-results/
+blob-report/
+coverage/
+
+# Editors and operating systems
+.DS_Store
+*.log
+.vscode/*
+!.vscode/extensions.json
+.idea/
