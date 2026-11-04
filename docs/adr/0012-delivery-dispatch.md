@@ -4,17 +4,19 @@ Status: Proposed · 2026-11-04 · Deciders: Joseph Peterson
 
 ## Context
 
-The made-up bakery delivers in 2-hour windows per zone, with a daily capacity per window (Q10 · Q-slots). Each morning of business time the staff plan the day's deliveries: tens of stops and one to four vans leaving the bakery and coming back. Dispatch is a staff screen, `/app/dispatch/`, over one sandbox and one day. The `Dispatch` Durable Object (DO), one per sandbox and day, holds the day's stops and the route plan ([ADR 0003](0003-durable-objects-as-the-system-of-record.md)). It is where the Route Lab's principle runs in production code (Q33 · Q-principles), so a reader expects the Route Lab's solver here (Q9 · Q-dispatch).
+The made-up bakery, Proof of Concept Bakery, delivers in 2-hour windows per zone, with a daily capacity per window (Q10 · Q-slots). Each morning of business time the staff plan the day's deliveries: tens of stops and one to four vans leaving the bakery and coming back. Dispatch is a staff screen, `/app/dispatch/`, over one sandbox and one day. The `Dispatch` Durable Object (DO), one per sandbox and day, holds the day's stops and the route plan ([ADR 0003](0003-durable-objects-as-the-system-of-record.md)). It is where the Route Lab's principle runs in production code (Q33 · Q-principles), so a reader expects the Route Lab's solver here (Q9 · Q-dispatch). The bakery's city is Salt Lake City, Joseph's choice of 2026-11-04 (Q3 · Q-city), while the site's Route Lab stays on Seattle. So the bakery reuses the Route Lab's pipeline and solver files, and builds its own Salt Lake City data in PR 9; it does not reuse the Seattle data or places.
 
 What the site already built, as of 2026-11-04:
 
 - The site's Route Lab runs VROOM 1.15.0, the open-source vehicle routing solver in C++ (BSD-2-Clause), compiled to WebAssembly with Emscripten 6.0.13 and run in a module Web Worker in the visitor's browser, from static files. `vroom.wasm` is 919,927 B, 343,650 B gzip; in headless Chromium, 20 orders and 3 vans planned in about 60 ms, and 63 orders with 4 vans in about 320 ms (2026-10-25, 4 CPUs) ([the site's ADR 0016](https://github.com/IHaveASegway/website/blob/main/docs/adr/0016-route-lab-in-the-browser.md)).
 - Its travel times were computed offline with OSRM's car profile over OpenStreetMap (© OpenStreetMap contributors, ODbL) for every pair of 64 public places in and around Seattle, 4,032 legs. The solver folder sits under `apps/web/public/lab/routes/solver/` and the data under `tools/route-data/out/`, both committed in the site's repository and pinned byte for byte by a lock file.
+- The pipeline that built those data is `tools/route-data/pipeline/` in the site's repository: osmium-tool 1.16.0 and `@project-osrm/osrm` 26.6.5 with `d3-contour`, as pinned in [the site's stack.md](https://github.com/IHaveASegway/website/blob/main/docs/stack.md) as of 2026-11-04.
 - A worker takes its Content Security Policy from its own response, so the solver's folder carries `'wasm-unsafe-eval'` and no page does (the site's ADR 0016).
 - VROOM has no Rust port and no browser build upstream; the site's three patches are what make it compile.
 
 Platform facts, as of 2026-11-04:
 
+- Geofabrik publishes OpenStreetMap extracts by region, including Utah, under the ODbL ([Geofabrik downloads](https://download.geofabrik.de/), as of 2026-11-04). Whether the pipeline runs on the Utah extract is spike S7, bounded to one focused day.
 - A DO handles one event at a time. A 2-second solve inside a handler would hold every other message to that object for 2 seconds, the kitchen board's included if it shared the object ([DO limits](https://developers.cloudflare.com/durable-objects/platform/limits/): a soft 1,000 requests a second per object, CPU 30 s a request by default).
 - Containers are Paid-only, start cold in 1 to 3 s, and under abuse the site priced one at about $185 per 72 hours ([the site's cost.md](https://github.com/IHaveASegway/website/blob/main/docs/cost.md), scenario E). The bakery does not use Containers.
 
@@ -28,7 +30,7 @@ The Clarke–Wright savings heuristic (Clarke and Wright, 1964) builds routes by
 4. **The object validates every submitted plan** before it can be published: every stop appears exactly once; no van exceeds its capacity; each van's route starts and ends at the bakery; every stop belongs to this sandbox and day. The object recomputes each route's duration from the matrix itself, so a client's totals are never trusted.
 5. **The page shows both plans' totals side by side**: total drive time, the time the last van is back, vans used, and the gap between them as a percentage, with a link to the Route Lab and to this record.
 6. **The solver files are copied from the site's repository** with their lock, their licence file and their folder name, into `apps/web/public/app/dispatch/solver/vroom-<version>-<sha8>/`, and never fetched at run time from anywhere else. The dispatch page's policy adds `worker-src 'self'`, and the solver's folder gets the site's worker policy, the one place `'wasm-unsafe-eval'` appears ([security.md](../security.md)). The solver loads on the first solve, after the page ([ADR 0008](0008-astro-site-with-react-islands-on-an-assets-only-worker.md)).
-7. **The travel-time matrix and the places are a committed fixture in `crates/seed`**, copied from the site's data with its ODbL attribution. Delivery addresses are made up; each one maps onto one of the Route Lab's 64 public places for its location, and the screens show the made-up address, never the place as somebody's home (Q3 · Q-city).
+7. **The travel-time matrix and the places are a committed fixture in `crates/seed`, built for Salt Lake City in PR 9.** The site's pipeline runs on Geofabrik's Utah extract, clipped to the city, with 64 curated public places: osmium, OSRM's car profile and d3-contour produce the matrix and the isochrones, kept with the ODbL attribution and also as static data for the dispatch screen. Delivery addresses are made up and map onto the curated places by index and label only; the screens show the made-up address, never the place as somebody's home (Q3 · Q-city). If spike S7 fails, PR 9 ships with a hand-built matrix and the gap is recorded.
 
 ## Alternatives considered
 
@@ -39,6 +41,7 @@ The Clarke–Wright savings heuristic (Clarke and Wright, 1964) builds routes by
 | C. Browser only | Least server code | Consistency: a plan nobody validated becomes the record, and any client can publish any plan | Rejected |
 | D. A routing API per solve | A strong solver with no bytes on the page | Security and privacy: a third party, its quota, and visitors' choices leaving the site; a new origin in the policy | Rejected |
 | E. VROOM in a Container | VROOM on the server | Cost: the site's scenario E; Containers are not used. Latency: a 1 to 3 s cold start | Rejected |
+| G. Reuse the Route Lab's Seattle data | Cost: no data build in PR 9 | The bakery would sit in a city other than the one Joseph chose for it on 2026-11-04, and its fixture would depend on the site's data | Rejected |
 | F. Port VROOM's algorithms to Rust | One solver, in the server's language | Evolvability: weeks of work, and a second implementation to keep right against upstream | Rejected |
 
 ## Consequences
@@ -47,13 +50,13 @@ Good:
 
 - Every published plan obeys the invariants, whoever made it. The validator is the single writer's rule in code, and it is tested natively.
 - The page states the gap between the two solvers on each seeded day instead of claiming either is good.
-- The Route Lab's bytes are reused as they are, pinned, with their licences, and the site's measurements apply.
+- The Route Lab's solver bytes and pipeline are reused as they are, pinned, with their licences, and the site's measurements apply.
 
 Bad:
 
 - Two plans, with a stated gap. The heuristic has limits, shown on the page rather than hidden: no time windows at first, capacity as a single number, one depot.
 - The solver's 343,650 B gzip load only on the dispatch screen, on the first solve; a phone on a slow link waits for them.
-- The matrix is Seattle-only, 64 places. Synthetic addresses map onto the Route Lab's places, so two customers can share a drop point, and a new city is a new offline data build.
+- The matrix covers Salt Lake City only, 64 places, and is a new offline build in PR 9. Synthetic addresses map onto the curated places, so two customers can share a drop point, and a new city is another data build. The build is a one-day risk until spike S7 passes.
 - Upkeep Dependabot cannot see: when the site moves to a new VROOM or Emscripten build, the bakery copies the new folder and its lock in a pull request of its own ([operations.md](../operations.md)).
 - The browser floor is the Route Lab's: WebAssembly exception handling, bulk memory and module workers. Below it, the screen shows the server's proposal only and says why.
 
@@ -66,7 +69,8 @@ Two-way. The solvers, the page and the fixture are code and static files. Dispat
 - A browser solve takes more than 2 s on a phone, on the largest seeded day.
 - The heuristic's gap to VROOM passes 25% of total drive time on the seeded days, measured by a test over the seed.
 - Time windows become part of the story, so the savings heuristic would need its time-window variant or a different method.
-- The site's Route Lab replaces VROOM, or the site's data changes licence or region.
+- The site's Route Lab replaces VROOM or its pipeline, or Geofabrik's Utah extract changes licence or format.
+- Spike S7 does not run the pipeline on the Utah extract within one focused day, or a curated place falls outside the clipped city.
 
 ## Patterns and further reading
 

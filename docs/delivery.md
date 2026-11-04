@@ -1,6 +1,6 @@
 # Delivery
 
-How a commit becomes the bakery: the repository layout, the toolchain pins, the pipeline that builds, gates, previews and deploys two Workers (the API holds every Durable Object (DO) class), the environments it writes to, and how a deploy is verified and undone. It is written for one maintainer with one pull request in flight, and it follows the site's [delivery.md](https://github.com/IHaveASegway/website/blob/main/docs/delivery.md) wherever the bakery has the same problem. The deploy owner is decided in [ADR 0011](adr/0011-github-actions-owns-deploys-for-both-workers.md); the API's hostname and CORS in [ADR 0009](adr/0009-the-api-on-its-own-hostname.md); everything else on this page is a two-way door without an ADR. Header and CSP policy, the firewall's design and the secrets inventory are in [security.md](security.md); access setup and runbooks are in [operations.md](operations.md); prices are in [cost.md](cost.md); versions and their sources are in [stack.md](stack.md).
+How a commit becomes the bakery: the repository layout, the toolchain pins, the pipeline that builds, gates, previews and deploys two Workers (the API holds every Durable Object (DO) class), the environments it writes to, and how a deploy is verified and undone. Until the launch pull request (PR 11) the pipeline is three jobs and nothing deploys ([speed first, Q44](#before-launch)); the rest of the page describes the pipeline as it stands from PR 11. It is written for one maintainer with one pull request in flight, and it follows the site's [delivery.md](https://github.com/IHaveASegway/website/blob/main/docs/delivery.md) wherever the bakery has the same problem. The deploy owner is decided in [ADR 0011](adr/0011-github-actions-owns-deploys-for-both-workers.md); the API's hostname and CORS in [ADR 0009](adr/0009-the-api-on-its-own-hostname.md); everything else on this page is a two-way door without an ADR. Header and CSP policy, the firewall's design and the secrets inventory are in [security.md](security.md); access setup and runbooks are in [operations.md](operations.md); prices are in [cost.md](cost.md); versions and their sources are in [stack.md](stack.md).
 
 Status: Draft for review in PR 1 · 2026-11-04
 
@@ -8,7 +8,7 @@ Prices, limits and versions are as of 2026-11-04, with sources. Every YAML, JSON
 
 ## Shape
 
-One pipeline, one writer per environment. GitHub Actions builds once per pipeline run: the web app's `dist/` and the API's wasm bundle. It runs every gate against those artifacts, runs the content firewall over them, and only then publishes. Two Workers ship from the one repository, with one deploy token. Nothing reaches a public URL without `verify` and `firewall` passing, and the publishing job `needs:` both, as the site's does.
+One pipeline, one writer per environment. GitHub Actions builds once per pipeline run: the web app's `dist/` and the API's wasm bundle. It runs every gate against those artifacts, runs the content firewall over them, and only then publishes. Two Workers ship from the one repository, with one deploy token. Nothing reaches a public URL without `verify` and `firewall` passing, and the publishing job `needs:` both, as the site's does. Before PR 11 there is no public URL and no publishing job.
 
 | Data | System of record | Only writer | Readers | How it crosses |
 |---|---|---|---|---|
@@ -17,7 +17,7 @@ One pipeline, one writer per environment. GitHub Actions builds once per pipelin
 | Production versions | Cloudflare, Workers `bakery-web` and `bakery-api` | `deploy` and `rollback`; the dashboard only when GitHub is down | visitors | Wrangler and the Cloudflare API |
 | Web previews | Cloudflare Worker Previews | `preview` creates, `preview-cleanup` deletes | `e2e`, the reviewer | Wrangler |
 
-The web and API build rows are "build once". If every job built for itself, the bytes the firewall scanned and the bytes that went live could differ; a Rust build is the worse case, since a dependency resolved an hour later changes the wasm and nobody can diff it by eye. The scanned bundle is the published bundle.
+The data-flow rows describe the pipeline from PR 11. The web and API build rows are "build once". If every job built for itself, the bytes the firewall scanned and the bytes that went live could differ; a Rust build is the worse case, since a dependency resolved an hour later changes the wasm and nobody can diff it by eye. The scanned bundle is the published bundle.
 
 ## Repository layout
 
@@ -30,17 +30,19 @@ bakery/
 ├── workers/api/         Rust Worker "bakery-api": Cargo.toml, wrangler.jsonc, src/{lib.rs, http/, objects/, queue.rs, cron.rs, auth/, stripe/}
 ├── crates/domain/       pure Rust: aggregates (decide/evolve), events, value objects, state machines; no platform dependency; cargo test
 ├── crates/app/          use cases and ports (traits): Clock, EventStore, Outbox, PaymentGateway, Mailbox, IdGen
-├── crates/seed/         deterministic synthetic data: personas, menu, 90 days of history, venues, the Seattle places
+├── crates/seed/         deterministic synthetic data: personas, menu, 90 days of history, venues, the 64 Salt Lake City places (from PR 9)
 ├── crates/contracts/    API types shared with the web app (serde, schemars → JSON Schema → TypeScript types at build)
+├── tools/route-data/    the Salt Lake City data build (PR 9), copied from the site's pipeline: osmium, OSRM, d3-contour; its own lockfile; offline, output committed
 ├── docs/                this plan: README, product, domain, architecture, stack, security, cost, delivery, operations, roadmap, adr/
 ├── Cargo.toml (workspace) · rust-toolchain.toml · pnpm-workspace.yaml · package.json · .nvmrc
 ```
 
-- **Workflows.** `ci.yml` is the pipeline below, `pr-text.yml` scans edited pull request text, and `scheduled.yml` holds the Monday audit and the morning object check. Preview cleanup is a job of `ci.yml`.
+- **Workflows.** `ci.yml` is the pipeline below (three jobs until PR 11), `pr-text.yml` scans edited pull request text, and `scheduled.yml` holds the Monday audit and the morning object check (both from PR 11). Preview cleanup is a job of `ci.yml`.
 - **`.githooks/` and `scripts/firewall/`** are copied from the site; the private rules are this repository's own secret ([operations.md](operations.md#9-local-hooks-and-the-private-firewall-file)).
 - **`apps/web/`** is an assets-only Worker: no request runs Worker code ([ADR 0008](adr/0008-astro-site-with-react-islands-on-an-assets-only-worker.md)).
 - **`workers/api/`** is the only crate that depends on the platform: the `worker` crate, the DO classes, the Queue consumer, the cron handler. It is a thin adapter over `crates/app`.
 - **`crates/domain/`** is pure Rust with no platform dependency, tested natively with `cargo test` and `proptest`. Most tests run here: native tests are fast. `crates/app/` holds use cases and ports; time, storage, payments and mail are traits an adapter implements and a test replaces.
+- **`tools/route-data/`** is the site's Route Lab pipeline (`tools/route-data/pipeline/` in [the site's repository](https://github.com/IHaveASegway/website)) copied in PR 9 and run offline on Geofabrik's Utah extract ([Geofabrik](https://download.geofabrik.de/), ODbL, as of 2026-11-04), clipped to Salt Lake City, with 64 curated public places. It has its own lockfile, outside both workspaces, and its output (the travel-time matrix, isochrones and place list) is committed; nothing of its tools ships. The Route Lab keeps its Seattle data in the site's repository.
 - **`crates/seed/`** is one deterministic generator for the Worker and the tests. **`crates/contracts/`** holds the API's types once; a build step turns them into JSON Schema and then TypeScript, so the web app cannot drift.
 
 A Cargo workspace from day one costs one file; splitting later means moving every path. The crates exist because their dependency rules differ, which a gate below enforces. No Turborepo, no `cargo-make`: `pnpm` scripts and `cargo` aliases cover it.
@@ -63,7 +65,8 @@ Pins as of 2026-11-04:
 | Wrangler | ^4.152.0 | pnpm catalog | Worker Previews need 4.135.0 or later; CI runs `pnpm exec wrangler` | [npm](https://www.npmjs.com/package/wrangler) |
 | Astro | 7.4.2, exact | `apps/web/package.json` | The site's pin; majors wait for x.1 | [npm](https://www.npmjs.com/package/astro) |
 | React, `@astrojs/react` | 19.3.1, 7.x | `apps/web/package.json` | Islands only; the JavaScript budget keeps them few | [npm](https://www.npmjs.com/package/react) |
-| Vitest 5, Playwright | 5, 1.64.1 | pnpm catalog | Web unit tests (Worker logic is tested by `cargo test`); `e2e` and `prod-smoke` run in Playwright's image of the same version | [npm](https://www.npmjs.com/package/@playwright/test) |
+| Vitest 5, Playwright | 5, 1.64.1 | pnpm catalog | Web unit tests (Worker logic is tested by `cargo test`); `e2e` and `prod-smoke` run in Playwright's image of the same version, from PR 11 | [npm](https://www.npmjs.com/package/@playwright/test) |
+| osmium-tool, `@project-osrm/osrm` | 1.16.0 (apt); 26.6.5 (the newest that runs on Ubuntu 24.04's glibc) | `tools/route-data/` and its own lockfile, copied from the site | The Salt Lake City data build in PR 9, pinned as the site pins them; with `d3-contour` 4.0.2 and `polygon-clipping` 0.15.7. Offline: nothing ships | [site stack.md](https://github.com/IHaveASegway/website/blob/main/docs/stack.md), [osmium-tool](https://github.com/osmcode/osmium-tool), [npm](https://www.npmjs.com/package/@project-osrm/osrm), as of 2026-11-04 |
 
 The sketches below are what PR 2 starts from.
 
@@ -99,13 +102,14 @@ panic = "abort"
   "routes": [{ "pattern": "api.bakery.ihaveasegway.com", "custom_domain": true }],
   "workers_dev": false,                          // the zone, with its WAF rule, is the only way in
   "preview_urls": false,
-  "limits": { "cpu_ms": 300 },                   // cost.md: twice the planned argon2id hash; raised only from spike S1; the Paid default is 30 s
+  "limits": { "cpu_ms": 300 },                   // set in PR 11 with Workers Paid: twice the planned argon2id hash, from spike S1; the Paid default is 30 s
   "observability": { "enabled": true, "logs": { "invocation_logs": false } },
-  "durable_objects": { "bindings": [             // one per class, 13 in all (architecture.md)
-    { "name": "CONTROL", "class_name": "Control" }, { "name": "SANDBOX", "class_name": "Sandbox" }
+  "durable_objects": { "bindings": [             // one per class, 14 in all (architecture.md)
+    { "name": "CONTROL", "class_name": "Control" }, { "name": "SANDBOX", "class_name": "Sandbox" },
+    { "name": "SIMULATOR", "class_name": "Simulator" }   // the 14th class (PR 4): synthetic traffic, one per sandbox, `simulator:<sandbox>`
   ] },
   "exports": {                                   // declarative class lifecycle: each change is a deploy and a rollback boundary
-    "Control": { "type": "durable-object", "storage": "sqlite" }   // ...and the other 12
+    "Control": { "type": "durable-object", "storage": "sqlite" }   // ...and the other 12, Simulator among them
   },
   "queues": {
     "producers": [{ "binding": "EVENTS", "queue": "bakery-events" }],
@@ -127,7 +131,7 @@ panic = "abort"
   "assets": { "directory": "./dist", "not_found_handling": "404-page", "html_handling": "auto-trailing-slash" },   // no "main": assets only
   "routes": [{ "pattern": "bakery.ihaveasegway.com", "custom_domain": true }],
   "workers_dev": false,
-  "preview_urls": true,      // Version URLs for the deploy smoke
+  "preview_urls": true,      // Version URLs for the deploy smoke (from PR 11)
   "previews": {},
   "observability": { "enabled": true },
   "send_metrics": false      // and never "cache": { "enabled": true }, which bills every asset request
@@ -138,12 +142,29 @@ Custom Domains get certificates automatically, multi-level subdomains included, 
 
 ## Pipeline
 
+### Before launch
+
+Q44 · Q-posture, Joseph's direction of 2026-11-04: speed first until launch. Nobody uses the bakery yet, so from PR 2 until PR 11 CI runs three jobs and nothing else, and Joseph reads each pull request on `wrangler dev`. The domain's native tests run inside `verify` and stay, because they cost nothing. The workflow `pr-text.yml` also runs, because it is the firewall reading edited pull request text, and a public repository cannot skip that.
+
+| Job | Trigger | `needs` | Does |
+|---|---|---|---|
+| `verify` | PR; push to `main` | none | `pnpm install --frozen-lockfile`; `cargo fmt --check`, `clippy -D warnings`, `test --workspace --locked`, `deny check`, `audit`; the wasm build and its size budget; contracts diffed; the seed run twice; the fixture scan; `pnpm build` and `test`; the fitness functions below that need no browser and no edge. Uploads the artifacts once |
+| `firewall` | as `verify` | `verify` | The full-history and artifact scan, as in the table below |
+| `firewall-selftest` | as `verify` | none | Throwaway rules prove exits 0, 1 and 2 |
+
+Arriving in PR 11, with the deploy token and the account on Workers Paid: `preview`, `e2e`, `lighthouse`, `deploy`, `rollback`, `prod-smoke`, `prod-verdict` and `preview-cleanup`, and `bakery-objects` (the morning object check) with them. Until then no job holds a Cloudflare credential, so the hardening rules about the deploy token are satisfied by there being none. Cost of the posture: a regression a browser test or a preview would have caught reaches Joseph's read, and nothing reaches an audience. Two-way door; revisit when PR 11 starts.
+
+### From launch
+
+Everything below is the pipeline as it stands from PR 11, the post-launch state.
+
 ```mermaid
 flowchart LR
   subgraph PR["pull_request"]
     V["verify"] --> F["firewall"]
     ST["firewall-selftest"]
     F --> P["preview, web only"] --> E["e2e: both Workers on wrangler dev"]
+    P --> LH["lighthouse"]
     F -.->|"Dependabot or fork PR"| E
   end
   subgraph MAIN["push to main"]
@@ -166,8 +187,9 @@ Job names follow the site's `ci.yml`, whose steps are named in plain sentences (
 | `verify` | PR; push to `main`; weekly | none | none | `pnpm install --frozen-lockfile`; `cargo fmt --check`, `clippy -D warnings`, `test --workspace --locked`, `deny check`, `audit`; the wasm build; `wrangler deploy --dry-run --outdir workers/api/dist`; the wasm budgets; contracts diffed; the seed run twice; the fixture scan; `pnpm build` and `test`; byte budgets, contrast, image metadata, offline links; the fitness functions below. Uploads both artifacts once |
 | `firewall` | as `verify` | `verify` | `FIREWALL_RULES` (the Dependabot copy on Dependabot PRs) | Full history and both artifacts; gitleaks installed after a sha256 check; `scripts/firewall/check.sh` over the tree, `dist/` and the API bundle, wasm strings included ([site ADR 0017](https://github.com/IHaveASegway/website/blob/main/docs/adr/0017-firewall-reads-webassembly.md)). Exits 1 and 2 fail |
 | `firewall-selftest` | as `verify` | none | none | `scripts/firewall/test.sh` with throwaway rules proves exits 0, 1 and 2 and that no term is ever printed. `deploy` needs it |
-| `preview` | PR from this repository, not Dependabot's | `firewall` | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | Web only until spike S4: `wrangler preview --name pr-<n>`, waits for it, requires `X-Robots-Tag: noindex`, posts one comment. Publishes nothing until a deploy from `main` has created production |
+| `preview` | PR from this repository, not Dependabot's | `firewall` | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | Web only until spike S4: `wrangler preview --name pr-<n>`, waits for it, requires `X-Robots-Tag: noindex`, posts one comment. Publishes nothing until PR 11's first deploy from `main` has created production |
 | `e2e` | PR | `verify`, `firewall`, `preview` (run or skipped) | `STRIPE_E2E_SECRET_KEY` (restricted sandbox key), in the payment step only | Playwright in its image at the lockfile's version. Both Workers run on `wrangler dev` from the scanned artifacts (web 8787, API 8788, local HTTPS), with Chromium's host resolver mapping both production hostnames to them, so the bytes under test keep their origins, cookies and CORS. Suites: public pages (axe, headers, CSP, 320 px), sign-in and sandbox, order to kitchen board over a real WebSocket, payment with the test card, the wipe; the API's integration tests run on the same `wrangler dev`. Dependabot and fork PRs have no Stripe key, so payment specs skip with an annotation and `main`'s run exercises them |
+| `lighthouse` | PR from this repository, not Dependabot's | `preview` | none | Lighthouse against the web preview's URL; fails when a category misses the budget [stack.md](stack.md) names (confirm the settings when building) |
 | `preview-cleanup` | PR closed, not Dependabot's | none | as `preview` | `wrangler preview delete --name pr-<n> --skip-confirmation`, and the API's preview and DO namespaces if S4 passes |
 | `pr-text` | PR title or body edited | none | `FIREWALL_RULES` | `check.sh --pr-text` on title, body and branch name |
 | `deploy` | push to `main` | `verify`, `firewall`, `firewall-selftest` | as `preview` | Group `deploy-production`, never cancelled; stops unless the commit is `main`'s tip. **Stage 1, the API,** when its paths changed since the live deployment's message: `wrangler deploy --no-bundle` of the scanned bundle, then a health and CORS check. **Stage 2, the web Worker,** after stage 1 passes or is skipped: `versions upload`, smoke the Version URL, `versions deploy <id>@100%` |
@@ -175,7 +197,7 @@ Job names follow the site's `ci.yml`, whose steps are named in plain sentences (
 | `prod-smoke` | after `deploy` or `rollback` | those | none | In Playwright's image: waits for both hostnames, then runs the smoke table below through the zone |
 | `prod-verdict` | when `prod-smoke` failed | `deploy`, `rollback`, `prod-smoke` | none | On the runner (`issues: write`): opens an `Incident:` issue with the exact rollback command for the Worker that changed |
 | `scheduled` | Monday 07:17 UTC | none | none | Token-free zone audit, external links, `cargo audit` and `cargo deny check advisories` against the newest database, `compatibility_date` age for both Workers |
-| `bakery-objects` | daily 12:17 UTC | none | `CLOUDFLARE_READ_TOKEN` | Lists each sandbox-scoped namespace's objects and opens an issue for any holding data after the 10:00 UTC wipe ([operations.md](operations.md#the-nightly-wipe)) |
+| `bakery-objects` | daily 12:17 UTC, from PR 11 | none | `CLOUDFLARE_READ_TOKEN` | Lists each sandbox-scoped namespace's objects and opens an issue for any holding data after the 10:00 UTC wipe ([operations.md](operations.md#the-nightly-wipe)) |
 
 Every job has `permissions: {}` at the top and `contents: read` below, plus `pull-requests: write` for `preview` and `issues: write` for `prod-verdict` and `bakery-objects`.
 
@@ -192,7 +214,7 @@ Six notes on the graph:
 
 ### Actions minutes
 
-As of 2026-11-04 Actions is free for public repositories on standard runners ([GitHub](https://docs.github.com/en/billing/concepts/product-billing/github-actions)), and this repository is public from its first push, so the pipeline costs nothing. Were it private, a pull request push would bill an estimated 25 minutes (a cold Rust build is the longest job, hence the `target/` cache) and a merge 12: about 1,200 minutes in a month of 40 pushes and 15 merges, inside the 2,000 a private Free account gets. PR 2 replaces these estimates with 10 measured runs.
+As of 2026-11-04 Actions is free for public repositories on standard runners ([GitHub](https://docs.github.com/en/billing/concepts/product-billing/github-actions)), and this repository is public from its first push, so the pipeline costs nothing. Were it private, a pull request push would bill an estimated 25 minutes (a cold Rust build is the longest job, hence the `target/` cache) and a merge 12: about 1,200 minutes in a month of 40 pushes and 15 merges, inside the 2,000 a private Free account gets. PR 2 replaces these estimates with measured runs of its three jobs, and PR 11 with 10 runs of the full pipeline.
 
 ### Hardening rules
 
@@ -205,8 +227,10 @@ The site's eleven rules apply to both Workers, numbered as there ([delivery.md](
 | Environment | URL | Built from | Data | Secrets | Writer | Lifetime |
 |---|---|---|---|---|---|---|
 | local | `astro dev` on 4321; `wrangler dev` for both Workers (web 8787, API 8788) | the working tree | local DO state, git-ignored | `.dev.vars`, git-ignored, names in `.dev.vars.example`; a Stripe sandbox key; Turnstile's test keys (confirm when building) | Joseph | a session |
-| preview, one per pull request | workers.dev, as Wrangler reports it; public, `noindex` | the PR head's `dist/` | none | none | `preview` only | until the PR closes |
-| production | `https://bakery.ihaveasegway.com`, `https://api.bakery.ihaveasegway.com` | `main`'s artifacts | production DOs; every sandbox wiped nightly | Worker secrets ([operations.md](operations.md#6-worker-secrets)) | `deploy` and `rollback` | permanent |
+| preview, one per pull request, from PR 11 | workers.dev, as Wrangler reports it; public, `noindex` | the PR head's `dist/` | none | none | `preview` only | until the PR closes |
+| production, from PR 11 | `https://bakery.ihaveasegway.com`, `https://api.bakery.ihaveasegway.com` | `main`'s artifacts | production DOs; every sandbox wiped nightly | Worker secrets ([operations.md](operations.md#6-worker-secrets)) | `deploy` and `rollback` | permanent |
+
+**Production does not exist before PR 11, and local is where every pull request is read:** each one is run on `wrangler dev` (web 8787, API 8788) and read by Joseph, with the secrets in `.dev.vars` and Stripe, Google, GitHub and Turnstile in their test or sandbox forms. Previews and production are not environments until the launch pull request creates them.
 
 **No long-lived staging,** for the site's reasons ([delivery.md](https://github.com/IHaveASegway/website/blob/main/docs/delivery.md#environments)): a second copy to keep in sync that tests a different build from the one that ships. A preview per pull request covers the web Worker, and `wrangler dev` with `e2e` covers the API. The API is the weak point: no Version URL smoke on the edge. Risky changes are guarded by the flags in `Control` (L1) and by shipping DO class changes alone. Revisit if a class change needs a rehearsal on real storage; the first move is a throwaway second Worker name.
 
@@ -214,7 +238,7 @@ The site's eleven rules apply to both Workers, numbered as there ([delivery.md](
 
 ### The web Worker
 
-The site's blue/green in miniature ([site delivery.md](https://github.com/IHaveASegway/website/blob/main/docs/delivery.md#deploy-verify-roll-back)): stop unless the commit is `main`'s tip; record the live version id; `wrangler versions upload --tag <sha8>`; smoke the Version URL; check the tip again; `wrangler versions deploy <id>@100% --message main@<sha>`. Routes and custom domains are not part of a version, so the first deploy runs `wrangler deploy`, which creates the Worker and attaches `bakery.ihaveasegway.com`; until production exists, `preview` publishes nothing.
+The site's blue/green in miniature ([site delivery.md](https://github.com/IHaveASegway/website/blob/main/docs/delivery.md#deploy-verify-roll-back)): stop unless the commit is `main`'s tip; record the live version id; `wrangler versions upload --tag <sha8>`; smoke the Version URL; check the tip again; `wrangler versions deploy <id>@100% --message main@<sha>`. Routes and custom domains are not part of a version, so PR 11's first deploy runs `wrangler deploy`, which creates the Worker and attaches `bakery.ihaveasegway.com`; until production exists, `preview` publishes nothing.
 
 ### The API
 
@@ -229,14 +253,15 @@ The site's blue/green in miniature ([site delivery.md](https://github.com/IHaveA
 
 ### Smoke checks
 
-Run by `prod-smoke` through the zone after `deploy` or `rollback`, and a subset by `deploy` right after the API's deploy.
+From PR 11, run by `prod-smoke` through the zone after `deploy` or `rollback`, and a subset by `deploy` right after the API's deploy.
 
 | Hostname | Check | Passes when |
 |---|---|---|
 | web | every page and file in the artifact; the 404 page; the other form of each URL | 200 with its canonical link and the headers in [security.md](security.md); HTML equal to the artifact byte for byte; unknown path serves the 404 page; slashless forms redirect |
 | API | health | `GET /v1/health` answers 200 with the build commit and runs no DO |
 | API | CORS preflight | `OPTIONS /v1/sandboxes` from `Origin: https://bakery.ihaveasegway.com` answers 204 with that exact origin and `Access-Control-Allow-Credentials: true`; from `https://example.com` it carries no `Access-Control-Allow-Origin` |
-| API | sign-in redirect | `GET /v1/auth/google` answers 302 to Google's authorization endpoint with `scope=openid` only, a `state`, and a `__Host-` cookie that is `HttpOnly`, `Secure`, `SameSite=Strict` (path assumed until ADR 0013) |
+| API | sign-in redirect | `GET /v1/auth/google` answers 302 to Google's authorization endpoint with `scope=openid` only, a `state`, and a `__Host-` cookie that is `HttpOnly`, `Secure`, `SameSite=Strict` (path assumed until ADR 0013, written in PR 10) |
+| API | GitHub sign-in redirect | `GET /v1/auth/github` answers 302 to GitHub's authorization endpoint with a `state` and no `scope`, and the same `__Host-` cookie attributes (path assumed until ADR 0013; [GitHub](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app), as of 2026-11-04) |
 | API | Stripe webhook | `POST /v1/stripe/webhook` with a wrong signature answers 400 problem+json, proving the route and verifier are live. A signed test event from the Stripe dashboard is part of the monthly review and of every secret rotation, because CI holds no webhook secret |
 
 The rollback targets and the DO caveat are in [operations.md](operations.md#rollback). Automatic rollback waits for evidence, as on the site: 20 green `prod-smoke` runs in a row, and a failure that repeats.
@@ -267,7 +292,7 @@ updates:
       - { dependency-name: wasm-bindgen }
 ```
 
-The cooldown applies to version updates only; security updates arrive at once ([options reference](https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference)). Dependabot sees only Dependabot secrets, so `FIREWALL_RULES` exists there too. Set by hand once, and recorded in [operations.md](operations.md#access-setup): the zone's rate-limiting rule, the L3 WAF rule, Turnstile's widget, Stripe's sandbox and Google's console.
+The cooldown applies to version updates only; security updates arrive at once ([options reference](https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference)). Dependabot sees only Dependabot secrets, so `FIREWALL_RULES` exists there too. Set by hand once, and recorded in [operations.md](operations.md#access-setup): Stripe's sandbox, Google's console and the GitHub OAuth app (PR 2); the zone's rate-limiting rule, the L3 WAF rule and Turnstile's production widget (PR 11).
 
 ## Quality gates as fitness functions
 
@@ -287,6 +312,8 @@ A fitness function is an executable check of an architectural property. A budget
 | Contracts in sync | `verify` | regenerating the TypeScript from `crates/contracts` differs from the committed output | this doc |
 | Exact pins | `verify` | `worker` is not `=`-pinned, a lockfile is stale, or `cache.enabled` appears in a config | this doc |
 | Smoke, CORS exactness | `deploy`, `prod-smoke` | any row of the smoke table fails, including a foreign origin getting an allow header | this doc |
+
+Before PR 11 the checks that name `e2e`, `deploy` or `prod-smoke` have no job; the rest run in `verify` from PR 2, and Joseph's read on `wrangler dev` covers the screens.
 
 Each check sees one layer: `verify` the build output, `e2e` both Workers under workerd but not the edge, `prod-smoke` the zone. No check sees a persona that resembles a real person or paraphrased identifying details; the pull request checklist and Joseph's phone read cover those.
 

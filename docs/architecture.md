@@ -1,6 +1,6 @@
 # Architecture
 
-How the bakery demo fits together: the systems around it, the two Workers and the thirteen Durable Object (DO) classes inside the API, how events move between objects, who owns each datum, how the main requests flow, and what each failure takes down. The made-up bakery is a running business system built so a visitor can watch the site's Lab principles run in production code. The why is in [product.md](product.md), the language and event catalog in [domain.md](domain.md), pins in [stack.md](stack.md), threats in [security.md](security.md), prices in [cost.md](cost.md), the pipeline in [delivery.md](delivery.md), runbooks in [operations.md](operations.md), decisions in [adr/](adr/README.md). Nothing is built yet; spike S1 (a Rust DO on Workers: size, startup, SQL) runs before anything depends on this design ([roadmap.md](roadmap.md)).
+How the bakery demo fits together: the systems around it, the two Workers and the fourteen Durable Object (DO) classes inside the API, how events move between objects, who owns each datum, how the main requests flow, and what each failure takes down. The made-up bakery, Proof of Concept Bakery (Q2 · Q-name), is a running business system built so a visitor can watch the site's Lab principles run in production code. The why is in [product.md](product.md), the language and event catalog in [domain.md](domain.md), pins in [stack.md](stack.md), threats in [security.md](security.md), prices in [cost.md](cost.md), the pipeline in [delivery.md](delivery.md), runbooks in [operations.md](operations.md), decisions in [adr/](adr/README.md). Nothing is built yet; spike S1 (a Rust DO on Workers: size, startup, SQL) runs before anything depends on this design, and nothing is deployed before the launch pull request (PR 11); until then every pull request runs on `wrangler dev` (Q44 · Q-posture, [roadmap.md](roadmap.md)).
 
 Status: Draft for review in PR 1 · 2026-11-04
 
@@ -44,6 +44,7 @@ flowchart TB
   subgraph github ["GitHub"]
     repo["IHaveASegway/bakery<br/>public, MIT"]
     actions["Actions<br/>build, gates, deploys,<br/>morning object check"]
+    ghauth["OAuth sign-in<br/>numeric user id only"]
   end
 
   stripe["Stripe sandbox"]
@@ -62,14 +63,16 @@ flowchart TB
   visitors -->|"Payment Element"| stripe
   visitors -->|"redirect"| google
   api -->|"code exchange, JWKS"| google
+  visitors -->|"redirect"| ghauth
+  api -->|"code exchange, GET /user"| ghauth
   joseph -->|"pull requests"| repo --> actions
   actions -->|"deploy"| web
   actions -->|"deploy"| api
 ```
 
 - The site and the bakery link each other and nothing more (Q32 · Q-links).
-- Stripe and Google are the only third parties in the request path, and neither receives a real name, email address or card ([security.md](security.md)).
-- Email Service appears only for sends to Joseph's own verified address, free on any plan.[^email] Visitors never get email (Q22 · Q-email).
+- Stripe, Google and GitHub's sign-in are the only third parties in the request path, and none receives a real name, email address or card from the bakery ([security.md](security.md)).
+- Email Service appears only for sends to Joseph's own verified address, free on any plan.[^email] Visitors never get email (Q22 · Q-email). Email sign-in is designed and shipped later (Q43 · Q-email-signin): one link per sign-in through Email Service, to an address used once and never stored ([security.md](security.md#email-sign-in-later)).
 
 ## Container diagram
 
@@ -102,6 +105,7 @@ flowchart TB
       customer[("Customer")]
       crm[("Crm")]
       inbox[("Inbox")]
+      simulator[("Simulator")]
     end
   end
   queue[["bakery-events"]]
@@ -124,6 +128,7 @@ flowchart TB
   router --> account
   router --> sandbox
   router --> perbox
+  simulator -->|"synthetic commands, same path"| router
   sandbox -->|"seed, clock, wipe"| perbox
   perbox -->|"outbox relay"| queue
   queue --> consumer
@@ -141,7 +146,7 @@ flowchart TB
 - `bakery-web` has no `main` and Workers Cache stays off, so a page view is never a billed Worker request. `/menu/` is built from `crates/seed` and costs $0 to serve.
 - Only `bakery-api` binds the classes, and a DO has no URL of its own, so every request passes the router first. `workers_dev` is false on both Workers (Q30 · Q-previews).
 - One Worker holds the consumer, the cron handler and the classes, so one deploy restarts all of it: the trade the site's lab made in its [ADR 0009](https://github.com/IHaveASegway/website/blob/main/docs/adr/0009-lab-worker-same-origin.md).
-- The bundle must fit 64 MiB uncompressed and start within 1 s (error 10021), in 128 MB of memory per isolate with Wasm linear memory included.[^limits] One binary with 13 classes is what spike S1 measures.
+- The bundle must fit 64 MiB uncompressed and start within 1 s (error 10021), in 128 MB of memory per isolate with Wasm linear memory included.[^limits] One binary with 14 classes is what spike S1 measures.
 
 ## Bounded contexts
 
@@ -149,7 +154,7 @@ Eight domain contexts and three operational ones. Each writes only its own data.
 
 | Context | Vocabulary | Owns | Boundary | Talks to the others by | It is not |
 |---|---|---|---|---|---|
-| Platform | account, session, sandbox, seed, clock, flag, budget | identities, sandboxes, registries, the business clock, flags, the daily ledger | `Control`, `Account`, `Sandbox`; `src/auth/` | commands to children (seed, clock, wipe); `SandboxSeeded`, `ClockAdvanced`, `SandboxWiped` | A user directory. It knows a hash of a `sub` |
+| Platform | account, session, API token, sandbox, seed, clock, simulated customer, flag, budget | identities, sandboxes, registries, the business clock, simulated traffic, flags, the daily ledger | `Control`, `Account`, `Sandbox`, `Simulator`; `src/auth/` | commands to children (seed, clock, wipe); `SandboxSeeded`, `ClockAdvanced`, `SandboxWiped` | A user directory. It knows a hash of a `sub` or a GitHub id |
 | Storefront | item, variant, category, allergen, lead time, menu version | the menu, prices, availability rules | `Catalog` | `MenuPublished`; an `ETag` of the version | The day's stock count, which Scheduling holds |
 | Ordering | order, line, note, expiry, board | each order's log and state; the live board | `Order`, `Kitchen` | commands from the router and the board; `OrderPlaced` to `OrderClosed` | The payment. It asks Billing and listens |
 | Scheduling | slot, window, capacity, hold, reservation, bake list | slots, windows, daily item caps, catering day capacity, the production plan | `Schedule` per day | a synchronous hold; `SlotReserved`, `SlotReleased`, `BakeListChanged` | The catering calendar of record |
@@ -157,23 +162,25 @@ Eight domain contexts and three operational ones. Each writes only its own data.
 | Billing | payment, intent, invoice, refund, webhook, ledger | the ledger and every Stripe id | `Billing`; `src/stripe/`; the `PaymentGateway` port | Stripe REST out, signed webhooks in; `PaymentSucceeded`, `RefundIssued` | A copy of Stripe |
 | Fulfillment | stop, van, route, proposal | each day's stops and plans | `Dispatch` per day | `RoutePublished`, `StopCompleted`; the browser's VROOM plan as a command | A map; travel times are static assets |
 | CRM | customer, timeline, segment, campaign, consent, loyalty, message | personas, projections, campaigns, the inbox | `Customer`, `Crm`, `Inbox` | consumes most events; produces `CampaignSent`, `LoyaltyPointsEarned`, `MessageOpened` | A writer of orders |
-| Presentation | page, island, screen, drawer, persona switch | pages, islands, drawings, "How this works" drawers | `apps/web/`; `bakery-web` | build-time reads of `crates/seed` and `crates/contracts`; HTTPS to the API | A runtime |
+| Presentation | page, island, screen, tour, step, persona switch | pages, islands, drawings, the tour (the "How this works" drawer is one of its steps), the OpenAPI page at `/docs/api/` | `apps/web/`; `bakery-web` | build-time reads of `crates/seed` and `crates/contracts`; HTTPS to the API | A runtime |
 | Delivery | job, gate, preview, version | workflows, the firewall check, the deploy credential | `.github/`, `.githooks/`, `scripts/` | builds and deploys both Workers ([delivery.md](delivery.md)) | A second deployer; Workers Builds stays disconnected |
 | Edge | zone, record, rule, certificate | the Custom Domains' records, WAF rules, the rate-limiting rule | the dashboard | wraps every request before a Worker runs | Owned here. The zone is the site's |
 
 **Commands may be synchronous; events never are.** A command (hold this slot, seed this child, mark this order ready) is a call from the router, from a Sandbox to its children, or from the Kitchen room to the Order a staff member clicked. An event crosses only by the Queue, so no write waits on a subscriber.
 
-**The published language** is `crates/contracts`: API types and the envelope, exported as JSON Schema with `schemars` and turned into TypeScript at build, so the web app cannot drift unnoticed. The socket follows the site's protocol v1 shape. ADR 0013 is reserved for the API and socket contract v1, written when the first client ships.
+**The published language** is `crates/contracts`: API types and the envelope, exported as JSON Schema with `schemars` and turned into TypeScript at build, so the web app cannot drift unnoticed. The socket follows the site's protocol v1 shape. ADR 0013, the API and socket contract v1, is written in PR 10 with the visitor API ([simulated traffic, the tour and the API for visitors](#simulated-traffic-the-tour-and-the-api-for-visitors)).
 
 ## Durable Object topology
 
-Thirteen classes, all SQLite-backed, declared with `exports`. On Paid an account may hold 500 classes and an object 10 GB; a row is capped at 2 MB, with 100 columns and 100 bound parameters.[^dolimits]
+Fourteen classes, all SQLite-backed, declared with `exports`. On Paid an account may hold 500 classes and an object 10 GB; a row is capped at 2 MB, with 100 columns and 100 bound parameters.[^dolimits]
+
+Isolation is a database per tenant per aggregate, not row-level security over a shared table: every object is its own SQLite database, so there is no shared table to filter ([security.md](security.md#sandbox-isolation) says why that is the stronger design here).
 
 | Class | One per | Holds | Who writes | Lifetime | Cleanup alarm |
 |---|---|---|---|---|---|
 | `Control` | account, `control` | flags `live`, `read-only`, `off`; daily ledger; kill switch; the daily IP salt, in memory only, never stored | router, cron, Joseph (flags, in Data Studio) | long-lived | prunes ledger rows past 35 days |
-| `Account` | identity | demo password hash, current sandbox id, created day | router | 30 days after last sign-in (assumed until Q23 · Q-auth) | 30 days idle, then `delete_all` |
-| `Sandbox` | sandbox | lifecycle, seed, child registry, clock offset, fault switches, dead letters | router; its alarms | to the next wipe | next 10:00 UTC; 36 h |
+| `Account` | identity | demo password hash, current sandbox id, created day | router | 30 days after last sign-in (Q23 · Q-auth) | 30 days idle, then `delete_all` |
+| `Sandbox` | sandbox | lifecycle, seed, child registry, clock offset, API token version, fault switches, dead letters | router; its alarms | to the next wipe | next 10:00 UTC; 36 h |
 | `Catalog` | sandbox | items, variants, prices, availability rules, menu version | staff; seed | to the wipe | 36 h |
 | `Order` | order | event log, state, lines, note, seen commands | router, Kitchen, events | to the wipe | 15-minute expiry; 36 h |
 | `Kitchen` | sandbox | hibernating sockets, the board, fan-out | events | to the wipe | 36 h |
@@ -184,6 +191,7 @@ Thirteen classes, all SQLite-backed, declared with `exports`. On Paid an account
 | `Customer` | persona | synthetic profile, preferences, consent, loyalty | router; events | to the wipe | 36 h |
 | `Crm` | sandbox | consumed event log, projections, campaigns, rebuild cursor | consumer; staff | to the wipe | rebuild batches; sends; 36 h |
 | `Inbox` | sandbox | messages, simulated opens and clicks | events | to the wipe | simulated opens; 36 h |
+| `Simulator` | sandbox | the rate, the running flag, the minute ledger, its alarm | the visitor (Start and Stop traffic); its alarm | to the wipe | the next tick while running; 36 h |
 
 `Campaign` is an aggregate hosted in `Crm`, since each send reads Crm's segment projection and a sandbox holds a handful ([domain.md](domain.md#campaign)).
 
@@ -194,15 +202,15 @@ Thirteen classes, all SQLite-backed, declared with `exports`. On Paid an account
 | Class | Name |
 |---|---|
 | `Control` | `control` |
-| `Account` | `account:<hex of HMAC(ACCOUNT_HMAC_KEY, "google:" + sub or "demo:" + username)>` |
+| `Account` | `account:<hex of HMAC(ACCOUNT_HMAC_KEY, "google:" + sub, "github:" + id or "demo:" + username)>`; later `"email:" + normalized address` (Q43 · Q-email-signin) |
 | `Sandbox` | `sandbox:<ULID>`, minted by the router, carried in the signed session |
-| per-sandbox | `catalog:<sandbox>`, `kitchen:<sandbox>`, `billing:<sandbox>`, `crm:<sandbox>`, `inbox:<sandbox>` |
+| per-sandbox | `catalog:<sandbox>`, `kitchen:<sandbox>`, `billing:<sandbox>`, `crm:<sandbox>`, `inbox:<sandbox>`, `simulator:<sandbox>` |
 | per-day | `schedule:<sandbox>:<YYYY-MM-DD>`, `dispatch:<sandbox>:<YYYY-MM-DD>`, a business date bounded to birth minus 90 to plus 30 days |
 | per-aggregate | `order:<sandbox>:<ULID>`, `catering:<sandbox>:<ULID>`, `customer:<sandbox>:<ULID>` |
 
-A path's sandbox id must equal the session's, and an aggregate's ULID must be in the Sandbox's registry, before any object is addressed ([domain.md](domain.md#identifiers)).
+A path's sandbox id must equal the session's (or the API token's), and an aggregate's ULID must be in the Sandbox's registry, before any object is addressed ([domain.md](domain.md#identifiers)).
 
-**Children are born only through the Sandbox.** An object with no `meta` row refuses every command with 410 and never seeds itself. To materialize a child (a new order, a persona touched for the first time, a future day), the router registers its name with the Sandbox, which answers with the seed and clock offset, or 410 once wiped. So the wipe knows every object, and a stale cookie cannot revive a wiped sandbox.
+**Children are born only through the Sandbox.** An object with no `meta` row refuses every command with 410 and never seeds itself. To materialize a child (a new order, a persona touched for the first time, a future day, the Simulator on the first "Start traffic"), the router registers its name with the Sandbox, which answers with the seed and clock offset, or 410 once wiped. So the wipe knows every object, and a stale cookie cannot revive a wiped sandbox.
 
 ### The rules, restated for Rust
 
@@ -255,6 +263,7 @@ Every datum the bakery touches, left to right: where it lives, who changes it, w
 |---|---|---|---|---|---|---|
 | Accounts | `Account`: id, argon2 hash, current sandbox, created day | Platform | router | router | command | strong |
 | Sessions | `__Host-session` cookie, HMAC-signed, on the API host | Platform | router, after sign-in or a guest's Turnstile | router, every call | `HttpOnly; Secure; SameSite=Strict; Path=/`, 24 h; sandbox claim ends at the next wipe | self-verifying; nothing stored |
+| API tokens | nothing stored but the token version in `Sandbox`; the token itself is signed like the cookie | Platform | router, when the console shows or rotates it | router, every API call | `Authorization: Bearer`, 24 h, never past the wipe | self-verifying; the version check is strong |
 | Sandboxes | `Sandbox`: lifecycle, registry | Platform | router; alarms; the wipe | router; the wipe | command | strong |
 | Clock offset | `Sandbox`, the only writer | Platform | the visitor, "Advance time" | every child, from a copy in `meta` | command from the Sandbox, retried by alarm | within one Sandbox alarm; versioned `clock_v` |
 | Menu | `Catalog` | Storefront | staff; seed | storefront island; Order, priced at placement | HTTPS with `ETag`; the Cache API keyed by sandbox and version; `MenuPublished` | per version; an old entry is unreachable once the version moves |
@@ -268,12 +277,13 @@ Every datum the bakery touches, left to right: where it lives, who changes it, w
 | Customers | each `Customer`, materialized from the seed | CRM | router; events | Crm; checkout | events | strong in the object |
 | Projections and campaigns | `Crm` | CRM | consumer; rebuild; staff | console; Inbox | derived from Crm's copy of the log | eventual; rebuildable |
 | Inbox | `Inbox` | CRM | events | inbox screen | HTTPS | one hop |
+| Simulated traffic | `Simulator`: rate, running flag, minute ledger | Platform | the visitor; its alarm | console; `Control`, for the day's minutes | commands, as a visitor's | strong in the object |
 | Flags, ledger, IP salt | `Control` | Platform | router; cron; Joseph | router, through a 30 s in-isolate cache | command | flags apply within 30 s |
 | Logs | Workers Logs | Platform | the Worker: JSON lines; `HMAC(daily salt, IP)`, country, continent | Joseph | ingestion; invocation logs off | best effort; 7 days on Paid[^logs] |
 | Metrics | Analytics Engine | Platform | Worker and objects | Joseph; the breaker; the status page later (Q31 · Q-status) | data points | eventual |
 | Secrets | Worker secrets on `bakery-api` | Platform; Billing | Joseph, by Wrangler | the Worker | injection | one reader each ([security.md](security.md#secrets-inventory)) |
 | Deploy credential | Cloudflare | Delivery | Joseph | deploy steps in Actions | repository secret, in those steps' `env` | rotation in [operations.md](operations.md) |
-| Seed data | `crates/seed`: word lists, menu, venues, the Route Lab's places | Platform; Presentation | Joseph, by pull request | Sandbox; the web build | compiled into both builds | per version; deterministic per seed |
+| Seed data | `crates/seed`: word lists, menu, venues, the 64 Salt Lake City places and their travel-time matrix (built in PR 9) | Platform; Presentation | Joseph, by pull request | Sandbox; the web build | compiled into both builds | per version; deterministic per seed |
 
 One system of record and one writer each. Three rows look like copies and add no owner: each child's clock offset (versioned, retried until current), Crm's event log (a copy of what the Queue delivered), and Billing's view of Stripe (only what Stripe confirmed). A Worker-side cache of order state, or a Crm that wrote loyalty points, would have created second owners.
 
@@ -321,6 +331,7 @@ sequenceDiagram
 - Only `sub` is used: always present, "unique among all Google Accounts and never reused"; `email` appears only with the `email` scope.[^google] Tokens are verified locally against the discovery document's `jwks_uri`, never `tokeninfo`.
 - Whether `scope=openid` alone works is spike S2; the docs say the scope "must begin with openid and then include profile, email, or both". The fallback is `openid email` with the claim dropped before storage, the weaker design ([ADR 0006](adr/0006-sign-in-that-learns-nothing.md)).
 - The cookie is host-only on the API: the web origin never sees it and asks `GET /v1/session`. The two hostnames are one site and two origins, so `SameSite=Strict` still rides credentialed fetches; CORS allows exactly `https://bakery.ihaveasegway.com` with credentials.
+- **GitHub has the same shape** (Q23 · Q-auth): `GET /v1/auth/github/start`, a 302 to GitHub with `state` and PKCE (S256) and no scope requested, so no `user:email`; the callback exchanges the code, makes one `GET /user` with the token and discards it. Only the numeric `id` is kept, the durable one (a login can change), and the account is `HMAC(ACCOUNT_HMAC_KEY, "github:" + id)`.[^github] [security.md](security.md#github-with-the-numeric-user-id-alone) owns the details.
 - **Demo account:** after Turnstile, the router generates a username such as `baker-7f3k`, the visitor sets a password, and the `Account` stores an argon2 hash. No email, no recovery. [security.md](security.md) owns the parameters.
 
 ### Creating a sandbox
@@ -336,7 +347,7 @@ sequenceDiagram
   B->>A: POST /v1/sandboxes, Idempotency-Key, Turnstile token if guest
   A->>A: Origin, rate limit per IP hash, siteverify for guests
   A->>C: admit
-  alt under 300 today and flag live
+  alt under 300 today, under 100 if a guest, and flag live
     A->>S: create with a ULID and a seed
     S->>S: meta, wipe timer, 36 h backstop
     loop Catalog, Kitchen, Crm, Billing, Inbox, Dispatch,<br/>7 Schedule days, 8 CateringEvent, 12 Order
@@ -349,7 +360,8 @@ sequenceDiagram
   end
 ```
 
-- Turnstile, free and unlimited,[^turnstile] guards every guest sandbox and demo sign-up (Q24 · Q-guest). A signed-in account may create 3 sandboxes a day (assumed until Q24 is answered).
+- Turnstile, free and unlimited,[^turnstile] guards every guest sandbox and demo sign-up (Q24 · Q-guest). A signed-in account may create 3 sandboxes a day.
+- **Guest scope** (Q45 · Q-guest-scope): a guest sandbox can browse, order and pay with a test card. Sign-in unlocks the console's writes (menu edits, campaigns, publishing a route), the API token, simulated traffic, and a sandbox that follows the account across devices. Guests are capped at 100 of the 300 sandboxes a day in `Control`, so bots creating sandboxes hit a wall before the paid-for meters do.
 - `Control` costs one exact DO request, so it runs after the free checks: admission in layers. Its cap of 300 sandboxes a day bounds a bot ([cost.md](cost.md)).
 - About 2,000 rows in about 2 s. Closed history goes into Crm's log and Billing's daily summaries; only open orders and the 8 catering jobs become live objects ([domain.md](domain.md#the-seed)). Personas and later days materialize on first touch.
 
@@ -499,10 +511,53 @@ sequenceDiagram
   Note over K: Due timers fire on the next alarm,<br/>in business-time order
 ```
 
-- Business time is wall time plus the offset (Q12 · Q-clock). It only grows, by 15 minutes, 1 hour, 1 day or "next opening", at most 14 days in total (assumed until Q12 is answered).
+- Business time is wall time plus the offset (Q12 · Q-clock). It only grows, by 15 minutes, 1 hour, 1 day or "next opening", at most 14 days in total.
 - **Moves:** expiries, slot dates, the bake list's day, catering lead times and reminders, invoice due dates, campaign schedules, simulated opens, the `at` of new events.
 - **Does not move:** platform alarms (re-armed on wall time), the wipe, the 36 h backstop, cookies, Turnstile tokens, Stripe's timestamps and webhook tolerance, `Control`'s UTC ledger, `recorded_at`, logs.
 - A child that missed the update keeps an old `clock_v` in the registry, and the Sandbox's alarm retries it. A command may re-arm an earlier wall time; the loop guard counts alarm-driven re-arms only.
+
+## Simulated traffic, the tour and the API for visitors
+
+Three features turn a reader into an operator (Q40 · Q-traffic, Q41 · Q-tour, Q42 · Q-api-access): load the visitor can start and stop, a guide that names what they see, and the same commands from their own terminal. All three come with sign-in (Q45 · Q-guest-scope), and all three end at the wipe. The simulator arrives with the kitchen board in PR 4; the tour and the visitor API in PR 10, after dispatch ([roadmap.md](roadmap.md)).
+
+### Simulated traffic
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant B as Console
+  participant SI as Simulator DO
+  participant C as Control DO
+  participant K as Kitchen DO
+  participant O as Schedule, Order, Billing
+  B->>SI: StartTraffic with a rate preset, via the router
+  SI->>C: reserve today's minutes, at most 30
+  C-->>SI: minutes granted
+  loop each wall-time minute while running
+    SI->>K: alarm: is a console socket open?
+    SI->>O: up to 6 orders as synthetic customers,<br/>cause sim and a ULID, the command path a visitor's takes
+    O-->>K: events by the Queue, board updated
+    K-->>B: evt on the kitchen socket
+  end
+  SI->>C: settle unused minutes, TrafficStopped
+```
+
+- **One object per sandbox,** `simulator:<sandbox>`, registered with the Sandbox on the first "Start traffic" like any other child. It holds the rate, the running flag, the minute ledger and its alarm. It starts stopped.
+- **Alarm-driven.** Each run is a `Tick`: it draws the minute's commands from the seed's PRNG and the business clock (orders at the preset rate, now and then a catering inquiry or a pickup), issues them, records the minute and re-arms one wall-time minute later. Thirty ticks a day sit far under the loop guard's 100 re-arms.
+- **Ordinary commands, the same path.** A synthetic customer is one of the 60 personas. Each command passes the checks the router applies after admission (validation, an idempotency key of `sim:<ulid>`, the object names, the free-text rules) and goes to the same objects; every event it causes carries `cause: sim:<ulid>`, so the activity screen and the tour can tell the visitor's actions from the simulator's. Simulated orders pay with Stripe's test payment method, confirmed by the API, so the webhook path runs as for the visitor's own order.[^testing]
+- **Bounded.** It runs only while the console is open: each `Tick` asks the Kitchen whether a console socket is open, a console without a socket sends a heartbeat `POST` every 30 s instead, and with neither for 90 s the `Tick` stops with reason `console_closed`. At most 6 orders a minute and 30 minutes a sandbox a UTC day, reserved in `Control`'s ledger and charged to its daily budgets, so the designed worst month does not move ([cost.md](cost.md#guardrails)). The wipe stops it with everything else.
+
+### The tour
+
+- **A client-side island on every screen,** shipped by `bakery-web` with no third-party script, so it adds nothing to the CSP and costs $0 to serve.
+- **One step per screen element.** Each step names what is shown; lists the events the visitor's last action produced, with their `cause`, from the activity feed the screen already holds; names the principle, with its lab page and ADR; and offers a copyable API request for the same action, filled with the visitor's own token when copied and masked on screen.
+- **The "How this works" drawer is one of its steps.** Steps are data in `apps/web/`, checked at build against `crates/contracts`, so a request in a step cannot drift from the API.
+
+### The API token
+
+- **One per sandbox, shown and rotated in the console.** A bearer token signed like the session cookie, with `SESSION_HMAC_KEY` and the same claims (account, sandbox, a token id, issue and expiry times, key id) plus the Sandbox's token version. It travels in `Authorization: Bearer`, lasts 24 h and dies with the sandbox. "Rotate" bumps the version in the Sandbox, which the router checks with the registry lookup it already makes, so the old token stops at once.
+- **Rate-limited per token** with the Rate Limiting binding. A request with a token and no cookie needs no CORS and no `Origin`: `curl` sends neither, and a browser never attaches a bearer token on its own. [security.md](security.md#the-api-token) owns the rules.
+- **Every console action has an API equivalent.** An OpenAPI document generated at build from `crates/contracts` (its `schemars` types and the route table) is served as a static page at `/docs/api/` on the storefront, $0 like every page. ADR 0013, the API and socket contract v1, is written in PR 10.
 
 ## Bulkheads and failure modes
 
@@ -510,18 +565,18 @@ Five walls:
 
 1. **Site and bakery are separate Workers and hostnames.** A bakery outage leaves ihaveasegway.com serving.
 2. **Web and API are separate Workers.** Public pages keep serving while the API is down, read-only or detached.
-3. **One sandbox cannot touch another.** Names come from the session, every child checks its sandbox id, and nothing crosses sandboxes.
+3. **One sandbox cannot touch another.** Names come from the session or the API token, every child checks its sandbox id, and nothing crosses sandboxes.
 4. **The zone works without the pipeline.** The kill rule changes in seconds from the dashboard.
 5. **The pipeline is not in the request path.**
 
-Two shared resources: the account's bill on Paid, which has no spend cap,[^pricing] guarded by alerts at $10, $25 and $50, `limits.cpu_ms`, the rate-limiting rule, the 15-minute breaker and `Control`'s caps ([ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md), Q27 · Q-plan, Q28 · Q-budget); and the zone, with one writer, Joseph.
+Two shared resources: the account's bill on Paid, which has no spend cap,[^pricing] so its ceiling of $100 a month is held by alerts at $10, $25, $50 and $100, `limits.cpu_ms`, the rate-limiting rule, the 15-minute breaker and `Control`'s caps ([ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md), Q27 · Q-plan, Q28 · Q-budget); and the zone, with one writer, Joseph.
 
 ### Failure table
 
 | Failure | Blast radius | What visitors see | Detection | Recovery |
 |---|---|---|---|---|
 | Stripe sandbox down | payments in every sandbox | checkout says payments are unavailable; orders expire at 15 min | Billing errors in Analytics Engine | none; expiry releases slots, late webhooks dedupe |
-| Google down | new Google sign-ins | an error; guests and demo accounts work | sign-in failures by reason | wait; sessions last 24 h |
+| Google or GitHub down | new sign-ins with that provider | an error; the other provider, guests and demo accounts work | sign-in failures by reason | wait; sessions last 24 h |
 | Queue backlog | reactions everywhere | writes succeed; board and timelines lag, the drawer shows it | backlog; oldest outbox row | catches up; retention 4 days[^queues] |
 | A consumer poisoning | one event, one subscriber | a missing row; a dead letter on the Queue screen | DLQ consumer logs | fix forward, redrive, or the wipe |
 | An alarm loop | one object | a stuck timer | `alarm_guard`; rows written per object | the guard at 100 a day; the wipe |
@@ -530,10 +585,12 @@ Two shared resources: the account's bill on Paid, which has no spend cap,[^prici
 | DO class lifecycle change | API rollback, which cannot cross it[^rollback] | nothing, if shipped alone | CI refuses a class change bundled with others | expand, migrate, contract; nightly wipes make data migrations nearly free |
 | Wipe fails halfway | one sandbox | 410 and an offer of a new sandbox | registry; the morning check | its alarm resumes; the 15-minute cron retries; backstops finish |
 | Leaked deploy token | both Workers' code | possibly a hostile storefront or API | audit log; a deploy no run explains | revoke, reissue, redeploy `main` ([operations.md](operations.md)) |
+| Leaked API token | one sandbox, synthetic only | commands the visitor did not send | per-token rate-limit denials; the activity screen | "Rotate" in the console; the wipe at the latest |
+| Simulator over its share | one sandbox's minutes, then the day's budget | traffic stops; "today's traffic is used up" | `Control`'s ledger | none needed: 6 a minute, 30 minutes a day, console open only |
 | Leaked Stripe sandbox key | the Stripe sandbox, synthetic only | odd test payments | Stripe dashboard; the Worker refuses non-sandbox keys | roll the key, update the secret |
 | Cloudflare outage | everything, the site too | down | Cloudflare status; the site's monitor | wait; accepted concentration |
 | GitHub outage | builds, deploys, the morning check | nothing | GitHub status | wait |
-| Q27 answered Free | every sandbox | creation refused once `Control`'s share is spent | `Control`'s ledger | rows written bind first, 100,000 a day,[^dopricing] at about 20 sandboxes a day ([cost.md](cost.md)); 10 ms CPU and 50 subrequests[^limits] push argon2 and Clarke–Wright to the browser; no Email Service sends |
+| A fall back to Free (Q27 · Q-plan chose Paid) | every sandbox | creation refused once `Control`'s share is spent | `Control`'s ledger | rows written bind first, 100,000 a day,[^dopricing] at about 20 sandboxes a day ([cost.md](cost.md)); 10 ms CPU and 50 subrequests[^limits] push argon2 and Clarke–Wright to the browser; no Email Service sends |
 
 **Kill switch**, the site's levels adapted: L0 `Control`'s breaker, L1 flags, L2 redeploy, L3 the prebuilt WAF rule, L4 detach the API's Custom Domain, the switch the own hostname buys (Q8 · Q-api-host). [operations.md](operations.md) owns the runbook.
 
@@ -600,6 +657,7 @@ Two shared resources: the account's bill on Paid, which has no spend cap,[^prici
 [^rollback]: Not across a DO class lifecycle change: [Rollbacks](https://developers.cloudflare.com/workers/configuration/versions-and-deployments/rollbacks/). As of 2026-11-04.
 [^workersrs]: `worker` 0.8.7: `DurableObject` with `fetch`, `alarm`, `websocket_*`; `State::accept_web_socket`; `Storage::sql`, `set_alarm`, `delete_all`, `transaction`; `queue` entrypoint in beta; D1 alpha; Workflows and DO RPC not bound; no Tokio: [workers-rs](https://github.com/cloudflare/workers-rs), [docs.rs](https://docs.rs/worker/latest/worker/). As of 2026-11-04.
 [^google]: [Google OpenID Connect](https://developers.google.com/identity/openid-connect/openid-connect). As of 2026-11-04.
+[^github]: `scope` defaults to empty, `state` and PKCE with `S256` only, codes expire after 10 minutes: [Authorizing OAuth apps](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps); a token without scopes still authenticates as its owner, and the user id is durable where the login can change: [REST API, users](https://docs.github.com/en/rest/users/users). As of 2026-11-04.
 [^paymentelement]: [Payment Element](https://docs.stripe.com/js/elements_object/create_payment_element); Stripe recommends Checkout Sessions with it, and either API works in a sandbox ([Payment Element guide](https://docs.stripe.com/payments/payment-element)). As of 2026-11-04.
-[^testing]: [Stripe sandboxes](https://docs.stripe.com/sandboxes): isolated, free, not processed by card networks; [test cards](https://docs.stripe.com/testing). As of 2026-11-04.
+[^testing]: [Stripe sandboxes](https://docs.stripe.com/sandboxes): isolated, free, not processed by card networks; [test cards and test payment methods](https://docs.stripe.com/testing). As of 2026-11-04.
 [^webhooks]: [Verify signatures manually](https://docs.stripe.com/webhooks#verify-manually). As of 2026-11-04.

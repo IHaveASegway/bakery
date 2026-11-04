@@ -1,18 +1,18 @@
 # bakery docs
 
-This folder is the plan and the decision record for the bakery, a made-up bakery run as a real business system: ordering, pickup and delivery scheduling, catering, billing through Stripe's sandbox, and a CRM with campaigns. Every backend is Rust on Cloudflare Workers, and state lives in SQLite-backed Durable Objects (DOs). The docs say what the demo is for, how it is built, shipped, secured, paid for and run, and why each choice beat its alternatives. They are also a study guide: every decision names its pattern, the quality attributes it trades, whether it is a one-way or a two-way door, and a source to read next.
+This folder is the plan and the decision record for Proof of Concept Bakery, a made-up bakery run as a real business system: ordering, pickup and delivery scheduling, catering, billing through Stripe's sandbox, and a CRM with campaigns. Every backend is Rust on Cloudflare Workers, and state lives in SQLite-backed Durable Objects (DOs). The docs say what the demo is for, how it is built, shipped, secured, paid for and run, and why each choice beat its alternatives. They are also a study guide: every decision names its pattern, the quality attributes it trades, whether it is a one-way or a two-way door, and a source to read next.
 
 Status: Draft for review in PR 1 · 2026-11-04
 
-PR 1 writes these docs before any code. An Accepted ADR is a commitment and a Proposed one is still open to argument, and the [ADR index](adr/README.md) is the one place that says which is which. At the time of writing every ADR is Proposed. Everything else here changes by pull request, in the doc that owns the topic.
+PR 1 wrote these docs before any code, and Joseph answered the blocking questions on 2026-11-04; the docs below carry his answers. An Accepted ADR is a commitment and a Proposed one is still open to argument, and the [ADR index](adr/README.md) is the one place that says which is which. At the time of writing every ADR is Proposed. Everything else here changes by pull request, in the doc that owns the topic.
 
 ## Start here in 10 minutes
 
-1. [product.md](product.md): read **Why** and **Open decisions** (5 minutes). The questions marked blocking stop PR 2 or PR 3 until Joseph answers them.
+1. [product.md](product.md): read **Why** and **Open decisions** (5 minutes). The blocking questions were answered on 2026-11-04, and the rest proceed on their recommendations until Joseph moves them.
 2. [architecture.md](architecture.md): the diagrams only (2 minutes).
 3. [roadmap.md](roadmap.md): the phases, what each PR ships, and what blocks it (3 minutes).
 
-Then answer the open decisions in the PR review, with the question number and the option letter. Anything the firewall touches goes in the private record instead ([product.md](product.md#content-firewall)), because reviews and comments are public from the repository's first push. Every other doc can wait until the PR it serves comes up.
+Then change any answer in the PR review, with the question number and the option letter. Anything the firewall touches goes in the private record instead ([product.md](product.md#content-firewall)), because reviews and comments are public from the repository's first push. Every other doc can wait until the PR it serves comes up.
 
 ## Reading order
 
@@ -24,7 +24,7 @@ Purpose first, then the language of the business, then the shape, then the parts
 
 | # | File | What it answers |
 |---|---|---|
-| 1 | [product.md](product.md) | Why build it, for whom, and what is still undecided? Principles, the content firewall policy, open decisions Q1–Q39, what is decided, non-goals, how we will know it works |
+| 1 | [product.md](product.md) | Why build it, for whom, and what is still undecided? Principles, the content firewall policy, open decisions Q1–Q45, what is decided, non-goals, how we will know it works |
 | 2 | [domain.md](domain.md) | What does the business mean by its words? The ubiquitous language, aggregates, commands, the event catalog, state machines, invariants, the seed, and which lab principle runs where |
 | 3 | [architecture.md](architecture.md) | What is the shape? Context and container diagrams, bounded contexts, DO topology, who owns each piece of data, request flows, bulkheads and failure modes, weaker designs |
 | 4 | [stack.md](stack.md) | Which technologies, pinned how, and why? What each owns, what came second, what was rejected, the upgrade policy |
@@ -32,7 +32,7 @@ Purpose first, then the language of the business, then the shape, then the parts
 | 6 | [cost.md](cost.md) | What does it cost, and what keeps it there? Price sheet, formulas, the per-sandbox meter, scenarios, the plan decision, guardrails, denial of wallet |
 | 7 | [delivery.md](delivery.md) | How does a change reach production? Repository layout, toolchain pins, the pipeline, environments, deploy and rollback for each Worker, quality gates, dependency policy |
 | 8 | [operations.md](operations.md) | How is it run alone? Access setup, observability, alerting, runbooks (deploy, rollback, wipe, kill switch, secret rotation, leak response), the maintenance calendar |
-| 9 | [roadmap.md](roadmap.md) | In what order? How we work, the definition of done, phases and pull requests with scope and estimates, spikes S1–S6, decision gates, risks, what is explicitly later |
+| 9 | [roadmap.md](roadmap.md) | In what order? How we work, the definition of done, pull requests 1 to 13 with scope and estimates, spikes S1 to S7, decision gates, risks, what is explicitly later |
 | 10 | [adr/README.md](adr/README.md) | Which decisions are hard to reverse? The ADR format, the template, and the index of every ADR with its status |
 
 This table lists docs, not ADRs. The ADR index is the one owner of ADR titles and statuses. Copying it here would give the same facts two owners, the drift this plan avoids everywhere else.
@@ -66,7 +66,7 @@ The ADR lifecycle (proposing, accepting, superseding) is itself a decision, [ADR
 - Site URLs are written as code, such as `/menu/`, never as links. Links between docs are relative. Links to the site's own docs are GitHub URLs, such as `https://github.com/IHaveASegway/website/blob/main/docs/stack.md`.
 - ISO dates, US English. "Durable Object (DO)" is spelled out on first use in each doc, then "DO".
 - Each doc ends with "Patterns and further reading", one canonical source per pattern.
-- The bakery has no name yet (Q2 · Q-name). Docs say "the bakery" and "the made-up bakery", and the Workers are `bakery-web` and `bakery-api`.
+- The bakery is named Proof of Concept Bakery (Q2 · Q-name), chosen on 2026-11-04 by Claude at Joseph's request and checked against web search that day. The business-registry and trademark check runs before anything publishes. Docs say "the made-up bakery" on first mention, then "Proof of Concept" or "the bakery", and the Workers stay `bakery-web` and `bakery-api`.
 - Write as if public, because it is. The repository is public from its first push, and the content firewall applies to docs, commit messages and PR text as much as to code. Its term list never appears here, and no doc names a real person, business or address.
 
 ## Relationship to the site's docs

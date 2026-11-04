@@ -1,6 +1,6 @@
 # Architecture decision records
 
-One file per decision that is hard to reverse, or that a reviewer would ask about. The made-up bakery is a running ordering, scheduling, catering, billing and CRM system, with every backend in Rust on Cloudflare Workers and its state in a Durable Object (DO) per aggregate; these records say why it is built that way. Format after Michael Nygard, "Documenting Architecture Decisions" (2011), plus two fields: **Door** (one-way or two-way, and why) and **Revisit if** (the evidence that would show the decision was wrong). This repository is public from its first push, so every record is written to be public-safe, and sensitive inputs (such as the content firewall's terms) never appear in one.
+One file per decision that is hard to reverse, or that a reviewer would ask about. The made-up bakery, Proof of Concept Bakery, is a running ordering, scheduling, catering, billing and CRM system, with every backend in Rust on Cloudflare Workers and its state in a Durable Object (DO) per aggregate; these records say why it is built that way. Format after Michael Nygard, "Documenting Architecture Decisions" (2011), plus two fields: **Door** (one-way or two-way, and why) and **Revisit if** (the evidence that would show the decision was wrong). This repository is public from its first push, so every record is written to be public-safe, and sensitive inputs (such as the content firewall's terms) never appear in one.
 
 Status: Draft for review in PR 1 · 2026-11-04
 
@@ -11,15 +11,15 @@ Status: Draft for review in PR 1 · 2026-11-04
 | [0003](0003-durable-objects-as-the-system-of-record.md) | SQLite-backed Durable Objects as the system of record: one object per aggregate, an event log and a transactional outbox | Proposed |
 | [0004](0004-queues-between-objects-and-alarms-for-time.md) | Cloudflare Queues between objects, idempotent consumers, and alarms for everything timed | Proposed |
 | [0005](0005-a-private-sandbox-per-visitor-wiped-nightly.md) | A private, seeded sandbox per visitor, wiped every night, holding no personal data by construction | Proposed |
-| [0006](0006-sign-in-that-learns-nothing.md) | Sign-in that learns nothing: Google OpenID Connect with the openid scope alone, and demo accounts without email | Proposed |
+| [0006](0006-sign-in-that-learns-nothing.md) | Sign-in that learns nothing: Google with the openid scope alone, GitHub with its numeric id alone, and demo accounts without email | Proposed |
 | [0007](0007-stripe-sandbox-and-a-payment-element-that-collects-nothing.md) | Stripe's sandbox for payments and billing, through a Payment Element that collects no billing details | Proposed |
 | [0008](0008-astro-site-with-react-islands-on-an-assets-only-worker.md) | The storefront is an Astro site with React islands on an assets-only Worker at bakery.ihaveasegway.com | Proposed |
 | [0009](0009-the-api-on-its-own-hostname.md) | The API on its own hostname, api.bakery.ihaveasegway.com, behind CORS and a host-only cookie | Proposed |
-| [0010](0010-workers-paid-with-the-sites-guardrails.md) | Workers Paid for the account, with the site's guardrails from day one | Proposed |
+| [0010](0010-workers-paid-with-the-sites-guardrails.md) | Workers Paid for the account, with the site's guardrails from launch day | Proposed |
 | [0011](0011-github-actions-owns-deploys-for-both-workers.md) | GitHub Actions owns build, gates and deploys, for both Workers | Proposed |
 | [0012](0012-delivery-dispatch.md) | Delivery dispatch: VROOM in the browser to plan, a savings heuristic in Rust to propose, the object to decide | Proposed |
 
-0013 is reserved for the API and socket contract v1, written when the first client ships. Until then the contract is described in [architecture.md](../architecture.md) and may change without a record.
+0013 is reserved for the API and socket contract v1, written in PR 10 (the tour and the visitor API). Until then the contract is described in [architecture.md](../architecture.md) and may change without a record.
 
 Open decisions that have not reached an ADR yet are the numbered questions in [product.md](../product.md), cited across these records by number and short name (for example Q23 · Q-auth). Several records here state an assumption that holds until a question is answered, and say which.
 

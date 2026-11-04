@@ -20,7 +20,7 @@ Platform facts, as of 2026-11-04:
 - Workflows ([pricing](https://developers.cloudflare.com/workflows/reference/pricing/)) are JavaScript and TypeScript only, so no Rust code can define one.
 - Toolchain pins, with sources in [stack.md](../stack.md): Rust stable 1.97 in `rust-toolchain.toml` ([releases](https://github.com/rust-lang/rust/releases)); `worker` 0.8.7 and `worker-build` ([crates.io](https://crates.io/crates/worker)); `wasm-bindgen` at the version `worker` pins.
 
-What nobody has measured for this code: the size of the WebAssembly once `serde`, `argon2`, an RS256 check and thirteen DO classes are linked in; the startup time that size costs; and the CPU time of a SQLite write through wasm-bindgen.
+What nobody has measured for this code: the size of the WebAssembly once `serde`, `argon2`, an RS256 check and fourteen DO classes are linked in; the startup time that size costs; and the CPU time of a SQLite write through wasm-bindgen.
 
 ## Decision
 

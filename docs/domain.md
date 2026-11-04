@@ -8,11 +8,11 @@ Prices, limits and versions are as of 2026-11-04, with sources. Every menu price
 
 ## The story
 
-The bakery has no name yet (Q2 · Q-name); these docs call it "the bakery". It is a made-up neighborhood bakery in Seattle, on the Route Lab's map and among its places (Q3 · Q-city). Its kitchen starts before dawn and its counter opens at 07:00, Tuesday to Sunday. It sells breads, pastries, cakes, savory bakes and drinks, for pickup in 15-minute slots or delivery in 2-hour windows. On weekdays it delivers a handful of orders with one van; on Saturdays it runs four vans and 63 stops, the Route Lab's busiest day. It caters breakfasts, pastry tables, lunches and celebrations at six made-up venues, at most two events a day, booked at least a week ahead. Its 60 regular customers have made-up names, preferences, consent flags and loyalty points.
+The made-up bakery is Proof of Concept Bakery, "Proof of Concept" for short (Q2 · Q-name). It is a neighborhood bakery in Salt Lake City, the made-up bakery's city, Joseph's choice of 2026-11-04 (Q3 · Q-city), on a map and among 64 public places built for it with the site's Route Lab pipeline ([the seed](#the-seed)). Its kitchen starts before dawn and its counter opens at 07:00, Tuesday to Sunday. It sells breads, pastries, cakes, savory bakes and drinks, for pickup in 15-minute slots or delivery in 2-hour windows. On weekdays it delivers a handful of orders with one van; on Saturdays it runs four vans and 63 stops, the shape of the Route Lab's busiest day. It caters breakfasts, pastry tables, lunches and celebrations at six made-up venues, at most two events a day, booked at least a week ahead. Its 60 regular customers have made-up names, preferences, consent flags and loyalty points.
 
-Everything in it is synthetic. No customer, venue, address or card belongs to a real person or business. Delivery addresses are the Route Lab's public places, by their map label, with no street address anywhere.
+Everything in it is synthetic. No customer, venue, address or card belongs to a real person or business. Delivery addresses are 64 public places in Salt Lake City from OpenStreetMap, by their map label, with no street address anywhere.
 
-The demo has two kinds of visitor. One reads: the public pages, the "How it's built" page, and the "How this works" drawers that link each screen to its lab page and ADR. The other plays: they open a private sandbox and switch between being a customer at the storefront and being the bakery's staff in the console (Q4 · Q-personas), and they can move the sandbox's clock forward to see tomorrow (Q12 · Q-clock).
+The demo has two kinds of visitor. One reads: the public pages, the "How it's built" page, and the tour, whose steps link each screen to its lab page and ADR (Q41 · Q-tour). The other plays: they open a private sandbox and switch between being a customer at the storefront and being Proof of Concept's staff in the console (Q4 · Q-personas); they can move the sandbox's clock forward to see tomorrow (Q12 · Q-clock), start simulated traffic to watch the screens move (Q40 · Q-traffic), and do any of it again through the API with their own token (Q42 · Q-api-access).
 
 ## Ubiquitous language
 
@@ -21,7 +21,7 @@ One definition each. Code, API fields, screens and docs use these words and no s
 | Term | Definition | Context |
 |---|---|---|
 | Sandbox | One visitor's private copy of the bakery: a family of DOs born from a seed and wiped at the next 10:00 UTC | Platform |
-| Account | A visitor's identity: the HMAC of a Google `sub` or of a demo username, and nothing else | Platform |
+| Account | A visitor's identity: the HMAC of a Google `sub`, a GitHub user id or a demo username (later, of a normalized email address; Q43 · Q-email-signin), and nothing else | Platform |
 | Persona | The role a visitor plays in a sandbox: a customer (one of the 60) or staff | Platform |
 | Menu item | Something the bakery sells, with a category, allergens, a lead time and availability rules | Storefront |
 | Variant | A sellable form of a menu item with its own price, such as a single croissant or a box of six | Storefront |
@@ -33,7 +33,7 @@ One definition each. Code, API fields, screens and docs use these words and no s
 | Bake list | The production plan as the kitchen board shows it, grouped by item and start time | Ordering |
 | Catering event | A booked job: a date, a headcount, a package and a venue, with a quote, a deposit and a balance | Catering |
 | Package | A priced catering menu per head, such as the breakfast spread | Catering |
-| Venue | One of six made-up places where catering is delivered, each pinned to a Route Lab place | Catering |
+| Venue | One of six made-up places where catering is delivered, each pinned to a place | Catering |
 | Quote | The staff's priced offer for a catering event, valid for 14 business days | Catering |
 | Deposit | 25% of a quote's total, paid to confirm a catering event | Billing |
 | Balance | A quote's total minus its deposit, invoiced after delivery | Billing |
@@ -41,7 +41,7 @@ One definition each. Code, API fields, screens and docs use these words and no s
 | Payment | One Stripe PaymentIntent and its outcome, for an order, a deposit or a balance | Billing |
 | Refund | Money returned against a payment, full or partial, never more than was paid | Billing |
 | Route | One van's ordered stops for a business day | Fulfillment |
-| Stop | One delivery: an order and a Route Lab place | Fulfillment |
+| Stop | One delivery: an order and a place | Fulfillment |
 | Customer | A synthetic persona with a profile, preferences, consent flags and a loyalty balance | CRM |
 | Timeline | One customer's events in business-time order, as a projection | CRM |
 | Segment | A rule over the customer projection, such as "ordered a cake in the last 30 days" | CRM |
@@ -52,6 +52,10 @@ One definition each. Code, API fields, screens and docs use these words and no s
 | Business time | The sandbox's clock: wall time plus the sandbox's offset, which only grows | Platform |
 | Wall time | The real time, UTC, which platform alarms, the wipe and the logs use | Platform |
 | Seed | The 64-bit number from which `crates/seed` generates a sandbox's entire starting state | Platform |
+| Place | One of 64 public places in Salt Lake City from OpenStreetMap, named by index and map label, with no coordinates or street address | Fulfillment |
+| Simulated customer | A persona whose commands the `Simulator` issues on its alarm while traffic runs; its events carry `cause: sim:<ulid>` | Platform |
+| Tour | The guided walkthrough on every screen: what is shown, the events the last action produced, the principle with its lab page and ADR, and the same action as an API request | Presentation |
+| API token | A per-sandbox bearer token, signed like the session cookie, that lets the visitor send the console's commands from `curl` or a script; 24 h, and never past the wipe | Platform |
 
 ## Aggregates and their objects
 
@@ -169,7 +173,7 @@ stateDiagram-v2
 
 Hosted by `Sandbox` (`sandbox:<ULID>`). It protects the sandbox's lifecycle, its registry of children, its seed and its business clock.
 
-Commands: `CreateSandbox` (Turnstile for guests; admitted by `Control`), `RegisterChild`, `AdvanceClock` (15 minutes, 1 hour, 1 day, or next opening), `SetFault`, `RedriveDeadLetter`, `WipeNow`, `Wipe` (from `Control` at 10:00 UTC, the Sandbox's own timer, or the 36 h backstop). Events: `SandboxSeeded`, `ClockAdvanced`, `FaultSet`, `SandboxWiped`. Invariants: the offset only grows and stays within 14 days (assumed until Q12 · Q-clock is answered); a child exists only once registered; once wiping, every command is refused with 410; a sandbox never outlives the next 10:00 UTC (Q25 · Q-ttl).
+Commands: `CreateSandbox` (Turnstile for guests; admitted by `Control`), `RegisterChild`, `AdvanceClock` (15 minutes, 1 hour, 1 day, or next opening), `RotateApiToken` (signed-in visitors), `SetFault`, `RedriveDeadLetter`, `WipeNow`, `Wipe` (from `Control` at 10:00 UTC, the Sandbox's own timer, or the 36 h backstop). Events: `SandboxSeeded`, `ClockAdvanced`, `ApiTokenRotated`, `FaultSet`, `SandboxWiped`. Invariants: the offset only grows and stays within 14 days (Q12 · Q-clock); the token version only grows, and a token naming an older one is refused; a child exists only once registered; once wiping, every command is refused with 410; a sandbox never outlives the next 10:00 UTC (Q25 · Q-ttl).
 
 ```mermaid
 stateDiagram-v2
@@ -217,6 +221,18 @@ stateDiagram-v2
   fulfilled --> [*]
 ```
 
+### Simulator
+
+Hosted by `Simulator`, one object per sandbox (`simulator:<sandbox>`), registered with the Sandbox on the first "Start traffic" (Q40 · Q-traffic). It protects the rate, the running flag and the minute ledger; the orders it causes belong to their own aggregates ([architecture.md](architecture.md#simulated-traffic)).
+
+| Command | From | Emits | Rejected when |
+|---|---|---|---|
+| `StartTraffic(rate)` | a signed-in visitor, from the console; a rate preset in orders a minute | `TrafficStarted` | a guest sandbox; a rate above 6; already running; no minutes left today in `Control`'s ledger |
+| `StopTraffic` | the visitor; a `Tick` that finds the console closed or the minutes spent; the wipe | `TrafficStopped` | not running |
+| `Tick` | its alarm, once a wall-time minute while running | the commands of the minute's synthetic customers, each to its own aggregate | not running |
+
+Invariants: at most 6 orders a minute; at most 30 minutes of traffic a sandbox a UTC day, reserved in `Control`'s ledger when it starts and settled when it stops; it runs only while the console's socket or heartbeat was seen in the last 90 s; every command it issues carries an idempotency key and a `cause` of `sim:<ulid>`; the wipe stops it.
+
 The other aggregates are small enough to need no diagram: `Customer` (preferences, consent, loyalty: earn-only for now, redemption later), `Billing`'s payments (requires payment, succeeded, failed, canceled, refunded), `Dispatch`'s plan (proposed, published, superseded by a later publish) and `Inbox`'s messages (delivered, opened, clicked).
 
 ## The event catalog
@@ -228,6 +244,7 @@ Every event, past tense, by producer. Types: `id` is a ULID string, `cents` an `
 | `SandboxSeeded` | Sandbox | `seed: u64, born: date, rows: u32` | Crm | marks the history start for timelines |
 | `ClockAdvanced` | Sandbox | `from: time, to: time, clock_v: u32` | Crm | logs the jump on the activity screen (children get the offset by command) |
 | `FaultSet` | Sandbox | `fault: string, on: bool` | Crm | logs it |
+| `ApiTokenRotated` | Sandbox | `token_v: u32` | Crm | logs it; the token itself is never in an event |
 | `SandboxWiped` | Sandbox | `objects: u16, rows_deleted: u32` | Control | adds to the daily ledger |
 | `MenuItemChanged` | Catalog | `item: string, fields: object` | Crm | logs it |
 | `MenuPublished` | Catalog | `version: u32, items: u16` | Schedule (today on) | refreshes daily caps from the version |
@@ -274,6 +291,8 @@ Every event, past tense, by producer. Types: `id` is a ULID string, `cents` an `
 | `ProjectionRebuildFinished` | Crm | `events: u32, ms: u32` | none | the rebuild's result on screen |
 | `MessageDelivered` | Inbox | `message: id, to: customer id, kind: string, ref: id` | Crm | timeline |
 | `MessageOpened`, `MessageClicked` | Inbox | `message: id, campaign: id?` | Crm | campaign stats |
+| `TrafficStarted` | Simulator | `rate: u8, minutes_left: u16` | Crm | logs it on the activity screen |
+| `TrafficStopped` | Simulator | `reason: stop, console_closed, minutes_spent or wipe; minutes: u16, orders: u16` | Crm | logs the run's totals |
 
 The order note and the catering brief ride in their events but are stored only by the Kitchen (the note) and by staff screens reading the aggregate (the brief). The consumer strips both before delivering to any other subscriber ([free text](#free-text-and-personal-data)).
 
@@ -289,7 +308,7 @@ Every event has one shape, in each object's `events` and `outbox` tables and on 
   "stream": "order:01JC8Z5R0T2B6Y8C4V1N3K7QXE",
   "seq": 2,
   "type": "OrderPaid",
-  "at": "2026-11-07T11:12:10-08:00",
+  "at": "2026-11-07T12:12:10-07:00",
   "recorded_at": "2026-11-04T19:12:10.318Z",
   "data": { "payment": "01JC8Z6F1A5H3D7K9M2P4R6T8V", "amount_cents": 1870 },
   "cause": "01JC8Z6F0WQ3E5R7T9Y1V3K5P7"
@@ -299,7 +318,7 @@ Every event has one shape, in each object's `events` and `outbox` tables and on 
 - `id` is the event's ULID and the key of every `seen` table.
 - `stream` is the producing object's name; `seq` is gap-free within it.
 - `at` is business time, three days ahead here because the visitor advanced the clock; `recorded_at` is wall time.
-- `cause` is the command id, or for a reaction the id of the event that caused it, so a chain can be traced.
+- `cause` is the command id, or for a reaction the id of the event that caused it, so a chain can be traced; a command the `Simulator` issued is `sim:<ulid>`.
 - An envelope must stay under the 2 MB row limit;[^dolimits] the largest, a `RoutePublished` for 63 stops, is under 4 KB.
 
 ## Money and time
@@ -308,22 +327,22 @@ Every event has one shape, in each object's `events` and `outbox` tables and on 
 
 **Business time and wall time.** Business time is wall time plus the sandbox's offset, held by the Sandbox and copied to each child ([architecture.md](architecture.md#time-travel)). Every domain rule reads business time through the `Clock` port in `crates/app`: lead times, expiries, slots, reminders, quotes, campaigns. Platform alarms, the wipe, cookies, Stripe's timestamps and logs use wall time.
 
-**The bakery day** is a calendar date in America/Los_Angeles. The bakery opens 07:00 to 15:00, Tuesday to Sunday; pickup slots run on the quarter hour; delivery windows are 09:00, 11:00 and 13:00 for each of three zones; tomorrow's production plan locks at 18:00 the day before. The nightly wipe at 10:00 UTC is 02:00 Pacific in winter and 03:00 in summer, a wall-time fact the bakery day never sees.
+**The bakery day** is a calendar date in America/Denver, Salt Lake City's time zone. The bakery opens 07:00 to 15:00, Tuesday to Sunday; pickup slots run on the quarter hour; delivery windows are 09:00, 11:00 and 13:00 for each of three zones; tomorrow's production plan locks at 18:00 the day before. The nightly wipe at 10:00 UTC is 03:00 Mountain standard time, 04:00 in summer, a wall-time fact the bakery day never sees.
 
-**On the wire** every time is an ISO 8601 string: business times with the bakery's UTC offset (`2026-11-07T09:42:10-08:00`), wall times in UTC with `Z`, dates as `YYYY-MM-DD`. Durations are integer seconds or minutes, named for their unit (`hold_s`, `minutes`).
+**On the wire** every time is an ISO 8601 string: business times with the bakery's Mountain offset, `-07:00` in standard time and `-06:00` in summer (`2026-11-07T09:42:10-07:00`), wall times in UTC with `Z`, dates as `YYYY-MM-DD`. Durations are integer seconds or minutes, named for their unit (`hold_s`, `minutes`).
 
 ## Identifiers
 
-Aggregates, events and commands use ULIDs: 128 bits, 26 characters of Crockford base32, sortable by creation time.[^ulid] Menu items and variants use stable slugs from the seed (`croissant`, `croissant/box-6`), venues `v1` to `v6`, and Route Lab places their index, such as `p17`.
+Aggregates, events and commands use ULIDs: 128 bits, 26 characters of Crockford base32, sortable by creation time.[^ulid] Menu items and variants use stable slugs from the seed (`croissant`, `croissant/box-6`), venues `v1` to `v6`, and the 64 places their index, such as `p17`.
 
 Object names are derived by the server only ([architecture.md](architecture.md#object-naming)):
 
 | Object | Name |
 |---|---|
 | Control | `control` |
-| Account | `account:<HMAC of the sub or the demo username, hex>` |
+| Account | `account:<HMAC of "google:" + sub, "github:" + id or "demo:" + username, hex>` |
 | Sandbox | `sandbox:<id>` |
-| Catalog, Kitchen, Billing, Crm, Inbox | `catalog:<sandbox>`, `kitchen:<sandbox>`, `billing:<sandbox>`, `crm:<sandbox>`, `inbox:<sandbox>` |
+| Catalog, Kitchen, Billing, Crm, Inbox, Simulator | `catalog:<sandbox>`, `kitchen:<sandbox>`, `billing:<sandbox>`, `crm:<sandbox>`, `inbox:<sandbox>`, `simulator:<sandbox>` |
 | Order, CateringEvent, Customer | `order:<sandbox>:<ulid>`, `catering:<sandbox>:<ulid>`, `customer:<sandbox>:<ulid>` |
 | Schedule, Dispatch | `schedule:<sandbox>:<date>`, `dispatch:<sandbox>:<date>` |
 
@@ -360,13 +379,15 @@ All of them live and die with the sandbox, so none needs pruning. A command and 
 
 48 variants. Allergens use the nine major US food allergens. Each item has a daily cap and the days it is baked. No photos: each item is a technical drawing (Q7 · Q-images).
 
-**Customers: 60 synthetic personas.** Names are generated from two word lists in `crates/seed` (given-name-like words such as plants and weather, family-name-like words such as landforms and crafts), never from any list of real people, and checked for duplicates. Each persona gets preferences, a marketing consent flag (about 70% true), a home zone and a Route Lab place as a delivery address. The visitor's customer persona is one of them.
+**Customers: 60 synthetic personas.** Names are generated from two word lists in `crates/seed` (given-name-like words such as plants and weather, family-name-like words such as landforms and crafts), never from any list of real people, and checked for duplicates. Each persona gets preferences, a marketing consent flag (about 70% true), a home zone and one of the 64 places as a delivery address. The visitor's customer persona is one of them.
 
 **History: 90 days of orders** with a weekly rhythm: closed Mondays, about 6 orders Tuesday to Friday, about 10 on Sundays and about 18 on Saturdays, and the most recent Saturday like the Route Lab's busy Saturday, 63 delivery orders across 4 vans. That is about 720 orders, written as one `OrderClosed` event each, with its lines and payment, into Crm's log, and as daily totals into Billing. Today's open orders (12) are live `Order` objects in various states, and the coming week's seven `Schedule` days and today's `Dispatch` exist from the start; later days are created on first touch.
 
-**Catering: 8 events across the lifecycle**: an inquiry, a quote, an accepted quote awaiting its deposit, two confirmed, one delivered and invoiced, one paid and closed, and one declined. **Venues: 6 made-up names**, such as Harbor Loft and Orchard Pavilion, each pinned to a Route Lab place.
+**Catering: 8 events across the lifecycle**: an inquiry, a quote, an accepted quote awaiting its deposit, two confirmed, one delivered and invoiced, one paid and closed, and one declined. **Venues: 6 made-up names**, such as Harbor Loft and Orchard Pavilion, each pinned to one of the 64 places.
 
-**Delivery addresses** are the Route Lab's Seattle places: 64 public places from OpenStreetMap, of which the bakery is one, identified by index and map label, with travel times from the Route Lab's static data and no coordinates or street addresses ([ADR 0012](adr/0012-delivery-dispatch.md)).
+**Delivery addresses** are 64 public places in Salt Lake City from OpenStreetMap, of which the bakery is one, identified by index and map label, with no coordinates or street addresses. The places, the map, the travel-time matrix and the isochrones are a new offline build with the site's Route Lab pipeline (`tools/route-data/pipeline/` in the site's repository: osmium, OSRM's car profile, d3-contour) on [Geofabrik's Utah extract](https://download.geofabrik.de/) (ODbL, as of 2026-11-04), clipped to the city, committed as a fixture in `crates/seed` and as static data for the dispatch screen, built in PR 9 ([ADR 0012](adr/0012-delivery-dispatch.md)). The site's Route Lab keeps its own Seattle data. The dispatch screen credits OpenStreetMap's contributors, as the ODbL asks.
+
+**Simulated traffic starts stopped.** No `Simulator` exists at seed; a signed-in visitor's first "Start traffic" registers one (Q40 · Q-traffic).
 
 **Approximate rows written at seed**, for [cost.md](cost.md), which prices the same table:
 
@@ -384,13 +405,14 @@ All of them live and die with the sandbox, so none needs pruning. A command and 
 | Inbox | 1 | 240 messages | 241 |
 | Account, Control | shared | the sandbox pointer; the ledger | 4 |
 | Customer | 0 | created on first touch | 0 |
+| Simulator | 0 | created stopped, on the first "Start traffic" | 0 |
 | Total | 34 objects | | 1,978, about 2,000 |
 
 That is close to the 2,000 rows [cost.md](cost.md) starts from; spike S5 measures the real figure, wipe included.
 
 ## The principle map
 
-Where each Lab principle runs in the bakery (Q33 · Q-principles). Every screen's "How this works" drawer links its lab page and its ADR, and each lab page links back (Q32 · Q-links).
+Where each Lab principle runs in Proof of Concept (Q33 · Q-principles). Every screen's tour links its lab page and its ADR, in the step that was the "How this works" drawer, and each lab page links back (Q32 · Q-links, Q41 · Q-tour).
 
 | Lab page on the site | Principle | Where it runs | What the visitor can do to see it | ADR |
 |---|---|---|---|---|
@@ -404,6 +426,7 @@ Where each Lab principle runs in the bakery (Q33 · Q-principles). Every screen'
 | none yet | leases and TTLs | slot holds, the 36 h backstop, the nightly wipe | let a checkout lapse; watch the wipe countdown | [0005](adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md) |
 | none yet | admission control | Turnstile, rate limits, `Control`'s budgets | see today's sandbox budget in the drawer | [0005](adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md), [0010](adr/0010-workers-paid-with-the-sites-guardrails.md) |
 | none yet | CQRS | aggregates write, `Crm` reads | an order and its timeline row side by side, with the lag | [0003](adr/0003-durable-objects-as-the-system-of-record.md) |
+| none yet | load you can watch: lag between writes and projections | the `Simulator`, the Queue, Crm's projections | start traffic; watch the board fill, the Queue's backlog grow and timelines trail the orders | [0004](adr/0004-queues-between-objects-and-alarms-for-time.md) |
 | none yet | time travel with a logical clock | the Sandbox's offset | advance a day; watch expiries, reminders and tomorrow's bake list fire in order | [0004](adr/0004-queues-between-objects-and-alarms-for-time.md), [0005](adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md) |
 
 

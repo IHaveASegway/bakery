@@ -4,7 +4,7 @@ Status: Proposed · 2026-11-04 · Deciders: Joseph Peterson
 
 ## Context
 
-The made-up bakery has two kinds of screen. The public pages (Home, Menu, Catering, About, How it's built, Privacy, Status) need no sign-in, change only when the bakery deploys, and are what a shared link unfurls (Q6 · Q-public). The signed-in screens are an application: the cart and checkout, the staff console, the kitchen board on a WebSocket, the catering calendar, the CRM and dispatch. They read and write a visitor's sandbox through the API ([ADR 0009](0009-the-api-on-its-own-hostname.md)), whose state lives in Durable Objects (DOs) ([ADR 0003](0003-durable-objects-as-the-system-of-record.md)). Joseph asked for React and Astro "if those are the right tools".
+The made-up bakery, Proof of Concept Bakery, has two kinds of screen. The public pages (Home, Menu, Catering, About, How it's built, Privacy, Status, and the API docs at `/docs/api/`) need no sign-in, change only when the bakery deploys, and are what a shared link unfurls (Q6 · Q-public). The signed-in screens are an application: the cart and checkout, the staff console, the kitchen board on a WebSocket, the catering calendar, the CRM and dispatch, each with a guided tour (Q41 · Q-tour). They read and write a visitor's sandbox through the API ([ADR 0009](0009-the-api-on-its-own-hostname.md)), whose state lives in Durable Objects (DOs) ([ADR 0003](0003-durable-objects-as-the-system-of-record.md)). Joseph asked for React and Astro "if those are the right tools".
 
 What the site already decided and measured:
 
@@ -23,13 +23,14 @@ Pins, as of 2026-11-04, with sources in [stack.md](../stack.md): Astro 7.4.2, Re
 ## Decision
 
 1. **Astro 7 with static output and no adapter** for every page under `apps/web/`. The public pages ship no JavaScript but the site's theme script and the Turnstile widget where a sandbox is created (Q24 · Q-guest).
-2. **React 19 islands for the app screens under `/app/` and for the checkout**, loaded only on those pages. Each screen is its own Astro page (`/app/orders/`, `/app/kitchen/`, `/app/catering/`, `/app/crm/`, `/app/dispatch/`), and a record's id travels in the query string, so every URL maps to a built file and no single-page fallback rule is needed. The islands render on the client and call the API with credentials.
+2. **React 19 islands for the app screens under `/app/` and for the checkout**, loaded only on those pages. **The tour is one more island**: a client-side walkthrough on each app screen that says what the visitor is looking at, which events the last action produced, and how to do the same through the API with a copyable request. It uses no library and no third party, so it adds no script origin; the "How this works" drawer is one of its steps. Each screen is its own Astro page (`/app/orders/`, `/app/kitchen/`, `/app/catering/`, `/app/crm/`, `/app/dispatch/`), and a record's id travels in the query string, so every URL maps to a built file and no single-page fallback rule is needed. The islands render on the client and call the API with credentials.
 3. **The public menu is built from the seed at build time.** A build step runs `crates/seed` natively and writes the default menu as JSON, which Astro renders into `/menu/`. A signed-in sandbox's own menu comes from the API with an `ETag` of its version ([architecture.md](../architecture.md)). The API types reach TypeScript through `crates/contracts` (serde and schemars to JSON Schema to generated types), so the islands and the Worker agree on one schema.
 4. **The assets-only Worker `bakery-web`**: an `assets` directory and no `main`; `workers_dev: false`, `preview_urls: true`, `previews: {}`; `assets.not_found_handling: "404-page"` and `assets.html_handling: "auto-trailing-slash"`, both written out; the custom domain `bakery.ihaveasegway.com`. Workers Cache stays off, and CI fails if the key appears, as on the site.
 5. **The page policy is a header the build writes**, as the site's ADR 0018 does. Every page names the API hostname in `connect-src`; the checkout adds Stripe's origins ([ADR 0007](0007-stripe-sandbox-and-a-payment-element-that-collects-nothing.md)); pages with the widget add Turnstile's; the dispatch screen adds the solver worker's rule ([ADR 0012](0012-delivery-dispatch.md)). [security.md](../security.md) owns the directives.
 6. **Design tokens copied from the site's set** into `apps/web/src/styles/tokens.css`, with the site's contrast test copied beside them. The bakery owns its copy from then on.
-7. **A Worker Preview per pull request on workers.dev**, like the site's, with `noindex` (Q30 · Q-previews). The firewall passes before a preview exists ([ADR 0011](0011-github-actions-owns-deploys-for-both-workers.md)).
-8. **Byte budgets per page type**, gzip, held by a test in `verify`: a public page at most 5,000 B of JavaScript, the site's eager budget; an app screen at most 120,000 B of the bakery's own JavaScript, React included; the checkout the same, with Stripe.js measured and reported but not counted, because the bakery cannot shrink it; the dispatch screen's solver inside the site's Route Lab budgets (WebAssembly at most 360,000 B), loaded on first solve.
+7. **A Worker Preview per pull request on workers.dev**, like the site's, with `noindex` (Q30 · Q-previews). Previews arrive with the launch pull request (PR 11); until then Joseph reads each pull request on `wrangler dev`, because nobody uses the bakery yet ([ADR 0011](0011-github-actions-owns-deploys-for-both-workers.md)). The firewall passes before a preview exists.
+8. **Byte budgets per page type**, gzip, held by a test in `verify`: a public page at most 5,000 B of JavaScript, the site's eager budget; an app screen at most 120,000 B of the bakery's own JavaScript, React included; the checkout the same, with Stripe.js measured and reported but not counted, because the bakery cannot shrink it; the dispatch screen's solver inside the site's Route Lab budgets (WebAssembly at most 360,000 B), loaded on first solve. The tour's code counts inside the app screen's budget.
+9. **`/docs/api/` is a static page**, generated at build time from `crates/contracts` as an OpenAPI document (Q42 · Q-api-access, PR 10). It needs no island and no script beyond the theme script, and a change to a contract changes the page in the same pull request.
 
 ## Alternatives considered
 
@@ -49,12 +50,13 @@ Good:
 - The public pages cost $0 and keep working while the API is down, during an API deploy, and if the API's hostname is switched off ([ADR 0009](0009-the-api-on-its-own-hostname.md)).
 - Two Workers, two deploys, and the site's pipeline shape reused: upload, smoke the Version URL, promote, for `bakery-web` ([ADR 0011](0011-github-actions-owns-deploys-for-both-workers.md)).
 - React goes only where a screen needs state and interaction. A visitor who reads the menu and the How it's built page downloads none of it.
-- Stripe's and Turnstile's scripts are the only third-party scripts, each on the pages that need it.
+- Stripe's and Turnstile's scripts are the only third-party scripts, each on the pages that need it. The tour and the API docs add none.
 
 Bad:
 
 - The app screens are client-rendered and depend on the API for every view. A slow or failing API shows as a loading or error state on those screens; each screen has both, tested in e2e.
 - 69.5 KiB of React on every app screen, cached across screens but paid on the first.
+- The tour and `/docs/api/` are two more things to keep true as screens and contracts change; the OpenAPI page is generated, the tour's copy is not.
 - Two builds in one repository: Astro reads the seed and the contract types the Rust crates produce, so a web build needs a Rust toolchain in CI ([ADR 0011](0011-github-actions-owns-deploys-for-both-workers.md)).
 - Each Astro major release brings a migration, and the bakery inherits that upkeep beside the site's ([stack.md](../stack.md) owns the upgrade policy).
 - A copied token set drifts from the site's unless someone copies again. The bakery accepts drift; its look may diverge on purpose.

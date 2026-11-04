@@ -1,6 +1,6 @@
 # Security
 
-What the made-up bakery's system protects, from whom, and how. This doc owns the threat model, the headers, the Content Security Policy (CSP) and CORS, sign-in and sessions, sandbox isolation, the privacy and data inventory, the wipe as a privacy control, payments safety, the secrets inventory, the content firewall here, commit identities, the supply chain and account continuity. Money and denial of wallet are in [cost.md](cost.md); how the Durable Object (DO) classes fit together is in [architecture.md](architecture.md); rotation, leak response and the Stripe sandbox reset are runbooks in [operations.md](operations.md). The decisions are [ADR 0005](adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md) (sandbox), 0006 (sign-in), 0007 (Stripe) and 0009 (the API hostname) ([ADR index](adr/README.md)).
+What the system of the made-up bakery, Proof of Concept Bakery, protects, from whom, and how. This doc owns the threat model, the headers, the Content Security Policy (CSP) and CORS, sign-in and sessions, sandbox isolation, the privacy and data inventory, the wipe as a privacy control, payments safety, the secrets inventory, the content firewall here, commit identities, the supply chain and account continuity. Money and denial of wallet are in [cost.md](cost.md); how the Durable Object (DO) classes fit together is in [architecture.md](architecture.md); rotation, leak response and the Stripe sandbox reset are runbooks in [operations.md](operations.md). The decisions are [ADR 0005](adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md) (sandbox), 0006 (sign-in), 0007 (Stripe) and 0009 (the API hostname) ([ADR index](adr/README.md)).
 
 Status: Draft for review in PR 1 · 2026-11-04
 
@@ -39,21 +39,24 @@ Out of scope: provider insiders, legal compulsion, malware on a visitor's machin
 | Cross-site WebSocket hijacking: upgrades ignore CORS and carry the cookie | Exact `Origin` check on every upgrade; `SameSite=Strict`; a socket attaches only to the cookie's sandbox ([OWASP](https://cheatsheetseries.owasp.org/cheatsheets/WebSocket_Security_Cheat_Sheet.html)) | `SameSite` treats every `*.ihaveasegway.com` host as same-site; the `Origin` check stops a forgotten subdomain |
 | CSRF against the API | `SameSite=Strict`; exact `Origin` and `Sec-Fetch-Site` checks on state-changing requests; JSON and `Idempotency-Key` force a preflight only the storefront passes | A browser sending neither header is refused |
 | Session theft | `__Host-session`, host-only, `HttpOnly`, `Secure`, 24 h; never in `localStorage`; hash-only `script-src` | A stolen cookie works up to 24 h for ordinary commands, never past the wipe; the sandbox is synthetic |
+| A leaked API token | `Authorization` only, never in a URL or a log; 24 h; "Rotate" in the console; a per-token rate limit; signed-in sandboxes only ([the API token](#the-api-token)) | It acts in one sandbox until rotated or the wipe; the data is synthetic |
 | Sandbox enumeration | 128-bit server-minted ids; a path id must match the cookie's; mismatch and unknown get the same 404 | None known: nothing lists sandboxes |
 | One visitor reaching another's objects | Object names derived in the Worker from the cookie's sandbox id; each object stores its sandbox id and refuses others | A derivation bug; property tests and an e2e cross-sandbox test cover it |
 | Personal data in free text | Two capped fields (note 140, brief 500 characters), rejected on email, phone, card-number or URL patterns; never logged (Q14 · Q-free-text) | A name or street in prose passes; it lives in that sandbox until 10:00 UTC |
 | Personal data reaching Stripe | `fields.billingDetails: 'never'`; synthetic details passed on confirmation (Q18 · Q-payment-ui) | A real card typed into the card field reaches Stripe, which declines it in a sandbox; never the API |
 | A live Stripe key reaching the Worker | CI and the Worker refuse non-sandbox keys; `livemode: true` events refused | None past first use |
 | Webhook forgery and replay | HMAC-SHA256 over `t.payload`, constant-time, 5-minute tolerance; idempotent by event id ([Stripe](https://docs.stripe.com/webhooks#verify-manually)) | A leaked endpoint secret forges events until rotated; amounts come from `Billing`'s records |
-| OAuth code or token leak | PKCE (S256), `state`, `nonce`; single-use codes; tokens discarded; 303 out of the callback with `Referrer-Policy: no-referrer`; its query never logged | An extension reading URLs sees a code; useless without the verifier |
+| OAuth code or token leak | PKCE (S256) and `state` for Google and GitHub, `nonce` for Google; single-use codes; tokens discarded, GitHub's after one `GET /user`; 303 out of the callback with `Referrer-Policy: no-referrer`; its query never logged | An extension reading URLs sees a code; useless without the verifier |
+| Profile data in GitHub's reply | No scope requested; the reply deserialized into `id` alone; bodies never logged | A public name or email passes through one request's memory |
+| Email bombing through sign-in links, later | Turnstile; the Rate Limiting binding per IP hash and per address HMAC; Paid's 3,000 sends a month ([email sign-in, later](#email-sign-in-later)) | Cloudflare's delivery logs hold each address sent to |
 | Open redirect in sign-in | The return path is a relative path matching a fixed pattern, held in the signed `__Host-oauth` cookie | None known |
-| Denial of wallet | Turnstile, the Rate Limiting binding, `Control`'s caps, the loop guard, the breaker ([cost.md](cost.md#guardrails)) | Alerts arrive a day late; the breaker bounds the gap to about 2 hours |
+| Denial of wallet | Turnstile, the Rate Limiting binding, `Control`'s caps (100 guest sandboxes of 300 a day), the simulator's caps, the loop guard, the breaker ([cost.md](cost.md#guardrails)) | Budget alerts at $10, $25, $50 and $100, the account's ceiling, arrive a day late; the breaker bounds the gap to about 2 hours |
 | Denial of service against the kitchen socket | Session and rate limit on upgrades; 4 sockets per sandbox; 4 KB messages; 10 a second, then close 1008 | A visitor can saturate only their own room |
 | Alarm loops | Re-arm only for a later time, at most 100 a day per object ([cost.md](cost.md#d-a-loop-with-no-outside-traffic)) | Code that skips the guard; the breaker reads metered usage |
 | A poisoned Queue message | Envelope version and schema checked; `sandbox` must own `stream`; 3 retries, then `bakery-events-dlq`; no re-enqueue | A well-formed wrong event reaches a projection; "rebuild projections" repairs it |
 | Supply chain in cargo and npm | Pins, lockfiles, `cargo deny`, `cargo audit`, cooldowns ([Supply chain](#supply-chain)) | A version older than the cooldown |
 | A firewall miss | The site's firewall, copied (Q34 · Q-firewall) | Public at `git push`, before CI scans |
-| Drafts on public previews | Web previews as the site's (`noindex`, deleted on close); API previews only with their own DO namespaces (Q30 · Q-previews) | A preview URL is readable while its PR is open |
+| Drafts on public previews | Web previews from the launch pull request (PR 11), as the site's (`noindex`, deleted on close); API previews only with their own DO namespaces (Q30 · Q-previews) | A preview URL is readable while its PR is open |
 
 ## Headers, CSP and CORS
 
@@ -70,7 +73,7 @@ The build writes the page policy as a `Content-Security-Policy` header in `dist/
 | `default-src`, `img-src`, `font-src`, `form-action` | `'self'` | — | — |
 | `object-src`, `base-uri`, `frame-ancestors` | `'none'` | — | — |
 
-The dispatch screen adds `worker-src 'self'`, its solver folder carrying its own policy with `'wasm-unsafe-eval'`, as the site's Route Lab does ([ADR 0016](https://github.com/IHaveASegway/website/blob/main/docs/adr/0016-route-lab-in-the-browser.md)). `hooks.stripe.com` (3D Secure frames) and `api.stripe.com` follow Stripe's [security guide](https://docs.stripe.com/security/guide#content-security-policy); spike S3 confirms them with an e2e test that fails on any CSP violation. Sign-in needs no Google origin: it is a navigation through the API.
+The dispatch screen adds `worker-src 'self'`, its solver folder carrying its own policy with `'wasm-unsafe-eval'`, as the site's Route Lab does ([ADR 0016](https://github.com/IHaveASegway/website/blob/main/docs/adr/0016-route-lab-in-the-browser.md)). `hooks.stripe.com` (3D Secure frames) and `api.stripe.com` follow Stripe's [security guide](https://docs.stripe.com/security/guide#content-security-policy); spike S3 confirms them with an e2e test that fails on any CSP violation. Sign-in needs no Google or GitHub origin: each is a navigation through the API.
 
 Also from `_headers`, as on the site: `nosniff`, `strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=(), usb=()` (not `payment`, which the Payment Element may use) and `Cross-Origin-Opener-Policy: same-origin`. HSTS has one owner, the zone ([site ADR 0011](https://github.com/IHaveASegway/website/blob/main/docs/adr/0011-dnssec-and-hsts-ramp.md)).
 
@@ -88,13 +91,13 @@ The API is a second origin (Q8 · Q-api-host, [ADR 0009](adr/0009-the-api-on-its
 | `Access-Control-Max-Age` | `7200` | Chromium's cap ([MDN](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Access-Control-Max-Age)); the cache is per URL, so [cost.md](cost.md#the-per-sandbox-meter) counts preflights |
 | `Vary` | `Origin` | No cache serves one origin's answer to another |
 
-The Stripe webhook and the Google callback have no CORS: one is server to server, the other a navigation.
+The Stripe webhook, the Google and GitHub callbacks and API-token calls have no CORS: the first is server to server, the callbacks are navigations, and `curl` needs none. `Authorization` is deliberately absent from `Access-Control-Allow-Headers`, so no web page can spend a visitor's token from a browser.
 
 API responses carry `Content-Type: application/json` (or `application/problem+json`), `X-Content-Type-Options: nosniff`, `Cache-Control: no-store` (the sandbox menu: `private, no-cache` with its `ETag`), `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `Referrer-Policy: no-referrer` and `Cross-Origin-Resource-Policy: same-site`. HSTS comes from the zone.
 
 ## Sign-in and sessions
 
-Assumed until Q23 · Q-auth and Q24 · Q-guest are answered ([ADR 0006](adr/0006-sign-in-that-learns-nothing.md)). Three ways in, one cookie out: Google, a demo account, or a guest behind Turnstile.
+Decided on 2026-11-04 (Q23 · Q-auth, Q24 · Q-guest; [ADR 0006](adr/0006-sign-in-that-learns-nothing.md)). Four ways in, one cookie out: Google, GitHub, a demo account, or a guest behind Turnstile. Email sign-in is designed and ships later (Q43 · Q-email-signin). A signed-in sandbox also gets an API token for calls from outside the browser.
 
 ### Google, with the openid scope alone
 
@@ -123,6 +126,26 @@ sequenceDiagram
 - **If `openid` alone is refused** (spike S2; the docs say the scope "must begin with openid and then include profile, email, or both"), the fallback is `openid email` with the claim dropped before anything is stored: weaker, since the consent screen then says an email is shared and an address passes through memory.
 - The consent screen's support and developer contact is `hello@ihaveasegway.com`.
 
+### GitHub, with the numeric user id alone
+
+An OAuth app's web flow, with `bakery-api` as a confidential client, `state` and PKCE (`S256`; GitHub does not support `plain`), and no `scope` parameter, so GitHub's default empty scope applies: no `user`, no `read:user`, no `user:email` ([Authorizing OAuth apps](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps), as of 2026-11-04). It is Google's flow with three differences:
+
+- **No ID token.** The callback exchanges the code, which expires after 10 minutes, with the verifier and the client secret at `POST https://github.com/login/oauth/access_token`, then makes one `GET https://api.github.com/user` with the token. A token without scopes still authenticates as its owner ([REST API, users](https://docs.github.com/en/rest/users/users), as of 2026-11-04). The token is then dropped: used once, never stored, logged or reused.
+- **Only `id` is kept.** The reply is deserialized into a struct with one field, the numeric `id`, which GitHub treats as durable where the login can change. The account id is `HMAC-SHA256(ACCOUNT_HMAC_KEY, "github:" + id)`. The reply's public profile fields, which can include a name and a public email, are skipped by the parser and never stored or logged; they pass through one request's memory.
+- **The same cookies.** `__Host-oauth` carries `state`, the verifier and the return path (`Lax`, 10 minutes); the callback answers 303 with `Referrer-Policy: no-referrer` and sets `__Host-session`.
+
+### Email sign-in, later
+
+Designed now and shipped later, unless Joseph moves it (Q43 · Q-email-signin): magic links under one rule, that the address is transient.
+
+- **Used once.** The visitor types an address. The Worker normalizes it (trimmed, lowercased), computes the account id `HMAC-SHA256(ACCOUNT_HMAC_KEY, "email:" + normalized address)`, and sends one message with a sign-in link through Cloudflare's Email Service, by the `send_email` binding. The address is never stored, logged, counted in a metric, put in an event or put in the link.
+- **The link** carries a signed, single-use token naming the account id, valid 15 minutes. Its callback records the token id in the `Account`, so a second use fails, and answers 303 with `Referrer-Policy: no-referrer`, as the OAuth callbacks do.
+- **Typed again each time.** Nothing holds the address, so a returning visitor types it again and the API looks up the HMAC. There is no recovery and no "change my email".
+- **No email bombing.** Turnstile before every send; the Rate Limiting binding per IP hash, and a second limit keyed by the address's HMAC so one inbox cannot be flooded from many addresses. Neither stores the address.
+- **Cost.** Sending is Workers Paid only and in beta: 3,000 messages a month included, then $0.35 per 1,000 ([Email Service pricing](https://developers.cloudflare.com/email-service/platform/pricing/), as of 2026-11-04; [cost.md](cost.md#price-sheet)).
+- **Residual risk.** Cloudflare's own delivery logs hold each recipient address, under Cloudflare's retention and outside this system; the Email Service is a beta. Whoever holds `ACCOUNT_HMAC_KEY` and an address can tell whether it has an account.
+- **The privacy page's sentence becomes "never stores your name or email."**
+
 ### Demo accounts
 
 After Turnstile, the API generates a username such as `baker-7f3k` ([domain.md](domain.md) sets the suffix) and the visitor sets a password of 12 to 128 characters, with no composition rules ([NIST SP 800-63B](https://pages.nist.gov/800-63-4/sp800-63b.html)). No email and no recovery: a forgotten password means a new account. The `Account` is named by `HMAC-SHA256(ACCOUNT_HMAC_KEY, "demo:" + username)`.
@@ -144,28 +167,44 @@ Set-Cookie: __Host-session=<payload>.<mac>; HttpOnly; Secure; SameSite=Strict; P
 - **The MAC:** HMAC-SHA256 with `SESSION_HMAC_KEY`, compared in constant time. On rotation the old key becomes `SESSION_HMAC_KEY_PREV`, accepted for one lifetime, 24 h, then removed.
 - **Sign-out** is a `POST` answering `Max-Age=0` and recording the session id as revoked in the `Account`, which the socket upgrade and account-level actions check. Ordinary commands verify the cookie without a lookup, one DO request each; a copied cookie keeps working for them until it expires, never past the wipe.
 
+### The API token
+
+Signed-in sandboxes only (Q42 · Q-api-access, Q45 · Q-guest-scope). The console shows it masked, copies it on request, and rotates it.
+
+- **Signed like the cookie.** The payload is the cookie's (version, account id, sandbox id, a 128-bit token id, issue and expiry times, key id) plus the Sandbox's token version, signed with the same `SESSION_HMAC_KEY` and checked the same way, in constant time.
+- **Carried in `Authorization: Bearer`, never in a URL.** A token in a query string is refused with 400; no query string is ever logged.
+- **24 h, and it dies with the sandbox.** "Rotate" bumps the token version in the `Sandbox`; the router compares it with the registry lookup it already makes, so a rotated token stops at once. The wipe removes the Sandbox and every token with it.
+- **Rate-limited per token** with the Rate Limiting binding, at the session's command rate.
+- **No `Origin` check, no CORS.** A request with a bearer token and no cookie skips the [Origin checks](#origin-checks): a browser never attaches a bearer token by itself, so CSRF does not apply. A request carrying both a cookie and a token is refused with 400. The kitchen socket takes the cookie only.
+
 ### Origin checks
 
-Every `POST`, `PATCH` and `DELETE`, and every upgrade at `/v1/sandboxes/{id}/kitchen/ws`, must carry `Origin: https://bakery.ihaveasegway.com` exactly and must not carry `Sec-Fetch-Site: cross-site`; otherwise a 403 problem+json, logged with its reason. The Stripe webhook (signature) and the Google callback (`state`) are exempt. Every `POST` carries an `Idempotency-Key`, stored with the command's result, so a retry gets the first answer ([OWASP CSRF](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)).
+Every `POST`, `PATCH` and `DELETE`, and every upgrade at `/v1/sandboxes/{id}/kitchen/ws`, must carry `Origin: https://bakery.ihaveasegway.com` exactly and must not carry `Sec-Fetch-Site: cross-site`; otherwise a 403 problem+json, logged with its reason. The Stripe webhook (signature), the Google and GitHub callbacks (`state`) and requests with an API token and no cookie ([the API token](#the-api-token)) are exempt. Every `POST` carries an `Idempotency-Key`, stored with the command's result, so a retry gets the first answer ([OWASP CSRF](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)).
 
 ## Sandbox isolation
 
-Assumed until Q24 · Q-guest and Q25 · Q-ttl are answered ([ADR 0005](adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md)).
+Decided on 2026-11-04 (Q24 · Q-guest, Q25 · Q-ttl, Q45 · Q-guest-scope; [ADR 0005](adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md)).
 
 - **Names come from the server.** Sandbox ids are ULIDs minted by the router on admission, 80 random bits each; every other id is server-minted too ([architecture.md](architecture.md#object-naming)).
-- **The binding.** An `Account` holds its one current sandbox id; the `Sandbox` holds its owner; the cookie carries both. A path naming another sandbox gets the 404 of one naming nothing.
-- **Derived, never copied.** The Worker builds each name from the cookie's sandbox id, the class and a server id (`order:<sandbox>:<ulid>`) before `id_from_name`.
+- **The binding.** An `Account` holds its one current sandbox id; the `Sandbox` holds its owner; the cookie and the API token carry both. A path naming another sandbox gets the 404 of one naming nothing.
+- **Derived, never copied.** The Worker builds each name from the cookie's or the token's sandbox id, the class and a server id (`order:<sandbox>:<ulid>`) before `id_from_name`.
 - **Objects check too.** Each child stores its sandbox id when initialized and refuses others; an uninitialized object refuses everything and writes nothing, so neither a request after the wipe nor a guessed name summons a fresh object.
 - **No cross-sandbox reads.** Projections are per sandbox, and the consumer routes an event only within its envelope's sandbox.
-- **`Control`'s caps:** 300 sandboxes a day, 3 per account, a per-IP-hash limit for guests; if `Control` errors, no sandbox ([cost.md](cost.md#guardrails)).
+- **The simulator stays home.** The `Simulator` issues commands only to objects named from its own sandbox id, through the same checks as the visitor's commands.
+- **Guest scope** (Q45 · Q-guest-scope): a guest sandbox can browse, order and pay with a test card. Sign-in unlocks the console's writes (menu edits, campaigns, publishing a route), the API token, simulated traffic, and a sandbox that follows the account across devices.
+- **`Control`'s caps:** 300 sandboxes a day, of which at most 100 are guests', so bots creating sandboxes hit a wall before the paid-for meters do; 3 per account; a per-IP-hash limit for guests; if `Control` errors, no sandbox ([cost.md](cost.md#guardrails)).
+
+**Why not row-level security.** Row-level security filters the rows of a shared table per tenant on every query. It is the design a single D1 or Postgres database would need, and one missing or wrong policy exposes every tenant. Here there is no shared table. Every aggregate of a sandbox is its own object with its own SQLite database, addressed by a name the Worker derives from the sandbox id in the signed cookie or token; each object stores its sandbox id and refuses a mismatch; nothing lists or joins across sandboxes; and the wipe deletes whole databases instead of filtering rows out of shared ones. It is a database per tenant per aggregate, which is stronger than row-level security and cheaper to wipe, at the cost of any query across sandboxes, which the demo never needs.
 
 ## Privacy and data inventory
 
 | Data | Collected by | Held by | Kept for | Purpose |
 |---|---|---|---|---|
 | `__Host-session` cookie | `bakery-api`, at sign-in or guest start | The browser | 24 h, or sign-out | Admission to the visitor's sandbox |
-| `__Host-oauth` cookie | `bakery-api`, as Google sign-in starts | The browser | 10 minutes | `state`, `nonce`, PKCE verifier |
-| Account id: HMAC of `sub` or of the demo username | `bakery-api` | The `Account` | 30 days after the last sign-in, then its alarm runs `deleteAll()` (assumed; Q23 · Q-auth) | One sandbox across devices |
+| API token | `bakery-api`, shown in the console to a signed-in visitor | Wherever the visitor puts it; the API stores only the Sandbox's token version | 24 h, rotation, or the wipe, whichever comes first | API calls from `curl` or scripts |
+| `__Host-oauth` cookie | `bakery-api`, as Google or GitHub sign-in starts | The browser | 10 minutes | `state`, `nonce`, PKCE verifier |
+| Account id: HMAC of the Google `sub`, the GitHub `id` or the demo username | `bakery-api` | The `Account` | 30 days after the last sign-in, then its alarm runs `deleteAll()` (Q23 · Q-auth) | One sandbox across devices |
+| Email address, for email sign-in, later (Q43 · Q-email-signin) | The visitor, typed each time | Nobody here: one request's memory, then Cloudflare's Email Service delivery logs | One request; Cloudflare's retention for its logs | Sending the sign-in link; only its HMAC names the `Account` |
 | Demo username and argon2id hash | The visitor | The `Account` | As the account id | Demo sign-in |
 | Sandbox contents, the two free-text fields included | The seed and the visitor | The sandbox's objects | Until 10:00 UTC; 36 h at most; recoverable by the account owner for 30 days ([The wipe](#the-wipe)) | The demo |
 | Business clock offset | The visitor (Q12 · Q-clock) | The `Sandbox` | As the sandbox | Time travel |
@@ -179,18 +218,18 @@ Assumed until Q24 · Q-guest and Q25 · Q-ttl are answered ([ADR 0005](adr/0005-
 
 Rules:
 
-- **No email or name, ever:** not from Google, not typed, not in Stripe. Personas, venues, addresses and cards are synthetic.
+- **No email or name stored, ever:** not from Google or GitHub, not typed, not in Stripe. Email sign-in, later, uses an address for one request and keeps only its HMAC ([email sign-in, later](#email-sign-in-later)). Personas, venues, addresses and cards are synthetic.
 - **No city, region, postal code or coordinates;** country and continent at most, as in the site's [lab](https://github.com/IHaveASegway/website/blob/main/docs/lab.md#rules-for-every-demo).
 - **No invocation logs:** they are off on both Workers, because they record `request.cf`, which carries city and coordinates. The Worker's own lines never hold a body, a free-text field, a cookie, a token or a query string.
 - **The salt is never written to storage,** because SQLite objects keep 30 days of point-in-time recovery ([SQLite storage API](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/)); `Control` makes it in memory, as the site's lab does.
 - **Pattern checks on free text,** in `crates/domain` under `cargo test`: email shapes, phone numbers of 7 or more digits, 13 to 19 digits passing Luhn, URLs and bare domains. A match is rejected with the reason and not logged; each field says it is wiped tonight.
-- **`/privacy/` ships with the first sandbox.** It lists every row above, says no email or name is collected, and promises the 10:00 UTC wipe, the 36 h backstop and what "deleted" means, the 30 days of recovery included.
+- **`/privacy/` goes live in the launch pull request (PR 11),** before the first visitor's sandbox. It lists every row above, says Proof of Concept "never stores your name or email", and promises the 10:00 UTC wipe, the 36 h backstop and what "deleted" means, the 30 days of recovery included.
 
-While the salt exists, an IP hash is pseudonymous personal data under the GDPR (Recital 26), and so is an account id, which whoever holds `ACCOUNT_HMAC_KEY` and a `sub` could link. "No personal data by construction" means nothing that names a person; these identifiers get short retention for that reason. The session cookie is strictly necessary for a service the visitor asked for, so no consent banner, on the site's reading of the ePrivacy rules ([site security.md](https://github.com/IHaveASegway/website/blob/main/docs/security.md#privacy-and-data-inventory)). This is not legal advice.
+While the salt exists, an IP hash is pseudonymous personal data under the GDPR (Recital 26), and so is an account id, which whoever holds `ACCOUNT_HMAC_KEY` and a `sub`, a GitHub id or an address could link. "No personal data by construction" means nothing that names a person; these identifiers get short retention for that reason. The session cookie is strictly necessary for a service the visitor asked for, so no consent banner, on the site's reading of the ePrivacy rules ([site security.md](https://github.com/IHaveASegway/website/blob/main/docs/security.md#privacy-and-data-inventory)). This is not legal advice.
 
 ## The wipe
 
-Every sandbox, all of it, every night at 10:00 UTC (02:00 Pacific standard time, 03:00 in summer) (Q25 · Q-ttl, [ADR 0005](adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md)).
+Every sandbox, all of it, every night at 10:00 UTC (03:00 Mountain standard time, 04:00 in summer) (Q25 · Q-ttl, [ADR 0005](adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md)).
 
 1. **10:00 UTC:** the cron handler calls `Control`, which holds the day's registry and fans out by its own alarm, 50 sandboxes a run, well inside the cron's 15 minutes of wall time ([limits](https://developers.cloudflare.com/workers/platform/limits/)).
 2. **Each `Sandbox`** reads its registry of children; each child deletes its alarm and runs `deleteAll()`.
@@ -228,9 +267,11 @@ Never in the repository, a log or a doc. `.dev.vars` is git-ignored; `.dev.vars.
 | `STRIPE_PUBLISHABLE_KEY` | Build variable, public in the page | The Payment Element | Public; `pk_test_` only | With the sandbox |
 | `GOOGLE_CLIENT_ID` | Worker variable, public in the authorization URL | Sign-in routes | Public | With the client |
 | `GOOGLE_CLIENT_SECRET` | Worker secret | The code exchange | Exchanges codes for this client | Yearly; on suspicion |
+| `GITHUB_CLIENT_ID` | Worker variable, public in the authorization URL | Sign-in routes | Public | With the OAuth app |
+| `GITHUB_CLIENT_SECRET` | Worker secret | The code exchange | Exchanges codes for this OAuth app | Yearly; on suspicion |
 | `TURNSTILE_SECRET`, and the site key | Worker secret; the site key public in the page | Siteverify | Skips challenges | Yearly; on suspicion |
-| `SESSION_HMAC_KEY`, `SESSION_HMAC_KEY_PREV` | Worker secrets | Authenticated routes; the oauth cookie | Forges any session | Yearly, `_PREV` for 24 h |
-| `ACCOUNT_HMAC_KEY` | Worker secret | Sign-in | Links a known `sub` to its account | Only on a leak: rotation orphans every `Account` |
+| `SESSION_HMAC_KEY`, `SESSION_HMAC_KEY_PREV` | Worker secrets | Authenticated routes; the oauth cookie; API tokens; email sign-in links, later | Forges any session or API token | Yearly, `_PREV` for 24 h |
+| `ACCOUNT_HMAC_KEY` | Worker secret | Sign-in | Links a known `sub`, GitHub id or address to its account | Only on a leak: rotation orphans every `Account` |
 | `STRIPE_E2E_SECRET_KEY` | Actions secret | The `e2e` job's one step | A restricted key in a separate CI sandbox | Yearly |
 | `CLOUDFLARE_READ_TOKEN` | Actions secret | The morning object check | Workers Scripts Read | With the deploy token |
 | `BREAKER_API_TOKEN` | Worker secret | The 15-minute breaker | Analytics read; this zone's WAF custom rules edit; can block the site | With the deploy token; alerts on 401 or 403 |
@@ -239,7 +280,7 @@ Stored nowhere: Global API Keys, live Stripe keys, tokens in git config or remot
 
 ## The content firewall here
 
-Assumed until Q34 · Q-firewall. The repository is public from its first push, so the site's firewall applies unchanged: policy in the site's [product.md](https://github.com/IHaveASegway/website/blob/main/docs/product.md) and [ADR 0007](https://github.com/IHaveASegway/website/blob/main/docs/adr/0007-content-firewall.md), mechanism in its [security.md](https://github.com/IHaveASegway/website/blob/main/docs/security.md#content-firewall-design).
+Decided on 2026-11-04 (Q34 · Q-firewall). The repository is public from its first push, so the site's firewall applies unchanged: policy in the site's [product.md](https://github.com/IHaveASegway/website/blob/main/docs/product.md) and [ADR 0007](https://github.com/IHaveASegway/website/blob/main/docs/adr/0007-content-firewall.md), mechanism in its [security.md](https://github.com/IHaveASegway/website/blob/main/docs/security.md#content-firewall-design).
 
 - **The same scripts** in `scripts/firewall/` (`check.sh`, `test.sh` with throwaway rules only, the pinned gitleaks, `sync-secrets.sh`) and `.githooks/`. Changes land in the site first.
 - **The same rules,** held as this repository's `FIREWALL_RULES` secrets, synced from the same private file; no term or hash of one ever enters this repository.
@@ -251,8 +292,8 @@ What regex cannot see, beyond the site's [list](https://github.com/IHaveASegway/
 | Gap | What carries it |
 |---|---|
 | A made-up name in the seed that matches a real business, venue or person | The seed's word lists, reviewed once in writing before the first sandbox; additions through the PR checklist |
-| Seattle places | Only the Route Lab's public map data, only as the made-up bakery's city (Q3 · Q-city) |
-| Names outside the repository: the Google Cloud project and consent screen, the Stripe account name, Worker names, the workers.dev subdomain | Checked once at setup ([operations.md](operations.md)) |
+| Salt Lake City places | Only public OpenStreetMap data from Geofabrik's Utah extract ([Geofabrik](https://download.geofabrik.de/), ODbL, as of 2026-11-04), 64 public places curated by pull request, only as the made-up bakery's city (Q3 · Q-city) |
+| Names outside the repository: the Google Cloud project and consent screen, the GitHub OAuth app, the Stripe account name, Worker names, the workers.dev subdomain | Checked once at setup ([operations.md](operations.md)) |
 | The `bakery-api` Wasm module | Built in CI from scanned source and never committed; the site's Wasm reader ([ADR 0017](https://github.com/IHaveASegway/website/blob/main/docs/adr/0017-firewall-reads-webassembly.md)) covers any module that is |
 
 **Scrubbing evidence:** what the site's [list](https://github.com/IHaveASegway/website/blob/main/docs/security.md#scrubbing-evidence) names (account and zone ids, Worker names other than `bakery-web` and `bakery-api`, every email address but `hello@ihaveasegway.com`, `cf-ray` suffixes, colos), plus the Stripe account id, webhook endpoint ids, and the Google Cloud project id and number.
@@ -274,7 +315,7 @@ Each control is configured once, in [delivery.md](delivery.md). Dependabot updat
 
 ## Account continuity
 
-The bakery lives in the site's Cloudflare account (Q29 · Q-account), so the site's [controls](https://github.com/IHaveASegway/website/blob/main/docs/security.md#account-continuity) cover it, and the same rules (hardware-key 2FA, a personal primary address, offline recovery codes) apply to the Stripe account and the Google Cloud project. If Joseph is away for months, nothing accumulates: the wipe runs nightly, every object has a backstop, and the plan fee is the only charge.
+The bakery lives in the site's Cloudflare account (Q29 · Q-account), so the site's [controls](https://github.com/IHaveASegway/website/blob/main/docs/security.md#account-continuity) cover it, and the same rules (hardware-key 2FA, a personal primary address, offline recovery codes) apply to the Stripe account, the Google Cloud project and the GitHub account that owns the OAuth app. If Joseph is away for months, nothing accumulates: the wipe runs nightly, every object has a backstop, and the plan fee is the only charge.
 
 ## Patterns and further reading
 

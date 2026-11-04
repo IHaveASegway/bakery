@@ -1,6 +1,6 @@
 # Cost
 
-What the made-up bakery's system costs to run, what breaks first on each Cloudflare plan under a launch, a bot or a bug, and the guardrails that keep both the bill and the breakage bounded. This doc owns the price sheet, the formulas, the per-sandbox meter, scenarios A–F, the guardrails, the upgrade-day checklist, the annual totals and denial of wallet. [ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md) owns the plan decision ([ADR index](adr/README.md)); [architecture.md](architecture.md) owns how the objects and the Queue fit together; [operations.md](operations.md) owns the runbooks that act on these numbers.
+What the system of the made-up bakery, Proof of Concept Bakery (Q2 · Q-name), costs to run, what breaks first on each Cloudflare plan under a launch, a bot or a bug, and the guardrails that keep both the bill and the breakage bounded. This doc owns the price sheet, the formulas, the per-sandbox meter, scenarios A–F, the guardrails, the launch checklist, the annual totals and denial of wallet. [ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md) owns the plan decision ([ADR index](adr/README.md)); [architecture.md](architecture.md) owns how the objects and the Queue fit together; [operations.md](operations.md) owns the runbooks that act on these numbers.
 
 Status: Draft for review in PR 1 · 2026-11-04
 
@@ -20,16 +20,18 @@ The storefront's pages stay static and unaffected on either plan. `bakery-web` i
 
 ## The headline
 
-Workers Paid for the account, the zone on its Free plan, and the site's upgrade-day guardrails from the first deploy ([ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md); Q27 · Q-plan, Q28 · Q-budget). Usage stays inside the included amounts at every realistic scenario below.
+Workers Paid for the account from launch day, the zone on its Free plan, and the site's guardrails applied in the launch pull request (PR 11), under an account ceiling of $100 a month ([ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md); Q27 · Q-plan and Q28 · Q-budget, answered 2026-11-04). Until then nothing is deployed and the bill is $0 ([the plan decision](#the-plan-decision)). Usage stays inside the included amounts at every realistic scenario below.
 
 | Recommended configuration | Value | Arithmetic |
 |---|---|---|
 | Monthly bill, scenario A (300 sandboxes, 10,000 page views) | **$5.00** | Plan minimum; usage $0 |
 | Included allowances used | Worker requests 0.45%, CPU 0.9%, DO requests 4.65%, GB-s 0.21%, rows written 3.0%, Queue 4.5%, logs 0.3% | Scenario A's table |
-| Year 1 | **$60.00** | 12 × $5.00; the domain is already paid |
+| Year 1 | **$60.00** | 12 × $5.00 from launch day; the domain is already paid |
+| The account's ceiling | $100 a month | Budget alerts at $10, $25, $50 and $100; the breaker's thresholds derive from it ([guardrails](#guardrails)) |
 | First overage charge | $0.15, at about 6,450 sandboxes a month | DO requests pass 1M and round up to the next million |
 | First overage dollar | At about 10,130 sandboxes a month, 34 times scenario A | Mostly rows written past 50M |
-| The month at `Control`'s cap (300 a day, 9,000 a month) | $5.29 | $0.15 of DO requests + $0.14 of Queue operations |
+| The month at `Control`'s cap (300 a day, 9,000 a month) | $5.29 | $0.15 of DO requests + $0.14 of Queue operations; 5.3% of the ceiling |
+| Scenario A with 30 minutes of simulated traffic in every sandbox | $5.00 | DO requests 11.9%, rows written 4.8%, Queue 20.9% of the included amounts ([scenario A](#a-a-quiet-month)) |
 
 The included amounts belong to the account, and the site's lab draws on them too: about 0.3% of the rows in its quiet month ([site cost.md](https://github.com/IHaveASegway/website/blob/main/docs/cost.md), scenario A).
 
@@ -60,6 +62,7 @@ As of 2026-11-04. The WAF row belongs to the zone plan, which stays Free either 
 | Budget alerts | The plan is the cap | Notify only, on usage (fee excluded), processed daily (as of 2026-10-22) | [budget alerts](https://developers.cloudflare.com/billing/manage/budget-alerts/) |
 | Stripe sandbox | $0; not processed by card networks | — | [Stripe sandboxes](https://docs.stripe.com/sandboxes) |
 | Google sign-in | $0 assumed: no published price; confirmed when the client is created | — | [Google OIDC](https://developers.google.com/identity/openid-connect/openid-connect) |
+| GitHub sign-in | $0 assumed: OAuth apps carry no published price; confirmed when the app is created | — | [Authorizing OAuth apps](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps) |
 | GitHub Actions | Free for public repositories | — | [GitHub](https://docs.github.com/en/billing/concepts/product-billing/github-actions) |
 | The domain | Paid through 2036-10-18 (the site's Q-renew) | Same | [site product.md](https://github.com/IHaveASegway/website/blob/main/docs/product.md) |
 
@@ -67,6 +70,7 @@ Notes:
 
 - **Rounding.** DO requests and duration bill past the allowance in whole millions: the first request past 1M costs $0.15, the first GB-s past 400,000 costs $12.50. Per-1,000 figures below are averages.
 - **Gaps, with the value to plan for** (spikes in [roadmap.md](roadmap.md)): `deleteAll()` billing, one row per row removed (S5); whether point-in-time recovery's 30 days count as storage, no (S5); whether `limits.cpu_ms` covers the Worker's DOs, yes (S1); a consumer batch counts as a Worker request (S1); Stripe's sandbox retry schedule (S3). The Rate Limiting binding counts approximately and per location, so it is never a budget.
+- **Email sign-in, later** (Q43 · Q-email-signin): one send per sign-in link, inside the 3,000 a month included on Paid, then $0.35 per 1,000 (the Email Service row). Turnstile and the per-IP-hash and per-address limits bound the count ([security.md](security.md#email-sign-in-later)). Sending exists on Paid only, so it cannot ship before launch.
 - Re-check on any pricing changelog entry, and yearly ([operations.md](operations.md)).
 
 ## Formulas
@@ -111,6 +115,16 @@ One sandbox session of about 20 minutes, then its share of the nightly wipe. As 
 | Queue operations | 147 | 3 | 150 | 50 events × 3, `SandboxSeeded` and `SandboxWiped` included |
 | Analytics Engine points | 9 | 1 | 10 | Start, seed, sign-in, admit or deny, payments, end, wipe (assumed) |
 | Log events | 165 | 35 | 200 | One per Worker request and consumer batch; one per object wiped |
+
+**Optional: with 30 minutes of simulated traffic** (Q40 · Q-traffic). Signed-in sandboxes only, at the top rate of 6 orders a minute: 180 orders, each about 8 rows, 3 Queue operations and 1 DO request (the order's event, outbox, state, lines, key and timer; one event on the Queue), the planning estimate until PR 4 measures one. Add these to the line above when a sandbox runs the full 30 minutes:
+
+| Meter, per sandbox | Traffic | Wipe | Total | Arithmetic |
+|---|---|---|---|---|
+| Worker requests | 2 | 0 | 2 | Start and Stop; the ticks are alarms, not Worker requests |
+| DO requests | 242 | 1 | 243 | 180 orders × 1 + 30 alarm runs + 30 Kitchen socket checks + 2 to `Control` (reserve, settle); wipe one object |
+| DO GB-s | 0.31 | 0.01 | 0.32 | 242 × 10 ms = 2.42 s × 0.128 |
+| Rows written | 1,500 | 1,500 | 3,000 | 180 × 8 = 1,440 + 30 `setAlarm()` rows + 30 minute-ledger rows; the wipe deletes as many |
+| Queue operations | 546 | 0 | 546 | 180 events × 3 = 540, + 6 for `TrafficStarted` and `TrafficStopped` |
 
 Rows written at seed, by object (approximate; [domain.md](domain.md) owns the seed, Q26 · Q-seed):
 
@@ -173,6 +187,8 @@ Both plans, what fails first and what visitors see, from the [price sheet](#pric
 
 A quiet day on Free sits at 50% of the rows cap: the site's own upgrade trigger 2.
 
+**If every sandbox runs the full 30 minutes of simulated traffic**, scenario A adds 300 × the [optional line](#the-per-sandbox-meter): DO requests 300 × 243 = 72,900 (7.3% of 1M, 11.9% with the base 46,500); rows written 300 × 3,000 = 900,000 (1.8% of 50M, 4.8% in total); Queue operations 300 × 546 = 163,800 (16.4% of 1M, 20.9% in total); DO GB-s 300 × 0.32 = 96 (0.02% of 400,000); Worker requests 600 (0.006% of 10M). The bill stays **$5.00**. If a simulated order costs five times the estimate, Queue operations reach 85.7% and DO requests 33.5% of the included amounts, still $5.00; Queue operations are the meter to watch.
+
 ### B. A launch day
 
 2,000 sandboxes in 24 hours and 100,000 page views, on top of scenario A. At `Control`'s default cap of 300, 1,700 visitors (85%) are refused and the month is 600 sandboxes; the launch runbook raises the cap to 2,500 for the day ([operations.md](operations.md)), and the Paid column assumes it.
@@ -205,7 +221,7 @@ With no controls (every request seeds a sandbox):
 | **Bill** | **$0.00** | **$303.00** | **About $10,380** |
 | Visitors see | No sandbox all day, here and in the site's lab | Normal | Normal |
 
-The damage rate is $14.44 an hour: 3,600 × 4,000 = 14.4M rows ($14.40) plus 252,000 DO requests. A $50 alert arrives on the second day.
+The damage rate is $14.44 an hour: 3,600 × 4,000 = 14.4M rows ($14.40) plus 252,000 DO requests. The $10, $25, $50 and $100 alerts all arrive on the second day, after about $347 of usage (24 × $14.44).
 
 With the planned controls:
 
@@ -252,13 +268,15 @@ On Free at 20 a day the wipe writes 50,000 rows at 10:00 UTC, half the new day's
 
 ## The plan decision
 
-Workers Paid for the account, from the first deploy, with the guardrails below; the rationale, alternatives and Revisit if are in [ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md) (Q27 · Q-plan). The account is the site's (Q29 · Q-account), so the move fires the Revisit if of the site's [ADR 0008](https://github.com/IHaveASegway/website/blob/main/docs/adr/0008-workers-free-with-guardrails.md), and the site records a superseding ADR in its own repository.
+Workers Paid for the account, from launch day, with the guardrails below; the rationale, alternatives and Revisit if are in [ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md) (Q27 · Q-plan). The account is the site's (Q29 · Q-account), so the move fires the Revisit if of the site's [ADR 0008](https://github.com/IHaveASegway/website/blob/main/docs/adr/0008-workers-free-with-guardrails.md), and the site records a superseding ADR in its own repository.
 
-Free is the fallback if Q27 goes the other way. What it allows:
+**Nothing is deployed until the launch pull request (PR 11)** (Q44 · Q-posture, speed first until launch). Until then the account stays on Free, as the site is today, and the bakery bills $0. Local development on `wrangler dev` runs the Worker, its DOs and its Queue locally ([local development](https://developers.cloudflare.com/workers/development-testing/), as of 2026-11-04) and has no Cloudflare cost. The upgrade, the $5 fee and every guardrail below that needs a deployed Worker or the zone arrive in that pull request.
+
+Free stays the fallback if the decision is ever reversed. What it allows:
 
 - **About 20 sandboxes a day, bound by rows written**, 14 inside `Control`'s 70%, half the rows reserved for the wipe.
 - **Queues at 10,000 operations a day**: 66 sandboxes, not binding before rows.
-- **No email sends** but to verified addresses; no change, since mail lands in the sandbox's inbox screen (Q22 · Q-email).
+- **No email sends** but to verified addresses; no change, since mail lands in the sandbox's inbox screen (Q22 · Q-email), but no email sign-in either.
 - **10 ms of CPU in the stateless Worker**: demo passwords fall back to PBKDF2 through WebCrypto ([security.md](security.md#sign-in-and-sessions)).
 - **Caps shared with the site's lab**, which a busy bakery day darkens too.
 
@@ -266,54 +284,57 @@ On Free the bakery serves 14 people a day; on Paid, 300, for $60 a year.
 
 ## Guardrails
 
-Each control arrives with the work that needs it, in Q37 · Q-order-of-work's phases ([roadmap.md](roadmap.md)). Limits as of 2026-11-04.
+Each control arrives with the work that needs it, in Q37 · Q-order-of-work's phases ([roadmap.md](roadmap.md)); a control that needs a deployed Worker or the zone arrives in the launch pull request (PR 11), since nothing runs in Cloudflare before it. Limits as of 2026-11-04.
 
 | When | Control | Setting | Protects |
 |---|---|---|---|
-| Upgrade day | Budget alerts | $10, $25, $50 of usage (Q28 · Q-budget); the fee is excluded, so any alert means a guardrail failed | Notice within a day |
+| Launch (PR 11) | Budget alerts | $10, $25, $50 and $100 of usage, the last the account's ceiling (Q28 · Q-budget); the fee is excluded, so any alert means a guardrail failed | Notice within a day |
 | Foundation | `limits.cpu_ms` on `bakery-api` | 300 ms, twice an estimated 150 ms argon2id hash, raised only from a spike S1 measurement; `bakery-web` runs no code, so it has nothing to bound | CPU runaway |
-| Foundation | The zone's rate-limiting rule on `api.bakery.ihaveasegway.com` | IP, 10 s period, 10 s block; for example 50 per period | Dollars per flooding IP |
-| Foundation | A disabled WAF custom rule blocking the API hostname (kill switch L3) | 1 of 5 Free custom rules | Outside traffic, if WAF runs first (the site's spike S2, pending) |
-| Foundation | The 15-minute cron breaker in `bakery-api`: reads metered usage from analytics, sets `Control` to `read-only` or `off`, enables the WAF kill rule, emails Joseph's verified address; detaching the custom domain (L4) follows by hand ([operations.md](operations.md)) | Each meter at 4× its 15-minute share of `Control`'s budget | The alerts' day of lag; loops |
+| Launch (PR 11) | The zone's rate-limiting rule on `api.bakery.ihaveasegway.com` | IP, 10 s period, 10 s block; for example 50 per period | Dollars per flooding IP |
+| Launch (PR 11) | A disabled WAF custom rule blocking the API hostname (kill switch L3) | 1 of 5 Free custom rules | Outside traffic, if WAF runs first (the site's spike S2, pending) |
+| Launch (PR 11) | The 15-minute cron breaker in `bakery-api`: reads metered usage from analytics, sets `Control` to `read-only` or `off`, enables the WAF kill rule, emails Joseph's verified address; detaching the custom domain (L4) follows by hand ([operations.md](operations.md)) | Each meter at 4× its 15-minute share of `Control`'s budget, or usage priced past $100 ÷ 2,880 runs = $0.035 in one window, the rate that would spend the ceiling in a month | The alerts' day of lag; loops |
 | Foundation | No KV: counters and flags in `Control`'s SQLite or memory | CI fails on a `kv_namespaces` binding | The costliest write on the sheet |
 | Foundation | Batch writes: events and outbox in one transaction per command; the relay sends batches | — | The 12-writes-per-message multiplier |
-| Auth, sandbox and wipe | `Control`'s daily caps and budgets, charged at the meter's ceiling on admission; if `Control` errors, no sandbox | Sandboxes 300; demo accounts 100; rows 1.6M; DO requests 50,000; Queue operations 50,000. On Free, 70% of each cap, the wipe's rows reserved first | $5.29 a month at most |
+| Auth, sandbox and wipe | `Control`'s daily caps and budgets, charged at the meter's ceiling on admission; if `Control` errors, no sandbox | Sandboxes 300, of which guests 100 (Q45 · Q-guest-scope); demo accounts 100; rows 1.6M; DO requests 50,000; Queue operations 50,000. On Free, 70% of each cap, the wipe's rows reserved first | $5.29 a month at most |
 | Auth, sandbox and wipe | Turnstile before a sandbox or demo account | Single-use token, verified server-side | The costliest request |
-| Auth, sandbox and wipe | Rate Limiting binding per session and per IP hash | Sandbox creation 1 per 60 s per IP hash; commands 60 per 60 s per session; upgrades 6 per 60 s | One sender's churn; never a budget |
-| Auth, sandbox and wipe | The session cookie: no object is addressed without `__Host-session` | 24 h ([security.md](security.md#sign-in-and-sessions)) | Objects created by strangers |
+| Auth, sandbox and wipe | Rate Limiting binding per session and per IP hash | Sandbox creation 1 per 60 s per IP hash; commands 60 per 60 s per session or per API token; upgrades 6 per 60 s | One sender's churn; never a budget |
+| Auth, sandbox and wipe | The session cookie or the API token: no object is addressed without one | 24 h ([security.md](security.md#sign-in-and-sessions)) | Objects created by strangers |
 | Auth, sandbox and wipe | An object its `Sandbox` has not initialized refuses every request and writes nothing | — | Objects summoned after the wipe or by a guessed name |
 | Auth, sandbox and wipe | Cleanup: each object's 36 h backstop alarm, then `deleteAll()`; the 10:00 UTC wipe | Q25 · Q-ttl | Storage and the privacy promise |
 | Auth, sandbox and wipe | Alarm loop guard: re-arm only for a later time, at most 100 times a day per object | Counted in the object's SQLite | Scenario D |
 | Kitchen board | Hibernation API only (`State::accept_web_socket`), auto-response pings, no timers in objects | A lint fails a timer | Idle duration: 11,059 GB-s a day per non-hibernating socket |
 | Kitchen board | The consumer holds no producer; DLQ after 3 retries | — | Queue loops |
+| Kitchen board and simulated traffic (PR 4) | The `Simulator`'s caps: signed-in sandboxes only; runs only while the console's socket or heartbeat is live; reserved in `Control`'s ledger at its ceiling and charged to the daily budgets above | 6 orders a minute; 30 minutes a sandbox a UTC day; stopped by the wipe. On a day at the 300-sandbox cap the Queue budget leaves room for about 9 full runs (5,000 ÷ 546) | A load generator of our own making: about $0.0033 of meters per run at overage prices, 92% of it rows, and the designed worst month stays $5.29 |
 | Payments | Stripe sandbox key guard in CI and the Worker | Any non-sandbox key refused; payment routes answer 503 ([security.md](security.md#payments-safety)) | Real money moving at all |
 
-At `Control`'s caps the worst designed month is $5.29, so a $10 alert means usage went around `Control`: a loop, a ledger bug, or a meter this doc counts wrong. That is why the breaker reads the account's real usage from analytics and not `Control`'s counters.
+At `Control`'s caps the worst designed month is $5.29, 5.3% of the $100 ceiling, so a $10 alert means usage went around `Control`: a loop, a ledger bug, or a meter this doc counts wrong. That is why the breaker reads the account's real usage from analytics and not `Control`'s counters.
 
-## The upgrade-day checklist
+<a id="the-upgrade-day-checklist"></a>
 
-The site's checklist, applied the day the account moves, before `bakery-api` serves its first sandbox, in order:
+## The launch checklist
 
-1. Q27 · Q-plan and Q28 · Q-budget answered; [ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md) Accepted; the site's superseding ADR merged.
+The site's checklist, applied in the launch pull request (PR 11) on launch day, before `bakery-api` serves its first sandbox, in order:
+
+1. The Launch gate passed: PRs 2 to 10 merged, spike S1 passed, Joseph's end-to-end read on `wrangler dev`, the name's registry check done. Q27 · Q-plan and Q28 · Q-budget were answered on 2026-11-04; [ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md) Accepted; the site's superseding ADR merged.
 2. Upgrade the account; record the date in [ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md).
-3. Budget alerts at $10, $25 and $50.
+3. Budget alerts at $10, $25, $50 and $100.
 4. Deploy `bakery-api` with `limits.cpu_ms`, and see it in the dashboard.
 5. The rate-limiting rule on the API hostname and the disabled WAF kill rule, tested first on a throwaway path (the site's spike S2).
-6. The cron breaker with its own token ([security.md](security.md#secrets-inventory)); force one trip with zero thresholds, then restore them.
+6. The cron breaker with its own token ([security.md](security.md#secrets-inventory)), its dollar threshold derived from the $100 ceiling; force one trip with zero thresholds, then restore them.
 7. `Control`'s budgets to their Paid values; until now they keep the Free sizes.
-8. The site's own upgrade-day guardrails on its lab Worker, which its docs own.
+8. The site's own Paid guardrails on its lab Worker, which its docs own.
 9. Next day, the billable-usage dashboard shows only the $5 plan; any line that scenario A does not explain is a guardrail failure.
 
 ## Annual totals
 
-Year 1 runs from 2026-11-04.
+Year 1 runs from launch day, the launch pull request (PR 11). Until then the account stays on Free and the bakery bills $0.
 
 | Item | Paid path | Free path |
 |---|---|---|
 | Workers plan | $60.00 | $0 |
 | Usage at scenarios A, B and F | $0 | $0, at about 14 sandboxes a day |
 | The domain, paid through 2036-10-18 (the site's Q-renew) | $0 | $0 |
-| Certificates (Custom Domains), GitHub Actions (public), Stripe sandbox, Google sign-in (assumed), Turnstile, Analytics Engine | $0 | $0 |
+| Certificates (Custom Domains), GitHub Actions (public), Stripe sandbox, Google and GitHub sign-in (assumed), Turnstile, Analytics Engine | $0 | $0 |
 | **Year 1** | **$60.00** | **$0.00** |
 
 The $60 is the account's and covers the site too. The first overage dollar needs about 10,130 sandboxes in a month, which `Control`'s cap does not allow.

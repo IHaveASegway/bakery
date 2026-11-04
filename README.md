@@ -1,8 +1,8 @@
 # bakery
 
-A made-up bakery from the [Lab](https://ihaveasegway.com/lab/) on ihaveasegway.com, built as a running business system: online ordering, pickup and delivery scheduling, catering, billing through Stripe's sandbox, and a CRM with campaigns. Every backend is Rust on Cloudflare Workers, and state lives in SQLite-backed Durable Objects (DOs). Each visitor gets a private sandbox, seeded with synthetic history and wiped every night. It is a portfolio demo of architecture, modelled on [Joseph Peterson's site](https://github.com/IHaveASegway/website), and it is built in the open with its decisions written down.
+Proof of Concept Bakery is a made-up bakery from the [Lab](https://ihaveasegway.com/lab/) on ihaveasegway.com, built as a running business system: online ordering, pickup and delivery scheduling, catering, billing through Stripe's sandbox, and a CRM with campaigns. Every backend is Rust on Cloudflare Workers, and state lives in SQLite-backed Durable Objects (DOs). Each visitor gets a private sandbox, seeded with synthetic history and wiped every night. It is a portfolio demo of architecture, modelled on [Joseph Peterson's site](https://github.com/IHaveASegway/website), and it is built in the open with its decisions written down.
 
-**Status:** planning. PR 1 writes the plan in `docs/` before any code, on 2026-11-04. Nothing is deployed. The open decisions are in [docs/product.md](docs/product.md#open-decisions).
+**Status:** planning. PR 1 wrote the plan in `docs/` before any code, on 2026-11-04. Joseph answered the blocking questions the same day, and PR 2 is next, built local-first: nothing is deployed until the launch pull request (PR 11). The questions and their answers are in [docs/product.md](docs/product.md#open-decisions).
 
 - [docs/README.md](docs/README.md) is the index and gives a reading order.
 - [docs/product.md](docs/product.md) covers why the bakery exists, who it is for, and the open decisions.
@@ -18,7 +18,7 @@ A made-up bakery from the [Lab](https://ihaveasegway.com/lab/) on ihaveasegway.c
 
 ## Setup
 
-The setup lands with PR 2 (the scaffold). It is written here ahead of it, so the plan can be read against it. Until PR 2 merges, `pnpm install` and the commands below do not exist.
+The setup lands with PR 2 (the local-first foundation). It is written here ahead of it, so the plan can be read against it. Until PR 2 merges, `pnpm install` and the commands below do not exist. Nothing is deployed until the launch pull request (PR 11), and until then both Workers, `bakery-web` and `bakery-api`, run on `wrangler dev` on your machine.
 
 1. **Rust stable**, through `rust-toolchain.toml`, with the WebAssembly target: `rustup target add wasm32-unknown-unknown`. Then `cargo install worker-build`, the tool that compiles a `worker` crate into a Worker module ([stack.md](docs/stack.md)).
 2. **Node 26**, from `.nvmrc` (`nvm use`).
@@ -29,7 +29,7 @@ The setup lands with PR 2 (the scaffold). It is written here ahead of it, so the
 
 ## Commands
 
-All of these are planned. They are listed so the plan names what the pipeline will run, and each one exists only once the pull request that adds it has merged ([roadmap.md](docs/roadmap.md)).
+All of these are planned, and all of them run locally: nothing is deployed until the launch pull request (PR 11), and both Workers run on `wrangler dev` until then. They are listed so the plan names what the pipeline will run, and each one exists only once the pull request that adds it has merged ([roadmap.md](docs/roadmap.md)).
 
 | Command | What it does |
 | --- | --- |
@@ -46,13 +46,13 @@ All of these are planned. They are listed so the plan names what the pipeline wi
 
 ## Deploy and roll back
 
-**Deploy:** merge the pull request. CI builds once, runs the gates, and deploys the API Worker first and the storefront Worker second, so the page never calls an endpoint that does not exist yet. The pipeline, its previews and its gates are in [delivery.md](docs/delivery.md).
+**Deploy:** nothing is deployed until the launch pull request (PR 11). From then on, merge the pull request. CI builds once, runs the gates, and deploys the API Worker first and the storefront Worker second, so the page never calls an endpoint that does not exist yet. The pipeline, its previews and its gates are in [delivery.md](docs/delivery.md).
 
 **Roll back:** per Worker, to a version the dashboard or the deploy summary names. Rolling back the storefront changes only static files. Rolling back the API has one limit: a rollback cannot cross a Durable Object migration (a class added, renamed or deleted), so a release that carries one rolls forward. The steps are in [delivery.md](docs/delivery.md) and [operations.md](docs/operations.md).
 
 ## Privacy
 
-What a visitor should know: the bakery is a sandbox. Every visitor gets a private copy of a made-up bakery, filled with synthetic customers and orders. It holds no personal data by construction: no email, no name, no real address. Sign-in with Google learns only an opaque identifier. Payments use Stripe's test cards and never move money. Everything in a sandbox is wiped every night at 10:00 UTC (02:00 Pacific standard time, 03:00 in summer). The full promise and its inventory are in [security.md](docs/security.md), and the privacy page, `/privacy/` on the bakery's site, will state it once it exists.
+What a visitor should know: Proof of Concept is a sandbox. Every visitor gets a private copy of the made-up bakery, filled with synthetic customers and orders. It holds no personal data by construction: no email, no name, no real address. Sign-in with Google or GitHub learns only an opaque identifier, and the bakery never stores your name or email. Payments use Stripe's test cards and never move money. Everything in a sandbox is wiped every night at 10:00 UTC (03:00 Mountain standard time, 04:00 in summer). The full promise and its inventory are in [security.md](docs/security.md), and the privacy page, `/privacy/` on the bakery's site, will state it once it exists.
 
 ## License
 

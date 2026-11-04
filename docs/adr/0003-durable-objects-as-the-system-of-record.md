@@ -13,17 +13,17 @@ Platform facts, as of 2026-11-04:
 - **Recovery** ([SQLite storage API](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/)). Point-in-time recovery keeps 30 days of history, so deleted rows can be restored for a month. workers-rs does not bind it ([ADR 0002](0002-rust-for-every-backend.md)).
 - **Alarms** ([alarms](https://developers.cloudflare.com/durable-objects/api/alarms/), read 2026-11-04). Each object holds one alarm at a time; the handler runs at least once and is retried with exponential backoff from 2 s, up to 6 retries.
 
-The site's lab wrote rules for its own DOs, and they apply here ([the site's lab.md](https://github.com/IHaveASegway/website/blob/main/docs/lab.md)): SQLite-backed classes only; the Hibernation API only for sockets, with pings answered by auto-response; no timers inside an object, alarms only; alarms idempotent, re-armed only for a later time and at most 100 times a day per object; names come from the server, never the URL; every object has a cleanup alarm and ends with `deleteAll()`; handlers short. The site's Outbox Lab simulates a transactional outbox inside one object; the bakery runs one for real across thirteen classes.
+The site's lab wrote rules for its own DOs, and they apply here ([the site's lab.md](https://github.com/IHaveASegway/website/blob/main/docs/lab.md)): SQLite-backed classes only; the Hibernation API only for sockets, with pings answered by auto-response; no timers inside an object, alarms only; alarms idempotent, re-armed only for a later time and at most 100 times a day per object; names come from the server, never the URL; every object has a cleanup alarm and ends with `deleteAll()`; handlers short. The site's Outbox Lab simulates a transactional outbox inside one object; the bakery runs one for real across fourteen classes.
 
 ## Decision
 
 1. **SQLite-backed DOs are the system of record.** No other database holds the bakery's state. Static content (the public menu, built from the seed) is a static asset, and the Cache API holds copies only.
-2. **One object per aggregate**, thirteen classes, all in `bakery-api`:
+2. **One object per aggregate**, fourteen classes, all in `bakery-api`:
 
 | Context | Class | One per | Holds |
 |---|---|---|---|
 | Platform | `Control` | the account, named `control` | flags (`live`, `read-only`, `off`), the daily ledger of sandboxes, requests and rows, the kill switch, the daily IP salt |
-| Platform | `Account` | identity (HMAC of the Google `sub`, or the demo username) | the demo password hash, the current sandbox id, the day created |
+| Platform | `Account` | identity (HMAC of the Google `sub` or the GitHub `id`, or the demo username) | the demo password hash, the current sandbox id, the day created |
 | Platform | `Sandbox` | sandbox | lifecycle, seed, the registry of child object names, the clock offset, the nightly wipe and the 36 h backstop alarm |
 | Storefront | `Catalog` | sandbox | menu items, categories, prices, availability, the menu version |
 | Ordering | `Order` | order | its event log, state machine, idempotency keys, the expiry alarm |
@@ -35,6 +35,7 @@ The site's lab wrote rules for its own DOs, and they apply here ([the site's lab
 | CRM | `Customer` | customer persona | the synthetic profile, preferences, consent flags, loyalty balance |
 | CRM | `Crm` | sandbox | projections: customer list, timelines, segments, campaign stats; the rebuild cursor |
 | CRM | `Inbox` | sandbox | the simulated mailbox: messages, opens, clicks |
+| Simulation | `Simulator` | sandbox, named `simulator:<sandbox>` | the traffic rate, the running flag, the minute ledger, its alarm; on each alarm it issues ordinary commands as synthetic customers (Q40 · Q-traffic) |
 
 3. **Events and outbox in one transaction.** A command loads the aggregate, runs `decide`, and appends the resulting events to the object's `events` table and the same rows to its `outbox` table inside one `Storage::transaction`. State is derived from `events` by `evolve` and cached in ordinary tables in the same transaction. Either all of it commits or none does. Relaying the outbox is [ADR 0004](0004-queues-between-objects-and-alarms-for-time.md). The envelope and the event catalog are in [domain.md](../domain.md).
 4. **Projections live in their own objects.** `Crm` and `Kitchen` hold read models built from other objects' events, never written by a command directly. A projection can be dropped and rebuilt by replaying the source logs; the "rebuild projections" control does that with a progress bar (Q21 · Q-crm-scope), which is the Backfill Lab's principle running for real.
@@ -48,7 +49,7 @@ The site's lab wrote rules for its own DOs, and they apply here ([the site's lab
 
 | Option | Gains | Costs | Verdict |
 |---|---|---|---|
-| **One object per aggregate, events and outbox per object (chosen)** | Consistency: a single writer per aggregate, so invariants hold without locks. Latency: storage is local to the code. Evolvability: each aggregate's schema changes alone | Operability: thirteen classes, cross-object work through messages, a registry to wipe. Consistency: only eventual between aggregates | Chosen |
+| **One object per aggregate, events and outbox per object (chosen)** | Consistency: a single writer per aggregate, so invariants hold without locks. Latency: storage is local to the code. Evolvability: each aggregate's schema changes alone | Operability: fourteen classes, cross-object work through messages, a registry to wipe. Consistency: only eventual between aggregates | Chosen |
 | D1 as one central database | Operability: one schema, SQL joins across the domain, familiar migrations | Cost: every read and write is a billed query over the network. Consistency: no single-writer guarantee per aggregate, so invariants need transactions and retries. Evolvability: D1 is alpha in workers-rs. The demo's point, aggregates as objects, is lost | Rejected |
 | One object per sandbox holding everything | Cost and operability: one object to seed and wipe, one transaction for any command, no queue; a modular monolith in a box | Latency: every command and every socket in a sandbox serializes behind one thread. Evolvability: it shows none of the cross-object patterns (outbox, idempotent consumers, sagas, projections) the bakery exists to show | Rejected |
 | Workers KV | Cost: cheap reads at the edge | Consistency: eventually consistent, no transactions, no single writer; unfit for an order's state machine | Rejected |
