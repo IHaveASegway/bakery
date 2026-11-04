@@ -1,0 +1,50 @@
+# Version updates (docs/delivery.md, "Config as code" and "Dependency policy"). Security updates
+# skip the cooldown and arrive at once. gitleaks is not managed here: scripts/firewall/gitleaks.version
+# moves quarterly, by hand. worker, worker-build and wasm-bindgen move together, by hand, after the
+# release notes (delivery.md, "Dependency policy"), so cargo ignores them. Cargo-installed tools in
+# [workspace.metadata.tools] are not crate dependencies, so Dependabot does not see them either.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+    cooldown: # a release must age before it is proposed; most malicious versions are pulled within a week
+      default-days: 3
+      semver-major-days: 14
+    groups:
+      minor-and-patch: # one pull request, merged every other Monday; majors arrive one at a time
+        update-types: [minor, patch]
+        patterns: ['*']
+    ignore: # moved by hand, together
+      - dependency-name: worker
+      - dependency-name: worker-build
+      - dependency-name: wasm-bindgen
+
+  - package-ecosystem: npm # covers pnpm: the root lockfile, the workspace and the catalog
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+    cooldown:
+      default-days: 3
+      semver-major-days: 14
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+        patterns: ['*']
+
+  - package-ecosystem: github-actions # version tags, not SHAs; the hardening rules compensate
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ['*']

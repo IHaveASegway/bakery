@@ -1,0 +1,39 @@
+---
+import '../styles/global.css';
+import tokensCss from '../styles/tokens.css?raw';
+import { chromeColor } from '../lib/tokens';
+
+interface Props {
+  title: string;
+  description: string;
+}
+const { title, description } = Astro.props;
+
+// The browser chrome takes the page's background: one theme-color meta per OS scheme, read from
+// tokens.css at build so no second copy of a color exists. There is no inline script, so the
+// theme follows the OS.
+const chrome = (['dark', 'light'] as const).map((scheme) => ({
+  media: `(prefers-color-scheme: ${scheme})`,
+  color: chromeColor(tokensCss, scheme),
+}));
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    {chrome.map(({ media, color }) => (
+      <meta name="theme-color" media={media} content={color} />
+    ))}
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="robots" content="noindex" />
+  </head>
+  <body>
+    <main>
+      <slot />
+    </main>
+  </body>
+</html>

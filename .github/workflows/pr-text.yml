@@ -1,0 +1,34 @@
+# Scans a pull request's title, body and branch name again whenever they are edited (security.md,
+# "Scan surfaces", surface 3). ci.yml scans them on every push; without this, text edited after the
+# last push would first be scanned in the merge commit's message, once it is already on main.
+name: pr-text
+
+on:
+  pull_request:
+    types: [edited]
+
+permissions: {} # rule 1
+
+concurrency:
+  group: pr-text-${{ github.event.pull_request.number }}
+  cancel-in-progress: true # only the latest text matters
+
+jobs:
+  pr-text:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5 # rule 9
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false # rule 7
+      - name: Content firewall, the pull request's text only (exit 1 is a finding, 2 is cannot prove clean)
+        env:
+          # Rule 2: the secret exists only in this step. A Dependabot run reads the Dependabot copy.
+          GITLEAKS_CONFIG_TOML: ${{ secrets.FIREWALL_RULES }}
+          # Rule 3: pull request text reaches the script through env, never through ${{ }} in run.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_BRANCH: ${{ github.head_ref }}
+        run: scripts/firewall/check.sh --pr-text

@@ -1,0 +1,201 @@
+# The pipeline before launch: three jobs, and nothing deploys (docs/delivery.md, "Before launch").
+# Deploy, preview, e2e and Lighthouse jobs arrive in PR 11, the launch pull request, with the
+# deploy token; until then no job holds a Cloudflare credential. The shape follows the site's
+# ci.yml, whose steps are named in plain sentences.
+#
+# The hardening rules are delivery.md's "Hardening rules", marked where they apply. Rules 4, 5, 10
+# and 11 have nothing to mark yet: no job holds a deploy token, and the only actions are
+# GitHub-created ones plus pnpm/action-setup. Rule 12 is the bakery's own: cargo installs are
+# --locked and --version-pinned.
+name: ci
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened] # a title or body edited later: pr-text.yml
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 7 * * 1' # the weekly rebuild, Monday 07:17 UTC: off the hour, when GitHub drops fewer runs
+
+permissions: {} # rule 1: each job grants only what its row in delivery.md says
+
+concurrency:
+  # Rule 8: a new push to a pull request cancels its superseded run. Every other run waits for
+  # its turn in the group and is never cancelled.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  ASTRO_TELEMETRY_DISABLED: '1' # the build talks to no one it does not need
+  WRANGLER_SEND_METRICS: 'false'
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25 # rule 9: a cold Rust build is slow, hence the cache below
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false # rule 7
+      - uses: pnpm/action-setup@v6 # no version input: pnpm reads packageManager
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Rust, from rust-toolchain.toml, with the WebAssembly target
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add wasm32-unknown-unknown
+          rustc --version
+          cargo --version
+      - name: Cache the cargo registry, git checkouts and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+      - name: Cargo tool versions, read from Cargo.toml's [workspace.metadata.tools]
+        id: tools
+        run: |
+          meta="$(cargo metadata --no-deps --format-version 1 --locked)"
+          for tool in worker-build cargo-deny; do
+            version="$(jq -r --arg t "$tool" '.metadata.tools[$t] // empty' <<<"$meta")"
+            if ! printf '%s' "$version" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+'; then
+              echo "::error::cannot read an exact version for $tool from [workspace.metadata.tools]"
+              exit 1
+            fi
+            echo "$tool=$version" >> "$GITHUB_OUTPUT"
+          done
+      - name: Install worker-build (rule 12, --locked and pinned)
+        run: cargo install worker-build --locked --version "${{ steps.tools.outputs.worker-build }}"
+      - name: Install cargo-deny (rule 12, --locked and pinned)
+        run: cargo install cargo-deny --locked --version "${{ steps.tools.outputs.cargo-deny }}"
+      - run: pnpm install --frozen-lockfile
+      # Rust: format, lint, test, supply chain
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace --locked
+      - name: Licenses, advisories, bans and sources (cargo deny)
+        run: cargo deny check
+      # The API's bundle: built once here from scanned source, scanned by firewall, never committed
+      - name: Build the API's WebAssembly (worker-build)
+        working-directory: workers/api
+        run: worker-build --release
+      - name: Bundle the API without deploying it (the bytes firewall scans)
+        working-directory: workers/api
+        run: pnpm exec wrangler deploy --dry-run --outdir dist
+      # The web app: build, test, typecheck, lint, format
+      - run: pnpm build
+      - run: pnpm test
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm format:check
+      # Fitness functions that need no browser and no edge (delivery.md, "Quality gates")
+      - name: No Workers Cache in any wrangler.jsonc (it bills every asset request)
+        run: |
+          bad=0
+          while IFS= read -r -d '' f; do
+            # trailing line comments are dropped first, so a comment that names the key is not one
+            if sed -E 's#(^|[[:space:]])//.*$##' "$f" | grep -q '"cache"'; then
+              echo "::error file=$f::cache is set in this config; the bakery never enables it"
+              bad=1
+            fi
+          done < <(find . -name wrangler.jsonc -not -path '*/node_modules/*' -not -path './target/*' -print0)
+          exit "$bad"
+      - name: crates/domain and crates/app depend on no platform crate (cargo metadata)
+        run: |
+          cargo metadata --format-version 1 --locked | jq -e '
+            ["worker", "worker-sys", "worker-macros", "wasm-bindgen", "wasm-bindgen-futures", "js-sys", "web-sys"] as $platform
+            | (.resolve.nodes | map({key: .id, value: [.deps[].pkg]}) | from_entries) as $edges
+            | (.packages | map({key: .id, value: .name}) | from_entries) as $name
+            | [.packages[] | select(.name == "bakery-domain" or .name == "bakery-app") | .id] as $roots
+            | {seen: [], todo: $roots}
+            | until(.todo | length == 0;
+                .todo[0] as $id
+                | if (.seen | index($id)) then .todo |= .[1:]
+                  else {seen: (.seen + [$id]), todo: (.todo[1:] + $edges[$id])} end)
+            | [.seen[] | $name[.] | select(. as $n | $platform | index($n))] as $hits
+            | if ($hits | length) == 0 then true
+              else ("platform crates reachable from domain or app: " + ($hits | join(", ")) | halt_error(1)) end'
+      - name: Keep the build (firewall scans these bytes, never a rebuild)
+        uses: actions/upload-artifact@v7
+        with:
+          name: build
+          path: |
+            apps/web/dist
+            workers/api/dist
+          include-hidden-files: true # .well-known
+          if-no-files-found: error
+          retention-days: 7
+
+  firewall:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false # rule 7
+          fetch-depth: 0 # the commit range needs history; a shallow clone would hide it
+      - uses: actions/download-artifact@v8
+        with:
+          name: build
+          path: . # the artifact holds apps/web/dist and workers/api/dist, as verify uploaded them
+      - name: Content firewall (exit 1 is a finding, 2 is cannot prove clean; both stop the run)
+        env:
+          # Rule 2: the secret exists only in this step. A Dependabot run reads the Dependabot copy.
+          GITLEAKS_CONFIG_TOML: ${{ secrets.FIREWALL_RULES }}
+          FW_EVENT: ${{ github.event_name }}
+          FW_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          FW_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Rule 3: pull request text reaches the script through env, never through ${{ }} in run.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_BRANCH: ${{ github.head_ref }}
+          DIST_DIRS: apps/web/dist:workers/api/dist
+        run: scripts/firewall/check.sh
+
+  firewall-selftest:
+    # check.sh against fixture repositories with throwaway rules only, proving exits 0, 1 and 2
+    # without a real term (security.md, "The content firewall here"). A job of its own beside
+    # verify, as on the site: it takes minutes, and inside verify every later job would wait for it.
+    # A pull request always runs it. A push to main runs it only when the push changes the scanner
+    # (scripts/firewall/scanner-changed.sh): otherwise main's scanner is the one its pull request's
+    # run proved. The check is a step, not a paths filter, so the job always reports a result.
+    # The weekly rebuild always runs it: a new git on the runner image is the drift that run is for.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15 # rule 9
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false # rule 7
+          fetch-depth: 0 # a push compares the scanner with the commit before it
+      - name: Does this run need the self-test?
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          run=true
+          if [ "$EVENT" = push ]; then
+            run="$(scripts/firewall/scanner-changed.sh "$BEFORE" HEAD)"
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          if [ "$run" != true ]; then
+            echo "::notice::No self-test: this push does not change the scanner, which its pull request's run proved."
+            echo "No self-test: this push does not change the scanner, which its pull request's run proved." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Firewall self-test, with throwaway rules only
+        if: steps.scope.outputs.run == 'true'
+        run: scripts/firewall/test.sh

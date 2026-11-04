@@ -1,0 +1,43 @@
+/* Tailwind reads class names from src/ only. */
+@import 'tailwindcss' source('../');
+@import './tokens.css';
+
+/* System fonts until Joseph decides on faces (docs/stack.md). tokens.css names these fallback
+   stacks behind its self-hosted faces, which the bakery does not have yet. */
+:root {
+  --font-display-fallbacks: system-ui, sans-serif;
+  --font-wide-fallbacks: system-ui, sans-serif;
+  --font-label-fallbacks: system-ui, sans-serif;
+  --font-sans-fallbacks: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono-fallbacks: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-reading-fallbacks: ui-serif, Georgia, serif;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  line-height: 1.6;
+}
+
+main {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 4rem 1rem;
+}
+
+h1 {
+  margin: 0 0 1rem;
+  font-size: 2.25rem;
+  line-height: 1.15;
+}
+
+a {
+  color: var(--primary);
+}
+
+a:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
