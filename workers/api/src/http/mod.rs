@@ -1,86 +1,256 @@
-//! The router: CORS, response headers and problem+json around every route.
+//! The router: the route table, then the checks every command passes, then the route, then
+//! the response headers and one log line, for every request (docs/security.md, "Origin
+//! checks" and "Privacy and data inventory").
 
+mod auth;
+mod demo;
+mod guard;
 mod headers;
+mod oauth;
+mod outbound;
+mod problem;
+mod routes;
+mod sandboxes;
 
+use std::cell::RefCell;
+
+use bakery_app::Clock;
+use bakery_app::auth::Keyring;
+use bakery_app::log::RequestLine;
 use bakery_app::{BuildInfo, health};
-use bakery_contracts::{HealthResponse, HealthStatus, Problem};
-use worker::{Env, Request, Response, Result, RouteContext, Router, console_error};
+use bakery_contracts::{HealthResponse, HealthStatus};
+use bakery_domain::{Ulid, WallTime};
+use worker::{Env, Request, Response, Result, console_log};
 
+use crate::clock::SystemClock;
+use crate::config::Config;
 use crate::objects::control;
 
-pub use headers::{ALLOWED_ORIGIN_VAR, BodyKind};
+use auth::Auth;
+use problem::Failure;
+use routes::{Limit, Matched, Route, RouteId, Scope};
 
-/// Every route and the methods it answers, for `Allow` on a 405.
-const ROUTES: &[(&str, &str)] = &[
-    ("/v1/health", "GET, OPTIONS"),
-    ("/v1/status", "GET, OPTIONS"),
-];
+pub use headers::ALLOWED_ORIGIN_VAR;
+
+/// Everything a route reads about its request, decided once.
+pub struct Cx {
+    pub env: Env,
+    pub cfg: Config,
+    pub now: WallTime,
+    pub auth: Auth,
+    /// The request's `Idempotency-Key`, on a POST.
+    pub key: Option<Ulid>,
+    note: RefCell<Note>,
+}
+
+/// What the log line says beyond the request itself.
+#[derive(Default)]
+struct Note {
+    reason: Option<&'static str>,
+    sandbox: Option<String>,
+}
+
+impl Cx {
+    pub fn keyring(&self) -> std::result::Result<Keyring, Failure> {
+        Ok(self.cfg.keyring()?)
+    }
+
+    /// The reason code for this request's log line: a constant, never a request value.
+    pub fn reason(&self, reason: &'static str) {
+        self.note.borrow_mut().reason = Some(reason);
+    }
+
+    /// The sandbox this request ends up naming, for the log line.
+    pub fn sandbox(&self, id: Option<Ulid>) {
+        self.note.borrow_mut().sandbox = id.map(|i| i.to_string());
+    }
+
+    pub fn claims(&self) -> Option<&bakery_app::auth::SessionClaims> {
+        self.auth.claims()
+    }
+}
 
 pub async fn handle(req: Request, env: Env) -> Result<Response> {
-    let origin = req.headers().get("Origin")?;
+    let clock = SystemClock::new();
+    let started = clock.now_wall();
+    let method = req.method().to_string();
     let path = req.path();
-    let allowed_origin = env.var(ALLOWED_ORIGIN_VAR).map(|v| v.to_string()).ok();
+    let origin = req.headers().get("Origin")?;
+    let ip = req.headers().get("CF-Connecting-IP")?;
+    let (country, continent) = req
+        .cf()
+        .map_or((None, None), |cf| (cf.country(), cf.continent()));
+    let cfg = Config::from_env(&env);
+    let allowed_origin = cfg.allowed_origin.clone();
 
-    let router = Router::new()
-        .get("/v1/health", get_health)
-        .get_async("/v1/status", get_status)
-        .options("/v1/health", preflight)
-        .options("/v1/status", preflight);
+    let matched = routes::match_route(&method, &path);
+    let mut preflight = false;
+    let mut ip_hash = None;
+    let mut note = Note::default();
 
-    let (res, preflight) = match router.run(req, env).await {
-        Ok(res) => routed(res, &path),
-        Err(e) => {
-            console_error!(
-                "{{\"event\":\"route_error\",\"path\":{path:?},\"error\":{:?}}}",
-                e.to_string()
-            );
-            (
-                problem(Problem::status(500, "Internal Server Error").with_instance(&path)),
-                false,
-            )
+    let outcome: std::result::Result<Response, Failure> = match matched {
+        Matched::NotFound => Err(problem::not_found()),
+        Matched::MethodNotAllowed(allow) => {
+            let mut res =
+                Failure::plain(405, "Method Not Allowed", "method").into_response(&path)?;
+            res.headers_mut().set("Allow", &allow)?;
+            Ok(res)
+        }
+        Matched::Preflight => {
+            preflight = true;
+            Ok(Response::empty()?.with_status(204))
+        }
+        Matched::Route(route, id) => {
+            // Health touches no object, so it has no IP hash; everything else asks for the
+            // day's salt, which the isolate caches for 30 s.
+            if route.id != RouteId::Health {
+                ip_hash = outbound::ip_hash_for(&env, ip.as_deref(), started).await;
+            }
+            let mut req = req;
+            let (result, n) = run(route, id, &mut req, env, cfg, started, ip_hash.clone()).await;
+            note = n;
+            result
         }
     };
-    let mut res = res?;
+
+    let (mut res, reason) = match outcome {
+        Ok(res) => (res, note.reason),
+        Err(f) => {
+            let reason = f.reason;
+            (f.into_response(&path)?, Some(reason))
+        }
+    };
     headers::apply(
         &mut res,
         origin.as_deref(),
         allowed_origin.as_deref(),
         preflight,
     )?;
+
+    if let Ok(mut line) = RequestLine::new(
+        &path,
+        &method,
+        res.status_code(),
+        u64::try_from(clock.now_wall().unix_ms() - started.unix_ms()).unwrap_or(0),
+    ) {
+        line.ip_hash = ip_hash;
+        line.country = country;
+        line.continent = continent;
+        line.sandbox = note.sandbox;
+        line.reason = reason;
+        console_log!("{}", line.to_json());
+    }
     Ok(res)
 }
 
-/// Turns the router's plain-text 404 and 405 into problem+json, and marks preflights.
-fn routed(res: Response, path: &str) -> (Result<Response>, bool) {
-    let is_problem = headers::body_kind(&res) == Some(BodyKind::Problem);
-    match res.status_code() {
-        204 => (Ok(res), true),
-        404 if !is_problem => (
-            problem(Problem::status(404, "Not Found").with_instance(path)),
-            false,
-        ),
-        405 if !is_problem => {
-            let allow = ROUTES
-                .iter()
-                .find(|(p, _)| *p == path)
-                .map_or("OPTIONS", |(_, m)| m);
-            let res = problem(Problem::status(405, "Method Not Allowed").with_instance(path))
-                .and_then(|r| {
-                    r.headers().set("Allow", allow)?;
-                    Ok(r)
-                });
-            (res, false)
+/// The checks in order, then the route. Each check is free or nearly: no object is asked for
+/// anything but the salt until the route itself runs.
+async fn run(
+    route: &'static Route,
+    id: Option<String>,
+    req: &mut Request,
+    env: Env,
+    cfg: Config,
+    now: WallTime,
+    ip_hash: Option<String>,
+) -> (std::result::Result<Response, Failure>, Note) {
+    let mut cx = Cx {
+        env,
+        cfg,
+        now,
+        auth: Auth::None,
+        key: None,
+        note: RefCell::new(Note::default()),
+    };
+    let result = checked(route, id, req, &mut cx, ip_hash).await;
+    (result, cx.note.into_inner())
+}
+
+async fn checked(
+    route: &'static Route,
+    id: Option<String>,
+    req: &mut Request,
+    cx: &mut Cx,
+    ip_hash: Option<String>,
+) -> std::result::Result<Response, Failure> {
+    let headers = req.headers();
+    if guard::is_command(route.method) {
+        let allowed = cx.cfg.origin()?;
+        let origin = headers.get("Origin").ok().flatten();
+        let site = headers.get("Sec-Fetch-Site").ok().flatten();
+        guard::check_origin(origin.as_deref(), site.as_deref(), allowed)
+            .map_err(|reason| problem::origin().because(reason))?;
+    }
+    if route.method == "POST" {
+        let key = headers.get("Idempotency-Key").ok().flatten();
+        cx.key = Some(guard::idempotency_key(key.as_deref()).ok_or_else(problem::idempotency_key)?);
+    }
+
+    // The session: required by its scope, read when present otherwise. Without a signing key
+    // a route that needs a session cannot answer; one that does not ignores the cookie.
+    let reads_session = !matches!(
+        route.id,
+        RouteId::Health
+            | RouteId::Status
+            | RouteId::GoogleStart
+            | RouteId::GoogleCallback
+            | RouteId::GithubStart
+            | RouteId::GithubCallback
+    );
+    if reads_session {
+        match cx.cfg.keyring() {
+            Ok(keyring) => cx.auth = Auth::read(req, &keyring, cx.now),
+            Err(e) if route.scope != Scope::Public => return Err(e.into()),
+            Err(_) => {}
         }
-        _ => (Ok(res), false),
+    }
+    match (route.scope, &cx.auth) {
+        (Scope::Public, _) => {}
+        (_, Auth::None) => return Err(problem::session().because("no-session")),
+        (_, Auth::Invalid(reason)) => return Err(problem::session().because(reason)),
+        (Scope::SignedIn, Auth::Session(c)) if c.is_guest() => return Err(problem::guest_scope()),
+        (_, Auth::Session(_)) => {}
+    }
+    cx.sandbox(cx.claims().and_then(|c| c.sbx));
+
+    let limit_key = match route.limit {
+        Limit::None => None,
+        Limit::SandboxCreate => Some(("SANDBOX_CREATE_LIMIT", ip_key(ip_hash.as_deref()))),
+        Limit::Command => Some((
+            "COMMAND_LIMIT",
+            cx.claims()
+                .map(|c| format!("sid:{}", c.sid))
+                .unwrap_or_else(|| ip_key(ip_hash.as_deref())),
+        )),
+    };
+    if let Some((binding, key)) = limit_key
+        && !outbound::within_limit(&cx.env, binding, key).await
+    {
+        return Err(problem::rate_limit());
+    }
+
+    let cx = &*cx;
+    match route.id {
+        RouteId::Health => get_health(cx),
+        RouteId::Status => get_status(cx).await,
+        RouteId::GoogleStart => oauth::google_start(cx, req).await,
+        RouteId::GoogleCallback => oauth::google_callback(cx, req).await,
+        RouteId::GithubStart => oauth::github_start(cx, req).await,
+        RouteId::GithubCallback => oauth::github_callback(cx, req).await,
+        RouteId::DemoSignup => demo::signup(cx, req).await,
+        RouteId::DemoSignin => demo::signin(cx, req).await,
+        RouteId::Signout => demo::signout(cx).await,
+        RouteId::Session => demo::session(cx),
+        RouteId::CreateSandbox => sandboxes::create(cx, req).await,
+        RouteId::GetSandbox => sandboxes::get(cx, id.as_deref()).await,
+        RouteId::WipeSandbox => sandboxes::wipe(cx, id.as_deref()).await,
+        RouteId::SetFault => sandboxes::set_fault(cx, req, id.as_deref()).await,
     }
 }
 
-fn problem(p: Problem) -> Result<Response> {
-    let status = p.status;
-    let mut res = Response::from_json(&p)?.with_status(status);
-    res.headers_mut()
-        .set("Content-Type", BodyKind::Problem.content_type())?;
-    Ok(res)
+/// The rate-limit key for a request with no session: its IP hash, never the address.
+fn ip_key(ip_hash: Option<&str>) -> String {
+    format!("ip:{}", ip_hash.unwrap_or("unknown"))
 }
 
 fn build_info(env: &Env) -> BuildInfo {
@@ -97,22 +267,24 @@ fn build_info(env: &Env) -> BuildInfo {
 }
 
 /// No object is touched: health costs one Worker request and nothing else.
-fn get_health(_req: Request, ctx: RouteContext<()>) -> Result<Response> {
-    let h = health(&build_info(&ctx.env));
-    Response::from_json(&HealthResponse {
+fn get_health(cx: &Cx) -> std::result::Result<Response, Failure> {
+    let h = health(&build_info(&cx.env));
+    Ok(Response::from_json(&HealthResponse {
         status: match h.status {
             bakery_app::HealthStatus::Ok => HealthStatus::Ok,
         },
         commit: h.commit,
         version: h.version,
-    })
+    })?)
 }
 
 /// One call to `Control`.
-async fn get_status(_req: Request, ctx: RouteContext<()>) -> Result<Response> {
-    Response::from_json(&control::status(&ctx.env).await?)
+async fn get_status(cx: &Cx) -> std::result::Result<Response, Failure> {
+    let status = control::status(&cx.env).await?;
+    Ok(Response::from_json(&status)?)
 }
 
-fn preflight(_req: Request, _ctx: RouteContext<()>) -> Result<Response> {
-    Ok(Response::empty()?.with_status(204))
+/// A JSON body for the visitor, with a status.
+pub fn json<T: serde::Serialize>(value: &T, status: u16) -> std::result::Result<Response, Failure> {
+    Ok(Response::from_json(value)?.with_status(status))
 }

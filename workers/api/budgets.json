@@ -1,4 +1,4 @@
 {
-  "_comment": "Fitness function (docs/delivery.md, quality gates): the wasm-opt'ed module may not exceed spike S1's size plus 25%: 437,223 B on 2026-11-04. Raise it only with a line saying what the bytes buy.",
-  "wasm_bytes": 546529
+  "_comment": "Fitness function (docs/delivery.md, quality gates): the wasm-opt'ed module may not exceed its last measured size plus 25%. Spike S1 measured 437,223 B on 2026-11-04 (budget 546,529). PR 3 measured 1,353,901 B on 2026-11-05 (439,521 B before it): sign-in's argon2id, RS256 on rsa and HMAC-SHA256, the three objects and the new routes, plus about 39 KB for the seed generator. The platform's limit is 64 MiB; this is a budget. Raise it only with a line saying what the bytes buy.",
+  "wasm_bytes": 1692377
 }

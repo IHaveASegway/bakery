@@ -38,6 +38,7 @@ dependencies = [
  "bakery-app",
  "bakery-contracts",
  "bakery-domain",
+ "bakery-seed",
  "serde",
  "serde_json",
  "wasm-bindgen",
