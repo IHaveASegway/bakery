@@ -13,6 +13,7 @@ import type {
   ClockRequest,
   ClockResponse,
   ConsentRequest,
+  CompleteStopRequest,
   CreateSandboxRequest,
   CustomerListResponse,
   CustomerResponse,
@@ -21,6 +22,7 @@ import type {
   DemoSigninRequest,
   DemoSignupRequest,
   DemoSignupResponse,
+  DispatchResponse,
   FaultRequest,
   FaultsResponse,
   InboxResponse,
@@ -34,6 +36,9 @@ import type {
   OrderRequest,
   OrderResponse,
   PaymentResponse,
+  PlanRequest,
+  ProposeRequest,
+  PublishRequest,
   QuoteRequest,
   RebuildResponse,
   RefundRequest,
@@ -431,6 +436,48 @@ export const startRebuild = (id: string, key?: string) =>
 /** `GET .../rebuild`: the cursor; ask every second while `rebuilding`. */
 export const getRebuild = (id: string) =>
   request<RebuildResponse>('GET', `${sandboxPath(id)}/rebuild`);
+
+// ---- PR 9: dispatch ----
+// Every route is under /v1/sandboxes/{id}/dispatch/{date} (`date` is `YYYY-MM-DD`, a bakery day). A
+// guest reads; the four writes are signed-in only (403 `guest-scope`). Each write answers the day's
+// DispatchResponse, and takes the idempotency key as its last argument: leave it out and the call
+// mints one, which is right for a click that is never retried (lib/crm.ts, KeyedAction, keeps a key
+// across a retry of the same intent, which is what a publish needs).
+
+const dispatchPath = (id: string, date: string) =>
+  `${sandboxPath(id)}/dispatch/${encodeURIComponent(date)}`;
+
+/** `GET .../dispatch/{date}`: the day's stops and plans; 404 `no-such-day` outside the sandbox's days. */
+export const getDispatch = (id: string, date: string) =>
+  request<DispatchResponse>('GET', dispatchPath(id, date));
+
+/** Staff: `POST .../propose`, the server's savings plan for the confirmed stops; 422 `dispatch`. */
+export const proposeDispatch = (id: string, date: string, req: ProposeRequest, key?: string) =>
+  request<DispatchResponse>('POST', `${dispatchPath(id, date)}/propose`, {
+    body: req,
+    ...(key === undefined ? {} : { key }),
+  });
+
+/** Staff: `POST .../plan`, the browser's plan; the answer carries `submitted` and `comparison`. */
+export const submitPlan = (id: string, date: string, req: PlanRequest, key?: string) =>
+  request<DispatchResponse>('POST', `${dispatchPath(id, date)}/plan`, {
+    body: req,
+    ...(key === undefined ? {} : { key }),
+  });
+
+/** Staff: `POST .../publish`; a repeated key replays the first answer (`Idempotent-Replayed`). */
+export const publishDispatch = (id: string, date: string, req: PublishRequest, key?: string) =>
+  request<DispatchResponse>('POST', `${dispatchPath(id, date)}/publish`, {
+    body: req,
+    ...(key === undefined ? {} : { key }),
+  });
+
+/** Staff: `POST .../complete`, one stop of the published plan is delivered; 409 `no-plan`. */
+export const completeStop = (id: string, date: string, req: CompleteStopRequest, key?: string) =>
+  request<DispatchResponse>('POST', `${dispatchPath(id, date)}/complete`, {
+    body: req,
+    ...(key === undefined ? {} : { key }),
+  });
 
 /** The sign-in links are navigations through the API, not fetches (security.md, "Sign-in"). */
 export const signinUrl = (provider: 'google' | 'github') =>

@@ -308,6 +308,10 @@ export default function Console() {
           <p>
             <a href="/inbox/">Open the inbox</a>: every message the bakery sends lands there.
           </p>
+          <p>
+            <a href="/app/dispatch/">Open dispatch</a>: plan a day’s deliveries, with the server’s
+            plan and VROOM’s side by side.
+          </p>
 
           <h3>Faults</h3>
           <p>

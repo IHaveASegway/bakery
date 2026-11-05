@@ -2,9 +2,12 @@ import { describe, expect, test } from 'vitest';
 import {
   CHALLENGE_PATHS,
   DEFAULT_API_ORIGIN,
+  DISPATCH_PATHS,
   ISLAND_PATHS,
   PAYMENT_PATHS,
   RULE_PATHS,
+  SOLVER_CSP,
+  SOLVER_PATH,
   csp,
   directives,
   headersFile,
@@ -73,8 +76,21 @@ describe('page classes', () => {
     expect(csp('payment', DEFAULT_API_ORIGIN)).not.toContain('cloudflare');
   });
 
+  test('the dispatch class is the challenge class plus worker-src self, and nothing else', () => {
+    const challenge = directives('challenge', DEFAULT_API_ORIGIN);
+    const dispatch = directives('dispatch', DEFAULT_API_ORIGIN);
+    expect(dispatch['worker-src']).toEqual(["'self'"]);
+    for (const name of Object.keys(challenge))
+      expect(dispatch[name], name).toEqual(challenge[name]);
+    expect(Object.keys(dispatch).filter((name) => !(name in challenge))).toEqual(['worker-src']);
+    // No other class lets a page start a worker: they fall back to script-src, which has no wasm.
+    for (const pageClass of ['every', 'challenge', 'island', 'payment'] as const) {
+      expect(directives(pageClass, DEFAULT_API_ORIGIN)['worker-src']).toBeUndefined();
+    }
+  });
+
   test('no other class names a Stripe origin', () => {
-    for (const pageClass of ['every', 'challenge', 'island'] as const) {
+    for (const pageClass of ['every', 'challenge', 'dispatch', 'island'] as const) {
       expect(csp(pageClass, DEFAULT_API_ORIGIN)).not.toContain('stripe.com');
     }
   });
@@ -94,7 +110,7 @@ describe('page classes', () => {
   });
 
   test('nothing is unsafe in any class', () => {
-    for (const pageClass of ['every', 'challenge', 'island', 'payment'] as const) {
+    for (const pageClass of ['every', 'challenge', 'dispatch', 'island', 'payment'] as const) {
       expect(csp(pageClass, DEFAULT_API_ORIGIN)).not.toMatch(/unsafe-|sha256-|\*/);
     }
   });
@@ -112,7 +128,12 @@ describe('headersFile', () => {
   test('the menu and the inbox get an island rule, the checkout and catering pages a payment rule: detach, then their own policy and hashes', () => {
     expect(ISLAND_PATHS).toEqual(['/menu/*', '/inbox/*']);
     expect(PAYMENT_PATHS).toEqual(['/checkout/*', '/catering/*']);
-    expect(RULE_PATHS).toEqual([...CHALLENGE_PATHS, ...ISLAND_PATHS, ...PAYMENT_PATHS]);
+    expect(RULE_PATHS).toEqual([
+      ...CHALLENGE_PATHS,
+      ...DISPATCH_PATHS,
+      ...ISLAND_PATHS,
+      ...PAYMENT_PATHS,
+    ]);
     const hashes = { script: ["'sha256-AAAA'"], style: ["'sha256-BBBB'"] };
     const file = headersFile(DEFAULT_API_ORIGIN, {
       '/menu/*': hashes,
@@ -128,8 +149,10 @@ describe('headersFile', () => {
       expect(lines[1]).toContain("'sha256-AAAA';");
       expect(lines[1]).not.toContain('challenges.cloudflare.com');
     }
-    // Turnstile is named exactly by the challenge rules: two paths, script-src and frame-src each.
-    expect(file.split('challenges.cloudflare.com').length - 1).toBe(CHALLENGE_PATHS.length * 2);
+    // Turnstile is named by the challenge rules and the dispatch rule: script-src and frame-src each.
+    expect(file.split('challenges.cloudflare.com').length - 1).toBe(
+      (CHALLENGE_PATHS.length + DISPATCH_PATHS.length) * 2,
+    );
     // Stripe: script-src, two frame-src origins, connect-src; only in the payment rules.
     expect(file.split('stripe.com').length - 1).toBe(4 * PAYMENT_PATHS.length);
   });
@@ -161,6 +184,41 @@ describe('headersFile', () => {
       .filter(({ i }) => (lines[i + 2] ?? '').includes('stripe.com'))
       .map(({ line }) => line);
     expect(withStripe).toEqual(PAYMENT_PATHS);
+  });
+
+  test('the dispatch screen gets a rule that detaches the policy and sets the dispatch class, with its hashes', () => {
+    expect(DISPATCH_PATHS).toEqual(['/app/dispatch/*']);
+    const hashes = { script: ["'sha256-AAAA'"], style: ["'sha256-BBBB'"] };
+    const lines = headersFile(DEFAULT_API_ORIGIN, { '/app/dispatch/*': hashes }).split('\n');
+    const at = lines.indexOf('/app/dispatch/*');
+    expect(at).toBeGreaterThan(lines.indexOf('/app/*'));
+    expect(lines[at + 1]).toBe('  ! Content-Security-Policy');
+    expect(lines[at + 2]).toBe(
+      `  Content-Security-Policy: ${csp('dispatch', DEFAULT_API_ORIGIN, hashes)}`,
+    );
+    expect(lines[at + 2]).toContain("worker-src 'self'");
+    expect(lines[at + 2]).toContain('challenges.cloudflare.com');
+  });
+
+  test('the solver folder is the one place wasm-unsafe-eval appears, in a rule that detaches the page policy first', () => {
+    expect(SOLVER_PATH).toBe('/app/dispatch/solver/*');
+    expect(SOLVER_CSP).toBe(
+      "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    );
+    const file = headersFile(DEFAULT_API_ORIGIN);
+    const lines = file.split('\n');
+    const at = lines.indexOf(SOLVER_PATH);
+    // After the dispatch page's rule, so its policy is the one detached.
+    expect(at).toBeGreaterThan(lines.indexOf('/app/dispatch/*'));
+    expect(lines[at + 1]).toBe('  ! Content-Security-Policy');
+    expect(lines[at + 2]).toBe(`  Content-Security-Policy: ${SOLVER_CSP}`);
+    expect(lines[at + 3]).toBe('  Cache-Control: public, max-age=31536000, immutable');
+    // Once in the file's rules, and in no page class.
+    const rules = lines.filter((line) => !line.startsWith('#'));
+    expect(rules.filter((line) => line.includes('wasm-unsafe-eval'))).toHaveLength(1);
+    for (const pageClass of ['every', 'challenge', 'dispatch', 'island', 'payment'] as const) {
+      expect(csp(pageClass, DEFAULT_API_ORIGIN)).not.toContain('wasm-unsafe-eval');
+    }
   });
 
   test('puts the given API origin in every policy', () => {

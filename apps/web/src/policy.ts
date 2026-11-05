@@ -22,10 +22,18 @@
   by scripts/inline-hashes.mjs, and never by 'unsafe-inline' or 'unsafe-eval'. Pages with no
   island, which are all the others, get no hash.
 
+  The dispatch screen (/app/dispatch/) is a fifth class, the challenge class plus worker-src 'self'
+  so its module Web Worker can load. The solver that worker runs sits in /app/dispatch/solver/,
+  whose files get a policy of their own. A worker takes its policy from its own response, never
+  from the page that starts it, and compiling WebAssembly needs 'wasm-unsafe-eval', so that one
+  folder is the one place the keyword appears, exactly as in the site's Route Lab (its _headers,
+  and ADR 0016: https://github.com/IHaveASegway/website/blob/main/docs/adr/0016-route-lab-in-the-browser.md).
+  No page's policy may hold it (docs/security.md, "The storefront's policy").
+
   Strict-Transport-Security is the zone's alone and never appears (site ADR 0011).
 */
 
-export type PageClass = 'every' | 'challenge' | 'island' | 'payment';
+export type PageClass = 'every' | 'challenge' | 'dispatch' | 'island' | 'payment';
 
 /** Where the browser reaches the API when nothing says otherwise. */
 export const DEFAULT_API_ORIGIN = 'https://api.bakery.ihaveasegway.com';
@@ -56,7 +64,9 @@ export function directives(
   hashes: Hashes = NO_HASHES,
 ): Record<string, string[]> {
   const api = normalizeOrigin(apiOrigin);
-  const challenge = pageClass === 'challenge';
+  // The dispatch screen is under /app/, so it keeps the challenge class and adds the worker.
+  const dispatch = pageClass === 'dispatch';
+  const challenge = pageClass === 'challenge' || dispatch;
   const payment = pageClass === 'payment';
   return {
     'default-src': ["'self'"],
@@ -71,6 +81,7 @@ export function directives(
     'font-src': ["'self'"],
     'connect-src': ["'self'", api, socketOrigin(api), ...(payment ? [STRIPE_API] : [])],
     'frame-src': challenge ? [TURNSTILE] : payment ? STRIPE_FRAMES : ["'none'"],
+    ...(dispatch ? { 'worker-src': ["'self'"] } : {}),
     'object-src': ["'none'"],
     'base-uri': ["'none'"],
     'frame-ancestors': ["'none'"],
@@ -104,6 +115,20 @@ export const OTHER_HEADERS: Record<string, string> = {
 /** Pages that load Turnstile. Cloudflare serves a trailing-slash path with the splat matching empty. */
 export const CHALLENGE_PATHS = ['/signin/*', '/app/*'];
 
+/** The dispatch screen: the challenge class, plus `worker-src 'self'` for the solver's module worker. */
+export const DISPATCH_PATHS = ['/app/dispatch/*'];
+
+/**
+ * The solver's folder: VROOM compiled to WebAssembly and the worker that runs it, fetched at build
+ * (scripts/fetch-solver.mjs). Its files carry this policy and no other, the site's Route Lab policy
+ * for the same files. `connect-src 'self'` lets the glue fetch vroom.wasm beside it. base-uri,
+ * form-action and frame-ancestors do not fall back to default-src, so they are named: a worker
+ * ignores them, and the 404 a missing file here gets stays as unframeable as every other response.
+ */
+export const SOLVER_PATH = '/app/dispatch/solver/*';
+export const SOLVER_CSP =
+  "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
 /** Pages with a hydrated island and no third party: the menu and the inbox. */
 export const ISLAND_PATHS = ['/menu/*', '/inbox/*'];
 
@@ -111,7 +136,12 @@ export const ISLAND_PATHS = ['/menu/*', '/inbox/*'];
 export const PAYMENT_PATHS = ['/checkout/*', '/catering/*'];
 
 /** Every path that gets a rule of its own, which scripts/inline-hashes.mjs reads hashes for. */
-export const RULE_PATHS = [...CHALLENGE_PATHS, ...ISLAND_PATHS, ...PAYMENT_PATHS];
+export const RULE_PATHS = [
+  ...CHALLENGE_PATHS,
+  ...DISPATCH_PATHS,
+  ...ISLAND_PATHS,
+  ...PAYMENT_PATHS,
+];
 
 /**
  * The contents of dist/_headers. Cloudflare applies every matching rule in file order; a header a
@@ -137,6 +167,27 @@ export function headersFile(apiOrigin: string, hashes: Record<string, Hashes> = 
       '',
     );
   }
+  for (const path of DISPATCH_PATHS) {
+    lines.push(
+      '# The dispatch screen: the sign-in class plus a module Web Worker for the solver.',
+      path,
+      '  ! Content-Security-Policy',
+      `  Content-Security-Policy: ${csp('dispatch', apiOrigin, of(path))}`,
+      '',
+    );
+  }
+  lines.push(
+    '# The solver (ADR 0012): VROOM as WebAssembly, run in a module Web Worker. A worker takes its policy',
+    "# from its own response, and compiling WebAssembly needs 'wasm-unsafe-eval', the one place the",
+    "# keyword appears. The page rules above have none, so this rule detaches the page policy first ('!'):",
+    "# two policies would both be enforced, and the page's would refuse the compile. The folder is named for",
+    "# the solver's version and a hash of its files (solver.lock.json), so a year is safe.",
+    SOLVER_PATH,
+    '  ! Content-Security-Policy',
+    `  Content-Security-Policy: ${SOLVER_CSP}`,
+    '  Cache-Control: public, max-age=31536000, immutable',
+    '',
+  );
   for (const path of ISLAND_PATHS) {
     lines.push(
       '# The menu and the inbox hold an island and load nothing from a third party.',
