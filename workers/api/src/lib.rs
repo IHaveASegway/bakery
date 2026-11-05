@@ -6,7 +6,9 @@
 //! hold timers, the clock's steps and the loop guard; PR 7 adds the `CateringEvent` object and its
 //! saga by alarm, the catering routes, the balance invoice through Stripe Invoicing and the
 //! deposit's refund; PR 8 adds the `Customer`, `Crm` and `Inbox` objects, the campaign timer,
-//! the projection's rebuild, the inbox's simulated opens and clicks, and the CRM routes.
+//! the projection's rebuild, the inbox's simulated opens and clicks, and the CRM routes; PR 9
+//! adds the `Dispatch` object per day with its stops, the server's savings plan, the browser's
+//! validated plan and the published plan, the dispatch routes, and the consumer's stop edges.
 
 mod clock;
 mod config;
@@ -24,6 +26,7 @@ pub use objects::catering::CateringEvent;
 pub use objects::control::Control;
 pub use objects::crm::Crm;
 pub use objects::customer::Customer;
+pub use objects::dispatch::Dispatch;
 pub use objects::inbox::Inbox;
 pub use objects::kitchen::Kitchen;
 pub use objects::order::Order;

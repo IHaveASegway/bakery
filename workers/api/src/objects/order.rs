@@ -24,7 +24,12 @@
 //!   `RecordPayment`, `RefundIssued` is `RecordRefund`, each under the key `evt:<event id>`, so
 //!   a redelivery replays; `PaymentFailed` and anything else is acknowledged and changes
 //!   nothing. A rule the event breaks (an amount that is not the total, a refund the order never
-//!   asked for) is logged by its rule and acknowledged, since a retry cannot fix it.
+//!   asked for) is logged by its rule and acknowledged, since a retry cannot fix it. Since PR 9,
+//!   the day's `Dispatch` events too: `RoutePublished` is `MarkOutForDelivery {route: van-<n>,
+//!   stop}` for the stop the plan gives this order (none: `ignored`), and `StopCompleted` naming
+//!   this order is `MarkDelivered {stop}`, under the same `evt:<event id>` keys. An order that is
+//!   not ready yet refuses to leave (`out-of-order`), which is logged and acknowledged like any
+//!   other rule.
 //! - `POST /_seed {birth, events, at}` → 201: one of the seed's open orders, its events written
 //!   as they are (no `decide`: the seed is checked against the rules by a test in bakery-app).
 //! - `POST /_wipe`, `POST /_clock`: the child protocol (child.rs).
@@ -37,6 +42,7 @@ use std::cell::Cell;
 use bakery_app::Clock;
 use bakery_contracts::{OrderLineResponse, OrderResponse};
 use bakery_domain::catalog::MenuView;
+use bakery_domain::dispatch::{DispatchEvent, deliveries};
 use bakery_domain::order::{
     CancelledBy, LineInput, Order as OrderAggregate, OrderCommand, OrderError, OrderEvent,
     OrderKind, OrderState, OrderStatus, PlaceOrder, RefundReason,
@@ -517,7 +523,35 @@ impl Order {
             reference: Ulid,
         }
         let data = envelope.data.clone();
+        let own = || {
+            meta.name
+                .rsplit(':')
+                .next()
+                .and_then(|o| o.parse::<Ulid>().ok())
+        };
         let (cmd, reference) = match envelope.event_type.as_str() {
+            "RoutePublished" | "StopCompleted" => {
+                let Some(me) = own() else {
+                    return refuse(422, "envelope");
+                };
+                let Ok(event) = DispatchEvent::from_envelope(&envelope) else {
+                    return refuse(422, "envelope");
+                };
+                let cmd = match event {
+                    DispatchEvent::RoutePublished { vans, .. } => deliveries(&vans)
+                        .into_iter()
+                        .find(|(o, _, _)| *o == me)
+                        .map(|(_, route, stop)| OrderCommand::MarkOutForDelivery { route, stop }),
+                    DispatchEvent::StopCompleted { order, stop, .. } if order == me => {
+                        Some(OrderCommand::MarkDelivered { stop })
+                    }
+                    _ => None,
+                };
+                match cmd {
+                    Some(cmd) => (cmd, me),
+                    None => return json(&serde_json::json!({ "outcome": "ignored" }), 200),
+                }
+            }
             "PaymentSucceeded" => match serde_json::from_value::<Paid>(data) {
                 Ok(d) => (
                     OrderCommand::RecordPayment {

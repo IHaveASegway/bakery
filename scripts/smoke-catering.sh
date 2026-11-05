@@ -403,9 +403,9 @@ signup b E 192.0.2.93
 expect_status sandbox_b 201
 BID="$SID"
 check "guest: seeding reaches live" "wait_live guest_live G '$GID'"
-expect_json guest_live "b.state === 'live' && b.children >= 35"
+expect_json guest_live "b.state === 'live' && b.children >= 36"
 check "a: seeding reaches live" "wait_live a_live D '$AID'"
-expect_json a_live "b.children >= 35 && b.kind === 'account'"
+expect_json a_live "b.children >= 36 && b.kind === 'account'"
 check "b: seeding reaches live" "wait_live b_live E '$BID'"
 
 # ---------- the seed's eight events, and a guest's reach ----------
@@ -638,7 +638,7 @@ if [[ -n "$PICK" ]]; then
   NEED_SA="$(days_to "$(json_field "$L" "b.events.find(e => e.state === 'accepted').valid_until")")"
   ADVANCE="$NEED"
   if (( NEED_SA > ADVANCE && NEED_SA <= 14 )); then ADVANCE="$NEED_SA"; fi
-  expect_json "c${PICK}_live" "b.children >= 35"
+  expect_json "c${PICK}_live" "b.children >= 36"
   expect_json "$L" "b.events.some(e => e.state === 'accepted' && e.deposit_cents > 0)"
   check "the seeded quoted event's follow-up is to come, or fired on the first alarm" "events_until '$CSB' '$SQ' CateringReminderDue 1 || [[ \"\$(json_field $L \"b.events.find(e => e.state === 'quoted').reminders.length\")\" == 1 ]]"
   # The seeded accepted event's deposit intent, asked for while its hold is live (it is born

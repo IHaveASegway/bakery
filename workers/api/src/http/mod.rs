@@ -6,6 +6,7 @@ mod auth;
 mod catering;
 mod crm;
 mod demo;
+mod dispatch;
 mod guard;
 mod headers;
 mod kitchen;
@@ -347,6 +348,11 @@ async fn checked(
         RouteId::GetActivity => crm::activity(cx, req, id.as_deref()).await,
         RouteId::StartRebuild => crm::start_rebuild(cx, id.as_deref()).await,
         RouteId::GetRebuild => crm::rebuild_progress(cx, id.as_deref()).await,
+        RouteId::GetDispatch => dispatch::get(cx, id.as_deref(), sub).await,
+        RouteId::ProposeDispatch => dispatch::propose(cx, req, id.as_deref(), sub).await,
+        RouteId::SubmitPlan => dispatch::plan(cx, req, id.as_deref(), sub).await,
+        RouteId::PublishDispatch => dispatch::publish(cx, req, id.as_deref(), sub).await,
+        RouteId::CompleteStop => dispatch::complete(cx, req, id.as_deref(), sub).await,
         // Answered before the checks above.
         RouteId::StripeWebhook => Err(problem::internal()),
     }
