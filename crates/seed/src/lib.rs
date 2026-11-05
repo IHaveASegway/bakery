@@ -12,6 +12,7 @@
 //! random part is drawn from the PRNG.
 
 mod calendar;
+mod catering;
 mod menu;
 mod words;
 
@@ -25,6 +26,7 @@ use rand_core::{Rng, SeedableRng};
 use serde::Serialize;
 
 pub use calendar::{BirthDate, BirthDateError};
+pub use catering::seed_commands;
 pub use menu::{ALLERGENS, CATEGORIES, ITEMS, ItemSpec, PACKAGES, PackageSpec, VariantSpec};
 
 use calendar::{
@@ -280,6 +282,51 @@ pub struct CateringEvent {
     pub balance_cents: Option<Cents>,
     /// Always `null` in the seed: free text is never seeded.
     pub brief: Option<String>,
+    /// The persona who asked: one of the 60, picked from the event id's random part, so no
+    /// draw is added and every pinned value stands.
+    pub customer: Ulid,
+    /// Two hours after `created_at`, for every state but an inquiry and a declined one.
+    pub quoted_at: Option<BusinessTime>,
+    /// An hour after `quoted_at`, from `accepted` on.
+    pub accepted_at: Option<BusinessTime>,
+    /// The deposit's payment, paid five minutes after `accepted_at`, from `confirmed` on. Its
+    /// time part is that moment, its random part the event id's plus one.
+    pub deposit_payment: Option<Ulid>,
+    /// 11:00 on the event day, for `invoiced` and `closed`.
+    pub delivered_at: Option<BusinessTime>,
+    /// The balance invoice, an hour after `delivered_at`; its random part is the event id's
+    /// plus two. It is also the balance's payment id, as `Billing` keys it.
+    pub invoice: Option<Ulid>,
+    /// Seven days after the event day.
+    pub invoice_due: Option<BakeryDate>,
+}
+
+impl CateringState {
+    /// The aggregate's state this lifecycle position is.
+    pub fn status(self) -> bakery_domain::catering::CateringStatus {
+        use bakery_domain::catering::CateringStatus as S;
+        match self {
+            CateringState::Inquiry => S::Inquiry,
+            CateringState::Quoted => S::Quoted,
+            CateringState::Accepted => S::Accepted,
+            CateringState::Confirmed => S::Confirmed,
+            CateringState::Invoiced => S::Invoiced,
+            CateringState::Closed => S::Closed,
+            CateringState::Declined => S::Declined,
+        }
+    }
+
+    fn reached(self, at_least: CateringState) -> bool {
+        let rank = |s: CateringState| match s {
+            CateringState::Inquiry | CateringState::Declined => 0,
+            CateringState::Quoted => 1,
+            CateringState::Accepted => 2,
+            CateringState::Confirmed => 3,
+            CateringState::Invoiced => 4,
+            CateringState::Closed => 5,
+        };
+        self != CateringState::Declined && rank(self) >= rank(at_least)
+    }
 }
 
 /// One open order's place on its day: a hold while it is only placed, a reservation once paid.
@@ -391,7 +438,7 @@ impl Generator {
         let venues = self.venues();
         let history = self.history(&customers);
         let open_orders = self.open_orders(&customers);
-        let catering = self.catering(&venues, birth_ms);
+        let catering = self.catering(&venues, &customers, birth_ms);
         // Derived, not drawn: every value above stands.
         let schedule = schedule_days(born_days, &open_orders);
 
@@ -626,7 +673,12 @@ impl Generator {
     /// Eight events, one per lifecycle position docs/domain.md lists. Dates are open days (not
     /// Mondays), all different, so no day holds more than the 2 confirmed events the rule allows.
     /// Future events fall 14 to 45 days after birth; past ones 3 to 40 days before.
-    fn catering(&mut self, venues: &[Venue], birth_ms: u64) -> Vec<CateringEvent> {
+    fn catering(
+        &mut self,
+        venues: &[Venue],
+        customers: &[Customer],
+        birth_ms: u64,
+    ) -> Vec<CateringEvent> {
         const STATES: [CateringState; 8] = [
             CateringState::Inquiry,
             CateringState::Quoted,
@@ -673,6 +725,35 @@ impl Generator {
                     let (deposit, balance) = total.split(DEPOSIT_BP).expect("25% is a valid split");
                     (Some(total), Some(deposit), Some(balance))
                 };
+            // Everything below is derived from the draws above; nothing more is drawn.
+            let after = |t: BusinessTime, minutes: i64| {
+                bakery_domain::calendar::plus_elapsed_minutes(t, minutes)
+                    .expect("seed times are far inside the year range")
+            };
+            let ulid_at = |t: BusinessTime, plus: u128| {
+                Ulid::from_parts(
+                    u64::try_from(t.unix_ms()).expect("after 1970"),
+                    id.as_u128().wrapping_add(plus),
+                )
+            };
+            let random = id.as_u128() & ((1u128 << 80) - 1);
+            let customer = customers[(random % customers.len() as u128) as usize].id;
+            let quoted_at = state
+                .reached(CateringState::Quoted)
+                .then(|| after(created_at, 120));
+            let accepted_at = quoted_at
+                .filter(|_| state.reached(CateringState::Accepted))
+                .map(|t| after(t, 60));
+            let deposit_payment = accepted_at
+                .filter(|_| state.reached(CateringState::Confirmed))
+                .map(|t| ulid_at(after(t, 5), 1));
+            let event_day = BakeryDate::from_days(day);
+            let delivered_at = state
+                .reached(CateringState::Invoiced)
+                .then(|| event_day.at_local(11 * 60));
+            let invoice = delivered_at.map(|t| ulid_at(after(t, 60), 2));
+            let invoice_due = delivered_at
+                .map(|_| event_day.plus_days(bakery_domain::catering::INVOICE_DUE_DAYS));
             events.push(CateringEvent {
                 id,
                 state,
@@ -685,6 +766,13 @@ impl Generator {
                 deposit_cents: deposit,
                 balance_cents: balance,
                 brief: None,
+                customer,
+                quoted_at,
+                accepted_at,
+                deposit_payment,
+                delivered_at,
+                invoice,
+                invoice_due,
             });
         }
         events
@@ -1468,6 +1556,107 @@ mod tests {
                 g.catering[3..5].iter().map(|e| e.date.as_str()).collect();
             assert_eq!(confirmed_dates.len(), 2);
         }
+    }
+
+    #[test]
+    fn every_seeded_catering_event_replays_to_its_state() {
+        use bakery_domain::catering::{Catering, CateringCommand, CateringState as Saga};
+        use bakery_domain::{DecideContext, execute};
+        for (seed, date) in (0..30).map(|s| (s, DATE)).chain([
+            (42, "2026-07-14"),
+            (7, "2027-03-09"),
+            (9, "2026-11-02"),
+        ]) {
+            let g = generate(seed, date);
+            for (n, e) in g.catering.iter().enumerate() {
+                let steps = seed_commands(e);
+                assert!(steps.windows(2).all(|w| w[0].0 <= w[1].0), "in time order");
+                let mut state = Saga::default();
+                for (i, (t, cmd)) in steps.iter().enumerate() {
+                    let ctx = DecideContext {
+                        now: *t,
+                        id: Ulid::from_parts(1, i as u128),
+                    };
+                    let (next, events) = execute::<Catering>(state, cmd, &ctx)
+                        .unwrap_or_else(|err| panic!("seed {seed} {date} #{n} {cmd:?}: {err}"));
+                    assert!(!events.is_empty(), "seed {seed} #{n}: {cmd:?} did nothing");
+                    state = next;
+                }
+                let r = state.record().unwrap();
+                assert_eq!(r.status, e.state.status(), "seed {seed} {date} #{n}");
+                assert_eq!(r.id, e.id);
+                assert_eq!(r.customer, e.customer);
+                assert_eq!(r.date.to_string(), e.date);
+                assert_eq!(u32::from(r.headcount), e.headcount);
+                assert_eq!(r.package, e.package);
+                assert_eq!(r.venue, e.venue);
+                assert_eq!(r.brief, None);
+                assert_eq!(r.quote.map(|q| q.total), e.quote_total_cents);
+                assert_eq!(r.quote.map(|q| q.deposit), e.deposit_cents);
+                assert_eq!(r.quote.map(|q| q.balance), e.balance_cents);
+                assert_eq!(r.deposit.map(|d| d.payment), e.deposit_payment);
+                assert_eq!(r.invoice.map(|i| i.invoice), e.invoice);
+                assert_eq!(r.invoice.map(|i| i.due), e.invoice_due);
+                // Past reminders on the way were recorded; a closed job has none left.
+                if e.state == CateringState::Closed {
+                    assert!(bakery_domain::catering::reminders(&state).is_empty());
+                    assert!(matches!(
+                        steps.last(),
+                        Some((_, CateringCommand::RecordBalance { .. }))
+                    ));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_seeds_catering_fields_follow_the_state() {
+        let g = generate(42, DATE);
+        let customers: HashSet<Ulid> = g.customers.iter().map(|c| c.id).collect();
+        for e in &g.catering {
+            assert!(customers.contains(&e.customer));
+            let quoted = !matches!(e.state, CateringState::Inquiry | CateringState::Declined);
+            assert_eq!(e.quoted_at.is_some(), quoted);
+            assert_eq!(
+                e.accepted_at.is_some(),
+                quoted && e.state != CateringState::Quoted
+            );
+            let paid = matches!(
+                e.state,
+                CateringState::Confirmed | CateringState::Invoiced | CateringState::Closed
+            );
+            assert_eq!(e.deposit_payment.is_some(), paid);
+            let delivered = matches!(e.state, CateringState::Invoiced | CateringState::Closed);
+            assert_eq!(e.delivered_at.is_some(), delivered);
+            assert_eq!(e.invoice.is_some(), delivered);
+            assert_eq!(e.invoice_due.is_some(), delivered);
+            if let (Some(q), Some(a)) = (e.quoted_at, e.accepted_at) {
+                assert!(e.created_at < q && q < a);
+            }
+            if let Some(p) = e.deposit_payment {
+                assert_ne!(p, e.id);
+                assert_eq!(
+                    p.unix_ms() as i64,
+                    e.accepted_at.unwrap().unix_ms() + 5 * 60_000
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_domain_prices_the_seeds_packages() {
+        let domain: Vec<(&str, Cents)> = bakery_domain::catering::PACKAGES
+            .iter()
+            .map(|p| (p.slug, p.per_head_cents))
+            .collect();
+        let seed: Vec<(&str, Cents)> = PACKAGES
+            .iter()
+            .map(|p| (p.slug, Cents(p.per_head_cents)))
+            .collect();
+        assert_eq!(domain, seed);
+        let g = generate(42, DATE);
+        let venues: Vec<&str> = g.venues.iter().map(|v| v.id.as_str()).collect();
+        assert_eq!(venues, bakery_domain::catering::VENUES);
     }
 
     #[test]

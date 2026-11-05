@@ -147,6 +147,11 @@ impl StripeEvent {
     /// acknowledged and dropped. `charge.refunded` is one: the refund it reports also arrives as
     /// `refund.created` (or `refund.updated`, once a pending refund succeeds), which names the
     /// refund and its request, and as the gateway's own answer.
+    ///
+    /// A balance invoice's `invoice.paid` (amount `amount_paid`) and `invoice.voided` are routed
+    /// like the rest, by the invoice's `metadata[sandbox]`, which the bakery set on the draft.
+    /// The payment intent Stripe makes for the invoice carries no metadata of the bakery's, so
+    /// its `payment_intent.succeeded` names no sandbox and is dropped at the route.
     pub fn billing_kind(&self) -> Option<WebhookKind> {
         match (&self.data.object, self.event_type.as_str()) {
             (EventObject::PaymentIntent(pi), "payment_intent.succeeded") => {
@@ -169,6 +174,13 @@ impl StripeEvent {
                     intent: pi.id.clone(),
                 })
             }
+            (EventObject::Invoice(inv), "invoice.paid") => Some(WebhookKind::InvoicePaid {
+                invoice: inv.id.clone(),
+                amount: Cents(inv.amount_paid),
+            }),
+            (EventObject::Invoice(inv), "invoice.voided") => Some(WebhookKind::InvoiceVoided {
+                invoice: inv.id.clone(),
+            }),
             (EventObject::Refund(r), "refund.created" | "refund.updated")
                 if r.status == RefundStatus::Succeeded =>
             {
@@ -437,6 +449,33 @@ mod tests {
             event("refund.updated", &refund("succeeded"))
                 .billing_kind()
                 .is_some()
+        );
+        let invoice = |status: &str, paid: i64| {
+            format!(
+                r#"{{"id":"in_fake_1","object":"invoice","status":"{status}","amount_due":43500,"amount_paid":{paid},"metadata":{{"sandbox":"01JC8YV2D4QK7S1M9E3PZ6W8AN","purpose":"balance"}},"livemode":false}}"#
+            )
+        };
+        let paid = event("invoice.paid", &invoice("paid", 43_500));
+        assert_eq!(
+            paid.billing_kind(),
+            Some(WebhookKind::InvoicePaid {
+                invoice: "in_fake_1".into(),
+                amount: Cents(43_500)
+            })
+        );
+        assert_eq!(
+            paid.sandbox().unwrap().to_string(),
+            "01JC8YV2D4QK7S1M9E3PZ6W8AN"
+        );
+        assert_eq!(
+            event("invoice.voided", &invoice("void", 0)).billing_kind(),
+            Some(WebhookKind::InvoiceVoided {
+                invoice: "in_fake_1".into()
+            })
+        );
+        assert_eq!(
+            event("invoice.finalized", &invoice("open", 0)).billing_kind(),
+            None
         );
         // Acknowledged and dropped.
         let charge = r#"{"id":"ch_fake_1","object":"charge","amount":2090,"amount_refunded":500,"refunded":false,"payment_intent":"pi_fake_1","metadata":{}}"#;

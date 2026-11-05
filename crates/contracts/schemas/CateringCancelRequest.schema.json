@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CateringCancelRequest",
+  "description": "`POST /v1/sandboxes/{id}/catering/{cid}/cancel`, by the customer or staff, as the session\nis. Only a `confirmed` event is cancelled: `200` with the `CateringResponse`, `cancelled`,\nits `refund_deposit` true when the event day is more than 7 days away; `409` problem of type\n`catering` naming the rule (`out-of-order`) in any other state.",
+  "type": "object",
+  "properties": {
+    "reason": {
+      "$ref": "#/$defs/CateringCancelReason"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "reason"
+  ],
+  "$defs": {
+    "CateringCancelReason": {
+      "description": "Why a confirmed catering event is cancelled: a choice from a list, never free text.",
+      "type": "string",
+      "enum": [
+        "customer_change",
+        "venue_lost",
+        "other"
+      ]
+    }
+  }
+}

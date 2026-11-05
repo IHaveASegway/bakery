@@ -9,7 +9,8 @@ use std::task::{Context, Poll, Waker};
 use bakery_domain::{BusinessTime, Cents, Ulid, WallTime};
 
 use crate::ports::{
-    CancelRequest, ConfirmRequest, IntentCreated, IntentRequest, IntentSnapshot, IntentStatus,
+    CancelRequest, ConfirmRequest, CustomerCreated, CustomerRequest, IntentCreated, IntentRequest,
+    IntentSnapshot, IntentStatus, InvoiceCreated, InvoiceRequest, InvoiceSnapshot, InvoiceStatus,
     PaymentGateway, PortError, RefundCreated, RefundIntentRequest, TestCard,
 };
 use crate::{Clock, IdGen};
@@ -99,6 +100,12 @@ pub enum GatewayCall {
     Cancel(CancelRequest),
     Refund(RefundIntentRequest),
     Retrieve(String),
+    CreateCustomer(CustomerRequest),
+    DeleteCustomer(String),
+    CreateInvoice(InvoiceRequest),
+    /// `(invoice, idempotency key)`.
+    VoidInvoice(String, String),
+    PayInvoice(String, String),
 }
 
 impl GatewayCall {
@@ -108,7 +115,10 @@ impl GatewayCall {
             GatewayCall::Confirm(r) => Some(&r.idempotency_key),
             GatewayCall::Cancel(r) => Some(&r.idempotency_key),
             GatewayCall::Refund(r) => Some(&r.idempotency_key),
-            GatewayCall::Retrieve(_) => None,
+            GatewayCall::CreateCustomer(r) => Some(&r.idempotency_key),
+            GatewayCall::CreateInvoice(r) => Some(&r.idempotency_key),
+            GatewayCall::VoidInvoice(_, key) | GatewayCall::PayInvoice(_, key) => Some(key),
+            GatewayCall::Retrieve(_) | GatewayCall::DeleteCustomer(_) => None,
         }
     }
 }
@@ -118,6 +128,31 @@ enum Answer {
     Created(IntentCreated),
     Snapshot(IntentSnapshot),
     Refund(RefundCreated),
+    Customer(CustomerCreated),
+    Deleted,
+    Invoice(InvoiceSnapshot),
+}
+
+#[derive(Debug, Clone)]
+struct FakeInvoice {
+    customer: String,
+    amount: Cents,
+    status: InvoiceStatus,
+}
+
+impl FakeInvoice {
+    fn snapshot(&self, id: &str) -> InvoiceSnapshot {
+        InvoiceSnapshot {
+            provider_id: id.to_owned(),
+            status: self.status,
+            amount_due: self.amount,
+            amount_paid: if self.status == InvoiceStatus::Paid {
+                self.amount
+            } else {
+                Cents::ZERO
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -128,16 +163,19 @@ struct FakeIntent {
     refunded: Cents,
 }
 
-/// A gateway that behaves like Stripe's sandbox in miniature: ids `pi_fake_<n>` and
-/// `re_fake_<n>`, `pm_card_visa` succeeds and `pm_card_chargeDeclined` declines with
-/// `card_declined`, a refund past what is left is `amount_too_large`, and an idempotency key
-/// returns its first answer, or `idempotency_error` with a different request. It records every
-/// call, and [`FakeGateway::fail_next`] scripts an error for the next one.
+/// A gateway that behaves like Stripe's sandbox in miniature: ids `pi_fake_<n>`, `re_fake_<n>`,
+/// `cus_fake_<n>` and `in_fake_<n>`, `pm_card_visa` succeeds and `pm_card_chargeDeclined`
+/// declines with `card_declined`, a refund past what is left is `amount_too_large`, an invoice
+/// is raised open (finalized) for a customer it knows, paid or voided only while open, and an
+/// idempotency key returns its first answer, or `idempotency_error` with a different request.
+/// It records every call, and [`FakeGateway::fail_next`] scripts an error for the next one.
 #[derive(Debug, Default)]
 pub struct FakeGateway {
     calls: RefCell<Vec<GatewayCall>>,
     failures: RefCell<VecDeque<PortError>>,
     intents: RefCell<BTreeMap<String, FakeIntent>>,
+    customers: RefCell<BTreeMap<String, CustomerRequest>>,
+    invoices: RefCell<BTreeMap<String, FakeInvoice>>,
     answers: RefCell<BTreeMap<String, (GatewayCall, Answer)>>,
     next: Cell<u32>,
 }
@@ -160,6 +198,29 @@ impl FakeGateway {
     /// An intent's status, as a test reads it.
     pub fn status(&self, intent: &str) -> Option<IntentStatus> {
         self.intents.borrow().get(intent).map(|i| i.status)
+    }
+
+    /// An invoice's status, as a test reads it.
+    pub fn invoice_status(&self, invoice: &str) -> Option<InvoiceStatus> {
+        self.invoices.borrow().get(invoice).map(|i| i.status)
+    }
+
+    /// The customers that exist, as a test reads them.
+    pub fn customers(&self) -> Vec<String> {
+        self.customers.borrow().keys().cloned().collect()
+    }
+
+    fn with_invoice(
+        &self,
+        invoice: &str,
+        f: impl FnOnce(&mut FakeInvoice) -> Result<(), PortError>,
+    ) -> Result<Answer, PortError> {
+        let mut invoices = self.invoices.borrow_mut();
+        let i = invoices
+            .get_mut(invoice)
+            .ok_or_else(|| PortError::Rejected("resource_missing".into()))?;
+        f(i)?;
+        Ok(Answer::Invoice(i.snapshot(invoice)))
     }
 
     fn id(&self, prefix: &str) -> String {
@@ -217,6 +278,13 @@ impl FakeGateway {
             .get_mut(intent)
             .ok_or_else(|| PortError::Rejected("resource_missing".into()))?;
         f(i)
+    }
+}
+
+fn invoice_of(answer: Answer) -> InvoiceSnapshot {
+    match answer {
+        Answer::Invoice(s) => s,
+        other => panic!("not an invoice: {other:?}"),
     }
 }
 
@@ -327,6 +395,96 @@ impl PaymentGateway for FakeGateway {
             })
         })
         .map(snapshot_of)
+    }
+
+    async fn create_customer(
+        &self,
+        request: CustomerRequest,
+    ) -> Result<CustomerCreated, PortError> {
+        let answer = self.call(GatewayCall::CreateCustomer(request.clone()), |g| {
+            let id = g.id("cus");
+            g.customers.borrow_mut().insert(id.clone(), request);
+            Ok(Answer::Customer(CustomerCreated { provider_id: id }))
+        })?;
+        match answer {
+            Answer::Customer(c) => Ok(c),
+            other => panic!("not a customer: {other:?}"),
+        }
+    }
+
+    async fn delete_customer(&self, customer: &str) -> Result<(), PortError> {
+        self.call(GatewayCall::DeleteCustomer(customer.to_owned()), |g| {
+            // Gone already is no error, as `stripe::read_deleted` reads Stripe's 404.
+            g.customers.borrow_mut().remove(customer);
+            Ok(Answer::Deleted)
+        })
+        .map(|_| ())
+    }
+
+    async fn create_invoice(&self, request: InvoiceRequest) -> Result<InvoiceCreated, PortError> {
+        let (customer, amount) = (request.customer.clone(), request.amount);
+        let answer = self.call(GatewayCall::CreateInvoice(request), |g| {
+            if !g.customers.borrow().contains_key(&customer) {
+                return Err(PortError::Rejected("resource_missing".into()));
+            }
+            if amount <= Cents::ZERO {
+                return Err(PortError::Rejected("parameter_invalid_integer".into()));
+            }
+            let id = g.id("in");
+            let invoice = FakeInvoice {
+                customer,
+                amount,
+                status: InvoiceStatus::Open,
+            };
+            let snapshot = invoice.snapshot(&id);
+            g.invoices.borrow_mut().insert(id, invoice);
+            Ok(Answer::Invoice(snapshot))
+        })?;
+        let s = invoice_of(answer);
+        Ok(InvoiceCreated {
+            provider_id: s.provider_id,
+            status: s.status,
+        })
+    }
+
+    async fn void_invoice(
+        &self,
+        invoice: &str,
+        idempotency_key: &str,
+    ) -> Result<InvoiceSnapshot, PortError> {
+        let call = GatewayCall::VoidInvoice(invoice.to_owned(), idempotency_key.to_owned());
+        self.call(call, |g| {
+            g.with_invoice(invoice, |i| {
+                if i.status != InvoiceStatus::Open {
+                    return Err(PortError::Rejected("invoice_not_editable".into()));
+                }
+                i.status = InvoiceStatus::Void;
+                Ok(())
+            })
+        })
+        .map(invoice_of)
+    }
+
+    async fn pay_invoice_test(
+        &self,
+        invoice: &str,
+        idempotency_key: &str,
+    ) -> Result<InvoiceSnapshot, PortError> {
+        let call = GatewayCall::PayInvoice(invoice.to_owned(), idempotency_key.to_owned());
+        self.call(call, |g| {
+            let known = |c: &str| g.customers.borrow().contains_key(c);
+            g.with_invoice(invoice, |i| {
+                if i.status != InvoiceStatus::Open {
+                    return Err(PortError::Rejected("invoice_unexpected_state".into()));
+                }
+                if !known(&i.customer) {
+                    return Err(PortError::Rejected("resource_missing".into()));
+                }
+                i.status = InvoiceStatus::Paid;
+                Ok(())
+            })
+        })
+        .map(invoice_of)
     }
 }
 
@@ -466,5 +624,76 @@ mod tests {
         );
         assert_eq!(g.calls().len(), 13);
         assert!(matches!(g.calls()[0], GatewayCall::Create(_)));
+    }
+
+    #[test]
+    fn the_fake_gateway_raises_pays_and_voids_invoices() {
+        let g = FakeGateway::new();
+        let persona = Ulid::from_parts(1, 7);
+        let customer_request = |key: &str| CustomerRequest {
+            sandbox: Ulid::from_parts(1, 1),
+            persona,
+            idempotency_key: key.into(),
+        };
+        let customer = block_on(g.create_customer(customer_request("kc"))).unwrap();
+        assert_eq!(customer.provider_id, "cus_fake_1");
+        // The same key, the same customer.
+        assert_eq!(
+            block_on(g.create_customer(customer_request("kc"))).unwrap(),
+            customer
+        );
+        let invoice = |key: &str, customer: &str| InvoiceRequest {
+            sandbox: Ulid::from_parts(1, 1),
+            invoice: Ulid::from_parts(1, 6),
+            customer: customer.into(),
+            reference: Ulid::from_parts(1, 5),
+            amount: Cents(43_500),
+            due: "2026-11-28".parse().unwrap(),
+            today: "2026-11-21".parse().unwrap(),
+            idempotency_key: key.into(),
+        };
+        assert_eq!(
+            block_on(g.create_invoice(invoice("ki0", "cus_fake_9"))),
+            Err(PortError::Rejected("resource_missing".into()))
+        );
+        let first = block_on(g.create_invoice(invoice("ki1", "cus_fake_1"))).unwrap();
+        assert_eq!(
+            first,
+            InvoiceCreated {
+                provider_id: "in_fake_2".into(),
+                status: InvoiceStatus::Open
+            }
+        );
+        assert_eq!(
+            block_on(g.create_invoice(invoice("ki1", "cus_fake_1"))).unwrap(),
+            first
+        );
+        let paid = block_on(g.pay_invoice_test("in_fake_2", "kp")).unwrap();
+        assert_eq!(paid.status, InvoiceStatus::Paid);
+        assert_eq!(paid.amount_paid, Cents(43_500));
+        // A retried payment is the first answer; a paid invoice cannot be voided.
+        assert_eq!(
+            block_on(g.pay_invoice_test("in_fake_2", "kp")).unwrap(),
+            paid
+        );
+        assert_eq!(
+            block_on(g.void_invoice("in_fake_2", "kv")),
+            Err(PortError::Rejected("invoice_not_editable".into()))
+        );
+        let second = block_on(g.create_invoice(invoice("ki2", "cus_fake_1"))).unwrap();
+        let voided = block_on(g.void_invoice(&second.provider_id, "kv2")).unwrap();
+        assert_eq!(voided.status, InvoiceStatus::Void);
+        assert_eq!(
+            g.invoice_status(&second.provider_id),
+            Some(InvoiceStatus::Void)
+        );
+        assert_eq!(
+            block_on(g.pay_invoice_test(&second.provider_id, "kp2")),
+            Err(PortError::Rejected("invoice_unexpected_state".into()))
+        );
+        // The wipe deletes the customer, and a second delete is no error.
+        block_on(g.delete_customer("cus_fake_1")).unwrap();
+        block_on(g.delete_customer("cus_fake_1")).unwrap();
+        assert!(g.customers().is_empty());
     }
 }

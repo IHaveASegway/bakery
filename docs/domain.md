@@ -291,6 +291,7 @@ Every event, past tense, by producer. Types: `id` is a ULID string, `cents` an `
 | `CateringInquiryReceived` | CateringEvent | `catering: id, customer: id, date, headcount: u16, package: string, venue: string, brief: string?` | Crm; Inbox | lead pipeline; acknowledgement |
 | `CateringQuoteSent` | CateringEvent | `total_cents, deposit_cents, valid_until: time` | Crm; Inbox | pipeline stage; the quote message |
 | `CateringQuoteAccepted` | CateringEvent | `{}` | Crm | pipeline stage |
+| `CateringDepositLapsed` | CateringEvent | `{}` | Schedule | releases the day's held place; the quote is open again |
 | `CateringQuoteExpired`, `CateringDeclined` | CateringEvent | `reason: string?` | Crm; Inbox | lost lead; notice |
 | `CateringDepositPaid` | CateringEvent | `payment: id, amount_cents` | Schedule; Crm; Inbox | reserves the day; won lead; receipt |
 | `CateringReminderDue` | CateringEvent | `kind: follow_up, event_soon or invoice_due` | Inbox | reminder message |

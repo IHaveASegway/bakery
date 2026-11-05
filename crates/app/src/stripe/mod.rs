@@ -3,7 +3,8 @@
 //!
 //! - [`form`]: bodies in bracket notation.
 //! - [`wire`]: the objects read from responses and webhooks.
-//! - [`request`]: the five calls, their idempotency keys and the readers of their answers.
+//! - [`request`]: the calls, their idempotency keys and the readers of their answers: the
+//!   intents and refunds (PR 5), and the customer and the balance invoice (PR 7).
 //! - [`webhook`]: the signature check, the parse, the mode check and the Billing command.
 //! - [`keys`]: what a key is, from its prefix.
 //!
@@ -20,13 +21,17 @@ pub use form::Form;
 pub use keys::{KeyKind, KeyRole, is_sandbox_secret_key, is_webhook_secret, key_role};
 pub use request::{
     API_BASE, CURRENCY, Call, Method, StripeFailure, StripeRequest, cancel_intent, confirm_intent,
-    create_intent, create_refund, idempotency_key, parse, read_intent, read_intent_created,
-    read_refund, retrieve_intent, snapshot,
+    create_customer, create_intent, create_invoice_draft, create_refund, customer_key,
+    days_until_due, delete_customer, finalize_invoice, idempotency_key, invoice_item, parse,
+    pay_invoice_test, read_customer, read_deleted, read_intent, read_intent_created, read_invoice,
+    read_invoice_created, read_invoice_item, read_refund, retrieve_intent, retrieve_invoice,
+    snapshot, void_invoice,
 };
 pub use webhook::{TOLERANCE_S, WebhookError, parse_event, signature_header, verify_signature};
 pub use wire::{
-    Charge, ErrorBody, EventData, EventObject, Metadata, PaymentError, PaymentIntent, Refund,
-    RefundStatus, StripeError, StripeEvent, StripeIntentStatus,
+    Charge, Customer, Deleted, ErrorBody, EventData, EventObject, Invoice, InvoiceItem, Metadata,
+    PaymentError, PaymentIntent, Refund, RefundStatus, StripeError, StripeEvent,
+    StripeIntentStatus, StripeInvoiceStatus,
 };
 
 /// The whole path with the fake gateway in Stripe's place: what the Worker's `Billing` object
@@ -220,5 +225,181 @@ mod flow_tests {
         assert_eq!(state.payment(payment).unwrap().refunded, Cents(2_090));
         // Create, confirm, two refunds.
         assert_eq!(gateway.calls().len(), 4);
+    }
+
+    /// The balance: delivered, invoiced at Stripe against a customer with no email, paid on the
+    /// test path, and the webhook closes the catering job. Redelivered, it changes nothing.
+    #[test]
+    fn a_balance_invoice_from_delivery_to_closed() {
+        use crate::ports::{CustomerRequest, InvoiceRequest, InvoiceStatus};
+        use bakery_domain::BakeryDate;
+        use bakery_domain::catering::{
+            Catering, CateringCommand, CateringEvent, CateringState, CateringStatus, SubmitInquiry,
+        };
+
+        let gateway = FakeGateway::new();
+        let (sandbox, job, persona, invoice) = (ulid(1), ulid(5), ulid(7), ulid(8));
+        let at = |t: &str| DecideContext {
+            now: t.parse().unwrap(),
+            id: ulid(99),
+        };
+        // The job, walked to delivered.
+        let mut job_state = CateringState::default();
+        let mut delivered = None;
+        for (cmd, t) in [
+            (
+                CateringCommand::SubmitInquiry(Box::new(SubmitInquiry {
+                    catering: job,
+                    customer: persona,
+                    date: "2026-11-21".parse().unwrap(),
+                    headcount: 40,
+                    package: "breakfast-spread".into(),
+                    venue: "v3".into(),
+                    brief: None,
+                })),
+                "2026-11-03T10:00:00-07:00",
+            ),
+            (
+                CateringCommand::SendQuote { total: None },
+                "2026-11-03T10:00:00-07:00",
+            ),
+            (CateringCommand::AcceptQuote, "2026-11-04T09:00:00-07:00"),
+            (
+                CateringCommand::RecordDeposit {
+                    payment: ulid(10),
+                    amount: Cents(14_500),
+                },
+                "2026-11-04T09:05:00-07:00",
+            ),
+            (
+                CateringCommand::StartProduction,
+                "2026-11-21T05:00:00-07:00",
+            ),
+            (CateringCommand::MarkDelivered, "2026-11-21T11:00:00-07:00"),
+        ] {
+            let (next, events) = execute::<Catering>(job_state, &cmd, &at(t)).unwrap();
+            delivered = events.into_iter().last();
+            job_state = next;
+        }
+        let Some(CateringEvent::CateringDelivered {
+            customer,
+            balance_cents,
+            due,
+        }) = delivered
+        else {
+            panic!("{delivered:?}");
+        };
+        assert_eq!(due, "2026-11-28".parse::<BakeryDate>().unwrap());
+
+        // Billing, on CateringDelivered: the check, the customer, the invoice, the record.
+        let now = at("2026-11-21T11:00:05-07:00");
+        let create = BillingCommand::CreateInvoice {
+            invoice,
+            customer,
+            reference: job,
+            amount: balance_cents,
+            due,
+        };
+        let (billing, none) = execute::<Billing>(BillingState::default(), &create, &now).unwrap();
+        assert!(none.is_empty());
+        let cus = block_on(gateway.create_customer(CustomerRequest {
+            sandbox,
+            persona: customer,
+            idempotency_key: customer_key(sandbox, customer),
+        }))
+        .unwrap();
+        let made = block_on(gateway.create_invoice(InvoiceRequest {
+            sandbox,
+            invoice,
+            customer: cus.provider_id.clone(),
+            reference: job,
+            amount: balance_cents,
+            due,
+            today: "2026-11-21".parse().unwrap(),
+            idempotency_key: idempotency_key(Call::Invoice, job, Purpose::Balance, 1),
+        }))
+        .unwrap();
+        assert_eq!(made.status, InvoiceStatus::Open);
+        let (billing, issued) = execute::<Billing>(
+            billing,
+            &BillingCommand::RecordInvoice {
+                invoice,
+                customer,
+                reference: job,
+                amount: balance_cents,
+                due,
+                stripe_id: made.provider_id.clone(),
+                stripe_customer: cus.provider_id.clone(),
+            },
+            &now,
+        )
+        .unwrap();
+        let [
+            BillingEvent::InvoiceIssued {
+                invoice: issued_id,
+                amount_cents,
+                due: issued_due,
+                ..
+            },
+        ] = issued.as_slice()
+        else {
+            panic!("{issued:?}");
+        };
+        // The job records it.
+        let (job_state, _) = execute::<Catering>(
+            job_state,
+            &CateringCommand::RecordInvoice {
+                invoice: *issued_id,
+                amount: *amount_cents,
+                due: *issued_due,
+            },
+            &now,
+        )
+        .unwrap();
+        assert_eq!(job_state.status(), Some(CateringStatus::Invoiced));
+
+        // Paid on the test path; Stripe posts invoice.paid with the invoice's metadata.
+        let key = idempotency_key(Call::Pay, job, Purpose::Balance, 1);
+        let paid = block_on(gateway.pay_invoice_test(&made.provider_id, &key)).unwrap();
+        let body = webhook_body(
+            "evt_fake_invoice_1",
+            "invoice.paid",
+            &format!(
+                r#"{{"id":"{}","object":"invoice","status":"paid","amount_due":{},"amount_paid":{},"customer":"{}","metadata":{{"sandbox":"{sandbox}","invoice":"{invoice}","purpose":"balance","ref":"{job}"}},"livemode":false}}"#,
+                made.provider_id, paid.amount_due.0, paid.amount_paid.0, cus.provider_id
+            ),
+        );
+        let (billing, events) = deliver(&billing, &body, 100);
+        let [
+            BillingEvent::PaymentSucceeded {
+                payment,
+                purpose: Purpose::Balance,
+                reference,
+                amount_cents,
+                ..
+            },
+        ] = events.as_slice()
+        else {
+            panic!("{events:?}");
+        };
+        assert_eq!((*payment, *reference), (invoice, job));
+        let (again, more) = deliver(&billing, &body, 101);
+        assert!(more.is_empty());
+        assert_eq!(again, billing);
+        // The job, by purpose: paid, then closed.
+        let (closed, events) = execute::<Catering>(
+            job_state,
+            &CateringCommand::RecordBalance {
+                payment: *payment,
+                amount: *amount_cents,
+            },
+            &at("2026-11-22T09:00:00-07:00"),
+        )
+        .unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(closed.status(), Some(CateringStatus::Closed));
+        // The wipe has nothing open to void, and one customer to delete.
+        assert!(billing.open_invoices().is_empty());
+        assert_eq!(billing.stripe_customers(), [cus.provider_id.as_str()]);
     }
 }

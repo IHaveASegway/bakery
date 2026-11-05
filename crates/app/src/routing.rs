@@ -145,6 +145,7 @@ pub const ROUTES: &[(&str, &[Route])] = &[
     ("CateringInquiryReceived", &[all(Crm), all(Inbox)]),
     ("CateringQuoteSent", &[all(Crm), all(Inbox)]),
     ("CateringQuoteAccepted", &[all(Crm)]),
+    ("CateringDepositLapsed", &[all(Schedule)]),
     ("CateringQuoteExpired", &[all(Crm), all(Inbox)]),
     ("CateringDeclined", &[all(Crm), all(Inbox)]),
     (
@@ -272,6 +273,7 @@ mod tests {
     use super::*;
     use bakery_domain::billing::BillingEvent;
     use bakery_domain::catalog::CatalogEvent;
+    use bakery_domain::catering::CateringEvent as CateringEvents;
     use bakery_domain::order::OrderEvent;
     use bakery_domain::schedule::ScheduleEvent;
     use bakery_domain::{DomainEvent, Ulid, WallTime};
@@ -373,7 +375,7 @@ mod tests {
         assert_eq!(in_table, in_doc);
         assert_eq!(ROUTES.len(), in_table.len(), "an event is listed twice");
         // The table has as many rows as the catalog has events.
-        assert_eq!(in_doc.len(), 62);
+        assert_eq!(in_doc.len(), 63);
     }
 
     #[test]
@@ -383,9 +385,31 @@ mod tests {
             .chain(CatalogEvent::NAMES)
             .chain(ScheduleEvent::NAMES)
             .chain(BillingEvent::NAMES)
+            .chain(CateringEvents::NAMES)
         {
             assert!(routes(name).is_some(), "{name} has no row");
         }
+    }
+
+    #[test]
+    fn the_catering_saga_reaches_the_schedule_and_billing() {
+        let schedule_and = |name: &str| classes(routes_for(&envelope(name, json!({}))));
+        // Confirm, Release, Fulfil.
+        assert_eq!(
+            schedule_and("CateringDepositPaid"),
+            ["Schedule", "Crm", "Inbox"]
+        );
+        assert_eq!(schedule_and("CateringDepositLapsed"), ["Schedule"]);
+        assert_eq!(
+            schedule_and("CateringCancelled"),
+            ["Schedule", "Billing", "Crm"]
+        );
+        assert_eq!(schedule_and("CateringClosed"), ["Schedule", "Crm", "Inbox"]);
+        // The balance invoice: raised on delivery, recorded by the job, paid by purpose.
+        assert_eq!(schedule_and("CateringDelivered"), ["Billing", "Kitchen"]);
+        assert_eq!(schedule_and("InvoiceIssued"), ["CateringEvent"]);
+        let balance = envelope("PaymentSucceeded", json!({ "purpose": "balance" }));
+        assert_eq!(classes(routes_for(&balance)), ["CateringEvent"]);
     }
 
     #[test]

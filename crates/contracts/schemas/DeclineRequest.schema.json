@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeclineRequest",
+  "description": "`POST /v1/sandboxes/{id}/catering/{cid}/decline`, staff only, while the inquiry is an\n`inquiry`. `200` with the `CateringResponse`, `declined`; `409` problem of type `catering`\nnaming the rule (`out-of-order`) once it is quoted.",
+  "type": "object",
+  "properties": {
+    "reason": {
+      "$ref": "#/$defs/DeclineReason"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "reason"
+  ],
+  "$defs": {
+    "DeclineReason": {
+      "description": "Why staff decline an inquiry: a choice from a list, never free text.",
+      "type": "string",
+      "enum": [
+        "too_soon",
+        "over_capacity",
+        "other"
+      ]
+    }
+  }
+}
