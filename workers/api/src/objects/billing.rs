@@ -30,12 +30,19 @@
 //!   "unknown-payment"` for a payment Billing never took (a seeded order's).
 //! - `POST /_cancel {reference}` → 200 `{canceled}`: `CancelForExpiry`, then each intent canceled
 //!   at Stripe, best effort.
+//! - `POST /_pay-invoice {reference}` → 200 `{invoice, amount_paid_cents}`: the catering job's
+//!   open balance invoice paid with Stripe's test card (`pay_invoice_test`); 409 `{error:
+//!   "no-invoice" | "paid"}`. Records nothing: `invoice.paid` does.
 //! - `POST /_event` with an envelope, from the consumer: `OrderRefundRequested` is `/_refund`
-//!   with the event's id as the refund's, `OrderExpired` is `/_cancel`; anything else is 200.
+//!   with the event's id as the refund's, `OrderExpired` is `/_cancel`; `CateringDelivered`
+//!   raises the balance invoice (the persona's Stripe customer made once, then the invoice under
+//!   the delivery's envelope id, then `RecordInvoice`); `CateringCancelled` with
+//!   `refund_deposit: true` refunds the deposit, found by purpose and ref, under the
+//!   cancellation's id; anything else is 200.
 //! - `GET /_payment/<ref>` → 200 `PaidOut` for the reference's succeeded order payment, else 404.
 //! - `GET /_ledger` → 200 `LedgerResponse`.
-//! - `POST /_wipe`: every open intent canceled at Stripe, best effort, then the child protocol's
-//!   wipe. `POST /_clock`: the child protocol (child.rs); Billing's timers are wall time.
+//! - `POST /_wipe`: every open intent canceled, every open invoice voided and every customer
+//!   deleted at Stripe, best effort and logged by reason, then the child protocol's wipe. `POST /_clock`: the child protocol (child.rs); Billing's timers are wall time.
 //!
 //! Timers: `outbox`, `backstop`.
 
@@ -43,26 +50,29 @@ use std::cell::Cell;
 
 use bakery_app::Clock;
 use bakery_app::ports::{
-    CancelRequest, ConfirmRequest, IntentRequest, PaymentGateway, PortError, RefundIntentRequest,
-    TestCard,
+    CancelRequest, ConfirmRequest, CustomerRequest, IntentRequest, InvoiceRequest, PaymentGateway,
+    PortError, RefundIntentRequest, TestCard,
 };
-use bakery_app::stripe::{Call, idempotency_key};
+use bakery_app::stripe::{Call, customer_key, idempotency_key};
 use bakery_contracts::{
     LedgerEntry as WireEntry, LedgerKind as WireKind, LedgerResponse, PaymentPurpose,
 };
 use bakery_domain::billing::{
     Billing as BillingAggregate, BillingCommand, BillingError, BillingEvent, BillingState,
-    LedgerKind, PaymentStatus, Purpose, WebhookKind, WebhookOutcome,
+    InvoiceStatus, LedgerKind, PaymentStatus, Purpose, WebhookKind, WebhookOutcome,
 };
 use bakery_domain::order::RefundReason;
 use bakery_domain::outbox::{Stamp, StreamHead, envelopes};
-use bakery_domain::{Cents, DecideContext, DomainEvent, Envelope, Ulid, WallTime, execute, replay};
+use bakery_domain::{
+    BakeryDate, Cents, DecideContext, DomainEvent, Envelope, Ulid, WallTime, execute, replay,
+};
 use serde::{Deserialize, Serialize};
 use worker::{
     DurableObject, Env, Error, Method, Request, Response, Result, SqlStorage, State, console_log,
     durable_object,
 };
 
+use super::catering;
 use super::child::{self, Birth, ClockUpdate};
 use super::sql::{self, exec, gone, has_table, json, refuse, transaction_sync};
 use super::stream::{self, BACKSTOP, OUTBOX};
@@ -209,7 +219,7 @@ impl DurableObject for Billing {
                 self.seed(body, now).await
             }
             (Method::Post, "/_wipe") => {
-                self.cancel_open_intents().await;
+                self.clean_stripe().await;
                 json(&child::wipe(&self.state).await?, 200)
             }
             (method, path) => {
@@ -237,6 +247,10 @@ impl DurableObject for Billing {
                     (Method::Post, "/_cancel") => {
                         let body: CancelIn = sql::body(&mut req).await?;
                         self.cancel(&meta, body.reference, now).await
+                    }
+                    (Method::Post, "/_pay-invoice") => {
+                        let body: CancelIn = sql::body(&mut req).await?;
+                        self.pay_invoice(&meta, body.reference).await
                     }
                     (Method::Post, "/_event") => {
                         let text = req.text().await?;
@@ -475,7 +489,13 @@ impl Billing {
                 purpose: p.purpose,
                 reference: p.reference,
                 amount: p.amount,
-                idempotency_key: idempotency_key(Call::Create, p.reference, p.purpose, p.attempt),
+                idempotency_key: idempotency_key(
+                    Call::Create,
+                    meta.sandbox_id()?,
+                    p.reference,
+                    p.purpose,
+                    p.attempt,
+                ),
             })
             .await;
         let created = match created {
@@ -511,6 +531,7 @@ impl Billing {
             // The order expired while Stripe answered: the intent is canceled there too.
             self.cancel_at_stripe(
                 &gateway,
+                meta.sandbox_id()?,
                 &p.reference,
                 p.purpose,
                 p.attempt,
@@ -556,7 +577,13 @@ impl Billing {
             .confirm_intent(ConfirmRequest {
                 intent,
                 card,
-                idempotency_key: idempotency_key(Call::Confirm, p.reference, p.purpose, p.attempt),
+                idempotency_key: idempotency_key(
+                    Call::Confirm,
+                    meta.sandbox_id()?,
+                    p.reference,
+                    p.purpose,
+                    p.attempt,
+                ),
             })
             .await;
         match snapshot {
@@ -727,7 +754,13 @@ impl Billing {
                 intent,
                 amount: r.amount,
                 reason: r.reason.unwrap_or(body.reason),
-                idempotency_key: idempotency_key(Call::Refund, p.reference, p.purpose, r.ordinal),
+                idempotency_key: idempotency_key(
+                    Call::Refund,
+                    meta.sandbox_id()?,
+                    p.reference,
+                    p.purpose,
+                    r.ordinal,
+                ),
             })
             .await;
         let created = match created {
@@ -800,8 +833,15 @@ impl Billing {
             match Stripe::from_env(&self.env) {
                 Ok(gateway) => {
                     for (_, intent, purpose, attempt) in &canceled {
-                        self.cancel_at_stripe(&gateway, &reference, *purpose, *attempt, intent)
-                            .await;
+                        self.cancel_at_stripe(
+                            &gateway,
+                            meta.sandbox_id()?,
+                            &reference,
+                            *purpose,
+                            *attempt,
+                            intent,
+                        )
+                        .await;
                     }
                 }
                 Err(u) => console_log!(
@@ -816,6 +856,7 @@ impl Billing {
     async fn cancel_at_stripe(
         &self,
         gateway: &Stripe,
+        sandbox: Ulid,
         reference: &Ulid,
         purpose: Purpose,
         attempt: u32,
@@ -824,7 +865,13 @@ impl Billing {
         let done = gateway
             .cancel_intent(CancelRequest {
                 intent: intent.to_owned(),
-                idempotency_key: idempotency_key(Call::Cancel, *reference, purpose, attempt),
+                idempotency_key: idempotency_key(
+                    Call::Cancel,
+                    sandbox,
+                    *reference,
+                    purpose,
+                    attempt,
+                ),
             })
             .await;
         match done {
@@ -836,13 +883,15 @@ impl Billing {
         }
     }
 
-    /// The wipe's Stripe cleanup (ADR 0007, decision 9): every intent still open is canceled,
-    /// best effort, before `delete_all`.
-    async fn cancel_open_intents(&self) {
+    /// The wipe's Stripe cleanup (ADR 0007, decision 9), best effort, before `delete_all`: every
+    /// intent still open is canceled, every open balance invoice voided and every Stripe
+    /// customer Billing made deleted. Each failure is logged by its reason code and the wipe
+    /// goes on: what is left stays in Stripe's sandbox until its test data is cleared.
+    async fn clean_stripe(&self) {
         let Ok(Some(meta)) = child::meta(&self.sql()) else {
             return;
         };
-        let Ok((state, _)) = self.load(&meta) else {
+        let (Ok((state, _)), Ok(sandbox)) = (self.load(&meta), meta.sandbox_id()) else {
             return;
         };
         let open: Vec<(Ulid, String, Purpose, u32)> = state
@@ -850,7 +899,17 @@ impl Billing {
             .filter(|(_, p)| p.status.is_open())
             .filter_map(|(_, p)| Some((p.reference, p.intent.clone()?, p.purpose, p.attempt)))
             .collect();
-        if open.is_empty() {
+        let invoices: Vec<(Ulid, String)> = state
+            .invoices()
+            .filter(|(_, i)| i.status == InvoiceStatus::Open)
+            .map(|(_, i)| (i.reference, i.stripe_invoice.clone()))
+            .collect();
+        let customers: Vec<String> = state
+            .stripe_customers()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        if open.is_empty() && invoices.is_empty() && customers.is_empty() {
             return;
         }
         let Ok(gateway) = Stripe::from_env(&self.env) else {
@@ -858,9 +917,39 @@ impl Billing {
             return;
         };
         for (reference, intent, purpose, attempt) in &open {
-            self.cancel_at_stripe(&gateway, reference, *purpose, *attempt, intent)
+            self.cancel_at_stripe(&gateway, sandbox, reference, *purpose, *attempt, intent)
                 .await;
         }
+        let (mut voided, mut deleted, mut failed) = (0u32, 0u32, 0u32);
+        for (reference, invoice) in &invoices {
+            let key = idempotency_key(Call::Void, sandbox, *reference, Purpose::Balance, 1);
+            match gateway.void_invoice(invoice, &key).await {
+                Ok(_) => voided += 1,
+                Err(e) => {
+                    failed += 1;
+                    console_log!(
+                        "{{\"event\":\"stripe_error\",\"op\":\"void\",\"reason\":{:?}}}",
+                        stripe::reason(&e)
+                    );
+                }
+            }
+        }
+        for customer in &customers {
+            match gateway.delete_customer(customer).await {
+                Ok(()) => deleted += 1,
+                Err(e) => {
+                    failed += 1;
+                    console_log!(
+                        "{{\"event\":\"stripe_error\",\"op\":\"delete-customer\",\"reason\":{:?}}}",
+                        stripe::reason(&e)
+                    );
+                }
+            }
+        }
+        console_log!(
+            "{{\"event\":\"stripe_wipe\",\"intents\":{},\"invoices_voided\":{voided},\"customers_deleted\":{deleted},\"failed\":{failed}}}",
+            open.len()
+        );
     }
 
     /// One delivery from the consumer.
@@ -896,7 +985,207 @@ impl Billing {
                 };
                 self.cancel(meta, order, now).await
             }
+            "CateringDelivered" => self.invoice(meta, &envelope, now).await,
+            "CateringCancelled" => self.refund_deposit(meta, &envelope, now).await,
             _ => json(&serde_json::json!({ "outcome": "ignored" }), 200),
+        }
+    }
+
+    /// `CateringDelivered`: the balance invoice, raised once. Its id is the delivery's envelope
+    /// id, so a redelivered event finds it recorded and raises nothing. In order: the rules
+    /// (`CreateInvoice`, which writes nothing), the persona's Stripe customer (made once per
+    /// sandbox and persona, under `<sandbox>:<persona>:customer`), the invoice at Stripe (draft,
+    /// item, finalize, each under the invoice's key), then `RecordInvoice`, whose
+    /// `InvoiceIssued` goes to the CateringEvent. A Stripe failure answers non-2xx, so the
+    /// delivery is retried with the same keys and gets the same objects back.
+    async fn invoice(
+        &self,
+        meta: &child::Meta,
+        envelope: &Envelope,
+        now: WallTime,
+    ) -> Result<Response> {
+        #[derive(Deserialize)]
+        struct Data {
+            customer: Ulid,
+            balance_cents: Cents,
+            due: BakeryDate,
+        }
+        let sandbox = meta.sandbox_id()?;
+        let (Ok(d), Some(job)) = (
+            serde_json::from_value::<Data>(envelope.data.clone()),
+            catering::id_of(&envelope.stream, sandbox),
+        ) else {
+            return refuse(422, "envelope");
+        };
+        let invoice = envelope.id;
+        self.ensure_schema()?;
+        let (state, _) = self.load(meta)?;
+        if state.invoice(invoice).is_some() {
+            return json(&serde_json::json!({ "outcome": "duplicate" }), 200);
+        }
+        let check = BillingCommand::CreateInvoice {
+            invoice,
+            customer: d.customer,
+            reference: job,
+            amount: d.balance_cents,
+            due: d.due,
+        };
+        if let Err(e) =
+            execute::<BillingAggregate>(state.clone(), &check, &Self::ctx(meta, now, invoice))
+        {
+            // Another invoice for the job, or nothing to invoice: a retry cannot change that.
+            console_log!(
+                "{{\"event\":\"invoice_refused\",\"invoice\":\"{invoice}\",\"rule\":\"{}\"}}",
+                e.rule()
+            );
+            return json(
+                &serde_json::json!({ "outcome": "refused", "rule": e.rule() }),
+                200,
+            );
+        }
+        let gateway = match Stripe::from_env(&self.env) {
+            Ok(g) => g,
+            Err(u) => return unavailable(u),
+        };
+        let stripe_customer = match state.stripe_customer_for(d.customer) {
+            Some(c) => c.to_owned(),
+            None => match gateway
+                .create_customer(CustomerRequest {
+                    sandbox,
+                    persona: d.customer,
+                    idempotency_key: customer_key(sandbox, d.customer),
+                })
+                .await
+            {
+                Ok(c) => c.provider_id,
+                Err(e) => return stripe_refusal("customer", &e),
+            },
+        };
+        let made = gateway
+            .create_invoice(InvoiceRequest {
+                sandbox,
+                invoice,
+                customer: stripe_customer.clone(),
+                reference: job,
+                amount: d.balance_cents,
+                due: d.due,
+                today: BakeryDate::of(meta.business(now)),
+                idempotency_key: idempotency_key(Call::Invoice, sandbox, job, Purpose::Balance, 1),
+            })
+            .await;
+        let made = match made {
+            Ok(m) => m,
+            Err(e) => return stripe_refusal("invoice", &e),
+        };
+        let (state, existing) = self.load(meta)?;
+        let id = random::ulid(now)?;
+        let cmd = BillingCommand::RecordInvoice {
+            invoice,
+            customer: d.customer,
+            reference: job,
+            amount: d.balance_cents,
+            due: d.due,
+            stripe_id: made.provider_id.clone(),
+            stripe_customer,
+        };
+        match execute::<BillingAggregate>(state, &cmd, &Self::ctx(meta, now, id)) {
+            Ok((_, events)) => {
+                self.commit(meta, &existing, &events, now, &envelope.id.to_string())
+                    .await?;
+            }
+            Err(e) => {
+                console_log!(
+                    "{{\"event\":\"billing_refused\",\"command\":\"RecordInvoice\",\"rule\":\"{}\"}}",
+                    e.rule()
+                );
+                return billing_refusal(502, &e);
+            }
+        }
+        console_log!(
+            "{{\"event\":\"invoice_issued\",\"invoice\":\"{invoice}\",\"stripe_invoice\":{:?}}}",
+            made.provider_id
+        );
+        json(&serde_json::json!({ "outcome": "applied" }), 200)
+    }
+
+    /// `CateringCancelled { refund_deposit: true }`: the deposit, found by purpose and ref,
+    /// refunded in full under the cancellation's envelope id. A seeded event's deposit never
+    /// went through Stripe, so there is none to find: logged and acknowledged.
+    async fn refund_deposit(
+        &self,
+        meta: &child::Meta,
+        envelope: &Envelope,
+        now: WallTime,
+    ) -> Result<Response> {
+        let refund = envelope
+            .data
+            .get("refund_deposit")
+            .and_then(serde_json::Value::as_bool);
+        let Some(job) = catering::id_of(&envelope.stream, meta.sandbox_id()?) else {
+            return refuse(422, "envelope");
+        };
+        match refund {
+            Some(true) => {}
+            Some(false) => return json(&serde_json::json!({ "outcome": "ignored" }), 200),
+            None => return refuse(422, "envelope"),
+        }
+        let (state, _) = self.load(meta)?;
+        let deposit = state.payments().find(|(_, p)| {
+            p.purpose == Purpose::Deposit
+                && p.reference == job
+                && p.status == PaymentStatus::Succeeded
+        });
+        let Some((payment, _)) = deposit else {
+            console_log!(
+                "{{\"event\":\"refund_skipped\",\"refund\":\"{}\",\"rule\":\"no-deposit\"}}",
+                envelope.id
+            );
+            return json(&serde_json::json!({ "outcome": "no-deposit" }), 200);
+        };
+        let body = RefundIn {
+            refund: envelope.id,
+            payment,
+            amount: None,
+            reason: RefundReason::Cancelled,
+        };
+        self.refund(meta, body, now).await
+    }
+
+    /// The balance paid on the test path (decision 3 of PR 7: at real Stripe how a visitor pays
+    /// is spike S3's question): the job's open invoice paid with Stripe's `pm_card_visa` under
+    /// `<sandbox>:<ref>:balance-pay:1`, so a repeated call gets the first answer. Records
+    /// nothing: Stripe's `invoice.paid` does, through the webhook.
+    async fn pay_invoice(&self, meta: &child::Meta, reference: Ulid) -> Result<Response> {
+        let gateway = match Stripe::from_env(&self.env) {
+            Ok(g) => g,
+            Err(u) => return unavailable(u),
+        };
+        let (state, _) = self.load(meta)?;
+        let Some((invoice, i)) = state.invoice_for(reference) else {
+            return refuse(409, "no-invoice");
+        };
+        if i.status != InvoiceStatus::Open {
+            return refuse(409, "paid");
+        }
+        let key = idempotency_key(
+            Call::Pay,
+            meta.sandbox_id()?,
+            reference,
+            Purpose::Balance,
+            1,
+        );
+        match gateway.pay_invoice_test(&i.stripe_invoice, &key).await {
+            Ok(s) => {
+                console_log!(
+                    "{{\"event\":\"invoice_pay_test\",\"invoice\":\"{invoice}\",\"paid\":{}}}",
+                    s.amount_paid.0
+                );
+                json(
+                    &serde_json::json!({ "invoice": invoice, "amount_paid_cents": s.amount_paid }),
+                    200,
+                )
+            }
+            Err(e) => stripe_refusal("pay-invoice", &e),
         }
     }
 

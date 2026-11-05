@@ -60,6 +60,18 @@ pub enum RouteId {
     StripeWebhook,
     GetSchedule,
     SetCapacity,
+    CreateCatering,
+    ListCatering,
+    GetCatering,
+    AcceptQuote,
+    CateringDeposit,
+    PayBalance,
+    CancelCatering,
+    SendQuote,
+    DeclineCatering,
+    StartCateringProduction,
+    MarkCateringDelivered,
+    StaffCancelCatering,
 }
 
 #[derive(Debug)]
@@ -335,6 +347,92 @@ pub const ROUTES: &[Route] = &[
         RouteId::SetCapacity,
         "PATCH",
         "/v1/sandboxes/{id}/schedule/{sub}/capacity",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
+    // PR 7: catering. The inquiry, the reads and the customer's steps are any session's (guests
+    // browse, order and pay); the staff's steps are a signed-in session's.
+    route(
+        RouteId::CreateCatering,
+        "POST",
+        "/v1/sandboxes/{id}/catering",
+        Scope::Session,
+        Limit::Command,
+    ),
+    route(
+        RouteId::ListCatering,
+        "GET",
+        "/v1/sandboxes/{id}/catering",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::GetCatering,
+        "GET",
+        "/v1/sandboxes/{id}/catering/{sub}",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::AcceptQuote,
+        "POST",
+        "/v1/sandboxes/{id}/catering/{sub}/accept",
+        Scope::Session,
+        Limit::Command,
+    ),
+    route(
+        RouteId::CateringDeposit,
+        "POST",
+        "/v1/sandboxes/{id}/catering/{sub}/deposit",
+        Scope::Session,
+        Limit::Command,
+    ),
+    route(
+        RouteId::PayBalance,
+        "POST",
+        "/v1/sandboxes/{id}/catering/{sub}/pay-balance",
+        Scope::Session,
+        Limit::Command,
+    ),
+    route(
+        RouteId::CancelCatering,
+        "POST",
+        "/v1/sandboxes/{id}/catering/{sub}/cancel",
+        Scope::Session,
+        Limit::Command,
+    ),
+    route(
+        RouteId::SendQuote,
+        "POST",
+        "/v1/sandboxes/{id}/catering/{sub}/quote",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
+    route(
+        RouteId::DeclineCatering,
+        "POST",
+        "/v1/sandboxes/{id}/catering/{sub}/decline",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
+    route(
+        RouteId::StartCateringProduction,
+        "POST",
+        "/v1/sandboxes/{id}/catering/{sub}/start-production",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
+    route(
+        RouteId::MarkCateringDelivered,
+        "POST",
+        "/v1/sandboxes/{id}/catering/{sub}/delivered",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
+    route(
+        RouteId::StaffCancelCatering,
+        "POST",
+        "/v1/sandboxes/{id}/catering/{sub}/staff-cancel",
         Scope::SignedIn,
         Limit::Command,
     ),
@@ -625,6 +723,66 @@ mod tests {
             scope(RouteId::SetCapacity),
             Scope::SignedIn,
             "a console write"
+        );
+    }
+
+    #[test]
+    fn catering_routes() {
+        let s = "01JC8Z6K3W9QF2N4T7XRB5M0HD";
+        let c = "01JC8Z5R0T2B6Y8C4V1N3K7QXE";
+        let some = |v: &str| Some(v.to_owned());
+        assert_eq!(
+            id_of(match_route("POST", &format!("/v1/sandboxes/{s}/catering"))),
+            Some((RouteId::CreateCatering, some(s)))
+        );
+        assert_eq!(
+            id_of(match_route("GET", &format!("/v1/sandboxes/{s}/catering"))),
+            Some((RouteId::ListCatering, some(s)))
+        );
+        assert_eq!(
+            sub_of(match_route(
+                "GET",
+                &format!("/v1/sandboxes/{s}/catering/{c}")
+            )),
+            Some((RouteId::GetCatering, some(s), some(c)))
+        );
+        let scope = |id| ROUTES.iter().find(|r| r.id == id).unwrap().scope;
+        for (step, id, want) in [
+            ("accept", RouteId::AcceptQuote, Scope::Session),
+            ("deposit", RouteId::CateringDeposit, Scope::Session),
+            ("pay-balance", RouteId::PayBalance, Scope::Session),
+            ("cancel", RouteId::CancelCatering, Scope::Session),
+            ("quote", RouteId::SendQuote, Scope::SignedIn),
+            ("decline", RouteId::DeclineCatering, Scope::SignedIn),
+            (
+                "start-production",
+                RouteId::StartCateringProduction,
+                Scope::SignedIn,
+            ),
+            ("delivered", RouteId::MarkCateringDelivered, Scope::SignedIn),
+            (
+                "staff-cancel",
+                RouteId::StaffCancelCatering,
+                Scope::SignedIn,
+            ),
+        ] {
+            assert_eq!(
+                sub_of(match_route(
+                    "POST",
+                    &format!("/v1/sandboxes/{s}/catering/{c}/{step}")
+                )),
+                Some((id, some(s), some(c))),
+                "{step}"
+            );
+            assert_eq!(scope(id), want, "{step}");
+        }
+        assert_eq!(
+            allow(&format!("/v1/sandboxes/{s}/catering")),
+            "POST, GET, OPTIONS"
+        );
+        assert_eq!(
+            match_route("GET", &format!("/v1/sandboxes/{s}/catering/{c}/accept")),
+            Matched::MethodNotAllowed("POST, OPTIONS".into())
         );
     }
 

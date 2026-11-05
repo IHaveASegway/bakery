@@ -4,6 +4,7 @@
 pub mod account;
 pub mod billing;
 pub mod catalog;
+pub mod catering;
 pub mod child;
 pub mod control;
 pub mod kitchen;

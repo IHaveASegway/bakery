@@ -24,7 +24,7 @@ use std::cell::RefCell;
 use bakery_app::Clock;
 use bakery_app::names::sandbox_object_name;
 use bakery_app::routing::{Subscriber, deliver_to, reference, strip_for};
-use bakery_contracts::{Flag, OrderResponse};
+use bakery_contracts::{CateringResponse, Flag, OrderResponse};
 use bakery_domain::{BakeryDate, BusinessTime, Envelope, Ulid};
 use worker::{Cache, Context, Env, MessageBatch, MessageExt, Method, Result, console_log, event};
 
@@ -32,7 +32,7 @@ use crate::clock::SystemClock;
 use crate::http::menu_cache_key;
 use crate::objects::sandbox::{self, DeadLetterIn, DeliveryError};
 use crate::objects::sql::{call, call_empty};
-use crate::objects::{billing, control, kitchen, order, schedule};
+use crate::objects::{billing, catering, control, kitchen, order, schedule};
 
 /// The dead-letter queue's name, as `batch.queue()` reports it.
 const DLQ: &str = "bakery-events-dlq";
@@ -123,8 +123,9 @@ fn sandbox_of(body: &str) -> Option<Ulid> {
 /// `routing::LIVE` are reachable; one added there without a line here fails its deliveries,
 /// which retry and dead-letter where a person sees them.
 ///
-/// Billing is the sandbox's one; an Order is the one the data's `ref` names, for Billing's
-/// `ByPurpose` and `ByRef` routes (the purpose was matched already by `routing::routes_for`).
+/// Billing is the sandbox's one; an Order or a CateringEvent is the one the data's `ref` names,
+/// for Billing's `ByPurpose` and `ByRef` routes (the purpose was matched already by
+/// `routing::routes_for`) and for `InvoiceIssued`, whose `ref` is the catering job.
 /// The `Schedule` is resolved by [`schedule_days`] instead, since finding its day takes a call.
 /// An Order route with no `ref` (`RoutePublished`'s stops, `StopCompleted`, which nothing
 /// produces before PR 7) has no instance yet.
@@ -135,6 +136,10 @@ fn subscriber(to: Subscriber, envelope: &Envelope) -> Option<(&'static str, Stri
         Subscriber::Order => {
             let order = reference(envelope)?;
             Some((order::BINDING, order::name(envelope.sandbox, order)))
+        }
+        Subscriber::CateringEvent => {
+            let job = reference(envelope)?;
+            Some((catering::BINDING, catering::name(envelope.sandbox, job)))
         }
         _ => None,
     }
@@ -228,8 +233,9 @@ async fn deliver(env: &Env, envelope: &Envelope) -> std::result::Result<(), Stri
 }
 
 /// The `Schedule` days an envelope goes to. `all(Schedule)` on an Order event is the one day
-/// that holds the order: the Order's slot names it. `scoped(Schedule, TodayOn)` on
-/// `MenuPublished` is every registered day from business today on, from the Sandbox.
+/// that holds the order: the Order's slot names it; on a CateringEvent event, the event's date.
+/// `scoped(Schedule, TodayOn)` on `MenuPublished` is every registered day from business today
+/// on, from the Sandbox.
 async fn schedule_days(env: &Env, envelope: &Envelope) -> std::result::Result<Vec<String>, String> {
     if envelope.event_type == "MenuPublished" {
         let mut res = call_empty(
@@ -249,6 +255,33 @@ async fn schedule_days(env: &Env, envelope: &Envelope) -> std::result::Result<Ve
             // A wiped sandbox has no days left to tell.
             410 => Ok(Vec::new()),
             status => Err(format!("Sandbox answered {status}")),
+        };
+    }
+    if let Some(job) = catering::id_of(&envelope.stream, envelope.sandbox) {
+        let mut res = call_empty(
+            env,
+            catering::BINDING,
+            &catering::name(envelope.sandbox, job),
+            Method::Get,
+            "/_state",
+        )
+        .await
+        .map_err(|_| "CateringEvent could not be reached".to_owned())?;
+        return match res.status_code() {
+            200 => {
+                let c: CateringResponse = res
+                    .json()
+                    .await
+                    .map_err(|_| "CateringEvent could not be read".to_owned())?;
+                let date: BakeryDate = c
+                    .date
+                    .parse()
+                    .map_err(|_| "CateringEvent's date could not be read".to_owned())?;
+                Ok(vec![schedule::name(envelope.sandbox, date)])
+            }
+            // A wiped event holds no day.
+            410 => Ok(Vec::new()),
+            status => Err(format!("CateringEvent answered {status}")),
         };
     }
     let Some(order) = order_in(envelope) else {
@@ -463,7 +496,8 @@ mod tests {
     }
 
     #[test]
-    fn the_kitchen_billing_and_the_order_by_ref_are_reachable_and_nothing_else_is_yet() {
+    fn the_kitchen_billing_and_the_order_and_catering_event_by_ref_are_reachable_and_nothing_else_is_yet()
+     {
         let mut e: Envelope =
             serde_json::from_str(&envelope(SANDBOX, &format!("billing:{SANDBOX}"))).unwrap();
         e.event_type = "PaymentSucceeded".into();
@@ -489,6 +523,10 @@ mod tests {
                 "{live:?} is live but unbound"
             );
         }
+        assert_eq!(
+            subscriber(Subscriber::CateringEvent, &e),
+            Some((catering::BINDING, format!("catering:{SANDBOX}:{OTHER}")))
+        );
         assert_eq!(subscriber(Subscriber::Crm, &e), None);
         // An Order route needs a `ref`.
         e.data = serde_json::json!({});

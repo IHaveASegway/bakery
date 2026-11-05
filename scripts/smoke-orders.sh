@@ -331,7 +331,7 @@ expect_status guest 201
 expect_json guest "['seeding', 'live'].includes(b.state) && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(b.persona) && b.faults.kitchen === false"
 GID="$(json_field guest b.id)"
 check "guest: seeding reaches live within 20 s" "wait_live guest_live G '$GID'"
-expect_json guest_live "b.state === 'live' && b.children === 22"
+expect_json guest_live "b.state === 'live' && b.children === 33"
 
 CANARY="$(random_text 24)"
 command_as signup D 192.0.2.42 POST /v1/auth/demo "{\"password\":\"$CANARY\",\"turnstile_token\":\"pass-1\"}"
@@ -340,7 +340,7 @@ command_as demo D 192.0.2.42 POST /v1/sandboxes '{"replace":false}'
 expect_status demo 201
 DID="$(json_field demo b.id)"
 check "demo: seeding reaches live within 20 s" "wait_live demo_live D '$DID'"
-expect_json demo_live "b.state === 'live' && b.children === 22 && b.kind === 'account'"
+expect_json demo_live "b.state === 'live' && b.children === 33 && b.kind === 'account'"
 DUSER="$(json_field signup b.username)"
 
 # A second demo account whose traffic runs with no console at all: no socket, no heartbeat. Its
@@ -627,17 +627,27 @@ check "the Kitchen logged each cmd with its id and outcome, nothing more" "grep 
 GCARD="$(probe_field "$TMP/board_guest.out" "cards[0].order")"
 GC="$(ulid)"
 probe_args G "$GID"
-node "${PROBE[@]}" --delay 13 --cmd "$GC:$GCARD:mark_ready" --until nack --timeout 25 > "$TMP/ws_guest.out" &
+# wrangler dev evicts an idle hibernatable object after about 10 s of quiet, but an alarm or a
+# delivery that lands in the window keeps it awake, so the idle spell is tried up to five times:
+# each try waits 12 s and then touches the staff Kitchen with a fresh socket, which is what wakes
+# an evicted object. The guest's frame goes out after the first spell either way.
+node "${PROBE[@]}" --delay 13 --cmd "$GC:$GCARD:mark_ready" --until nack --timeout 80 > "$TMP/ws_guest.out" &
 WS_G=$!
 sleep 1
 WAKE_FROM="$(wc -l < "$LOG")"
-sleep 12
-probe D2 "$DID" --until snapshot > "$TMP/ws_r.out" || true
+D_BEFORE="$( (head -n "$WAKE_FROM" "$LOG" | grep '"event":"kitchen_socket_open"' | grep '"sockets":2}' | tail -n 1 | sed -E 's/.*"instance":"([0-9a-f]+)".*/\1/') || true)"
+D_AFTER=""
+IDLE_TRIES=0
+while [[ -z "$D_AFTER" && "$IDLE_TRIES" -lt 5 ]]; do
+  IDLE_TRIES=$((IDLE_TRIES + 1))
+  sleep 12
+  probe D2 "$DID" --until snapshot > "$TMP/ws_r.out" || true
+  tail -n "+$WAKE_FROM" "$LOG" > "$TMP/wake.log"
+  D_AFTER="$( (grep '"event":"kitchen_wake"' "$TMP/wake.log" | grep '"sockets":2}' | head -n 1 | sed -E 's/.*"instance":"([0-9a-f]+)".*/\1/') || true)"
+done
 wait "$WS_G" || true
 tail -n "+$WAKE_FROM" "$LOG" > "$TMP/wake.log"
-D_BEFORE="$(head -n "$WAKE_FROM" "$LOG" | grep '"event":"kitchen_socket_open"' | grep '"sockets":2}' | tail -n 1 | sed -E 's/.*"instance":"([0-9a-f]+)".*/\1/')"
-D_AFTER="$(grep '"event":"kitchen_wake"' "$TMP/wake.log" | grep '"sockets":2}' | head -n 1 | sed -E 's/.*"instance":"([0-9a-f]+)".*/\1/')"
-check "an idle board hibernates: after 12 s idle the Kitchen with 2 sockets open woke (kitchen_wake)" "[[ -n '$D_AFTER' ]]"
+check "an idle board hibernates: after an idle spell (try $IDLE_TRIES of 5, 12 s each) the Kitchen with 2 sockets open woke (kitchen_wake)" "[[ -n '$D_AFTER' ]]"
 check "the woken Kitchen is a new instance ($D_BEFORE, then $D_AFTER): memory did not survive, the sockets did" "[[ -n '$D_BEFORE' && -n '$D_AFTER' && '$D_BEFORE' != '$D_AFTER' ]]"
 expect_probe "after a wake, a guest's cmd is nacked guest-scope from the socket's attachment" "$TMP/ws_guest.out" "frames.some((f) => f.t === 'nack' && f.id === '$GC' && f.rule === 'guest-scope')"
 check "the guest's Kitchen woke for that frame" "grep '\"event\":\"kitchen_wake\"' '$TMP/wake.log' | grep -q '\"sockets\":1}'"
