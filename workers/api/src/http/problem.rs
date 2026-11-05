@@ -614,6 +614,61 @@ fn brief_sentence(what: &str) -> String {
     )
 }
 
+/// A refused campaign command, by its slug (`CampaignError::rule()`): 422 for
+/// `schedule-too-soon`, its detail naming the earliest allowed `send_at` as an ISO business time
+/// the page can put back in its picker; 409 for the rest, `out-of-order` naming the state
+/// machine. The detail names the rule as a whole word, `The rule is <slug>.`
+pub fn campaign(status: u16, rule: &str, earliest: Option<&str>) -> Failure {
+    let sentence = match rule {
+        "schedule-too-soon" => match earliest {
+            Some(t) => format!(
+                "A campaign is scheduled at least 15 minutes of business time ahead: the earliest allowed is {t}."
+            ),
+            None => "A campaign is scheduled at least 15 minutes of business time ahead.".to_owned(),
+        },
+        "out-of-order" => "The campaign is not in a state that takes this step: only a draft is edited or scheduled, and a sent campaign stays sent.".to_owned(),
+        "campaign-exists" => "A campaign with this id exists with other content. Send a new Idempotency-Key for a new campaign.".to_owned(),
+        "not-due" => "The campaign is not due yet.".to_owned(),
+        "audience" => "The audience is not the campaign's segment.".to_owned(),
+        _ => "The campaign request does not fit the bakery's rules.".to_owned(),
+    };
+    let title = if status == 422 {
+        "The campaign cannot be scheduled then"
+    } else {
+        "The campaign cannot do that now"
+    };
+    Failure {
+        problem: Box::new(Problem::typed(
+            "campaign",
+            status,
+            title,
+            format!("{sentence} The rule is {rule}."),
+        )),
+        retry_after: None,
+        reason: "campaign",
+    }
+}
+
+/// "Rebuild projections" while one runs: nothing new starts; the page follows the running one.
+pub fn rebuild_running() -> Failure {
+    Failure::typed(
+        "rebuild",
+        409,
+        "A rebuild is already running",
+        "Crm's projections are being rebuilt from its log. Follow its progress; a new rebuild can start once it has finished. The rule is rebuild.",
+    )
+}
+
+/// An inbox filter that names no message kind, or a `to` that is no ULID.
+pub fn inbox_filter() -> Failure {
+    Failure::typed(
+        "filter",
+        400,
+        "The inbox filter could not be read",
+        "kind is one of receipt, ready, on_its_way, refund, declined, acknowledgement, quote, notice, reminder, invoice or campaign; to is a customer's ULID; limit is 1 to 500.",
+    )
+}
+
 /// An acceptance on a day whose two catering places are taken: 409 `slot-full`, nothing
 /// recorded.
 pub fn catering_full() -> Failure {

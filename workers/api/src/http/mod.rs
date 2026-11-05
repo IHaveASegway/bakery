@@ -4,6 +4,7 @@
 
 mod auth;
 mod catering;
+mod crm;
 mod demo;
 mod guard;
 mod headers;
@@ -328,6 +329,24 @@ async fn checked(
             .await
         }
         RouteId::StaffCancelCatering => catering::staff_cancel(cx, req, id.as_deref(), sub).await,
+        RouteId::ListCustomers => crm::customers(cx, id.as_deref()).await,
+        RouteId::GetCustomer => crm::customer(cx, id.as_deref(), sub).await,
+        RouteId::GetTimeline => crm::timeline(cx, id.as_deref(), sub).await,
+        RouteId::SetConsent => crm::consent(cx, req, id.as_deref(), sub).await,
+        RouteId::ListSegments => crm::segments(cx, id.as_deref()).await,
+        RouteId::GetSegment => crm::segment(cx, id.as_deref(), sub).await,
+        RouteId::ListCampaigns => crm::campaigns(cx, id.as_deref()).await,
+        RouteId::CreateCampaign => crm::create_campaign(cx, req, id.as_deref()).await,
+        RouteId::GetCampaign => crm::campaign(cx, id.as_deref(), sub).await,
+        RouteId::EditCampaign => crm::edit_campaign(cx, req, id.as_deref(), sub).await,
+        RouteId::ScheduleCampaign => crm::schedule_campaign(cx, req, id.as_deref(), sub).await,
+        RouteId::CancelCampaign => crm::cancel_campaign(cx, id.as_deref(), sub).await,
+        RouteId::ListInbox => crm::inbox(cx, req, id.as_deref()).await,
+        RouteId::GetMessage => crm::message(cx, id.as_deref(), sub).await,
+        RouteId::GetLeads => crm::leads(cx, id.as_deref()).await,
+        RouteId::GetActivity => crm::activity(cx, req, id.as_deref()).await,
+        RouteId::StartRebuild => crm::start_rebuild(cx, id.as_deref()).await,
+        RouteId::GetRebuild => crm::rebuild_progress(cx, id.as_deref()).await,
         // Answered before the checks above.
         RouteId::StripeWebhook => Err(problem::internal()),
     }

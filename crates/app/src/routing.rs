@@ -6,7 +6,8 @@
 //! The table names every subscriber the catalog names, including classes that do not exist
 //! yet. [`LIVE`] says which do, and [`deliver_to`] filters by it, so PR 4's consumer delivered to
 //! the Kitchen only, PR 5's adds Billing and the Order, PR 6's the Schedule, PR 7's the
-//! CateringEvent, and each later pull request turns its classes on by adding them to [`LIVE`].
+//! CateringEvent, PR 8's the Customer, Crm and the Inbox, and each later pull request turns its
+//! classes on by adding them to [`LIVE`].
 //! A test reads the catalog table out of docs/domain.md and checks this one against it.
 
 use bakery_domain::Envelope;
@@ -44,19 +45,24 @@ impl Subscriber {
     }
 }
 
-/// The classes that exist, as of PR 7 (docs/roadmap.md, "PR 7": catering and billing): the
-/// Kitchen board, Billing (refund requests and expiries from the Order; the balance invoice
+/// The classes that exist, as of PR 8 (docs/roadmap.md, "PR 8": CRM, campaigns and the inbox):
+/// the Kitchen board, Billing (refund requests and expiries from the Order; the balance invoice
 /// and the deposit's refund from the CateringEvent), the Order (payments and refunds from
 /// Billing, by purpose and `ref`), the Schedule (an order's day, from its slot; a catering
-/// event's day, from its date; every day from today on for `MenuPublished`) and the
-/// CateringEvent (deposits and balances from Billing, by purpose and `ref`, and its invoice).
-/// The consumer delivers to no other; Crm and the rest join as their pull requests build them.
+/// event's day, from its date; every day from today on for `MenuPublished`), the CateringEvent
+/// (deposits and balances from Billing, by purpose and `ref`, and its invoice), the Customer
+/// (the order's customer, which the consumer asks the Order for, on `OrderPaid` and
+/// `OrderRefunded`), Crm and the Inbox (the sandbox's one of each). The consumer delivers to no
+/// other; Dispatch and Control join as their pull requests build them.
 pub const LIVE: &[Subscriber] = &[
     Subscriber::Kitchen,
     Subscriber::Billing,
     Subscriber::Order,
     Subscriber::Schedule,
     Subscriber::CateringEvent,
+    Subscriber::Customer,
+    Subscriber::Crm,
+    Subscriber::Inbox,
 ];
 
 /// Which instances of a class an event goes to, where the catalog narrows it.
@@ -276,7 +282,9 @@ pub fn deliver_to(envelope: &Envelope) -> Vec<Route> {
 
 /// The envelope as `to` receives it. The order note is kept for the Kitchen alone, and the
 /// catering brief for no subscriber, since staff read it from the aggregate (docs/domain.md,
-/// "The event catalog", the paragraph under the table).
+/// "The event catalog", the paragraph under the table). Crm and the Inbox get neither field on
+/// any event: what they store is a projection and a message, where free text never goes
+/// ("Free text and personal data").
 pub fn strip_for(envelope: &Envelope, to: Subscriber) -> Envelope {
     let mut out = envelope.clone();
     let field = match out.event_type.as_str() {
@@ -284,8 +292,14 @@ pub fn strip_for(envelope: &Envelope, to: Subscriber) -> Envelope {
         "CateringInquiryReceived" => Some("brief"),
         _ => None,
     };
-    if let (Some(field), Some(data)) = (field, out.data.as_object_mut()) {
-        data.remove(field);
+    if let Some(data) = out.data.as_object_mut() {
+        if let Some(field) = field {
+            data.remove(field);
+        }
+        if matches!(to, Subscriber::Crm | Subscriber::Inbox) {
+            data.remove("note");
+            data.remove("brief");
+        }
     }
     out
 }
@@ -513,29 +527,88 @@ mod tests {
     }
 
     #[test]
-    fn pr7_delivers_to_the_kitchen_billing_the_order_the_schedule_and_the_catering_event() {
-        assert_eq!(LIVE, [Kitchen, Billing, Order, Schedule, CateringEvent]);
+    fn pr8_delivers_to_every_class_but_dispatch_and_control() {
+        assert_eq!(
+            LIVE,
+            [
+                Kitchen,
+                Billing,
+                Order,
+                Schedule,
+                CateringEvent,
+                Customer,
+                Crm,
+                Inbox
+            ]
+        );
         let paid = envelope("OrderPaid", json!({ "payment": "x", "amount_cents": 1 }));
-        assert_eq!(classes(deliver_to(&paid)), ["Schedule", "Kitchen"]);
+        assert_eq!(
+            classes(deliver_to(&paid)),
+            ["Schedule", "Kitchen", "Crm", "Customer", "Inbox"]
+        );
+        assert_eq!(
+            classes(deliver_to(&envelope("OrderRefunded", json!({})))),
+            ["Crm", "Customer", "Inbox"]
+        );
         assert_eq!(
             classes(deliver_to(&envelope("MenuPublished", json!({})))),
             ["Schedule"]
         );
         assert_eq!(
             classes(deliver_to(&envelope("OrderClosed", json!({})))),
-            ["Schedule"]
+            ["Schedule", "Crm"]
         );
         for name in ["BakeListChanged", "SlotReserved", "SlotReleased"] {
             assert_eq!(classes(deliver_to(&envelope(name, json!({})))), ["Kitchen"]);
+        }
+        // Crm's own campaign events come back to it, and the send goes to the Inbox, whose
+        // messages and engagement go to Crm.
+        for (name, to) in [
+            ("CampaignScheduled", &["Crm"][..]),
+            ("CampaignCancelled", &["Crm"]),
+            ("CampaignSent", &["Inbox"]),
+            ("MessageDelivered", &["Crm"]),
+            ("MessageOpened", &["Crm"]),
+            ("MessageClicked", &["Crm"]),
+            ("ConsentChanged", &["Crm"]),
+            ("LoyaltyPointsEarned", &["Crm"]),
+            ("PaymentIntentCreated", &["Crm"]),
+            ("PaymentCanceled", &["Crm"]),
+            ("SandboxSeeded", &["Crm"]),
+        ] {
+            assert_eq!(
+                classes(deliver_to(&envelope(name, json!({})))),
+                to,
+                "{name}"
+            );
         }
         // Events with no live subscriber are acked at once.
         for name in [
             "SlotHeld",
             "SandboxWiped",
-            "PaymentIntentCreated",
-            "PaymentCanceled",
             "PaymentIntentRecorded",
             "RefundRequested",
+            "CustomerRegistered",
+            "CampaignDrafted",
+            "CampaignEdited",
+            "ProjectionRebuildFinished",
+            "RouteProposed",
+        ] {
+            let live: Vec<_> = deliver_to(&envelope(name, json!({})))
+                .into_iter()
+                .filter(|r| r.to != Crm)
+                .collect();
+            assert!(live.is_empty(), "{name}");
+        }
+        for name in [
+            "SlotHeld",
+            "SandboxWiped",
+            "PaymentIntentRecorded",
+            "RefundRequested",
+            "CustomerRegistered",
+            "CampaignDrafted",
+            "CampaignEdited",
+            "ProjectionRebuildFinished",
         ] {
             assert!(deliver_to(&envelope(name, json!({}))).is_empty(), "{name}");
         }
@@ -551,11 +624,21 @@ mod tests {
         // Billing answers the Order named by `ref`, when the purpose is an order.
         let order = Ulid::from_parts(1_793_819_530_318, 7);
         for name in ["PaymentSucceeded", "PaymentFailed", "RefundIssued"] {
+            // A declined card is also the Inbox's "card declined" notice.
+            let inbox = if name == "PaymentFailed" {
+                &["Inbox"][..]
+            } else {
+                &[]
+            };
             let to_order = envelope(
                 name,
                 json!({ "purpose": "order", "ref": order.to_string() }),
             );
-            assert_eq!(classes(deliver_to(&to_order)), ["Order"], "{name}");
+            assert_eq!(
+                classes(deliver_to(&to_order)),
+                [&["Order"][..], inbox].concat(),
+                "{name}"
+            );
             assert_eq!(reference(&to_order), Some(order));
             let to_catering = envelope(
                 name,
@@ -563,18 +646,20 @@ mod tests {
             );
             assert_eq!(
                 classes(deliver_to(&to_catering)),
-                ["CateringEvent"],
+                [&["CateringEvent"][..], inbox].concat(),
                 "{name}"
             );
         }
-        // The saga's edges: the day, Billing and the event itself.
+        // The saga's edges: the day, Billing and the event itself, then Crm and the Inbox.
         for (name, to) in [
-            ("CateringDepositPaid", &["Schedule"][..]),
+            ("CateringDepositPaid", &["Schedule", "Crm", "Inbox"][..]),
             ("CateringDepositLapsed", &["Schedule"]),
             ("CateringDelivered", &["Billing", "Kitchen"]),
-            ("CateringClosed", &["Schedule"]),
-            ("CateringCancelled", &["Schedule", "Billing"]),
+            ("CateringClosed", &["Schedule", "Crm", "Inbox"]),
+            ("CateringCancelled", &["Schedule", "Billing", "Crm"]),
             ("InvoiceIssued", &["CateringEvent"]),
+            ("CateringInquiryReceived", &["Crm", "Inbox"]),
+            ("CateringReminderDue", &["Inbox"]),
         ] {
             assert_eq!(
                 classes(deliver_to(&envelope(name, json!({})))),
@@ -623,5 +708,13 @@ mod tests {
             assert!(strip_for(&inquiry, to).data.get("brief").is_none());
         }
         assert_eq!(strip_for(&inquiry, Crm).data["headcount"], 40);
+        // Crm and the Inbox get neither field on any event, whatever carries one.
+        let odd = envelope("OrderReady", json!({ "note": "n", "brief": "b", "x": 1 }));
+        for to in [Crm, Inbox] {
+            let out = strip_for(&odd, to);
+            assert!(out.data.get("note").is_none() && out.data.get("brief").is_none());
+            assert_eq!(out.data["x"], 1);
+        }
+        assert_eq!(strip_for(&odd, Kitchen).data["note"], "n");
     }
 }

@@ -6,10 +6,18 @@
 //! malformed one, or one whose `stream` the envelope's `sandbox` does not own, as poison: it is
 //! written to that Sandbox's dead letters at once and acked, since retrying cannot fix it. Then
 //! `routing::deliver_to` names the live subscribers, `routing::strip_for` takes the note out for
-//! every one but the Kitchen, and each gets the envelope at its `/_event` by name. The message
-//! is acked when every subscriber answered 2xx, else retried; after 3 retries the platform
-//! moves it to `bakery-events-dlq` (wrangler.jsonc). The consumer never enqueues anything it
-//! consumed (ADR 0004, decision 8): it holds no producer binding.
+//! every one but the Kitchen, and the note and the brief out of everything Crm and the Inbox
+//! get, and each gets the envelope at its `/_event` by name. The message is acked when every
+//! subscriber answered 2xx, else retried; after 3 retries the platform moves it to
+//! `bakery-events-dlq` (wrangler.jsonc). The consumer never enqueues anything it consumed (ADR
+//! 0004, decision 8): it holds no producer binding.
+//!
+//! Since PR 8: `all(Crm)` and `all(Inbox)` are the sandbox's one of each; a 410 from either
+//! (not yet seeded, or wiped) counts as delivered, since everything the sandbox's seeding writes
+//! before they exist reaches them through their seed. `all(Customer)` on `OrderPaid` and
+//! `OrderRefunded` is the order's customer, which the Order's `/_customer` names; a customer
+//! never touched (410) is registered with the Sandbox, which answers its birth and the
+//! persona's profile, and the delivery is sent again with them.
 //!
 //! `Control`'s flag is read once a minute per isolate: `off` retries everything, so the
 //! messages drain to the DLQ after 3 retries rather than being lost (docs/architecture.md,
@@ -30,9 +38,9 @@ use worker::{Cache, Context, Env, MessageBatch, MessageExt, Method, Result, cons
 
 use crate::clock::SystemClock;
 use crate::http::menu_cache_key;
-use crate::objects::sandbox::{self, DeadLetterIn, DeliveryError};
+use crate::objects::sandbox::{self, CustomerBirth, DeadLetterIn, DeliveryError, RegisterCustomer};
 use crate::objects::sql::{call, call_empty};
-use crate::objects::{billing, catering, control, kitchen, order, schedule};
+use crate::objects::{billing, catering, control, crm, customer, inbox, kitchen, order, schedule};
 
 /// The dead-letter queue's name, as `batch.queue()` reports it.
 const DLQ: &str = "bakery-events-dlq";
@@ -141,6 +149,8 @@ fn subscriber(to: Subscriber, envelope: &Envelope) -> Option<(&'static str, Stri
             let job = reference(envelope)?;
             Some((catering::BINDING, catering::name(envelope.sandbox, job)))
         }
+        Subscriber::Crm => Some((crm::BINDING, crm::name(envelope.sandbox))),
+        Subscriber::Inbox => Some((inbox::BINDING, inbox::name(envelope.sandbox))),
         _ => None,
     }
 }
@@ -210,6 +220,10 @@ async fn deliver(env: &Env, envelope: &Envelope) -> std::result::Result<(), Stri
             deliver_to_days(env, envelope).await?;
             continue;
         }
+        if route.to == Subscriber::Customer {
+            deliver_to_customer(env, envelope).await?;
+            continue;
+        }
         let Some((binding, name)) = subscriber(route.to, envelope) else {
             return Err(format!("{} has no binding", route.to.class()));
         };
@@ -225,11 +239,108 @@ async fn deliver(env: &Env, envelope: &Envelope) -> std::result::Result<(), Stri
         .await
         .map_err(|_| format!("{} could not be reached", route.to.class()))?;
         let status = res.status_code();
+        if status == 410 && matches!(route.to, Subscriber::Crm | Subscriber::Inbox) {
+            // Not yet seeded (its seed carries what came before it) or wiped: nothing to do.
+            console_log!(
+                "{{\"event\":\"subscriber_unborn\",\"id\":\"{}\",\"to\":\"{}\"}}",
+                envelope.id,
+                route.to.class()
+            );
+            continue;
+        }
         if !(200..300).contains(&status) {
             return Err(format!("{} answered {status}", route.to.class()));
         }
     }
     Ok(())
+}
+
+/// `all(Customer)`: the order's customer, from the Order, gets the envelope; one never touched
+/// is registered with the Sandbox first, and gets its birth and persona with the envelope.
+async fn deliver_to_customer(env: &Env, envelope: &Envelope) -> std::result::Result<(), String> {
+    let Some(order) = order_in(envelope) else {
+        return Err("Customer has no order for this stream".to_owned());
+    };
+    let mut res = call_empty(
+        env,
+        order::BINDING,
+        &order::name(envelope.sandbox, order),
+        Method::Get,
+        "/_customer",
+    )
+    .await
+    .map_err(|_| "Order could not be reached".to_owned())?;
+    #[derive(serde::Deserialize)]
+    struct Whose {
+        customer: Ulid,
+    }
+    let who: Whose = match res.status_code() {
+        200 => res
+            .json()
+            .await
+            .map_err(|_| "Order's customer could not be read".to_owned())?,
+        // A wiped order has no customer left to tell.
+        410 => return Ok(()),
+        status => return Err(format!("Order answered {status} for its customer")),
+    };
+    let stripped = strip_for(envelope, Subscriber::Customer);
+    let name = customer::name(envelope.sandbox, who.customer);
+    let send = |birth: Option<CustomerBirth>| {
+        let body = customer::EventIn {
+            envelope: stripped.clone(),
+            birth: birth.as_ref().map(|b| crate::objects::child::Birth {
+                sandbox: envelope.sandbox,
+                name: b.name.clone(),
+                clock_offset_s: b.clock_offset_s,
+                clock_v: b.clock_v,
+            }),
+            register: birth.map(|b| b.register),
+        };
+        let name = name.clone();
+        async move {
+            call(
+                env,
+                customer::BINDING,
+                &name,
+                Method::Post,
+                "/_event",
+                Some(&body),
+            )
+            .await
+            .map(|r| r.status_code())
+            .map_err(|_| "Customer could not be reached".to_owned())
+        }
+    };
+    match send(None).await? {
+        200..=299 => return Ok(()),
+        410 => {}
+        status => return Err(format!("Customer answered {status}")),
+    }
+    let mut res = call(
+        env,
+        sandbox::BINDING,
+        &sandbox_object_name(envelope.sandbox),
+        Method::Post,
+        "/_register-customer",
+        Some(&RegisterCustomer {
+            customer: who.customer,
+        }),
+    )
+    .await
+    .map_err(|_| "Sandbox could not be reached".to_owned())?;
+    let birth: CustomerBirth = match res.status_code() {
+        200 => res
+            .json()
+            .await
+            .map_err(|_| "Sandbox's customer birth could not be read".to_owned())?,
+        // A wiped sandbox has no customer to give points to.
+        410 => return Ok(()),
+        status => return Err(format!("Sandbox answered {status} for a customer")),
+    };
+    match send(Some(birth)).await? {
+        200..=299 => Ok(()),
+        status => Err(format!("Customer answered {status}")),
+    }
 }
 
 /// The `Schedule` days an envelope goes to. `all(Schedule)` on an Order event is the one day
@@ -496,7 +607,7 @@ mod tests {
     }
 
     #[test]
-    fn the_kitchen_billing_and_the_order_and_catering_event_by_ref_are_reachable_and_nothing_else_is_yet()
+    fn every_live_class_is_reachable_the_kitchen_billing_crm_and_the_inbox_by_sandbox_and_the_order_and_catering_event_by_ref()
      {
         let mut e: Envelope =
             serde_json::from_str(&envelope(SANDBOX, &format!("billing:{SANDBOX}"))).unwrap();
@@ -516,7 +627,7 @@ mod tests {
         );
         for live in bakery_app::routing::LIVE
             .iter()
-            .filter(|s| **s != Subscriber::Schedule)
+            .filter(|s| !matches!(**s, Subscriber::Schedule | Subscriber::Customer))
         {
             assert!(
                 subscriber(*live, &e).is_some(),
@@ -527,7 +638,16 @@ mod tests {
             subscriber(Subscriber::CateringEvent, &e),
             Some((catering::BINDING, format!("catering:{SANDBOX}:{OTHER}")))
         );
-        assert_eq!(subscriber(Subscriber::Crm, &e), None);
+        assert_eq!(
+            subscriber(Subscriber::Crm, &e),
+            Some((crm::BINDING, format!("crm:{SANDBOX}")))
+        );
+        assert_eq!(
+            subscriber(Subscriber::Inbox, &e),
+            Some((inbox::BINDING, format!("inbox:{SANDBOX}")))
+        );
+        // The Customer is the order's, which takes a call: no instance from the envelope alone.
+        assert_eq!(subscriber(Subscriber::Customer, &e), None);
         // An Order route needs a `ref`.
         e.data = serde_json::json!({});
         assert_eq!(subscriber(Subscriber::Order, &e), None);

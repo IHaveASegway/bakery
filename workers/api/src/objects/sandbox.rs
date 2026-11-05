@@ -20,6 +20,11 @@
 //! - `POST /_register-catering {key}` → `{catering, persona, clock_offset_s, clock_v,
 //!   replayed}`: the inquiry's `Idempotency-Key` mapped to one catering ULID (kept beside the
 //!   orders' keys, as `catering:<key>`), registered with class `CateringEvent`.
+//! - `POST /_register-customer {customer}` → `CustomerBirth {name, clock_offset_s, clock_v,
+//!   register}`: a persona's `Customer`, registered on its first touch, with the seed's
+//!   synthetic profile, consent and opening points from the `personas` table (written at
+//!   creation, so no touch regenerates the seed). Answered while seeding too, since a seeded
+//!   paid order's `OrderPaid` reaches its customer then; 404 `{error: "unknown-persona"}`.
 //! - `POST /_register-day {date, catering?}` → `{name, clock_offset_s, clock_v}`: a `Schedule`
 //!   day, born on first touch, for a date from the birth day to 30 days after business today, or
 //!   any later one with `catering: true` (an accepted quote's event day, which the domain's
@@ -69,7 +74,7 @@ use super::sql::{
     self, exec, first, gone, has_table, json, refuse, replayed, rows, transaction_sync, user_rows,
 };
 use super::stream::{self, OUTBOX};
-use super::{billing, catalog, catering, kitchen, order, simulator};
+use super::{billing, catalog, catering, crm, customer, inbox, kitchen, order, simulator};
 use crate::clock::{SystemClock, alarm_time, business, business_at};
 use crate::random;
 
@@ -86,6 +91,9 @@ const DISPATCH: &[(&str, &str)] = &[
     (simulator::CLASS, simulator::BINDING),
     (schedule::CLASS, schedule::BINDING),
     (catering::CLASS, catering::BINDING),
+    (customer::CLASS, customer::BINDING),
+    (crm::CLASS, crm::BINDING),
+    (inbox::CLASS, inbox::BINDING),
 ];
 
 const WIPE: &str = "wipe";
@@ -93,10 +101,11 @@ const BACKSTOP: &str = "backstop";
 const SEED: &str = "seed";
 const CLOCK: &str = "clock";
 
-/// Children seeded per alarm run: the Catalog, the Kitchen, Billing, the 7 Schedule days, the
-/// 12 open orders, the 8 catering events and their 3 days take five runs, each far inside the
-/// 1,000 subrequests a Free invocation may make (Workers limits,
-/// https://developers.cloudflare.com/workers/platform/limits/, as of 2026-11-05).
+/// Children seeded per alarm run: the Catalog, the Kitchen, Billing, Crm, the Inbox, the 7
+/// Schedule days, the 12 open orders, the 8 catering events and their 3 days, 35 in all, take
+/// five runs, each far inside the 1,000 subrequests a Free invocation may make (Workers limits,
+/// https://developers.cloudflare.com/workers/platform/limits/, as of 2026-11-05): a run's
+/// largest, the one with the catering events, makes 7 seeds, 7 log reads and 14 hand-overs.
 const SEED_BATCH: usize = 7;
 /// The pause between seeding runs, so a run's subrequests have finished.
 const SEED_GAP_MS: i64 = 100;
@@ -138,6 +147,9 @@ const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS seeding (id INTEGER PRIMARY KEY CHECK (id = 1), step INTEGER NOT NULL)",
     // docs/domain.md, "Idempotency": creating an aggregate maps the client's key to its ULID.
     "CREATE TABLE IF NOT EXISTS order_keys (key TEXT PRIMARY KEY, order_id TEXT NOT NULL)",
+    // Each persona's first-touch payload for its `Customer`: the seed's profile, consent and
+    // opening points (PR 8), so registering a customer reads a row and never the whole seed.
+    "CREATE TABLE IF NOT EXISTS personas (id TEXT PRIMARY KEY, register TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS delivery_errors (id TEXT PRIMARY KEY, error TEXT NOT NULL, at TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS dead_letters (
        id TEXT PRIMARY KEY,
@@ -193,6 +205,20 @@ pub struct RegisterDay {
     /// A catering event's day: no upper bound.
     #[serde(default)]
     pub catering: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegisterCustomer {
+    pub customer: Ulid,
+}
+
+/// `/_register-customer`'s answer: what the persona's `Customer` is born with.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomerBirth {
+    pub name: String,
+    pub clock_offset_s: i64,
+    pub clock_v: u32,
+    pub register: customer::RegisterIn,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -411,6 +437,10 @@ impl DurableObject for Sandbox {
                         let body: RegisterCatering = sql::body(&mut req).await?;
                         self.register_catering(&meta, body, now)
                     }
+                    (Method::Post, "/_register-customer") => {
+                        let body: RegisterCustomer = sql::body(&mut req).await?;
+                        self.register_customer(&meta, body.customer, now)
+                    }
                     (Method::Get, p) if p.starts_with("/_children/") => {
                         self.children_of(&p["/_children/".len()..])
                     }
@@ -537,6 +567,11 @@ impl Sandbox {
         let persona = first_customer.id.to_string();
         let persona_name = first_customer.display_name.clone();
         let persona_line1 = first_customer.address.line1.clone();
+        let personas = generated
+            .customers
+            .iter()
+            .map(|c| Ok((c.id.to_string(), serde_json::to_string(&register_in(c)?)?)))
+            .collect::<Result<Vec<(String, String)>>>()?;
         let wipe_at = next_wipe_at(body.born).map_err(|e| Error::RustError(e.to_string()))?;
         let backstop = backstop_at(body.born).map_err(|e| Error::RustError(e.to_string()))?;
         if !self.schema_ready.get() {
@@ -575,6 +610,13 @@ impl Sandbox {
                 "INSERT INTO persona (id, name, line1) VALUES (1, ?, ?)",
                 vec![persona_name.into(), persona_line1.into()],
             )?;
+            for (id, register) in &personas {
+                exec(
+                    &sql,
+                    "INSERT INTO personas (id, register) VALUES (?, ?)",
+                    vec![id.as_str().into(), register.as_str().into()],
+                )?;
+            }
             for (purpose, at) in [(WIPE, wipe_at), (BACKSTOP, backstop), (SEED, now)] {
                 stream::set_timer(&sql, purpose, purpose, at, None)?;
             }
@@ -720,6 +762,9 @@ impl Sandbox {
                     .await?;
                 return Ok(());
             }
+            if child.catering.is_some() {
+                self.hand_over_catering(sandbox, &child.name).await?;
+            }
             exec(
                 &sql,
                 "UPDATE seeding SET step = ?",
@@ -740,7 +785,13 @@ impl Sandbox {
             event_type: "SandboxSeeded".into(),
             at: business_at(now, meta.clock_offset_s),
             recorded_at: now,
-            data: serde_json::json!({ "seed": meta.seed, "born": meta.born, "rows": g.rows }),
+            // `born` is the birth's business date, as the catalog writes it (`born: date`), so
+            // Crm can mark where the history starts.
+            data: serde_json::json!({
+                "seed": meta.seed,
+                "born": BakeryDate::of(meta.born_business()?).to_string(),
+                "rows": g.rows,
+            }),
             cause: None,
         };
         transaction_sync(&self.state.storage(), move || {
@@ -943,6 +994,105 @@ impl Sandbox {
         )
     }
 
+    /// A persona's `Customer`, registered on its first touch, with what it is born with.
+    fn register_customer(
+        &self,
+        meta: &MetaRow,
+        customer_id: Ulid,
+        now: WallTime,
+    ) -> Result<Response> {
+        if !matches!(meta.state.as_str(), "live" | "seeding") {
+            return gone();
+        }
+        #[derive(Deserialize)]
+        struct PersonaRow {
+            register: String,
+        }
+        let sql = self.sql();
+        let found: Option<PersonaRow> = if has_table(&sql, "personas")? {
+            first(
+                &sql,
+                "SELECT register FROM personas WHERE id = ?",
+                vec![customer_id.to_string().into()],
+            )?
+        } else {
+            None
+        };
+        let register: customer::RegisterIn = match found {
+            Some(r) => serde_json::from_str(&r.register)?,
+            None => {
+                // A sandbox created before the table: the seed, once.
+                let g = Self::generated(u64::try_from(meta.seed).unwrap_or(0), meta.born()?)?;
+                match g.customers.iter().find(|c| c.id == customer_id) {
+                    Some(c) => register_in(c)?,
+                    None => return refuse(404, "unknown-persona"),
+                }
+            }
+        };
+        let name = customer::name(meta.sandbox()?, customer_id);
+        exec(
+            &sql,
+            "INSERT OR IGNORE INTO registry (name, class, registered_at, clock_v) VALUES (?, ?, ?, ?)",
+            vec![
+                name.as_str().into(),
+                customer::CLASS.into(),
+                now.to_string().into(),
+                meta.clock_v.into(),
+            ],
+        )?;
+        json(
+            &CustomerBirth {
+                name,
+                clock_offset_s: meta.clock_offset_s,
+                clock_v: u32::try_from(meta.clock_v).unwrap_or(0),
+                register,
+            },
+            200,
+        )
+    }
+
+    /// A seeded catering event's own events, which it keeps out of its outbox (PR 7), read from
+    /// its log and handed to Crm, the brief stripped, and to the Inbox for their facts, so no
+    /// later event of the inquiry meets an unknown one. Both were seeded before it.
+    async fn hand_over_catering(&self, sandbox: Ulid, name: &str) -> Result<()> {
+        let mut res =
+            sql::call_empty(&self.env, catering::BINDING, name, Method::Get, "/_events").await?;
+        if res.status_code() != 200 {
+            return Err(Error::RustError(format!(
+                "a seeded catering event's log answered {}",
+                res.status_code()
+            )));
+        }
+        let events: Vec<Envelope> = serde_json::from_str(&res.text().await?)?;
+        let stripped: Vec<Envelope> = events
+            .iter()
+            .map(|e| bakery_app::routing::strip_for(e, bakery_app::routing::Subscriber::Crm))
+            .collect();
+        for (binding, target, path) in [
+            (crm::BINDING, crm::name(sandbox), "/_ingest"),
+            (inbox::BINDING, inbox::name(sandbox), "/_learn"),
+        ] {
+            let res = sql::call(
+                &self.env,
+                binding,
+                &target,
+                Method::Post,
+                path,
+                Some(&crm::IngestIn {
+                    envelopes: stripped.clone(),
+                }),
+            )
+            .await?;
+            if res.status_code() != 200 {
+                return Err(Error::RustError(format!(
+                    "handing a catering event's log over answered {}",
+                    res.status_code()
+                )));
+            }
+        }
+        Ok(())
+    }
+
     /// The registered children of one class, by name: the catering list's source.
     fn children_of(&self, class: &str) -> Result<Response> {
         #[derive(Deserialize)]
@@ -1127,24 +1277,27 @@ impl Sandbox {
             stream::remember(&sql, &key, "", &stored, now)?;
             Ok(())
         })?;
-        if cmd.fault == FaultName::Kitchen {
-            let kitchen = kitchen::name(sandbox);
-            if self.is_registered(&kitchen)? {
-                let res = sql::call(
-                    &self.env,
-                    kitchen::BINDING,
-                    &kitchen,
-                    Method::Post,
-                    "/_fault",
-                    Some(&kitchen::FaultSwitch { on: cmd.on }),
-                )
-                .await?;
-                if res.status_code() != 200 {
-                    console_log!(
-                        "{{\"event\":\"fault_push_error\",\"status\":{}}}",
-                        res.status_code()
-                    );
-                }
+        // The Kitchen and the Inbox keep their own copy of their switch, so each refuses a
+        // delivery without asking.
+        let (binding, target) = match cmd.fault {
+            FaultName::Kitchen => (kitchen::BINDING, kitchen::name(sandbox)),
+            FaultName::Inbox => (inbox::BINDING, inbox::name(sandbox)),
+        };
+        if self.is_registered(&target)? {
+            let res = sql::call(
+                &self.env,
+                binding,
+                &target,
+                Method::Post,
+                "/_fault",
+                Some(&kitchen::FaultSwitch { on: cmd.on }),
+            )
+            .await?;
+            if res.status_code() != 200 {
+                console_log!(
+                    "{{\"event\":\"fault_push_error\",\"status\":{}}}",
+                    res.status_code()
+                );
             }
         }
         stream::relay_soon(&self.state, &self.env, now, CLASS).await?;
@@ -1514,10 +1667,22 @@ struct SeedChild {
     catering_day: Option<usize>,
 }
 
-/// The Catalog, the Kitchen, Billing, the seed's 7 Schedule days, its 12 open orders, its 8
-/// catering events and the 3 days that hold the accepted and confirmed events' places: 33
-/// children. The days go before the orders, so an order's events find its day.
+/// The Catalog, the Kitchen, Billing, Crm, the Inbox, the seed's 7 Schedule days, its 12 open
+/// orders, its 8 catering events and the 3 days that hold the accepted and confirmed events'
+/// places: 35 children. The days go before the orders, so an order's events find its day; Crm
+/// and the Inbox go before the orders too, so the seeded orders' events, which their outboxes
+/// relay, find both born (and a seeded paid order's points find Crm), and before the catering
+/// events, whose own events the Sandbox hands them as each is seeded.
 fn seed_plan(g: &Generated, sandbox: Ulid) -> Vec<SeedChild> {
+    let plain = |class, binding, name| SeedChild {
+        class,
+        binding,
+        name,
+        open: None,
+        day: None,
+        catering: None,
+        catering_day: None,
+    };
     let mut plan = vec![
         SeedChild {
             class: catalog::CLASS,
@@ -1546,6 +1711,8 @@ fn seed_plan(g: &Generated, sandbox: Ulid) -> Vec<SeedChild> {
             catering: None,
             catering_day: None,
         },
+        plain(crm::CLASS, crm::BINDING, crm::name(sandbox)),
+        plain(inbox::CLASS, inbox::BINDING, inbox::name(sandbox)),
     ];
     plan.extend(g.schedule.iter().enumerate().map(|(i, d)| SeedChild {
         class: schedule::CLASS,
@@ -1713,6 +1880,29 @@ impl SeedChild {
                 birth,
                 days: billing::daily_totals(&g.history),
             })?,
+            None if self.class == crm::CLASS => serde_json::to_value(crm::SeedCrm {
+                birth,
+                directory: bakery_seed::directory(g),
+                profiles: g
+                    .customers
+                    .iter()
+                    .map(|c| {
+                        (
+                            c.id,
+                            crm::PersonaProfile {
+                                preferences: c.preferences.iter().map(|&p| p.to_owned()).collect(),
+                                place: c.place.clone(),
+                            },
+                        )
+                    })
+                    .collect(),
+                envelopes: bakery_seed::history_envelopes(g, meta.sandbox()?),
+            })?,
+            None if self.class == inbox::CLASS => serde_json::to_value(inbox::SeedInbox {
+                birth,
+                seed: g.seed.0,
+                messages: bakery_seed::seed_messages(g),
+            })?,
             None => serde_json::to_value(kitchen::SeedKitchen {
                 birth,
                 fault: false,
@@ -1727,6 +1917,26 @@ impl SeedChild {
             }
         };
         Ok(value)
+    }
+}
+
+/// A persona's `Customer` payload at its first touch: the seed's `Register`, as the object
+/// takes it.
+fn register_in(c: &bakery_seed::Customer) -> Result<customer::RegisterIn> {
+    match bakery_seed::register(c) {
+        bakery_domain::customer::CustomerCommand::Register {
+            profile,
+            marketing,
+            opening_points,
+            ..
+        } => Ok(customer::RegisterIn {
+            profile,
+            marketing,
+            opening_points,
+        }),
+        _ => Err(Error::RustError(
+            "the seed's register is not a Register".into(),
+        )),
     }
 }
 
@@ -1874,34 +2084,46 @@ mod tests {
     }
 
     #[test]
-    fn the_plan_is_thirty_three_children_catalog_kitchen_billing_and_the_days_first() {
+    fn the_plan_is_thirty_five_children_catalog_kitchen_billing_crm_inbox_and_the_days_first() {
         let g = generated();
         let sandbox = Ulid::from_parts(1, 1);
         let plan = seed_plan(&g, sandbox);
-        assert_eq!(plan.len(), 33);
+        assert_eq!(plan.len(), 35);
         assert_eq!(plan[0].name, format!("catalog:{sandbox}"));
         assert_eq!(plan[1].name, format!("kitchen:{sandbox}"));
         assert_eq!(plan[2].name, format!("billing:{sandbox}"));
-        assert!(plan[3..10].iter().all(|c| c.class == "Schedule"
+        assert_eq!(
+            (plan[3].class, plan[3].name.clone()),
+            ("Crm", format!("crm:{sandbox}"))
+        );
+        assert_eq!(
+            (plan[4].class, plan[4].name.clone()),
+            ("Inbox", format!("inbox:{sandbox}"))
+        );
+        assert!(plan[5..12].iter().all(|c| c.class == "Schedule"
             && c.name.starts_with(&format!("schedule:{sandbox}:"))
             && schedule::date_of(&c.name).is_some()));
         assert!(
-            plan[10..22]
+            plan[12..24]
                 .iter()
                 .all(|c| c.class == "Order" && c.name.starts_with(&format!("order:{sandbox}:")))
         );
         assert!(
-            plan[22..30].iter().all(|c| c.class == "CateringEvent"
+            plan[24..32].iter().all(|c| c.class == "CateringEvent"
                 && c.name.starts_with(&format!("catering:{sandbox}:")))
         );
         // The accepted and the two confirmed events' days, none of them a seeded week day.
-        assert!(plan[30..].iter().all(|c| c.class == "Schedule"));
+        assert!(plan[32..].iter().all(|c| c.class == "Schedule"));
         let names: std::collections::BTreeSet<&str> =
             plan.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names.len(), plan.len(), "no child twice");
         assert_eq!(plan.len().div_ceil(SEED_BATCH), 5, "five seeding runs");
-        // Every class but the Simulator, which is born on the first "Start traffic".
-        for (class, _) in DISPATCH.iter().filter(|(c, _)| *c != simulator::CLASS) {
+        // Every class but the Simulator, born on the first "Start traffic", and the Customer,
+        // born on a persona's first touch.
+        for (class, _) in DISPATCH
+            .iter()
+            .filter(|(c, _)| ![simulator::CLASS, customer::CLASS].contains(c))
+        {
             assert!(plan.iter().any(|c| c.class == *class), "{class}");
         }
     }
