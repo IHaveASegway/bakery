@@ -40,9 +40,11 @@ export default function Console() {
   const load = useCallback(async () => {
     try {
       const session = await getSession();
-      if (session.sandbox === null) return setView({ name: 'none', session });
+      // The schema marks the claim optional as well as nullable; both mean no sandbox.
+      const sandboxId = session.sandbox ?? null;
+      if (sandboxId === null) return setView({ name: 'none', session });
       try {
-        setView({ name: 'sandbox', session, sandbox: await getSandbox(session.sandbox) });
+        setView({ name: 'sandbox', session, sandbox: await getSandbox(sandboxId) });
       } catch (e) {
         // 410: wiped. 404: the cookie names a sandbox the API does not know; same page for both.
         if (e instanceof ApiError && e.status === 410) return setView({ name: 'deleted', session });

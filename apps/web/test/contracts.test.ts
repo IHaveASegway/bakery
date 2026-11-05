@@ -20,8 +20,8 @@ test('src/contracts/ matches a fresh generation, byte for byte', async () => {
   }
 });
 
-test('every committed generated file has a schema; only the hand-written files are extra', async () => {
+test('every committed generated file has a schema; only index.ts is hand-written', async () => {
   const generated = new Set((await generate()).map((f: { file: string }) => f.file));
   const extra = readdirSync(contractsDir).filter((f) => !generated.has(f));
-  expect(extra.sort()).toEqual(['index.ts', 'pending.ts'].filter((f) => extra.includes(f)));
+  expect(extra).toEqual(['index.ts']);
 });
