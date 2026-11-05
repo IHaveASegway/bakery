@@ -2,7 +2,7 @@
 
 The made-up bakery's language and rules: the terms every doc, screen and type uses, the aggregates and the Durable Object (DO) that hosts each, their commands, events, invariants and state machines, the event catalog and its envelope, how money, time and identifiers are represented, how idempotency works at every boundary, what a sandbox is born with, and which of the site's Lab principles runs where. The code that implements it is `crates/domain` (aggregates as `decide` and `evolve`, events, value objects) and `crates/seed`; how objects, the Queue and the Workers fit together is [architecture.md](architecture.md). Why the bakery exists is [product.md](product.md).
 
-Status: Updated in PR 5 · 2026-11-05
+Status: Updated in PR 7 · 2026-11-05
 
 Prices, limits and versions are as of 2026-11-04, with sources. Every menu price, package price and tax rate on this page is the made-up bakery's demo data, not a platform price.
 
@@ -138,16 +138,17 @@ Hosted by `CateringEvent`, one object per inquiry (`catering:<sandbox>:<ULID>`).
 | Command | From | Emits |
 |---|---|---|
 | `SubmitInquiry` | customer: date, headcount 10 to 200, package, venue, brief | `CateringInquiryReceived` |
-| `SendQuote`, `Decline` | staff | `CateringQuoteSent`, `CateringDeclined` |
-| `AcceptQuote` | customer | `CateringQuoteAccepted` |
-| `RecordDeposit` | `PaymentSucceeded` | `CateringDepositPaid` |
+| `SendQuote`, `Decline` | staff, from `inquiry` | `CateringQuoteSent`, `CateringDeclined` |
+| `AcceptQuote` | customer, from `quoted` | `CateringQuoteAccepted` |
+| `LapseDeposit` | the deposit hold's timer, 15 minutes after the acceptance | `CateringDepositLapsed` |
+| `RecordDeposit` | `PaymentSucceeded` with purpose `deposit` | `CateringDepositPaid` |
 | `FireReminder` | a reminder timer | `CateringReminderDue` |
 | `StartProduction`, `MarkDelivered` | staff | `CateringProductionStarted`, `CateringDelivered` |
-| `RecordInvoice`, `RecordBalance` | `InvoiceIssued`, `PaymentSucceeded` | `CateringBalanceInvoiced`, `CateringBalancePaid` then `CateringClosed` |
-| `Cancel` | customer or staff | `CateringCancelled` |
+| `RecordInvoice`, `RecordBalance` | `InvoiceIssued`, `PaymentSucceeded` with purpose `balance` | `CateringBalanceInvoiced`, `CateringBalancePaid` then `CateringClosed` |
+| `Cancel` | customer or staff, from `confirmed` | `CateringCancelled` |
 | `ExpireQuote` | the quote timer | `CateringQuoteExpired` |
 
-Invariants: the date is at least 7 business days after the inquiry; the day holds at most 2 confirmed events, held and reserved in that day's `Schedule` (Q16 · Q-catering); `deposit_cents` is 25% of the quote's total rounded half-up, and `balance_cents = total_cents - deposit_cents`, so the two always sum to the quote; a cancellation more than 7 days before the date refunds the deposit, within 7 days it does not. Reminders: a follow-up 3 business days after a quote, one 2 days before the event, one when the invoice is 7 days old.
+Invariants (as built in PR 7, and the notes under the diagram say how each was read): the date is at least 7 business days after the inquiry; the day holds at most 2 confirmed events, held and reserved in that day's `Schedule` (Q16 · Q-catering); `deposit_cents` is 25% of the quote's total rounded half-up, and `balance_cents = total_cents - deposit_cents`, so the two always sum to the quote; a cancellation more than 7 days before the date refunds the deposit, within 7 days it does not. Reminders: a follow-up 3 business days after a quote, one 2 days before the event, one when the invoice is 7 days old.
 
 ```mermaid
 stateDiagram-v2
@@ -156,8 +157,9 @@ stateDiagram-v2
   inquiry --> declined: Decline
   quoted --> accepted: AcceptQuote
   quoted --> expired: 14 business days
-  accepted --> quoted: deposit hold lapses
+  accepted --> quoted: CateringDepositLapsed
   accepted --> confirmed: CateringDepositPaid
+  quoted --> confirmed: CateringDepositPaid after a lapse
   confirmed --> cancelled: Cancel
   confirmed --> in_production: StartProduction
   in_production --> delivered: MarkDelivered
@@ -169,6 +171,19 @@ stateDiagram-v2
   cancelled --> [*]
   closed --> [*]
 ```
+
+Notes from building `CateringEvent` and the balance invoices in PR 7 (2026-11-05), each a reading of this section and not a change to it unless it says so. The aggregate is `crates/domain/src/catering.rs`; its module doc says the same at greater length.
+
+- **A business day is an open day,** Tuesday to Sunday, counted from the day after the one in question. "At least 7 business days" means the date is at least the 7th open day after the inquiry's day, so an inquiry on a Tuesday may name the Wednesday of the next week, and an event 6 days out is refused. A quote is valid until 07:00, the opening, of the 14th open day after the quote's day; the follow-up is due at the opening of the 3rd; `event_soon` at the opening of the day two calendar days before the event.
+- **The quote.** `SendQuote` with no total prices the package at its per-head price times the headcount: the made-up bakery's prices are $9.50 a head for the pastry platter, $14.50 for the breakfast spread, $18.50 for lunch boxes and $12.50 for celebration cake and coffee (`PACKAGES`, as of 2026-11-05), so 40 heads of breakfast spread quote 58,000 cents. Staff may give a total instead; it must be at least 1 cent (`quote-total`). The deposit is 25% rounded half-up and the balance the rest. A repeat quote is refused, since the diagram draws no edge from `quoted` back to a quote.
+- **The deposit hold.** `AcceptQuote` holds one of the day's two catering places in that day's `Schedule`, keyed by the catering id, and the aggregate records when the hold lapses (`lapses_at`, 15 minutes of business time later). `LapseDeposit` at that time moves `accepted` back to `quoted` and emits `CateringDepositLapsed`; the Schedule then releases the place if it is still only held. A later `AcceptQuote`, while the quote is valid, holds it again.
+- **A deposit after a lapse still confirms,** the new edge `quoted --> confirmed`, because the money moved; the Schedule's `Confirm` takes the released place back. A deposit for the wrong amount is `amount-mismatch`, and a second payment with another id is `out-of-order`; the same payment again is a no-op. **A deposit that lands after the quote expired** is also `out-of-order` in the aggregate, and the Worker answers it by refunding the whole amount at Stripe (the way an `Order` treats a late payment) and logging `deposit_late`; the event stays `expired`. This is the decision on the domain stream's question 2, for Joseph to confirm.
+- **Cancellation is taken from `confirmed` only,** by the customer or by staff, with a reason from a list (`customer_change`, `venue_lost`, `other`). The deposit is refunded when the event's date is more than 7 calendar days after the day of the cancellation; the flag is on the event (`refund_deposit`) so `Billing` needs nothing else. Re-quoting, declining a quoted inquiry and cancelling before the deposit are all `out-of-order`, as the diagram draws it (the domain stream's question 6, left as drawn). A refund of a paid balance is not offered: `Billing` refuses it (question 4, left as it was).
+- **The invoice falls due 7 days after delivery** (`invoice_due`, the delivery day plus 7), so the `invoice_due` reminder, "when the invoice is 7 days old", is due at the opening of the due date. It is one decision, not two (question 5).
+- **Timers that no longer apply are no-ops,** not errors: `LapseDeposit`, `ExpireQuote` and `FireReminder` emit nothing when their condition does not hold, early or stale, and a reminder fires once. Repeating `AcceptQuote`, `StartProduction`, `MarkDelivered` or `Decline` in the state it leads to also emits nothing. The object computes its timer rows from the state alone (`timers`, `reminders`), so no event needs a clock.
+- **Events carry the times they arm.** `CateringQuoteSent` has `follow_up_at`, `CateringQuoteAccepted` has `lapses_at`, `CateringDelivered` has `customer`, `balance_cents` and `due` (what `Billing`, which subscribes to it, needs to raise the invoice), and `CateringCancelled` has `by` and `reason`. All are additions within envelope version 1.
+- **The balance is an invoice, and its payment is the invoice.** `Billing` raises it from `CateringDelivered`, under the delivery envelope's id, so a redelivery raises the same one; `InvoiceIssued` comes back as `RecordInvoice`. The balance's payment id is the invoice's id, and `invoice.paid` becomes `PaymentSucceeded` with purpose `balance`. `invoice.voided` becomes `PaymentCanceled`, and a paid event for a void invoice has no effect.
+- **Tests.** The 18 edges of the diagram (the start, the 12 state changes the diagram drew before PR 7, `quoted --> confirmed`, and a reminder that leaves the state as it is in `quoted`, `confirmed`, `in_production` and `invoiced`) are each walked by `every_edge_of_the_diagram_is_walked`, which fails if one is missing or another is taken; `no_sequence_reaches_an_undefined_state` runs 512 random sequences of up to 80 commands at random business times and checks every step against that list, that a replayed log gives the state, that deposit plus balance is the quote, that a terminal state has no timer and that a repeated command at the same time changes nothing.
 
 ### Campaign
 
@@ -229,7 +244,7 @@ Season, as built in PR 4 (2026-11-05): a season is a recurring `MM-DD` window th
 
 Hosted by `Schedule`, one object per sandbox and business day (`schedule:<sandbox>:<YYYY-MM-DD>`). It protects capacity: orders per slot, stops per zone, items per day, catering events per day (Q10 · Q-slots, Q11 · Q-production).
 
-Commands: `Hold` (synchronous, from the router, keyed by the order or catering id), `Confirm` (from `OrderPaid` or `CateringDepositPaid`), `Release` (from `OrderExpired`, `OrderCancelled`, `CateringCancelled`, or the hold's own timer), `SetCapacity` (staff). Events: `SlotReserved`, `SlotReleased`, `CapacityChanged`, `BakeListChanged`. Invariants: held plus reserved never exceeds capacity; a hold lasts 15 minutes of business time; a lowered capacity never cancels existing reservations, it only stops new holds; the production plan is recomputed in the same transaction as any reservation change.
+Commands: `Hold` (synchronous, from the router, keyed by the order or catering id), `Confirm` (from `OrderPaid` or `CateringDepositPaid`), `Release` (from `OrderExpired`, `OrderCancelled`, `CateringCancelled`, `CateringDepositLapsed`, or the hold's own timer), `SetCapacity` (staff). Events: `SlotReserved`, `SlotReleased`, `CapacityChanged`, `BakeListChanged`. Invariants: held plus reserved never exceeds capacity; a hold lasts 15 minutes of business time; a lowered capacity never cancels existing reservations, it only stops new holds; the production plan is recomputed in the same transaction as any reservation change.
 
 ```mermaid
 stateDiagram-v2
@@ -289,17 +304,18 @@ Every event, past tense, by producer. Types: `id` is a ULID string, `cents` an `
 | `CapsRefreshed` | Schedule | `menu_version: u32, caps: [{item, daily_cap: u32}]` | none | the day's item caps, from the published menu |
 | `BakeListChanged` | Schedule | `date, version: u32, lines: [{item, qty: u32, start: time}]` | Kitchen | redraws the bake list |
 | `CateringInquiryReceived` | CateringEvent | `catering: id, customer: id, date, headcount: u16, package: string, venue: string, brief: string?` | Crm; Inbox | lead pipeline; acknowledgement |
-| `CateringQuoteSent` | CateringEvent | `total_cents, deposit_cents, valid_until: time` | Crm; Inbox | pipeline stage; the quote message |
-| `CateringQuoteAccepted` | CateringEvent | `{}` | Crm | pipeline stage |
+| `CateringQuoteSent` | CateringEvent | `total_cents, deposit_cents, valid_until: time, follow_up_at: time` | Crm; Inbox | pipeline stage; the quote message |
+| `CateringQuoteAccepted` | CateringEvent | `lapses_at: time` | Crm | pipeline stage |
 | `CateringDepositLapsed` | CateringEvent | `{}` | Schedule | releases the day's held place; the quote is open again |
-| `CateringQuoteExpired`, `CateringDeclined` | CateringEvent | `reason: string?` | Crm; Inbox | lost lead; notice |
+| `CateringQuoteExpired` | CateringEvent | `reason: string?` | Crm; Inbox | lost lead; notice |
+| `CateringDeclined` | CateringEvent | `reason: too_soon, over_capacity or other` | Crm; Inbox | lost lead; notice |
 | `CateringDepositPaid` | CateringEvent | `payment: id, amount_cents` | Schedule; Crm; Inbox | reserves the day; won lead; receipt |
 | `CateringReminderDue` | CateringEvent | `kind: follow_up, event_soon or invoice_due` | Inbox | reminder message |
 | `CateringProductionStarted` | CateringEvent | `{}` | Kitchen | adds to the board |
-| `CateringDelivered` | CateringEvent | `{}` | Billing; Kitchen | issues the balance invoice; clears |
+| `CateringDelivered` | CateringEvent | `customer: id, balance_cents, due: date` | Billing; Kitchen | issues the balance invoice; clears |
 | `CateringBalanceInvoiced` | CateringEvent | `invoice: id, amount_cents, due: date` | Inbox; Crm | invoice message; pipeline |
 | `CateringBalancePaid`, `CateringClosed` | CateringEvent | `payment: id?` | Schedule; Crm; Inbox | fulfils; customer stats; receipt |
-| `CateringCancelled` | CateringEvent | `refund_deposit: bool` | Schedule; Billing; Crm | releases the day; refunds if true; lost |
+| `CateringCancelled` | CateringEvent | `refund_deposit: bool, by: customer or staff, reason: customer_change, venue_lost or other` | Schedule; Billing; Crm | releases the day; refunds if true; lost |
 | `PaymentIntentCreated` | Billing | `payment: id, purpose: order, deposit or balance, ref: id, amount_cents` | Crm | logs it |
 | `PaymentIntentRecorded` | Billing | `payment: id, intent: string` | none | Billing's own record of the intent Stripe made; the client secret is never in an event |
 | `PaymentSucceeded` | Billing | `payment: id, purpose, ref: id, amount_cents, stripe_event: string, intent: string` | Order or CateringEvent, by purpose | records the payment |
@@ -307,7 +323,7 @@ Every event, past tense, by producer. Types: `id` is a ULID string, `cents` an `
 | `PaymentCanceled` | Billing | `payment: id, purpose, ref: id, stripe_event: string?` | Crm | logs it |
 | `RefundRequested` | Billing | `refund: id, payment: id, purpose, ref: id, amount_cents, reason: string` | none | Billing's own record that a refund was asked of Stripe |
 | `RefundIssued` | Billing | `refund: id, payment: id, purpose, ref: id, amount_cents, stripe_refund: string, stripe_event: string?` | Order or CateringEvent | records the refund |
-| `InvoiceIssued` | Billing | `invoice: id, ref: id, amount_cents, due: date` | CateringEvent | records the invoice |
+| `InvoiceIssued` | Billing | `invoice: id, ref: id, amount_cents, due: date, customer: id, stripe_invoice: string, stripe_customer: string` | CateringEvent | records the invoice |
 | `RouteProposed` | Dispatch | `date, plan_v: u16, vans: u8, minutes: u32` | Crm | logs it |
 | `RoutePublished` | Dispatch | `date, plan_v: u16, source: server or browser, vans: [{van: u8, stops: [order id]}], minutes: u32` | Order (each stop); Kitchen | out for delivery; van labels |
 | `StopCompleted` | Dispatch | `date, stop: u16, order: id` | Order | delivered |
@@ -350,7 +366,7 @@ Every event has one shape, in each object's `events` and `outbox` tables and on 
 
 ## Money and time
 
-**Money** is an integer count of US cents, `i64`, everywhere: in Rust (`Cents(i64)`), in SQLite (`INTEGER`), on the wire (a JSON integer named `*_cents`). There are no floats and one currency, USD. Rates are basis points: tax defaults to 1,000 bp (10.00%), a flat demo rate the sandbox's staff can change in the console; the deposit is 2,500 bp. Tax is computed once per order on the subtotal and rounded half-up to the cent. Splits are computed as one part and a remainder, so a deposit and its balance always sum to the quote.
+**Money** is an integer count of US cents, `i64`, everywhere: in Rust (`Cents(i64)`), in SQLite (`INTEGER`), on the wire (a JSON integer named `*_cents`). There are no floats and one currency, USD. Rates are basis points: tax defaults to 1,000 bp (10.00%), a flat demo rate the sandbox's staff can change in the console; the deposit is 2,500 bp. Tax is computed once per order on the subtotal and rounded half-up to the cent. Splits are computed as one part and a remainder, so a deposit and its balance always sum to the quote. A catering **business day** is an open day, Tuesday to Sunday, counted from the day after: the 7-business-day lead, the 14-business-day quote and the 3-business-day follow-up all count that way ([CateringEvent](#cateringevent)).
 
 **Business time and wall time.** Business time is wall time plus the sandbox's offset, held by the Sandbox and copied to each child ([architecture.md](architecture.md#time-travel)). Every domain rule reads business time through the `Clock` port in `crates/app`: lead times, expiries, slots, reminders, quotes, campaigns. Platform alarms, the wipe, cookies, Stripe's timestamps and logs use wall time.
 
@@ -383,7 +399,7 @@ Every boundary that can repeat a message has a key and a table.
 |---|---|---|---|
 | HTTP command | `Idempotency-Key` header, a ULID, required on every POST | the target object's `commands_seen`, with the stored result; creation keys in `Control`, checked at admission | the stored result again, with `Idempotent-Replayed: true`; a reused key with a different body gets 422 problem+json |
 | Socket command | the `cmd` frame's ULID `id` | the Kitchen's last 64 ids, then the Order's `commands_seen` | `ack` again, as in the site's protocol v1 |
-| Call to Stripe | Stripe's `Idempotency-Key` header: `<ref>:<purpose>:<n>` to create an intent, and the purpose suffixed with the call for the others: `<ref>:<purpose>-confirm:<n>`, `<ref>:<purpose>-cancel:<n>`, `<ref>:<purpose>-refund:<ordinal>` (`n` is the payment's attempt, `ordinal` the refund's) | Stripe | Stripe returns the first result[^brandur]; a key reused on a different body gets 400 `idempotency_error` ([Stripe](https://docs.stripe.com/api/idempotent_requests), as of 2026-11-05), which is why no two calls share one |
+| Call to Stripe | Stripe's `Idempotency-Key` header, always led by the sandbox id: `<sandbox>:<ref>:<purpose>:<n>` to create an intent, and the purpose suffixed with the call for the others: `<sandbox>:<ref>:<purpose>-confirm:<n>`, `-cancel:<n>`, `-refund:<ordinal>` (`n` is the payment's attempt, `ordinal` the refund's), and for a balance invoice `<sandbox>:<catering>:balance-invoice:<n>` with `:item` and `:finalize` added for the invoice's two other calls, `balance-void:<n>` and `balance-pay:<n>`; a persona's Stripe customer is `<sandbox>:<persona>:customer`, and deleting one carries no key | Stripe | Stripe returns the first result[^brandur]; a key reused on a different body gets 400 `idempotency_error` ([Stripe](https://docs.stripe.com/api/idempotent_requests), as of 2026-11-05), which is why no two calls share one |
 | Stripe webhook | the Stripe event id | Billing's `webhooks_seen` | 200, no effect |
 | Queue delivery | the envelope's `id` | each subscriber's `seen` | ack, no effect |
 | Alarm | the `timers` row id | the object's `timers` | the row is gone, so nothing runs |
@@ -441,7 +457,15 @@ That is close to the 2,000 rows [cost.md](cost.md) starts from; spike S5 measure
 
 **As built in PR 5 (2026-11-05).** A sandbox seeds 15 children in three batches of 7 (`workers/api/src/objects/sandbox.rs`, and its test that the plan is the Catalog, the Kitchen and `Billing` first, then the 12 open orders), where PR 4 seeded 14 in two. `Billing`'s seed is the 90 daily totals, in its `history` table (day, orders, cents); the 16 deposits and balances arrive with the catering PR. Those totals appear in no response yet.
 
-## The principle map
+**As built in PR 7 (2026-11-05).** Each of the 8 catering records now carries the persona who asked (`customer`, picked from the event id's random part, so no PRNG draw was added and every value pinned before it stands) and, from the state it has reached on, `quoted_at` (two hours after `created_at`), `accepted_at` (an hour later), `deposit_payment` (five minutes after the acceptance), `delivered_at` (11:00 on the event day), `invoice` (an hour after delivery; it is also the balance's payment id) and `invoice_due` (the event day plus 7). Its brief is always null, since free text is never seeded. `seed_commands` in `crates/seed` turns a record into the commands, with their business times, that take an empty `CateringEvent` to that state through the aggregate's own `decide`, firing any reminder that falls due between two steps; the Worker replays them, so every seeded log is one the aggregate could have written. A test replays all 8 events for 33 seed and date pairs, a summer date and a Monday birth among them, and lands on the seeded state, quote, deposit and invoice every time; another holds the domain's `PACKAGES` and `VENUES` equal to the seed's. Two runs of `bakery-seed 42 2026-11-07` were byte-identical at 614,580 B on 2026-11-05 (581,403 B on PR 3's run), and the output with the new catering fields removed is identical to the output before them.
+
+A sandbox now seeds 33 children in five batches of 7 (`workers/api/src/objects/sandbox.rs`): the 15 of PR 5, the 7 `Schedule` days of PR 6, the 8 `CateringEvent` objects and 3 more `Schedule` days, one for each of the accepted and the two confirmed events, which hold their places. The Worker puts those places in the Schedule itself, from the seed's records, so the seed's PRNG is untouched. The seeded catering events are written to their own logs with no outbox rows: relaying them would raise a Stripe invoice for every seeded delivery at every birth, and nothing subscribes to them until PR 8. Three consequences, written down and not hidden:
+
+- **The accepted event is born with a live deposit hold.** Its acceptance is replayed at the birth time, so its place is held for 15 minutes of business time and a visitor can pay its deposit. This is the decision on the domain stream's question 1.
+- **Seeded invoiced and closed events have no `Billing` records.** There is no invoice or deposit behind them, so `pay-balance` on a seeded invoiced event answers 409, and cancelling a seeded confirmed event refunds nothing (`Billing` logs `refund_skipped` with `no-deposit`). It is PR 5's gap for seeded paid orders again, and PR 8 closes both.
+- **A reminder already due at birth fires on the first alarm.** The quoted event's follow-up, or an old invoice's due reminder, may be due when the sandbox is born.
+
+The row estimates above were not measured again: the Schedule is now 10 objects, not 7, and a CateringEvent's rows depend on the commands replayed. Spike S5 measures the real figure.
 
 Where each Lab principle runs in Proof of Concept (Q33 · Q-principles). Every screen's tour links its lab page and its ADR, in the step that was the "How this works" drawer, and each lab page links back (Q32 · Q-links, Q41 · Q-tour).
 
@@ -478,6 +502,8 @@ Characters are Unicode scalar values after NFC normalization. Control characters
 | Phone number | 7 or more digits once spaces, dots, dashes, parentheses and a leading plus are removed from a run |
 | Card number | 13 to 19 digits in a run, with or without spaces or dashes, whether or not it passes Luhn |
 | URL | `http://`, `https://`, `www.`, or a word followed by a dot and a common top-level domain |
+
+**As built in PR 7 (2026-11-05).** The brief is checked inside the aggregate, on `SubmitInquiry`, so no route can skip it. A refusal is 422 `catering` whose `detail` ends "The rule is <slug>." (`brief-too-long`, `brief-email`, `brief-phone`, `brief-card-number` or `brief-url`) and never holds the text; `scripts/smoke-catering.sh` greps each refusal's body and the Worker's whole log for the brief's text and finds none. The brief rides in `CateringInquiryReceived` and the consumer strips it for every subscriber. The storefront's form shows a live count and a hint for each class, and a hint warns without blocking, so the API stays the check and a false positive cannot lock a visitor out. Two readings of the table: the card-number class does not test Luhn (the checker refuses 13 to 19 digits whether or not they pass, as the table says), and NFC normalization is not done, because the domain crate carries no Unicode tables, so a decomposed accent counts as two characters and a brief can only be refused early, never let through long (`crates/domain/src/free_text.rs`).
 
 The text is rendered as text, never as markup or a link. It never enters a log line, a metric, a projection or an inbox message, and it goes with the sandbox at the next wipe. Stripe receives synthetic billing details only (Q18 · Q-payment-ui). [security.md](security.md) owns the data inventory.
 
