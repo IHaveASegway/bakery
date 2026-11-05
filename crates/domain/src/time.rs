@@ -113,6 +113,34 @@ impl BusinessTime {
     pub fn offset_minutes(self) -> i16 {
         self.offset_minutes
     }
+
+    /// The bakery-local calendar date, `(year, month, day)`, at this time's own offset: the
+    /// business date the menu's seasons and baking days are read on.
+    pub fn local_date(self) -> (i64, u8, u8) {
+        let (y, m, d) = civil_from_days(self.local_days());
+        // A month is 1 to 12 and a day 1 to 31, so both fit.
+        (y, m as u8, d as u8)
+    }
+
+    /// The bakery-local weekday, Monday 0 to Sunday 6, as the seed numbers them.
+    pub fn local_weekday(self) -> u8 {
+        // 1970-01-01 was a Thursday, weekday 3.
+        (self.local_days() + 3).rem_euclid(7) as u8
+    }
+
+    /// This time moved by `minutes`, at the same offset. Refused outside the representable
+    /// range.
+    pub fn plus_minutes(self, minutes: i64) -> Result<BusinessTime, DomainError> {
+        let moved = minutes
+            .checked_mul(60_000)
+            .and_then(|ms| self.unix_ms.checked_add(ms))
+            .ok_or_else(|| DomainError::InvalidTime(format!("{minutes} minutes from {self}")))?;
+        BusinessTime::new(moved, self.offset_minutes)
+    }
+
+    fn local_days(self) -> i64 {
+        (self.unix_ms + i64::from(self.offset_minutes) * 60_000).div_euclid(MS_PER_DAY)
+    }
 }
 
 /// Business times order by instant; the offset only changes how one is shown.
@@ -340,6 +368,22 @@ mod tests {
         ] {
             assert!(bad.parse::<BusinessTime>().is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn local_date_and_weekday_use_the_bakery_offset() {
+        // 2026-11-07 is a Saturday; at 23:30 Mountain it is already Sunday in UTC.
+        let t: BusinessTime = "2026-11-07T23:30:00-07:00".parse().unwrap();
+        assert_eq!(t.local_date(), (2026, 11, 7));
+        assert_eq!(t.local_weekday(), 5);
+        let monday: BusinessTime = "2026-11-09T07:00:00-07:00".parse().unwrap();
+        assert_eq!(monday.local_weekday(), 0);
+        assert_eq!(
+            t.plus_minutes(45).unwrap().to_string(),
+            "2026-11-08T00:15:00-07:00"
+        );
+        assert_eq!(t.plus_minutes(45).unwrap().local_weekday(), 6);
+        assert!(t.plus_minutes(i64::MAX).is_err());
     }
 
     #[test]
