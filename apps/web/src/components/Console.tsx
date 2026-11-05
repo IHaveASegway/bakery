@@ -13,6 +13,7 @@ import {
 import { formatCountdown, utcClock, utcStamp } from '../lib/countdown';
 import { describeError, type Message as Text } from '../lib/messages';
 import CapacityEditor from './CapacityEditor';
+import CateringQueue from './CateringQueue';
 import ClockControl from './ClockControl';
 import DeadLetters from './DeadLetters';
 import GuestNote from './GuestNote';
@@ -275,6 +276,7 @@ export default function Console() {
             isGuest={isGuest}
             clockOffsetS={sandbox.clock_offset_s}
           />
+          <CateringQueue sandboxId={sandbox.id} isGuest={isGuest} />
 
           <h3>Faults</h3>
           <p>

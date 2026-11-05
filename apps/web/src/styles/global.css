@@ -285,7 +285,9 @@ button.link:disabled {
 .card-lines,
 .feed,
 .letters,
-.editor {
+.editor,
+.events,
+.queue {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -352,7 +354,9 @@ button.link:disabled {
 
 .card,
 .letters li,
-.editor li {
+.editor li,
+.events li,
+.queue li {
   margin-bottom: 0.75rem;
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--border);
@@ -361,12 +365,20 @@ button.link:disabled {
 
 .card p,
 .letters p,
-.editor p {
+.editor p,
+.events p,
+.queue p {
   margin: 0.25rem 0;
 }
 
 .card-lines {
   margin: 0.25rem 0;
+}
+
+/* The catering brief is the visitor's text, shown as text with its line breaks. */
+.brief {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .pay-form,
