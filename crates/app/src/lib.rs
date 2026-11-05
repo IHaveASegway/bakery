@@ -14,9 +14,11 @@
 //! - [`stripe`]: Stripe's calls, answers and webhooks as data, and the key guard (ADR 0007).
 //! - [`routing`]: the subscriber table the Queue consumer reads (docs/domain.md, "The event
 //!   catalog").
+//! - [`dispatch_view`]: the dispatch screen's wire shapes from the Dispatch aggregate (ADR 0012).
 
 pub mod admission;
 pub mod auth;
+pub mod dispatch_view;
 pub mod health;
 pub mod log;
 pub mod names;

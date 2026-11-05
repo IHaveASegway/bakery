@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PlanRequest",
+  "description": "`POST /v1/sandboxes/{id}/dispatch/{date}/plan`, staff only: the plan VROOM made in the\nbrowser. It carries no minutes: the server computes them from the matrix. Refused with 422\n`stop-missing`, `stop-twice`, `stop-unknown`, `over-capacity`, `route-ends`, `vans` or\n`no-stops`.",
+  "type": "object",
+  "properties": {
+    "vans": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PlanRouteRequest"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "vans"
+  ],
+  "$defs": {
+    "PlanRouteRequest": {
+      "description": "One van of the browser's plan.",
+      "type": "object",
+      "properties": {
+        "end": {
+          "description": "The place the van comes back to; the same rule.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "start": {
+          "description": "The place the van leaves from, as the solver reports it; it must be the bakery, and is\ntaken to be when left out.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "stops": {
+          "description": "Order ULIDs, in driving order. An empty list is a van left at the bakery.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "van": {
+          "description": "1 to the day's vans, each once.",
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "van",
+        "stops"
+      ]
+    }
+  }
+}

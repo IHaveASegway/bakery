@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PublishRequest",
+  "description": "`POST /v1/sandboxes/{id}/dispatch/{date}/publish`, staff only: make a stored plan the record.\nChecked again against the day's stops; a repeat with the same `Idempotency-Key` publishes\nnothing more.",
+  "type": "object",
+  "properties": {
+    "plan": {
+      "$ref": "#/$defs/PlanChoice"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "plan"
+  ],
+  "$defs": {
+    "PlanChoice": {
+      "description": "Which stored plan to publish.",
+      "oneOf": [
+        {
+          "description": "The server's.",
+          "type": "string",
+          "const": "proposed"
+        },
+        {
+          "description": "The browser's.",
+          "type": "string",
+          "const": "submitted"
+        }
+      ]
+    }
+  }
+}

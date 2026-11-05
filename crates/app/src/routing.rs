@@ -127,6 +127,7 @@ pub const ROUTES: &[(&str, &[Route])] = &[
             all(Crm),
             all(Customer),
             all(Inbox),
+            all(Dispatch),
         ],
     ),
     ("OrderPaymentLate", &[all(Crm)]),
@@ -197,7 +198,11 @@ pub const ROUTES: &[(&str, &[Route])] = &[
         &[scoped(Order, ByRef), scoped(CateringEvent, ByRef)],
     ),
     ("InvoiceIssued", &[all(CateringEvent)]),
+    ("StopAdded", &[]),
+    ("StopConfirmed", &[]),
+    ("StopRemoved", &[]),
     ("RouteProposed", &[all(Crm)]),
+    ("PlanSubmitted", &[]),
     ("RoutePublished", &[scoped(Order, EachStop), all(Kitchen)]),
     ("StopCompleted", &[all(Order)]),
     ("CustomerRegistered", &[]),
@@ -290,6 +295,7 @@ mod tests {
     use bakery_domain::catering::CateringEvent as CateringEvents;
     use bakery_domain::crm::CrmEvent;
     use bakery_domain::customer::CustomerEvent;
+    use bakery_domain::dispatch::DispatchEvent;
     use bakery_domain::inbox::InboxEvent;
     use bakery_domain::order::OrderEvent;
     use bakery_domain::schedule::ScheduleEvent;
@@ -392,7 +398,7 @@ mod tests {
         assert_eq!(in_table, in_doc);
         assert_eq!(ROUTES.len(), in_table.len(), "an event is listed twice");
         // The table has as many rows as the catalog has events.
-        assert_eq!(in_doc.len(), 66);
+        assert_eq!(in_doc.len(), 70);
     }
 
     #[test]
@@ -406,6 +412,7 @@ mod tests {
             .chain(CustomerEvent::NAMES)
             .chain(CrmEvent::NAMES)
             .chain(InboxEvent::NAMES)
+            .chain(DispatchEvent::NAMES)
         {
             assert!(routes(name).is_some(), "{name} has no row");
         }

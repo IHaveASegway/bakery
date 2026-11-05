@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MatrixResponse",
+  "description": "The travel-time matrix the dispatch screen loads to run VROOM. It is not an API response: it\nis a static asset of the web Worker, the same JSON as the committed fixture\n`crates/seed/data/<city>/matrix.json` (ADR 0012, decision 7), and this type only fixes its\nshape.",
+  "type": "object",
+  "properties": {
+    "built": {
+      "description": "When the build ran, or `seed:<n>` for the synthetic city.",
+      "type": "string"
+    },
+    "city": {
+      "description": "The city the build is for, or `synthetic`.",
+      "type": "string"
+    },
+    "depot": {
+      "description": "The bakery's place, where every route starts and ends; 0 when left out.",
+      "type": "integer",
+      "format": "uint8",
+      "default": 0,
+      "maximum": 255,
+      "minimum": 0
+    },
+    "minutes": {
+      "description": "`minutes[i][j]`: whole minutes driving from place `i` to place `j`, 0 on the diagonal.\nNot necessarily symmetric.",
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      }
+    },
+    "places": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/MatrixPlace"
+      }
+    },
+    "source": {
+      "description": "Where the travel times come from, with the attribution the data's licence asks for.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "city",
+    "built",
+    "source",
+    "places",
+    "minutes"
+  ],
+  "$defs": {
+    "MatrixPlace": {
+      "description": "One place of the travel-time matrix.",
+      "type": "object",
+      "properties": {
+        "index": {
+          "description": "0 to the places' count less one, in order.",
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "label": {
+          "description": "The map label, `p1` to `p64`; no name, coordinate or street.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "label"
+      ]
+    }
+  }
+}

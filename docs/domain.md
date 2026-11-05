@@ -270,7 +270,7 @@ Every event, past tense, by producer. Types: `id` is a ULID string, `cents` an `
 | `MenuItemChanged` | Catalog | `item: string, fields: object` | Crm | logs it |
 | `MenuPublished` | Catalog | `version: u32, items: u16, item: string?` | Schedule (today on) | refreshes daily caps from the version |
 | `OrderPlaced` | Order | `order: id, customer: id, kind: pickup or delivery, slot: time, zone: string?, lines: [{item, variant, qty: u16, unit_cents}], subtotal_cents, tax_cents, total_cents, note: string?, menu_version: u32?, held_until: time?` | Kitchen; Crm; Dispatch (delivery); Inbox | adds a pending card with the note; timeline row; adds a provisional stop; remembers the order's customer, kind and item count for its messages |
-| `OrderPaid` | Order | `payment: id, amount_cents` | Schedule; Kitchen; Crm; Customer; Inbox | confirms the hold; card to the board; timeline; loyalty; receipt |
+| `OrderPaid` | Order | `payment: id, amount_cents` | Schedule; Kitchen; Crm; Customer; Inbox; Dispatch | confirms the hold; card to the board; timeline; loyalty; receipt; confirms the stop (a pickup has none) |
 | `OrderPaymentLate` | Order | `payment: id, amount_cents: cents?` | Crm | logs the compensation |
 | `OrderRefundRequested` | Order | `payment: id, amount_cents, reason: string` | Billing | refunds at Stripe |
 | `OrderExpired` | Order | `held_until: time` | Schedule; Billing; Kitchen; Dispatch | releases; cancels the intent; removes the card; removes the stop |
@@ -308,8 +308,11 @@ Every event, past tense, by producer. Types: `id` is a ULID string, `cents` an `
 | `RefundRequested` | Billing | `refund: id, payment: id, purpose, ref: id, amount_cents, reason: string` | none | Billing's own record that a refund was asked of Stripe |
 | `RefundIssued` | Billing | `refund: id, payment: id, purpose, ref: id, amount_cents, stripe_refund: string, stripe_event: string?` | Order or CateringEvent | records the refund |
 | `InvoiceIssued` | Billing | `invoice: id, ref: id, amount_cents, due: date` | CateringEvent | records the invoice |
-| `RouteProposed` | Dispatch | `date, plan_v: u16, vans: u8, minutes: u32` | Crm | logs it |
-| `RoutePublished` | Dispatch | `date, plan_v: u16, source: server or browser, vans: [{van: u8, stops: [order id]}], minutes: u32` | Order (each stop); Kitchen | out for delivery; van labels |
+| `StopAdded` | Dispatch | `date, order: id, customer: id, place: u8, window: time, zone: string, units: u32` | none | the provisional stop, in the Dispatch's own log |
+| `StopConfirmed`, `StopRemoved` | Dispatch | `date, order: id`; removed only: `reason: expired or cancelled` | none | the stop's status, in the Dispatch's own log, kept even when it arrives before `StopAdded` |
+| `RouteProposed` | Dispatch | `date, plan_v: u16, vans: u8, minutes: u32, capacity: u32?, routes: [{van: u8, stops: [order id]}]?, unassigned: [order id]?` | Crm | logs it |
+| `PlanSubmitted` | Dispatch | `date, plan_v: u16, vans: [{van: u8, stops: [order id]}], minutes: u32` | none | the browser's validated plan, in the Dispatch's own log |
+| `RoutePublished` | Dispatch | `date, plan_v: u16, source: server or browser, vans: [{van: u8, stops: [order id]}], minutes: u32, publish: id?` | Order (each stop); Kitchen | out for delivery; van labels |
 | `StopCompleted` | Dispatch | `date, stop: u16, order: id` | Order | delivered |
 | `CustomerRegistered` | Customer | `customer: id, profile: {display_name, preferences: [item], home_zone, place, billing_line}, marketing: bool, opening_points: u32` | none | the Customer's own record of its first touch, from the seed's persona |
 | `ConsentChanged` | Customer | `marketing: bool` | Crm | segment input |
@@ -327,7 +330,7 @@ The order note and the catering brief ride in their events but are stored only b
 
 ## The envelope
 
-Every event has one shape, in each object's `events` and `outbox` tables and on the Queue. It is `v` 1; adding an optional field stays `v` 1 (PR 4 added four: `OrderPlaced.menu_version`, `OrderPlaced.held_until`, `OrderPaymentLate.amount_cents` and `MenuPublished.item`; PR 8 added six: `OrderClosed.customer`, `OrderClosed.kind`, `OrderClosed.slot` and `OrderClosed.zone`, for the seed's history only, `LoyaltyPointsEarned.refund` and `CampaignSent.body`), and renaming or redefining anything is `v` 2 (tolerant reader, as in the site's protocol v1).
+Every event has one shape, in each object's `events` and `outbox` tables and on the Queue. It is `v` 1; adding an optional field stays `v` 1 (PR 4 added four: `OrderPlaced.menu_version`, `OrderPlaced.held_until`, `OrderPaymentLate.amount_cents` and `MenuPublished.item`; PR 8 added six: `OrderClosed.customer`, `OrderClosed.kind`, `OrderClosed.slot` and `OrderClosed.zone`, for the seed's history only, `LoyaltyPointsEarned.refund` and `CampaignSent.body`; PR 9 added four, so the Dispatch's log folds: `RouteProposed.capacity`, `RouteProposed.routes`, `RouteProposed.unassigned` and `RoutePublished.publish`, the publishing command's id), and renaming or redefining anything is `v` 2 (tolerant reader, as in the site's protocol v1).
 
 ```json
 {
