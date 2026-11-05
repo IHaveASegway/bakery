@@ -17,6 +17,8 @@
 //!   (`hold:<key>`, `kind: catering`, until the deposit hold lapses), and a day whose two places
 //!   are taken answers 409 `{error: "schedule", rule: "slot-full"}` with nothing recorded.
 //! - `GET /_state` → 200 `CateringResponse`; 404 before the inquiry.
+//! - `GET /_events` → 200 `[Envelope]`: the log, in `seq` order, as the Sandbox reads a seeded
+//!   event's history to hand it to Crm and the Inbox (PR 8), since no outbox relays it.
 //! - `POST /_event` with an envelope, from the consumer → 200 `{outcome}`: `PaymentSucceeded`
 //!   with purpose `deposit` is `RecordDeposit`, with purpose `balance` `RecordBalance`;
 //!   `InvoiceIssued` is `RecordInvoice`; each under the key `evt:<event id>`, so a redelivery is
@@ -321,6 +323,10 @@ impl DurableObject for CateringEvent {
                     return gone();
                 };
                 match (method, path) {
+                    (Method::Get, "/_events") => {
+                        let (_, events) = self.load(&meta)?;
+                        json(&events, 200)
+                    }
                     (Method::Get, "/_state") => {
                         let (state, events) = self.load(&meta)?;
                         match response_of(&state, &events) {

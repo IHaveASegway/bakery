@@ -30,6 +30,11 @@ TURNSTILE_SECRET=
 # This API on `wrangler dev`, the base of the OAuth redirect URIs a local client registers:
 # API_ORIGIN=http://127.0.0.1:8788
 
+# Optional, local runs only: every new sandbox gets this seed instead of a random one, so two
+# sandboxes born from it match (scripts/smoke-crm.sh compares their inbox engagement). Honored
+# only when API_ORIGIN is a loopback host, a whole number below 2^53. PR 8.
+# SANDBOX_SEED=42
+
 # Local fake provider (scripts/fake-providers.mjs); loopback hosts only. The Worker honors these
 # only when the host is 127.0.0.1 or localhost, logs provider_override_refused for anything
 # else, and never reads them from wrangler.jsonc. With the fake running on its default port:

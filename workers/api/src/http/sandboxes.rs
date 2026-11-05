@@ -241,7 +241,10 @@ pub async fn create(cx: &Cx, req: &mut Request) -> Answer {
                 id,
                 owner,
                 kind,
-                seed: random::seed()?,
+                seed: match crate::config::fixed_seed(&cx.env) {
+                    Some(seed) => seed,
+                    None => random::seed()?,
+                },
                 born: cx.now,
             }),
         )

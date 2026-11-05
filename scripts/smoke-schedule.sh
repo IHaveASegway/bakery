@@ -376,9 +376,9 @@ command_as sandbox_e E 192.0.2.83 POST /v1/sandboxes '{"replace":false}'
 expect_status sandbox_e 201
 EID="$(json_field sandbox_e b.id)"
 check "guest: seeding reaches live" "wait_live guest_live G '$GID'"
-expect_json guest_live "b.state === 'live' && b.children === 33"
+expect_json guest_live "b.state === 'live' && b.children >= 35"
 check "demo: seeding reaches live" "wait_live demo_live D '$DID'"
-expect_json demo_live "b.state === 'live' && b.children === 33 && b.kind === 'account'"
+expect_json demo_live "b.state === 'live' && b.children >= 35 && b.kind === 'account'"
 check "e: seeding reaches live" "wait_live e_live E '$EID'"
 
 # ---------- the seeded days and the day's schedule ----------

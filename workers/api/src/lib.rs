@@ -5,7 +5,8 @@
 //! the `Billing` object; PR 6 adds the `Schedule` object per day with its holds, bake list and
 //! hold timers, the clock's steps and the loop guard; PR 7 adds the `CateringEvent` object and its
 //! saga by alarm, the catering routes, the balance invoice through Stripe Invoicing and the
-//! deposit's refund.
+//! deposit's refund; PR 8 adds the `Customer`, `Crm` and `Inbox` objects, the campaign timer,
+//! the projection's rebuild, the inbox's simulated opens and clicks, and the CRM routes.
 
 mod clock;
 mod config;
@@ -21,6 +22,9 @@ pub use objects::billing::Billing;
 pub use objects::catalog::Catalog;
 pub use objects::catering::CateringEvent;
 pub use objects::control::Control;
+pub use objects::crm::Crm;
+pub use objects::customer::Customer;
+pub use objects::inbox::Inbox;
 pub use objects::kitchen::Kitchen;
 pub use objects::order::Order;
 pub use objects::sandbox::Sandbox;
