@@ -11,3 +11,6 @@ docs/
 crates/contracts/schemas/
 workers/api/build/
 target/
+
+# Vitest writes its JSON reporter output here
+**/.vitest/
