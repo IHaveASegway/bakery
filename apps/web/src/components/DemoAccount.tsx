@@ -68,7 +68,7 @@ function CreateAccount() {
   }
 
   return (
-    <form onSubmit={submit} aria-labelledby={`${id}-heading`}>
+    <form onSubmit={submit} aria-labelledby={`${id}-heading`} data-tour="signin-demo">
       <h2 id={`${id}-heading`}>Create a demo account</h2>
       <p>
         The bakery makes up a username for you and keeps a hash of your password. It never asks for

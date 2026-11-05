@@ -31,7 +31,7 @@ export default function StoreMenu() {
   return (
     <>
       <StatusLine phase={phase} />
-      <section aria-labelledby="cart-heading" className="cart">
+      <section aria-labelledby="cart-heading" className="cart" data-tour="menu-cart">
         <h2 id="cart-heading">Your cart</h2>
         <CartLines cart={cart} menu={menu.menu} update={update} />
         {cart.lines.length > 0 && (

@@ -42,6 +42,9 @@ describe('dist/_headers', () => {
     '/app/dispatch/*',
     '/menu/*',
     '/inbox/*',
+    '/privacy/*',
+    '/docs/api/*',
+    '/',
     '/checkout/*',
     '/catering/*',
     '/_astro/*',
@@ -132,7 +135,7 @@ describe('dist/_headers', () => {
     }
   });
 
-  test.each(['/menu/*', '/inbox/*'])(
+  test.each(['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/'])(
     '%s is an island page: its own policy with hashes, and no third party',
     (path) => {
       const lines = rule(text, path);

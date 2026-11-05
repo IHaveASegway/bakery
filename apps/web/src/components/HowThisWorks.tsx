@@ -1,4 +1,5 @@
 import type { LiveMenu } from '../lib/use-live-menu';
+import { HOW } from '../tour/how';
 
 /**
  * The small "How this works" line under the menu: where the menu came from and, for a sandbox's own
@@ -14,14 +15,13 @@ export default function HowThisWorks({
 }) {
   if (!menu.live) {
     return (
-      <p className="hint">
-        How this works: this is the demo’s seed menu, the one every new sandbox starts with. With a
-        sandbox, the menu comes from its own Catalog through the API.
+      <p className="hint" data-tour="menu-how">
+        How this works: {HOW.menuSeed}
       </p>
     );
   }
   return (
-    <p className="hint" aria-live="polite">
+    <p className="hint" aria-live="polite" data-tour="menu-how">
       How this works: this is your sandbox’s menu, version {menu.menu.version ?? '?'}. The API
       answered {menu.status === 304 ? 'with 304, nothing changed' : 'with the menu'}; its cache said{' '}
       <code>Bakery-Cache: {menu.cache ?? 'not sent'}</code> for the key{' '}

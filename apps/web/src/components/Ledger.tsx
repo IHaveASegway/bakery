@@ -39,7 +39,7 @@ export default function Ledger({ sandboxId, refresh }: { sandboxId: string; refr
   const entries = ledger === null ? [] : [...ledger.entries].reverse();
 
   return (
-    <section aria-labelledby="ledger-heading">
+    <section aria-labelledby="ledger-heading" data-tour="kitchen-ledger">
       <h3 id="ledger-heading">Ledger</h3>
       <p className="hint">
         Payments and refunds as Stripe’s sandbox reported them. No money moved.

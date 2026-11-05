@@ -44,7 +44,7 @@ export default function Segments({ sandboxId, refresh }: { sandboxId: string; re
   );
 
   return (
-    <section aria-labelledby="segments-heading">
+    <section aria-labelledby="segments-heading" data-tour="crm-segments">
       <h3 id="segments-heading">Segments</h3>
       <p>
         A segment is a rule over what the CRM knows. Who is in changes when an event arrives: place

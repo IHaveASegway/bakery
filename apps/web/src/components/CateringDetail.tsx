@@ -97,7 +97,7 @@ export default function CateringDetail({
   }
 
   return (
-    <section aria-labelledby="event-heading">
+    <section aria-labelledby="event-heading" data-tour="catering-detail">
       <h2 id="event-heading">Your event</h2>
       <p className="hint">
         Event <code>{event.catering}</code>, asked about at{' '}

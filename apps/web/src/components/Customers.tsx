@@ -28,7 +28,7 @@ export default function Customers({
   const open = customers?.find((c) => c.customer === selected) ?? null;
 
   return (
-    <section aria-labelledby="customers-heading">
+    <section aria-labelledby="customers-heading" data-tour="crm-customers">
       <h3 id="customers-heading">Customers</h3>
       <p>
         {customers === null ? 'The' : `The ${customers.length}`} synthetic customers of this

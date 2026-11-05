@@ -50,6 +50,8 @@ import type {
   SegmentResponse,
   SessionResponse,
   TimelineResponse,
+  TokenInfoResponse,
+  TokenResponse,
   TrafficResponse,
   WipedResponse,
 } from '../contracts';
@@ -478,6 +480,27 @@ export const completeStop = (id: string, date: string, req: CompleteStopRequest,
     body: req,
     ...(key === undefined ? {} : { key }),
   });
+
+// ---- PR 10: the sandbox's API token ----
+// Signed-in sessions only (a guest gets 403 `guest-scope`), and the cookie only: a token never mints
+// its successor. The token comes back once, in the answer to issue or rotate; the caller keeps it in
+// memory (lib/token-store.ts) and nowhere else.
+
+/** `GET .../token`: the token's version, its times and its masked form, never the token. */
+export const getTokenInfo = (id: string) =>
+  request<TokenInfoResponse>('GET', `${sandboxPath(id)}/token`);
+
+/** `POST .../token`: a token for this sandbox, shown once. Leave the key out for a new click. */
+export const issueToken = (id: string, key?: string) =>
+  request<TokenResponse>('POST', `${sandboxPath(id)}/token`, key === undefined ? {} : { key });
+
+/** `POST .../token/rotate`: a new token, and the old one stops at once. */
+export const rotateToken = (id: string, key?: string) =>
+  request<TokenResponse>(
+    'POST',
+    `${sandboxPath(id)}/token/rotate`,
+    key === undefined ? {} : { key },
+  );
 
 /** The sign-in links are navigations through the API, not fetches (security.md, "Sign-in"). */
 export const signinUrl = (provider: 'google' | 'github') =>

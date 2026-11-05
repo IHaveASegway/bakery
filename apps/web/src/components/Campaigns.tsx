@@ -40,6 +40,7 @@ import { describeCrmError, earliestOf } from '../lib/crm-errors';
 import { describeError, type Message as Text } from '../lib/messages';
 import GuestNote from './GuestNote';
 import Message from './Message';
+import { HOW } from '../tour/how';
 
 /** The business time now, from the wall clock and the sandbox's offset. */
 const businessNow = (offsetS: number) => Date.now() + offsetS * 1000;
@@ -125,7 +126,7 @@ export default function Campaigns({
   }
 
   return (
-    <section aria-labelledby="campaigns-heading">
+    <section aria-labelledby="campaigns-heading" data-tour="crm-campaigns">
       <h3 id="campaigns-heading">Campaigns</h3>
       <p>
         Compose a campaign from the templates, schedule it, then move the clock past its send time.
@@ -227,16 +228,7 @@ export default function Campaigns({
         </ul>
       )}
 
-      <p className="hint">
-        How this works: scheduling puts a timer on the CRM object. When business time passes the
-        send time, the timer fires and the CRM reads the segment as it is at that moment, keeps the
-        customers whose marketing consent is true, freezes that list as the recipients and sends one
-        message each to the inbox, keyed by campaign and customer. Recipients are frozen at send
-        time: someone who opts out afterwards is still counted, and someone who opts in is not
-        added. Consent is data the send reads, not a rule this page applies. The campaign sends
-        once, however often the alarm fires: the second firing finds it already sent and does
-        nothing. Opens and clicks are simulated from the seed; nobody clicks anything.
-      </p>
+      <p className="hint">How this works: {HOW.campaigns}</p>
     </section>
   );
 }
