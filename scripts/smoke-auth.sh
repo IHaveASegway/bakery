@@ -390,12 +390,13 @@ check "wrong_method: Allow: POST, OPTIONS" "[[ '$(header_of wrong_method allow)'
 
 command_as guest_1 S1 192.0.2.31 POST /v1/sandboxes '{"turnstile_token":"pass-1","replace":false}'
 expect_status guest_1 201
-expect_json guest_1 "b.kind === 'guest' && b.state === 'live' && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(b.id) && Number.isSafeInteger(b.seed) && b.seed >= 0 && b.clock_offset_s === 0 && b.children === 0 && b.faults.inbox === false"
+# PR 4 seeds a sandbox on its first alarm, so it answers `seeding` until its 14 children exist.
+expect_json guest_1 "b.kind === 'guest' && ['seeding', 'live'].includes(b.state) && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(b.id) && Number.isSafeInteger(b.seed) && b.seed >= 0 && b.clock_offset_s === 0 && b.children <= 14 && b.faults.inbox === false"
 expect_json guest_1 "(() => { const born = Date.parse(b.born); const d = new Date(born); let w = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 10); if (w <= born) w += 86400000; return Date.parse(b.wipe_at) === w; })()"
 guest_1_id="$(json_field guest_1 b.id)"
 get_as guest_1_get S1 "/v1/sandboxes/$guest_1_id"
 expect_status guest_1_get 200
-expect_json guest_1_get "b.id === '$guest_1_id' && b.state === 'live'"
+expect_json guest_1_get "b.id === '$guest_1_id' && ['seeding', 'live'].includes(b.state)"
 get_as guest_1_session S1 /v1/session
 expect_json guest_1_session "b.kind === 'guest' && b.account === null && b.sandbox === '$guest_1_id'"
 command_as guest_no_token S9 192.0.2.39 POST /v1/sandboxes '{"replace":false}'
@@ -417,7 +418,7 @@ expect_json guest_again "b.id === '$guest_1_id'"
 
 command_as demo_sandbox D2 192.0.2.24 POST /v1/sandboxes '{"replace":false}'
 expect_status demo_sandbox 201
-expect_json demo_sandbox "b.kind === 'account' && b.state === 'live'"
+expect_json demo_sandbox "b.kind === 'account' && ['seeding', 'live'].includes(b.state)"
 demo_sandbox_id="$(json_field demo_sandbox b.id)"
 command_as demo_fault D2 192.0.2.24 POST "/v1/sandboxes/$demo_sandbox_id/faults" '{"fault":"inbox","on":true}'
 expect_status demo_fault 200

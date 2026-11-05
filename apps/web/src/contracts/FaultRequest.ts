@@ -5,9 +5,9 @@
  */
 
 /**
- * The faults a visitor may set. PR 3 ships one.
+ * The faults a visitor may set.
  */
-export type FaultName = 'inbox';
+export type FaultName = 'inbox' | 'kitchen';
 
 /**
  * `POST /v1/sandboxes/{id}/faults`, signed-in sessions only.

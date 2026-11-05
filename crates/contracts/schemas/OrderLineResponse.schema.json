@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OrderLineResponse",
+  "description": "A placed line, priced from the menu version the order names; never repriced.",
+  "type": "object",
+  "properties": {
+    "item": {
+      "type": "string"
+    },
+    "qty": {
+      "type": "integer",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0
+    },
+    "unit_cents": {
+      "type": "integer",
+      "format": "int64"
+    },
+    "variant": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "item",
+    "variant",
+    "qty",
+    "unit_cents"
+  ]
+}

@@ -1,5 +1,6 @@
-//! Sandboxes: create, read, "Wipe now" and the one fault switch (docs/architecture.md,
-//! "Creating a sandbox"; docs/security.md, "Sandbox isolation").
+//! Sandboxes: create, read, "Wipe now", the fault switches, the dead letters and the clock
+//! (docs/architecture.md, "Creating a sandbox" and "Time travel"; docs/security.md, "Sandbox
+//! isolation").
 //!
 //! A path's sandbox id must be the session's: any other id gets the 404 an unknown one gets,
 //! so a visitor cannot tell another's sandbox exists. Every object name is built here from
@@ -9,7 +10,8 @@ use bakery_app::admission::Refusal;
 use bakery_app::auth::SessionClaims;
 use bakery_app::names::{account_object_name, account_owner, guest_owner, sandbox_object_name};
 use bakery_contracts::{
-    CreateSandboxRequest, FaultRequest, SandboxKind, SandboxResponse, SandboxState, WipedResponse,
+    ClockRequest, CreateSandboxRequest, FaultRequest, SandboxKind, SandboxResponse, SandboxState,
+    WipedResponse,
 };
 use bakery_domain::{Ulid, WallTime};
 use worker::{Method, Request, Response};
@@ -20,14 +22,16 @@ use super::problem::{self, Failure};
 use super::{Cx, json, outbound};
 use crate::objects::account::{self, ClearSandbox, Current, SetSandbox};
 use crate::objects::control::{self, AdmitRequest};
-use crate::objects::sandbox::{self, CreateRequest, FaultCommand, WipeAnswer, WipeRequest};
+use crate::objects::sandbox::{
+    self, ClockCommand, CreateRequest, FaultCommand, Redrive, WipeAnswer, WipeRequest,
+};
 use crate::objects::sql::{call, call_empty};
 use crate::random;
 
 type Answer = Result<Response, Failure>;
 
 /// The path's id, if it is the session's sandbox; otherwise the same 404 as for nothing.
-fn own_sandbox(cx: &Cx, id: Option<&str>) -> Result<(SessionClaims, Ulid), Failure> {
+pub(super) fn own_sandbox(cx: &Cx, id: Option<&str>) -> Result<(SessionClaims, Ulid), Failure> {
     let claims = cx.claims().ok_or_else(problem::session)?.clone();
     let id: Ulid = id
         .and_then(|i| i.parse().ok())
@@ -40,7 +44,7 @@ fn own_sandbox(cx: &Cx, id: Option<&str>) -> Result<(SessionClaims, Ulid), Failu
 
 /// An account's session id is refused once signed out, even from a copied cookie. A guest's
 /// session has nothing to revoke: it ends when its sandbox does.
-async fn not_revoked(cx: &Cx, claims: &SessionClaims) -> Result<(), Failure> {
+pub(super) async fn not_revoked(cx: &Cx, claims: &SessionClaims) -> Result<(), Failure> {
     let Some(acct) = &claims.acct else {
         return Ok(());
     };
@@ -60,7 +64,7 @@ async fn not_revoked(cx: &Cx, claims: &SessionClaims) -> Result<(), Failure> {
 }
 
 /// The sandbox's state, or `None` once it is wiped (or never was).
-async fn state(cx: &Cx, id: Ulid) -> Result<Option<SandboxResponse>, Failure> {
+pub(super) async fn state(cx: &Cx, id: Ulid) -> Result<Option<SandboxResponse>, Failure> {
     let mut res = call_empty(
         &cx.env,
         sandbox::BINDING,
@@ -158,7 +162,7 @@ pub async fn create(cx: &Cx, req: &mut Request) -> Answer {
     if let Some(old) = current.current_sandbox.filter(|_| !body.replace)
         && let Some(s) = state(cx, old)
             .await?
-            .filter(|s| s.state == SandboxState::Live)
+            .filter(|s| matches!(s.state, SandboxState::Live | SandboxState::Seeding))
     {
         cx.sandbox(Some(old));
         let mut res = json(&s, 200)?;
@@ -297,8 +301,8 @@ pub async fn get(cx: &Cx, id: Option<&str>) -> Answer {
     }
 }
 
-/// `DELETE /v1/sandboxes/{id}`, "Wipe now": the Sandbox wipes itself in this request (it has
-/// no children in PR 3) and tells `Control`. The cookie loses its sandbox: an account's is
+/// `DELETE /v1/sandboxes/{id}`, "Wipe now": the Sandbox wipes itself and its children in this
+/// request, 14 of them after seeding plus one an order, and tells `Control`. The cookie loses its sandbox: an account's is
 /// re-issued without it, a guest's is cleared, since a guest session is its sandbox.
 pub async fn wipe(cx: &Cx, id: Option<&str>) -> Answer {
     let (claims, id) = own_sandbox(cx, id)?;
@@ -349,6 +353,97 @@ pub async fn set_fault(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answer {
             Ok(out)
         }
         410 => Err(problem::wiped()),
+        _ => Err(problem::internal()),
+    }
+}
+
+/// The answer of a Sandbox command that may be a replay, passed on with its header.
+async fn passed_on(mut res: Response) -> Answer {
+    let replayed = res.headers().get("Idempotent-Replayed")?.is_some();
+    let text = res.text().await?;
+    let mut out = Response::ok(text)?;
+    out.headers_mut().set("Content-Type", "application/json")?;
+    if replayed {
+        out.headers_mut().set("Idempotent-Replayed", "true")?;
+    }
+    Ok(out)
+}
+
+/// `GET /v1/sandboxes/{id}/dead-letters`: the Queue screen's list, oldest first. Any session
+/// may read it; redriving is a console write.
+pub async fn dead_letters(cx: &Cx, id: Option<&str>) -> Answer {
+    let (claims, id) = own_sandbox(cx, id)?;
+    not_revoked(cx, &claims).await?;
+    let res = call_empty(
+        &cx.env,
+        sandbox::BINDING,
+        &sandbox_object_name(id),
+        Method::Get,
+        "/_dead-letters",
+    )
+    .await?;
+    match res.status_code() {
+        200 => passed_on(res).await,
+        410 => Err(problem::wiped()),
+        _ => Err(problem::internal()),
+    }
+}
+
+/// `POST /v1/sandboxes/{id}/dead-letters/{eventId}/redrive`, signed-in sessions only.
+pub async fn redrive(cx: &Cx, id: Option<&str>, event: Option<&str>) -> Answer {
+    let (claims, id) = own_sandbox(cx, id)?;
+    not_revoked(cx, &claims).await?;
+    let event: bakery_domain::Ulid = event
+        .and_then(|e| e.parse().ok())
+        .ok_or_else(|| problem::not_found().because("unknown-dead-letter"))?;
+    let key = cx.key.ok_or_else(problem::idempotency_key)?;
+    let res = call(
+        &cx.env,
+        sandbox::BINDING,
+        &sandbox_object_name(id),
+        Method::Post,
+        "/_redrive",
+        Some(&Redrive {
+            key: key.to_string(),
+            id: event.to_string(),
+        }),
+    )
+    .await?;
+    match res.status_code() {
+        200 => passed_on(res).await,
+        404 => Err(problem::not_found().because("unknown-dead-letter")),
+        410 => Err(problem::wiped()),
+        _ => Err(problem::internal()),
+    }
+}
+
+/// `POST /v1/sandboxes/{id}/clock {minutes}`, signed-in sessions only: the minimal
+/// `AdvanceClock` (PR 6 adds the presets).
+pub async fn advance_clock(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answer {
+    let (claims, id) = own_sandbox(cx, id)?;
+    not_revoked(cx, &claims).await?;
+    let body: ClockRequest = read_body(req).await?;
+    let key = cx.key.ok_or_else(problem::idempotency_key)?;
+    let mut res = call(
+        &cx.env,
+        sandbox::BINDING,
+        &sandbox_object_name(id),
+        Method::Post,
+        "/_clock",
+        Some(&ClockCommand {
+            key: key.to_string(),
+            minutes: body.minutes,
+        }),
+    )
+    .await?;
+    match res.status_code() {
+        200 => passed_on(res).await,
+        409 => Err(problem::seeding()),
+        410 => Err(problem::wiped()),
+        422 => {
+            let refusal: problem::Refused = res.json().await?;
+            Err(problem::clock(refusal.rule.as_deref().unwrap_or("")))
+        }
         _ => Err(problem::internal()),
     }
 }

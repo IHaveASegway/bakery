@@ -140,6 +140,12 @@ pub struct Pruned {
     pub deleted: u32,
 }
 
+/// `GET /flag`: the demo's flag alone, for the Queue consumer, which caches it for 60 s.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct FlagAnswer {
+    pub flag: Flag,
+}
+
 /// `POST /wipe` and `POST /sweep`: how many rows were stamped for the fan-out.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stamped {
@@ -181,6 +187,9 @@ impl DurableObject for Control {
                 Response::from_json(&self.admit_demo(body, now)?)
             }
             (Method::Get, "/salt") => Response::from_json(&self.salt(now)?),
+            (Method::Get, "/flag") => Response::from_json(&FlagAnswer {
+                flag: read_flag(&self.sql())?,
+            }),
             (Method::Post, "/wiped") => {
                 let body: Wiped = sql::body(&mut req).await?;
                 self.wiped(&body, now)?;
@@ -690,6 +699,12 @@ async fn ask<B: Serialize, T: serde::de::DeserializeOwned>(
 
 pub async fn status(env: &Env) -> Result<StatusResponse> {
     ask::<(), _>(env, Method::Get, "/status", None).await
+}
+
+pub async fn flag(env: &Env) -> Result<Flag> {
+    ask::<(), FlagAnswer>(env, Method::Get, "/flag", None)
+        .await
+        .map(|a| a.flag)
 }
 
 pub async fn salt(env: &Env) -> Result<Salt> {

@@ -38,13 +38,23 @@ pub enum RouteId {
     GetSandbox,
     WipeSandbox,
     SetFault,
+    GetMenu,
+    PatchMenuItem,
+    PublishMenu,
+    PlaceOrder,
+    GetOrder,
+    CancelOrder,
+    ListDeadLetters,
+    Redrive,
+    AdvanceClock,
 }
 
 #[derive(Debug)]
 pub struct Route {
     pub id: RouteId,
     pub method: &'static str,
-    /// Literal segments, and `{id}` for one non-empty segment.
+    /// Literal segments, `{id}` for the sandbox's segment and `{sub}` for one more: an order's
+    /// id, a menu item's slug or an event's id.
     pub pattern: &'static str,
     pub scope: Scope,
     pub limit: Limit,
@@ -167,12 +177,83 @@ pub const ROUTES: &[Route] = &[
         Scope::SignedIn,
         Limit::Command,
     ),
+    // PR 4: the menu, orders, dead letters and the minimal clock.
+    route(
+        RouteId::GetMenu,
+        "GET",
+        "/v1/sandboxes/{id}/menu",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::PatchMenuItem,
+        "PATCH",
+        "/v1/sandboxes/{id}/menu/items/{sub}",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
+    route(
+        RouteId::PublishMenu,
+        "POST",
+        "/v1/sandboxes/{id}/menu/publish",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
+    route(
+        RouteId::PlaceOrder,
+        "POST",
+        "/v1/sandboxes/{id}/orders",
+        Scope::Session,
+        Limit::Command,
+    ),
+    route(
+        RouteId::GetOrder,
+        "GET",
+        "/v1/sandboxes/{id}/orders/{sub}",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::CancelOrder,
+        "POST",
+        "/v1/sandboxes/{id}/orders/{sub}/cancel",
+        Scope::Session,
+        Limit::Command,
+    ),
+    route(
+        RouteId::ListDeadLetters,
+        "GET",
+        "/v1/sandboxes/{id}/dead-letters",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::Redrive,
+        "POST",
+        "/v1/sandboxes/{id}/dead-letters/{sub}/redrive",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
+    route(
+        RouteId::AdvanceClock,
+        "POST",
+        "/v1/sandboxes/{id}/clock",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
 ];
+
+/// A route's path parameters.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Params {
+    pub id: Option<String>,
+    pub sub: Option<String>,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Matched {
-    /// The route, and the `{id}` segment if the pattern has one.
-    Route(&'static Route, Option<String>),
+    /// The route, and its `{id}` and `{sub}` segments if the pattern has them.
+    Route(&'static Route, Params),
     /// `OPTIONS` on a known path: the CORS preflight.
     Preflight,
     /// A known path, another method: 405 with this `Allow`.
@@ -187,15 +268,16 @@ impl PartialEq for Route {
 }
 impl Eq for Route {}
 
-/// The `{id}` segment, or `Some(None)` for a literal match, or `None`.
-fn matches(pattern: &str, path: &str) -> Option<Option<String>> {
-    let mut id = None;
+/// The parameters of a match, or `None`.
+fn matches(pattern: &str, path: &str) -> Option<Params> {
+    let mut params = Params::default();
     let mut p = pattern.split('/');
     let mut s = path.split('/');
     loop {
         match (p.next(), s.next()) {
-            (None, None) => return Some(id),
-            (Some("{id}"), Some(seg)) if !seg.is_empty() => id = Some(seg.to_owned()),
+            (None, None) => return Some(params),
+            (Some("{id}"), Some(seg)) if !seg.is_empty() => params.id = Some(seg.to_owned()),
+            (Some("{sub}"), Some(seg)) if !seg.is_empty() => params.sub = Some(seg.to_owned()),
             (Some(a), Some(b)) if a == b => {}
             _ => return None,
         }
@@ -203,7 +285,7 @@ fn matches(pattern: &str, path: &str) -> Option<Option<String>> {
 }
 
 pub fn match_route(method: &str, path: &str) -> Matched {
-    let on_path: Vec<(&'static Route, Option<String>)> = ROUTES
+    let on_path: Vec<(&'static Route, Params)> = ROUTES
         .iter()
         .filter_map(|r| matches(r.pattern, path).map(|id| (r, id)))
         .collect();
@@ -237,7 +319,14 @@ mod tests {
 
     fn id_of(m: Matched) -> Option<(RouteId, Option<String>)> {
         match m {
-            Matched::Route(r, id) => Some((r.id, id)),
+            Matched::Route(r, p) => Some((r.id, p.id)),
+            _ => None,
+        }
+    }
+
+    fn sub_of(m: Matched) -> Option<(RouteId, Option<String>, Option<String>)> {
+        match m {
+            Matched::Route(r, p) => Some((r.id, p.id, p.sub)),
             _ => None,
         }
     }
@@ -264,6 +353,50 @@ mod tests {
     }
 
     #[test]
+    fn two_parameter_routes() {
+        let s = "01JC8Z6K3W9QF2N4T7XRB5M0HD";
+        let o = "01JC8Z5R0T2B6Y8C4V1N3K7QXE";
+        let some = |v: &str| Some(v.to_owned());
+        assert_eq!(
+            sub_of(match_route("GET", &format!("/v1/sandboxes/{s}/orders/{o}"))),
+            Some((RouteId::GetOrder, some(s), some(o)))
+        );
+        assert_eq!(
+            sub_of(match_route(
+                "POST",
+                &format!("/v1/sandboxes/{s}/orders/{o}/cancel")
+            )),
+            Some((RouteId::CancelOrder, some(s), some(o)))
+        );
+        assert_eq!(
+            sub_of(match_route(
+                "PATCH",
+                &format!("/v1/sandboxes/{s}/menu/items/fern-loaf")
+            )),
+            Some((RouteId::PatchMenuItem, some(s), some("fern-loaf")))
+        );
+        assert_eq!(
+            sub_of(match_route(
+                "POST",
+                &format!("/v1/sandboxes/{s}/dead-letters/{o}/redrive")
+            )),
+            Some((RouteId::Redrive, some(s), some(o)))
+        );
+        assert_eq!(
+            id_of(match_route("POST", &format!("/v1/sandboxes/{s}/orders"))),
+            Some((RouteId::PlaceOrder, some(s)))
+        );
+        assert_eq!(
+            match_route("GET", &format!("/v1/sandboxes/{s}/orders/")),
+            Matched::NotFound
+        );
+        assert_eq!(
+            match_route("GET", &format!("/v1/sandboxes/{s}/menu/publish")),
+            Matched::MethodNotAllowed("POST, OPTIONS".into())
+        );
+    }
+
+    #[test]
     fn unknown_paths_and_methods() {
         assert_eq!(match_route("GET", "/v1/nope"), Matched::NotFound);
         assert_eq!(match_route("GET", "/v1/sandboxes/"), Matched::NotFound);
@@ -284,7 +417,28 @@ mod tests {
     #[test]
     fn scopes_follow_the_spec() {
         let scope = |id| ROUTES.iter().find(|r| r.id == id).unwrap().scope;
-        assert_eq!(scope(RouteId::SetFault), Scope::SignedIn);
+        for id in [
+            RouteId::SetFault,
+            RouteId::PatchMenuItem,
+            RouteId::PublishMenu,
+            RouteId::Redrive,
+            RouteId::AdvanceClock,
+        ] {
+            assert_eq!(scope(id), Scope::SignedIn, "{id:?}: a console write");
+        }
+        for id in [
+            RouteId::GetMenu,
+            RouteId::PlaceOrder,
+            RouteId::GetOrder,
+            RouteId::CancelOrder,
+            RouteId::ListDeadLetters,
+        ] {
+            assert_eq!(
+                scope(id),
+                Scope::Session,
+                "{id:?}: guests browse, order and pay"
+            );
+        }
         for id in [
             RouteId::Session,
             RouteId::GetSandbox,

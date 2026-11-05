@@ -41,6 +41,7 @@ dependencies = [
  "bakery-seed",
  "serde",
  "serde_json",
+ "sha2",
  "wasm-bindgen",
  "worker",
 ]

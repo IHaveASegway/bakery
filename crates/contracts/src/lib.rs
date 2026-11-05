@@ -183,18 +183,32 @@ pub enum SandboxState {
     Wiped,
 }
 
-/// The sandbox's fault switches. `inbox` makes the broken-subscriber demo's Inbox fail (PR 4).
+/// The sandbox's fault switches: the Queue Lab's broken subscriber, live. `kitchen` makes the
+/// Kitchen refuse every delivery with 503, so a message retries three times and lands in the
+/// dead-letter queue (PR 4); `inbox` does the same to the Inbox when it arrives (PR 8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Faults {
     pub inbox: bool,
+    pub kitchen: bool,
 }
 
-/// The faults a visitor may set. PR 3 ships one.
+/// The faults a visitor may set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum FaultName {
     Inbox,
+    Kitchen,
+}
+
+impl FaultName {
+    /// The name stored in the Sandbox's `faults` table, the same as on the wire.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FaultName::Inbox => "inbox",
+            FaultName::Kitchen => "kitchen",
+        }
+    }
 }
 
 /// `POST /v1/sandboxes` (201 or 200) and `GET /v1/sandboxes/{id}`.
@@ -212,6 +226,9 @@ pub struct SandboxResponse {
     /// The seed the sandbox was generated from. A JSON number: JavaScript reads it exactly only
     /// below 2^53, so the router mints seeds in that range.
     pub seed: u64,
+    /// The visitor's customer persona: the seed's first customer's ULID. Orders the visitor
+    /// places are this customer's.
+    pub persona: String,
     /// Business time minus wall time, in seconds (docs/architecture.md, "Time travel").
     pub clock_offset_s: i64,
     /// Bumped by every clock advance.
@@ -219,7 +236,8 @@ pub struct SandboxResponse {
     /// Bumped by every API token rotation.
     pub token_v: u32,
     pub faults: Faults,
-    /// Registered child objects; none in PR 3.
+    /// Registered child objects: the Catalog, the Kitchen and the 12 seeded orders once
+    /// seeding is done, then one more for each order placed.
     pub children: u32,
 }
 
@@ -304,6 +322,255 @@ impl WipedResponse {
     }
 }
 
+/// Pickup at the counter, or delivery to a zone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum OrderKind {
+    Pickup,
+    Delivery,
+}
+
+/// One line of an order as the customer asks for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OrderLineRequest {
+    /// A variant slug from the menu, such as `croissant/box-6`.
+    pub variant: String,
+    /// 1 to 24.
+    pub qty: u16,
+}
+
+/// `POST /v1/sandboxes/{id}/orders`. The customer is the sandbox's persona; the prices come
+/// from the menu version the Catalog publishes when the order is placed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OrderRequest {
+    pub kind: OrderKind,
+    /// The pickup slot's or delivery window's start, a business time such as
+    /// `2026-11-07T09:45:00-07:00`.
+    pub slot: String,
+    /// `z1`, `z2` or `z3` for a delivery; absent for a pickup.
+    #[serde(default)]
+    pub zone: Option<String>,
+    /// 1 to 20 lines.
+    pub lines: Vec<OrderLineRequest>,
+    /// At most 140 characters, with no email address, phone number, card number or URL.
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+/// An order's state (docs/domain.md, "Order", the diagram).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OrderStatus {
+    Placed,
+    Confirmed,
+    Expired,
+    Cancelled,
+    RefundPending,
+    InProduction,
+    Ready,
+    PickedUp,
+    OutForDelivery,
+    Delivered,
+    Closed,
+}
+
+/// A placed line, priced from the menu version the order names; never repriced.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OrderLineResponse {
+    pub item: String,
+    pub variant: String,
+    pub qty: u16,
+    pub unit_cents: i64,
+}
+
+/// `201` from placing an order (`200` with `Idempotent-Replayed: true` for the same key again),
+/// `GET /v1/sandboxes/{id}/orders/{oid}`, and the answer to a cancel.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OrderResponse {
+    /// The order's ULID.
+    pub id: String,
+    pub status: OrderStatus,
+    pub kind: OrderKind,
+    /// A business time.
+    pub slot: String,
+    pub zone: Option<String>,
+    pub lines: Vec<OrderLineResponse>,
+    pub subtotal_cents: i64,
+    pub tax_cents: i64,
+    pub total_cents: i64,
+    /// When the order was placed, a business time.
+    pub placed_at: String,
+    /// When an unpaid order expires, 15 minutes of business time after `placed_at`.
+    pub held_until: String,
+    pub note: Option<String>,
+    /// The published menu version the prices came from.
+    pub menu_version: u32,
+    /// The `seq` of the order's latest event.
+    pub events_seq: u64,
+}
+
+/// What a staff edit may set on a menu item's status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum MenuItemStatus {
+    Paused,
+    Available,
+}
+
+/// `PATCH /v1/sandboxes/{id}/menu/items/{slug}`, signed-in sessions only. A price is a draft,
+/// set on every variant of the item, until `POST .../menu/publish`; a pause or a resume
+/// publishes that one item at once.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MenuItemPatch {
+    #[serde(default)]
+    pub price_cents: Option<i64>,
+    #[serde(default)]
+    pub status: Option<MenuItemStatus>,
+}
+
+/// The answer to a staff edit or a publish: the published version and the items with drafts
+/// still waiting for a publish.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MenuEditResponse {
+    pub version: u32,
+    pub pending: Vec<String>,
+}
+
+/// An item's stored lifecycle; the menu lists `available` and `paused` items.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MenuItemState {
+    Draft,
+    Available,
+    Paused,
+    Retired,
+}
+
+/// A seasonal window, `MM-DD` to `MM-DD` inclusive, wrapping over the new year when `from` is
+/// after `to`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MenuSeason {
+    pub from: String,
+    pub to: String,
+}
+
+/// More than `over_qty` of one variant needs `lead_minutes`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MenuBulkLead {
+    pub over_qty: u32,
+    pub lead_minutes: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MenuVariant {
+    /// `<item slug>/<suffix>`, such as `croissant/box-6`.
+    pub slug: String,
+    pub label: String,
+    pub price_cents: i64,
+    pub lead_minutes: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MenuItem {
+    pub slug: String,
+    pub name: String,
+    /// From the nine major US allergens, such as `wheat` and `tree-nuts`.
+    pub allergens: Vec<String>,
+    pub daily_cap: u32,
+    /// `mon` to `sun`.
+    pub days_baked: Vec<String>,
+    pub season: Option<MenuSeason>,
+    pub bulk_lead: Option<MenuBulkLead>,
+    pub pickup_only: bool,
+    pub status: MenuItemState,
+    pub variants: Vec<MenuVariant>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MenuCategory {
+    pub slug: String,
+    pub name: String,
+    pub items: Vec<MenuItem>,
+}
+
+/// `GET /v1/sandboxes/{id}/menu`: the published menu, with `ETag: "v<version>"`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MenuResponse {
+    pub version: u32,
+    pub categories: Vec<MenuCategory>,
+}
+
+/// `POST /v1/sandboxes/{id}/traffic`, signed-in sessions only: simulated orders a minute.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TrafficRequest {
+    /// 1 to 6.
+    pub rate: u8,
+}
+
+/// `GET /v1/sandboxes/{id}/traffic`, and the answer to starting or stopping it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TrafficResponse {
+    pub running: bool,
+    pub rate: u8,
+    /// Minutes of traffic this sandbox used today, UTC.
+    pub minutes_used: u16,
+    /// Of the day's 30.
+    pub minutes_left: u16,
+    /// Orders the simulator placed today.
+    pub orders: u16,
+}
+
+/// One message the Queue gave up on after 3 retries, from `GET /v1/sandboxes/{id}/dead-letters`
+/// (an array of these), and the answer to a redrive.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DeadLetter {
+    /// The event's ULID: the key a redrive sends it again with.
+    pub id: String,
+    /// The event type, such as `OrderPlaced`.
+    #[serde(rename = "type")]
+    pub event_type: String,
+    /// The producing object's name.
+    pub stream: String,
+    pub seq: u64,
+    /// The last delivery error, as a reason code such as `Kitchen answered 503`.
+    pub error: String,
+    /// When it was dead-lettered, a wall time.
+    pub at: String,
+}
+
+/// `POST /v1/sandboxes/{id}/clock`, signed-in sessions only: move business time forward. The
+/// offset only grows, at most 14 days in total.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ClockRequest {
+    pub minutes: u32,
+}
+
+/// The business clock after an advance.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ClockResponse {
+    pub clock_offset_s: i64,
+    pub clock_v: u32,
+    /// Business time now, such as `2026-11-07T09:42:10-07:00`.
+    pub business_now: String,
+}
+
 /// Every exported schema as `(file name, pretty JSON with a trailing newline)`, in a fixed
 /// order. The binary writes these bytes and the test compares them.
 pub fn schemas() -> Vec<(&'static str, String)> {
@@ -338,6 +605,20 @@ pub fn schemas() -> Vec<(&'static str, String)> {
         ("FaultRequest.schema.json", render::<FaultRequest>()),
         ("FaultsResponse.schema.json", render::<FaultsResponse>()),
         ("WipedResponse.schema.json", render::<WipedResponse>()),
+        ("OrderRequest.schema.json", render::<OrderRequest>()),
+        ("OrderResponse.schema.json", render::<OrderResponse>()),
+        (
+            "OrderLineResponse.schema.json",
+            render::<OrderLineResponse>(),
+        ),
+        ("MenuItemPatch.schema.json", render::<MenuItemPatch>()),
+        ("MenuEditResponse.schema.json", render::<MenuEditResponse>()),
+        ("MenuResponse.schema.json", render::<MenuResponse>()),
+        ("TrafficRequest.schema.json", render::<TrafficRequest>()),
+        ("TrafficResponse.schema.json", render::<TrafficResponse>()),
+        ("DeadLetter.schema.json", render::<DeadLetter>()),
+        ("ClockRequest.schema.json", render::<ClockRequest>()),
+        ("ClockResponse.schema.json", render::<ClockResponse>()),
     ]
 }
 
@@ -455,6 +736,7 @@ mod tests {
             born: "2026-11-05T09:55:00.000Z".into(),
             wipe_at: "2026-11-05T10:00:00.000Z".into(),
             seed: 42,
+            persona: "01JC8Z6F0WQ3E5R7T9Y1V3K5P7".into(),
             clock_offset_s: 0,
             clock_v: 0,
             token_v: 0,
@@ -463,7 +745,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&sandbox).unwrap(),
-            r#"{"id":"01JC8Z6K3W9QF2N4T7XRB5M0HD","kind":"guest","state":"live","born":"2026-11-05T09:55:00.000Z","wipe_at":"2026-11-05T10:00:00.000Z","seed":42,"clock_offset_s":0,"clock_v":0,"token_v":0,"faults":{"inbox":false},"children":0}"#
+            r#"{"id":"01JC8Z6K3W9QF2N4T7XRB5M0HD","kind":"guest","state":"live","born":"2026-11-05T09:55:00.000Z","wipe_at":"2026-11-05T10:00:00.000Z","seed":42,"persona":"01JC8Z6F0WQ3E5R7T9Y1V3K5P7","clock_offset_s":0,"clock_v":0,"token_v":0,"faults":{"inbox":false,"kitchen":false},"children":0}"#
         );
         for (state, text) in [
             (SandboxState::Seeding, "seeding"),
@@ -483,10 +765,13 @@ mod tests {
         );
         assert_eq!(
             serde_json::to_value(FaultsResponse {
-                faults: Faults { inbox: true }
+                faults: Faults {
+                    inbox: true,
+                    kitchen: false
+                }
             })
             .unwrap(),
-            json!({ "faults": { "inbox": true } })
+            json!({ "faults": { "inbox": true, "kitchen": false } })
         );
     }
 
@@ -514,7 +799,11 @@ mod tests {
                 on: true
             }
         );
-        assert!(serde_json::from_str::<FaultRequest>(r#"{"fault":"kitchen","on":true}"#).is_err());
+        let kitchen: FaultRequest =
+            serde_json::from_str(r#"{"fault":"kitchen","on":true}"#).unwrap();
+        assert_eq!(kitchen.fault, FaultName::Kitchen);
+        assert_eq!(kitchen.fault.as_str(), "kitchen");
+        assert!(serde_json::from_str::<FaultRequest>(r#"{"fault":"oven","on":true}"#).is_err());
 
         let signup: DemoSignupRequest = serde_json::from_str(
             r#"{"password":"canary-password-do-not-log","turnstile_token":"t"}"#,
@@ -553,5 +842,39 @@ mod tests {
             assert_eq!(serde_json::to_value(flag).unwrap(), json!(flag.as_str()));
         }
         assert_eq!(Flag::parse("Live"), None);
+    }
+
+    #[test]
+    fn order_and_menu_shapes() {
+        let order: OrderRequest = serde_json::from_str(
+            r#"{"kind":"pickup","slot":"2026-11-07T09:45:00-07:00","lines":[{"variant":"croissant/single","qty":2}]}"#,
+        )
+        .unwrap();
+        assert_eq!(order.kind, OrderKind::Pickup);
+        assert_eq!(order.zone, None);
+        assert_eq!(order.note, None);
+        assert!(
+            serde_json::from_str::<OrderRequest>(
+                r#"{"kind":"pickup","slot":"s","lines":[],"customer":"x"}"#
+            )
+            .is_err(),
+            "a client never names the customer"
+        );
+        let patch: MenuItemPatch = serde_json::from_str(r#"{"status":"paused"}"#).unwrap();
+        assert_eq!(patch.status, Some(MenuItemStatus::Paused));
+        assert_eq!(patch.price_cents, None);
+        assert_eq!(
+            serde_json::to_value(OrderStatus::RefundPending).unwrap(),
+            json!("refund_pending")
+        );
+        let dead = DeadLetter {
+            id: "01JC8Z6K3W9QF2N4T7XRB5M0HD".into(),
+            event_type: "OrderPlaced".into(),
+            stream: "order:01JC8YV2D4QK7S1M9E3PZ6W8AN:01JC8Z5R0T2B6Y8C4V1N3K7QXE".into(),
+            seq: 1,
+            error: "Kitchen answered 503".into(),
+            at: "2026-11-05T12:00:00.000Z".into(),
+        };
+        assert_eq!(serde_json::to_value(&dead).unwrap()["type"], "OrderPlaced");
     }
 }

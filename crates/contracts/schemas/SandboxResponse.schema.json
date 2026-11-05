@@ -9,7 +9,7 @@
       "type": "string"
     },
     "children": {
-      "description": "Registered child objects; none in PR 3.",
+      "description": "Registered child objects: the Catalog, the Kitchen and the 12 seeded orders once\nseeding is done, then one more for each order placed.",
       "type": "integer",
       "format": "uint32",
       "minimum": 0
@@ -34,6 +34,10 @@
     },
     "kind": {
       "$ref": "#/$defs/SandboxKind"
+    },
+    "persona": {
+      "description": "The visitor's customer persona: the seed's first customer's ULID. Orders the visitor\nplaces are this customer's.",
+      "type": "string"
     },
     "seed": {
       "description": "The seed the sandbox was generated from. A JSON number: JavaScript reads it exactly only\nbelow 2^53, so the router mints seeds in that range.",
@@ -63,6 +67,7 @@
     "born",
     "wipe_at",
     "seed",
+    "persona",
     "clock_offset_s",
     "clock_v",
     "token_v",
@@ -71,16 +76,20 @@
   ],
   "$defs": {
     "Faults": {
-      "description": "The sandbox's fault switches. `inbox` makes the broken-subscriber demo's Inbox fail (PR 4).",
+      "description": "The sandbox's fault switches: the Queue Lab's broken subscriber, live. `kitchen` makes the\nKitchen refuse every delivery with 503, so a message retries three times and lands in the\ndead-letter queue (PR 4); `inbox` does the same to the Inbox when it arrives (PR 8).",
       "type": "object",
       "properties": {
         "inbox": {
+          "type": "boolean"
+        },
+        "kitchen": {
           "type": "boolean"
         }
       },
       "additionalProperties": false,
       "required": [
-        "inbox"
+        "inbox",
+        "kitchen"
       ]
     },
     "SandboxKind": {
