@@ -1,0 +1,857 @@
+{
+  "built": "2026-11-05",
+  "city": "Salt Lake City, Utah",
+  "extract": {
+    "source": "openstreetmap.fr, US West",
+    "url": "https://download.openstreetmap.fr/extracts/north-america/us-west-latest.osm.pbf",
+    "bytes": 3778845964,
+    "md5": "725b4651c9e2aa5cd7abc18e2efb9115",
+    "md5MatchesPublisher": true,
+    "sha256": "21759ea9c1d9ea4786bb9fc93c32df1fbc29d04de63a37147b88f07544b08f6d",
+    "replicationTimestamp": "2026-11-05T00:58:30Z",
+    "state": "sequenceNumber=7358945\ntimestamp=2026-11-05T00\\:58\\:30Z"
+  },
+  "boxes": {
+    "display1e4": [
+      -1121014,
+      406999,
+      -1117404,
+      408534
+    ],
+    "routing1e4": [
+      -1121364,
+      406729,
+      -1117054,
+      408804
+    ],
+    "nominatimCheck": {
+      "query": "Salt Lake City, Utah",
+      "osm": "relation/198770",
+      "checkedOn": "2026-11-05",
+      "boundingbox1e7": {
+        "south": 406999263,
+        "north": 408533905,
+        "west": -1121013916,
+        "east": -1117404843
+      },
+      "userAgent": "ProofOfConceptBakery-route-data/1.0 (open-source demo data build; https://github.com/IHaveASegway/bakery)"
+    }
+  },
+  "tools": {
+    "osmium": "osmium version 1.16.0",
+    "node": "v22.23.4",
+    "orsTag": "v9.10.0",
+    "orsCommit": "8ed869459de157032edb146a6fc247379c428e23",
+    "orsStatus": {
+      "engine": {
+        "build_date": "2026-11-05T19:57:02Z",
+        "graph_version": "5",
+        "graph_date": "2026-11-05T20:14:44Z",
+        "osm_date": "1970-01-01T00:00:00Z",
+        "version": "9.10.0"
+      },
+      "profiles": [
+        "driving-car"
+      ]
+    }
+  },
+  "config": {
+    "profile": "driving-car",
+    "placeCount": 64,
+    "isochroneMinutes": [
+      5,
+      10,
+      15,
+      20,
+      25,
+      30
+    ],
+    "serviceSeconds": 180,
+    "viewWidth": 2000,
+    "quotas": {
+      "park": 22,
+      "garden": 6,
+      "library": 10,
+      "station": 12,
+      "viewpoint": 6,
+      "square": 8
+    },
+    "minSeparationMetres": 450,
+    "maxSnapMetres": 500,
+    "snapMetresByKind": {
+      "viewpoint": 1000
+    },
+    "placeTags": {
+      "square": [
+        [
+          "place",
+          "square"
+        ]
+      ],
+      "library": [
+        [
+          "amenity",
+          "library"
+        ]
+      ],
+      "station": [
+        [
+          "railway",
+          "station"
+        ],
+        [
+          "public_transport",
+          "station"
+        ]
+      ],
+      "viewpoint": [
+        [
+          "tourism",
+          "viewpoint"
+        ]
+      ],
+      "garden": [
+        [
+          "leisure",
+          "garden"
+        ]
+      ],
+      "park": [
+        [
+          "leisure",
+          "park"
+        ]
+      ]
+    },
+    "exclude": []
+  },
+  "projection": {
+    "kind": "Web Mercator (equirectangular in metres), north up",
+    "viewBox": [
+      0,
+      0,
+      2000,
+      1123
+    ],
+    "metresPerUnit": 15.216
+  },
+  "requests": {
+    "distinctAnswersUsed": {
+      "isochrones": 1,
+      "matrix": 1,
+      "snap": 1,
+      "status": 1
+    },
+    "matrixRequests": 1
+  },
+  "isochroneNesting": [
+    {
+      "from": 0,
+      "to": 1,
+      "inside": 1,
+      "grows": true
+    },
+    {
+      "from": 1,
+      "to": 2,
+      "inside": 1,
+      "grows": true
+    },
+    {
+      "from": 2,
+      "to": 3,
+      "inside": 1,
+      "grows": true
+    },
+    {
+      "from": 3,
+      "to": 4,
+      "inside": 1,
+      "grows": true
+    },
+    {
+      "from": 4,
+      "to": 5,
+      "inside": 1,
+      "grows": true
+    }
+  ],
+  "selection": {
+    "rule": "Sort candidates by OSM id (number, then node, way, relation). Drop a repeated name, an excluded id and any place within the minimum separation of an earlier kept one. Per kind, take every k-th of the id-sorted list: item floor(i * n / q) for i = 0..q-1 (q the kind quota, shortfalls handed on in fill order). The depot is the selected square (else garden, else park) nearest the mean of all selected points, and takes index 0.",
+    "eligible": 230,
+    "afterDedupe": 131,
+    "poolSizes": {
+      "garden": 8,
+      "park": 100,
+      "library": 7,
+      "station": 14,
+      "viewpoint": 1,
+      "square": 1
+    },
+    "quota": {
+      "park": 33,
+      "garden": 8,
+      "library": 7,
+      "station": 14,
+      "viewpoint": 1,
+      "square": 1
+    },
+    "dropped": {
+      "no-kind": 51,
+      "no-name": 1085,
+      "outside-box": 7,
+      "not-public": 13,
+      "business-like": 3,
+      "duplicate-name": 4,
+      "too-close": 95,
+      "unsnappable": 4
+    },
+    "depotKind": "square",
+    "snapped": {
+      "candidatesSnapped": 230,
+      "unsnapped": 4
+    }
+  },
+  "places": [
+    {
+      "index": 0,
+      "label": "The bakery",
+      "name": "Alvin & Helene Richer Commons",
+      "depot": true,
+      "osm": "node/11959315828",
+      "kind": "square",
+      "tag": "place=square",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 1,
+      "label": "Red Butte Garden and Arboretum",
+      "name": "Red Butte Garden and Arboretum",
+      "depot": false,
+      "osm": "relation/15667539",
+      "kind": "garden",
+      "tag": "leisure=garden",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 2,
+      "label": "Gallacher Park",
+      "name": "Gallacher Park",
+      "depot": false,
+      "osm": "relation/17691413",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 3,
+      "label": "Liberty Park",
+      "name": "Liberty Park",
+      "depot": false,
+      "osm": "way/23741597",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 4,
+      "label": "500 West Street Commons",
+      "name": "500 West Street Commons",
+      "depot": false,
+      "osm": "way/33147410",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 5,
+      "label": "Memory Grove Park",
+      "name": "Memory Grove Park",
+      "depot": false,
+      "osm": "way/33162184",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 6,
+      "label": "Salt Lake City Public Library",
+      "name": "Salt Lake City Public Library",
+      "depot": false,
+      "osm": "way/33194160",
+      "kind": "library",
+      "tag": "amenity=library",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 7,
+      "label": "Guadalupe Park",
+      "name": "Guadalupe Park",
+      "depot": false,
+      "osm": "way/33219697",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 8,
+      "label": "Greenbriar Park",
+      "name": "Greenbriar Park",
+      "depot": false,
+      "osm": "way/33407271",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 9,
+      "label": "This is the Place Heritage Park",
+      "name": "This is the Place Heritage Park",
+      "depot": false,
+      "osm": "way/33972103",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 10,
+      "label": "North Gateway Park",
+      "name": "North Gateway Park",
+      "depot": false,
+      "osm": "way/34088898",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 11,
+      "label": "Glendale Park",
+      "name": "Glendale Park",
+      "depot": false,
+      "osm": "way/36053164",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 12,
+      "label": "Jordan Park",
+      "name": "Jordan Park",
+      "depot": false,
+      "osm": "way/39277243",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 13,
+      "label": "Fitts Park",
+      "name": "Fitts Park",
+      "depot": false,
+      "osm": "way/41925488",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 14,
+      "label": "Fairpark Community Garden",
+      "name": "Fairpark Community Garden",
+      "depot": false,
+      "osm": "way/113926902",
+      "kind": "garden",
+      "tag": "leisure=garden",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 15,
+      "label": "Sugar House Park",
+      "name": "Sugar House Park",
+      "depot": false,
+      "osm": "way/172676069",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 16,
+      "label": "Meadowlands Park",
+      "name": "Meadowlands Park",
+      "depot": false,
+      "osm": "way/195056472",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 17,
+      "label": "Faultline Gardens Park",
+      "name": "Faultline Gardens Park",
+      "depot": false,
+      "osm": "way/224029288",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 18,
+      "label": "Kletting Park",
+      "name": "Kletting Park",
+      "depot": false,
+      "osm": "way/264198317",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 19,
+      "label": "Sunnyside Park",
+      "name": "Sunnyside Park",
+      "depot": false,
+      "osm": "way/341580311",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 20,
+      "label": "Rose Garden",
+      "name": "Rose Garden",
+      "depot": false,
+      "osm": "node/356679757",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 21,
+      "label": "Glendale Library",
+      "name": "Glendale Library",
+      "depot": false,
+      "osm": "way/358642885",
+      "kind": "library",
+      "tag": "amenity=library",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 22,
+      "label": "Back Nine Park",
+      "name": "Back Nine Park",
+      "depot": false,
+      "osm": "way/360592615",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 23,
+      "label": "Public Works Wetland Park",
+      "name": "Public Works Wetland Park",
+      "depot": false,
+      "osm": "way/360592627",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 24,
+      "label": "Courthouse",
+      "name": "Courthouse",
+      "depot": false,
+      "osm": "node/365478084",
+      "kind": "station",
+      "tag": "railway=station",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 25,
+      "label": "900 South",
+      "name": "900 South",
+      "depot": false,
+      "osm": "node/365739926",
+      "kind": "station",
+      "tag": "railway=station",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 26,
+      "label": "Laird Park",
+      "name": "Laird Park",
+      "depot": false,
+      "osm": "way/367536580",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 27,
+      "label": "Day-Riverside Library",
+      "name": "Day-Riverside Library",
+      "depot": false,
+      "osm": "way/374427243",
+      "kind": "library",
+      "tag": "amenity=library",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 28,
+      "label": "Salt Lake City Regional Athletic Complex",
+      "name": "Salt Lake City Regional Athletic Complex",
+      "depot": false,
+      "osm": "way/407068708",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 29,
+      "label": "Sweet Library",
+      "name": "Sweet Library",
+      "depot": false,
+      "osm": "way/416682024",
+      "kind": "library",
+      "tag": "amenity=library",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 30,
+      "label": "Canyon Rim Park",
+      "name": "Canyon Rim Park",
+      "depot": false,
+      "osm": "way/419782095",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 31,
+      "label": "Meadows Park",
+      "name": "Meadows Park",
+      "depot": false,
+      "osm": "way/444670863",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 32,
+      "label": "Chapman Library",
+      "name": "Chapman Library",
+      "depot": false,
+      "osm": "way/471862680",
+      "kind": "library",
+      "tag": "amenity=library",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 33,
+      "label": "Liberty Wells Community Garden",
+      "name": "Liberty Wells Community Garden",
+      "depot": false,
+      "osm": "way/480317920",
+      "kind": "garden",
+      "tag": "leisure=garden",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 34,
+      "label": "Parley's Way Park",
+      "name": "Parley's Way Park",
+      "depot": false,
+      "osm": "way/489880510",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 35,
+      "label": "Parkway Park",
+      "name": "Parkway Park",
+      "depot": false,
+      "osm": "way/544021445",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 36,
+      "label": "Highbury Park",
+      "name": "Highbury Park",
+      "depot": false,
+      "osm": "way/548493196",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 37,
+      "label": "Anderson-Foothill Library",
+      "name": "Anderson-Foothill Library",
+      "depot": false,
+      "osm": "way/553686415",
+      "kind": "library",
+      "tag": "amenity=library",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 38,
+      "label": "First Encampment Park",
+      "name": "First Encampment Park",
+      "depot": false,
+      "osm": "way/584261628",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 39,
+      "label": "Ballpark Library Lab",
+      "name": "Ballpark Library Lab",
+      "depot": false,
+      "osm": "way/616844847",
+      "kind": "library",
+      "tag": "amenity=library",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 40,
+      "label": "Central Pointe",
+      "name": "Central Pointe",
+      "depot": false,
+      "osm": "way/689402797",
+      "kind": "station",
+      "tag": "public_transport=station",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 41,
+      "label": "Imperial Park",
+      "name": "Imperial Park",
+      "depot": false,
+      "osm": "way/689701476",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 42,
+      "label": "9-Line Community Garden",
+      "name": "9-Line Community Garden",
+      "depot": false,
+      "osm": "way/849833632",
+      "kind": "garden",
+      "tag": "leisure=garden",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 43,
+      "label": "Sugar House Community Garden",
+      "name": "Sugar House Community Garden",
+      "depot": false,
+      "osm": "way/865044463",
+      "kind": "garden",
+      "tag": "leisure=garden",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 44,
+      "label": "Central Park",
+      "name": "Central Park",
+      "depot": false,
+      "osm": "way/984502402",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 45,
+      "label": "Navajo Circle",
+      "name": "Navajo Circle",
+      "depot": false,
+      "osm": "way/1095444626",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 46,
+      "label": "Millcreek Common",
+      "name": "Millcreek Common",
+      "depot": false,
+      "osm": "way/1217892454",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 47,
+      "label": "Redwood Road Micro-Training Farm",
+      "name": "Redwood Road Micro-Training Farm",
+      "depot": false,
+      "osm": "way/1272132832",
+      "kind": "garden",
+      "tag": "leisure=garden",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 48,
+      "label": "Water & Pollinator Conservation Garden",
+      "name": "Water & Pollinator Conservation Garden",
+      "depot": false,
+      "osm": "way/1282244160",
+      "kind": "garden",
+      "tag": "leisure=garden",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 49,
+      "label": "Orange Street Transit Center",
+      "name": "Orange Street Transit Center",
+      "depot": false,
+      "osm": "way/1306070907",
+      "kind": "station",
+      "tag": "public_transport=station",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 50,
+      "label": "Swede Town Park",
+      "name": "Swede Town Park",
+      "depot": false,
+      "osm": "way/1390099160",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 51,
+      "label": "Kay Rees Park",
+      "name": "Kay Rees Park",
+      "depot": false,
+      "osm": "way/1455837659",
+      "kind": "park",
+      "tag": "leisure=park",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 52,
+      "label": "Salt Lake Central",
+      "name": "Salt Lake Central",
+      "depot": false,
+      "osm": "node/1615721573",
+      "kind": "station",
+      "tag": "railway=station",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 53,
+      "label": "Arena",
+      "name": "Arena",
+      "depot": false,
+      "osm": "node/2009611004",
+      "kind": "station",
+      "tag": "railway=station",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 54,
+      "label": "Decker Lake",
+      "name": "Decker Lake",
+      "depot": false,
+      "osm": "node/2009615246",
+      "kind": "station",
+      "tag": "railway=station",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 55,
+      "label": "Redwood Junction",
+      "name": "Redwood Junction",
+      "depot": false,
+      "osm": "node/2009615253",
+      "kind": "station",
+      "tag": "railway=station",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 56,
+      "label": "Millcreek",
+      "name": "Millcreek",
+      "depot": false,
+      "osm": "node/2009622619",
+      "kind": "station",
+      "tag": "railway=station",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 57,
+      "label": "North Temple Bridge/Guadalupe",
+      "name": "North Temple Bridge/Guadalupe",
+      "depot": false,
+      "osm": "node/2078798527",
+      "kind": "station",
+      "tag": "railway=station",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 58,
+      "label": "Living Room",
+      "name": "Living Room",
+      "depot": false,
+      "osm": "node/5297902485",
+      "kind": "viewpoint",
+      "tag": "tourism=viewpoint",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 59,
+      "label": "Power",
+      "name": "Power",
+      "depot": false,
+      "osm": "node/8473579174",
+      "kind": "station",
+      "tag": "railway=station",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 60,
+      "label": "Fairpark",
+      "name": "Fairpark",
+      "depot": false,
+      "osm": "node/8473579178",
+      "kind": "station",
+      "tag": "railway=station",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 61,
+      "label": "Airport",
+      "name": "Airport",
+      "depot": false,
+      "osm": "node/9241313353",
+      "kind": "station",
+      "tag": "railway=station",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 62,
+      "label": "Rose Park Neighborhood Center Community Garden",
+      "name": "Rose Park Neighborhood Center Community Garden",
+      "depot": false,
+      "osm": "node/12353551141",
+      "kind": "garden",
+      "tag": "leisure=garden",
+      "source": "OpenStreetMap, ODbL"
+    },
+    {
+      "index": 63,
+      "label": "Stadium",
+      "name": "Stadium",
+      "depot": false,
+      "osm": "node/12358867048",
+      "kind": "station",
+      "tag": "railway=station",
+      "source": "OpenStreetMap, ODbL"
+    }
+  ]
+}

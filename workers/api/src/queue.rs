@@ -19,6 +19,18 @@
 //! never touched (410) is registered with the Sandbox, which answers its birth and the
 //! persona's profile, and the delivery is sent again with them.
 //!
+//! Since PR 9: `all(Dispatch)` is the day of the order's window. `OrderPlaced` (a delivery; the
+//! routing table already skips a pickup's) carries its slot, and its customer's place comes from
+//! the Sandbox (`/_place/<customer>`, the persona's `p<n>`, read through the matrix as index
+//! `n - 1`); `OrderPaid`, `OrderExpired` and `OrderCancelled` carry neither, so the Order's
+//! `/_order` names the slot and the kind, and a pickup's is acked with nothing sent. A day never
+//! touched (410) is registered with the Sandbox (`/_register-dispatch`) and sent the delivery
+//! again with its birth; a date outside the sandbox's days is acked. `Order (each stop)` on
+//! `RoutePublished` is each order of the plan, and `all(Order)` on `StopCompleted` the order it
+//! names: each gets the envelope at its `/_event`, which turns it into `MarkOutForDelivery` or
+//! `MarkDelivered`. `all(Kitchen)` on `RoutePublished` is the sandbox's board, which labels its
+//! cards with their vans.
+//!
 //! `Control`'s flag is read once a minute per isolate: `off` retries everything, so the
 //! messages drain to the DLQ after 3 retries rather than being lost (docs/architecture.md,
 //! "Bulkheads and failure modes").
@@ -40,7 +52,9 @@ use crate::clock::SystemClock;
 use crate::http::menu_cache_key;
 use crate::objects::sandbox::{self, CustomerBirth, DeadLetterIn, DeliveryError, RegisterCustomer};
 use crate::objects::sql::{call, call_empty};
-use crate::objects::{billing, catering, control, crm, customer, inbox, kitchen, order, schedule};
+use crate::objects::{
+    billing, catering, control, crm, customer, dispatch, inbox, kitchen, order, schedule,
+};
 
 /// The dead-letter queue's name, as `batch.queue()` reports it.
 const DLQ: &str = "bakery-events-dlq";
@@ -215,13 +229,27 @@ async fn consume(batch: &MessageBatch<String>, env: &Env) -> Result<()> {
 
 /// Every live subscriber gets the envelope, stripped for it. The first failure is the error.
 async fn deliver(env: &Env, envelope: &Envelope) -> std::result::Result<(), String> {
+    let order = OrderRead::default();
     for route in deliver_to(envelope) {
         if route.to == Subscriber::Schedule {
-            deliver_to_days(env, envelope).await?;
+            deliver_to_days(env, envelope, &order).await?;
             continue;
         }
         if route.to == Subscriber::Customer {
             deliver_to_customer(env, envelope).await?;
+            continue;
+        }
+        if route.to == Subscriber::Dispatch {
+            deliver_to_dispatch(env, envelope, &order).await?;
+            continue;
+        }
+        if route.to == Subscriber::Order
+            && matches!(
+                envelope.event_type.as_str(),
+                "RoutePublished" | "StopCompleted"
+            )
+        {
+            deliver_to_stops(env, envelope).await?;
             continue;
         }
         let Some((binding, name)) = subscriber(route.to, envelope) else {
@@ -343,11 +371,200 @@ async fn deliver_to_customer(env: &Env, envelope: &Envelope) -> std::result::Res
     }
 }
 
+/// `all(Dispatch)`: the day of the order's window gets the envelope, with the customer's place
+/// for `OrderPlaced`; a pickup's later events are acked unsent. A day never touched is
+/// registered first and sent the envelope again with its birth.
+async fn deliver_to_dispatch(
+    env: &Env,
+    envelope: &Envelope,
+    read: &OrderRead,
+) -> std::result::Result<(), String> {
+    let Some(order) = order_in(envelope) else {
+        return Err("Dispatch has no day for this stream".to_owned());
+    };
+    let (slot, place) = if envelope.event_type == "OrderPlaced" {
+        let field = |name: &str| envelope.data.get(name).and_then(|v| v.as_str());
+        let slot: BusinessTime = field("slot")
+            .and_then(|s| s.parse().ok())
+            .ok_or_else(|| "OrderPlaced's slot could not be read".to_owned())?;
+        let customer: Ulid = field("customer")
+            .and_then(|s| s.parse().ok())
+            .ok_or_else(|| "OrderPlaced's customer could not be read".to_owned())?;
+        match persona_place(env, envelope.sandbox, customer).await? {
+            Some(place) => (slot, Some(place)),
+            None => {
+                console_log!(
+                    "{{\"event\":\"dispatch_no_place\",\"id\":\"{}\"}}",
+                    envelope.id
+                );
+                return Ok(());
+            }
+        }
+    } else {
+        let o = match read.get(env, envelope.sandbox, order).await? {
+            (200, Some(o)) => o,
+            // A wiped order has no stop left to change.
+            (404 | 410, _) => return Ok(()),
+            (status, _) => return Err(format!("Order answered {status} for its slot")),
+        };
+        if o.kind != bakery_contracts::OrderKind::Delivery {
+            return Ok(());
+        }
+        let slot: BusinessTime = o
+            .slot
+            .parse()
+            .map_err(|_| "Order's slot could not be read".to_owned())?;
+        (slot, None)
+    };
+    let date = BakeryDate::of(slot);
+    let name = dispatch::name(envelope.sandbox, date);
+    let stripped = strip_for(envelope, Subscriber::Dispatch);
+    let send = |birth: Option<crate::objects::child::Birth>| {
+        let body = dispatch::EventIn {
+            envelope: stripped.clone(),
+            birth,
+            place,
+        };
+        let name = name.clone();
+        async move {
+            call(
+                env,
+                dispatch::BINDING,
+                &name,
+                Method::Post,
+                "/_event",
+                Some(&body),
+            )
+            .await
+            .map(|r| r.status_code())
+            .map_err(|_| "Dispatch could not be reached".to_owned())
+        }
+    };
+    match send(None).await? {
+        200..=299 => return Ok(()),
+        410 => {}
+        status => return Err(format!("Dispatch answered {status}")),
+    }
+    let mut res = call(
+        env,
+        sandbox::BINDING,
+        &sandbox_object_name(envelope.sandbox),
+        Method::Post,
+        "/_register-dispatch",
+        Some(&sandbox::RegisterDay {
+            date,
+            catering: false,
+        }),
+    )
+    .await
+    .map_err(|_| "Sandbox could not be reached".to_owned())?;
+    let day: sandbox::DayBirth = match res.status_code() {
+        200 => res
+            .json()
+            .await
+            .map_err(|_| "Sandbox's dispatch day could not be read".to_owned())?,
+        // A window outside the sandbox's days, or a wiped sandbox: no day to keep the stop.
+        404 | 410 => {
+            console_log!(
+                "{{\"event\":\"dispatch_no_day\",\"id\":\"{}\"}}",
+                envelope.id
+            );
+            return Ok(());
+        }
+        status => return Err(format!("Sandbox answered {status} for a dispatch day")),
+    };
+    let birth = crate::objects::child::Birth {
+        sandbox: envelope.sandbox,
+        name: day.name,
+        clock_offset_s: day.clock_offset_s,
+        clock_v: day.clock_v,
+    };
+    match send(Some(birth)).await? {
+        200..=299 => Ok(()),
+        status => Err(format!("Dispatch answered {status}")),
+    }
+}
+
+/// A persona's place as a matrix index: the Sandbox's `p<n>`, read through the city's matrix.
+/// `None` for a customer who is no persona, or a place the matrix lacks.
+async fn persona_place(
+    env: &Env,
+    sandbox_id: Ulid,
+    customer: Ulid,
+) -> std::result::Result<Option<u8>, String> {
+    let mut res = call_empty(
+        env,
+        sandbox::BINDING,
+        &sandbox_object_name(sandbox_id),
+        Method::Get,
+        &format!("/_place/{customer}"),
+    )
+    .await
+    .map_err(|_| "Sandbox could not be reached".to_owned())?;
+    #[derive(serde::Deserialize)]
+    struct Place {
+        place: String,
+    }
+    match res.status_code() {
+        200 => {
+            let p: Place = res
+                .json()
+                .await
+                .map_err(|_| "Sandbox's place could not be read".to_owned())?;
+            let matrix = dispatch::matrix().map_err(|_| "the city matrix".to_owned())?;
+            Ok(matrix.place_index(&p.place))
+        }
+        404 | 410 => Ok(None),
+        status => Err(format!("Sandbox answered {status} for a place")),
+    }
+}
+
+/// `Order (each stop)` on `RoutePublished` and `all(Order)` on `StopCompleted`: each order the
+/// event names gets it. An order that is gone (410) has nothing to mark.
+async fn deliver_to_stops(env: &Env, envelope: &Envelope) -> std::result::Result<(), String> {
+    use bakery_domain::DomainEvent;
+    use bakery_domain::dispatch::{DispatchEvent, deliveries};
+    let orders: Vec<Ulid> = match DispatchEvent::from_envelope(envelope) {
+        Ok(DispatchEvent::RoutePublished { vans, .. }) => {
+            deliveries(&vans).into_iter().map(|(o, _, _)| o).collect()
+        }
+        Ok(DispatchEvent::StopCompleted { order, .. }) => vec![order],
+        Ok(_) => Vec::new(),
+        Err(_) => return Err("a dispatch event could not be read".to_owned()),
+    };
+    let stripped = strip_for(envelope, Subscriber::Order);
+    for o in orders {
+        let res = call(
+            env,
+            order::BINDING,
+            &order::name(envelope.sandbox, o),
+            Method::Post,
+            "/_event",
+            Some(&stripped),
+        )
+        .await
+        .map_err(|_| "Order could not be reached".to_owned())?;
+        match res.status_code() {
+            200..=299 => {}
+            404 | 410 => console_log!(
+                "{{\"event\":\"stop_order_gone\",\"id\":\"{}\"}}",
+                envelope.id
+            ),
+            status => return Err(format!("Order answered {status} for its stop")),
+        }
+    }
+    Ok(())
+}
+
 /// The `Schedule` days an envelope goes to. `all(Schedule)` on an Order event is the one day
 /// that holds the order: the Order's slot names it; on a CateringEvent event, the event's date.
 /// `scoped(Schedule, TodayOn)` on `MenuPublished` is every registered day from business today
 /// on, from the Sandbox.
-async fn schedule_days(env: &Env, envelope: &Envelope) -> std::result::Result<Vec<String>, String> {
+async fn schedule_days(
+    env: &Env,
+    envelope: &Envelope,
+    read: &OrderRead,
+) -> std::result::Result<Vec<String>, String> {
     if envelope.event_type == "MenuPublished" {
         let mut res = call_empty(
             env,
@@ -398,28 +615,55 @@ async fn schedule_days(env: &Env, envelope: &Envelope) -> std::result::Result<Ve
     let Some(order) = order_in(envelope) else {
         return Err("Schedule has no day for this stream".to_owned());
     };
-    let mut res = call_empty(
-        env,
-        order::BINDING,
-        &order::name(envelope.sandbox, order),
-        Method::Get,
-        "/_order",
-    )
-    .await
-    .map_err(|_| "Order could not be reached".to_owned())?;
-    match res.status_code() {
-        200 => {
-            let o: OrderResponse = res
-                .json()
-                .await
-                .map_err(|_| "Order could not be read".to_owned())?;
+    match read.get(env, envelope.sandbox, order).await? {
+        (200, Some(o)) => {
             let slot: BusinessTime = o
                 .slot
                 .parse()
                 .map_err(|_| "Order's slot could not be read".to_owned())?;
             Ok(vec![schedule::name(envelope.sandbox, BakeryDate::of(slot))])
         }
-        status => Err(format!("Order answered {status}")),
+        (status, _) => Err(format!("Order answered {status}")),
+    }
+}
+
+/// The Order's `/_order` answer for one delivery, read at most once however many subscribers
+/// need it (the Schedule's day and, since PR 9, the Dispatch's day and the order's kind): the
+/// status, and the order when it is 200.
+#[derive(Default)]
+struct OrderRead(RefCell<Option<(u16, Option<OrderResponse>)>>);
+
+impl OrderRead {
+    async fn get(
+        &self,
+        env: &Env,
+        sandbox_id: Ulid,
+        order: Ulid,
+    ) -> std::result::Result<(u16, Option<OrderResponse>), String> {
+        if let Some(read) = self.0.borrow().clone() {
+            return Ok(read);
+        }
+        let mut res = call_empty(
+            env,
+            order::BINDING,
+            &order::name(sandbox_id, order),
+            Method::Get,
+            "/_order",
+        )
+        .await
+        .map_err(|_| "Order could not be reached".to_owned())?;
+        let status = res.status_code();
+        let o: Option<OrderResponse> = if status == 200 {
+            Some(
+                res.json()
+                    .await
+                    .map_err(|_| "Order could not be read".to_owned())?,
+            )
+        } else {
+            None
+        };
+        *self.0.borrow_mut() = Some((status, o.clone()));
+        Ok((status, o))
     }
 }
 
@@ -434,9 +678,13 @@ fn order_in(envelope: &Envelope) -> Option<Ulid> {
 
 /// Each day the envelope goes to gets it at `/_event`. A day that was never born (410) holds
 /// nothing the event could change, so it counts as delivered.
-async fn deliver_to_days(env: &Env, envelope: &Envelope) -> std::result::Result<(), String> {
+async fn deliver_to_days(
+    env: &Env,
+    envelope: &Envelope,
+    read: &OrderRead,
+) -> std::result::Result<(), String> {
     let stripped = strip_for(envelope, Subscriber::Schedule);
-    for name in schedule_days(env, envelope).await? {
+    for name in schedule_days(env, envelope, read).await? {
         let res = call(
             env,
             schedule::BINDING,
@@ -625,10 +873,12 @@ mod tests {
             subscriber(Subscriber::Order, &e),
             Some((order::BINDING, format!("order:{SANDBOX}:{OTHER}")))
         );
-        for live in bakery_app::routing::LIVE
-            .iter()
-            .filter(|s| !matches!(**s, Subscriber::Schedule | Subscriber::Customer))
-        {
+        for live in bakery_app::routing::LIVE.iter().filter(|s| {
+            !matches!(
+                **s,
+                Subscriber::Schedule | Subscriber::Customer | Subscriber::Dispatch
+            )
+        }) {
             assert!(
                 subscriber(*live, &e).is_some(),
                 "{live:?} is live but unbound"

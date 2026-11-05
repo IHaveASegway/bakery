@@ -29,6 +29,7 @@
       { "name": "CUSTOMER", "class_name": "Customer" },
       { "name": "CRM", "class_name": "Crm" },
       { "name": "INBOX", "class_name": "Inbox" },
+      { "name": "DISPATCH", "class_name": "Dispatch" },
     ],
   },
   // Declarative class lifecycle: each change is a deploy and a rollback boundary.
@@ -46,6 +47,7 @@
     "Customer": { "type": "durable-object", "storage": "sqlite" },
     "Crm": { "type": "durable-object", "storage": "sqlite" },
     "Inbox": { "type": "durable-object", "storage": "sqlite" },
+    "Dispatch": { "type": "durable-object", "storage": "sqlite" },
   },
 
   "queues": {

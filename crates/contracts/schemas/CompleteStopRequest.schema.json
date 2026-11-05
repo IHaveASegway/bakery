@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CompleteStopRequest",
+  "description": "`POST /v1/sandboxes/{id}/dispatch/{date}/complete`, staff only: a stop of the published plan\nis delivered. Again for a delivered stop changes nothing.",
+  "type": "object",
+  "properties": {
+    "stop": {
+      "description": "The stop's number in the published plan, from 1.",
+      "type": "integer",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "stop"
+  ]
+}

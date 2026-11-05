@@ -452,3 +452,171 @@ progress {
   vertical-align: middle;
   accent-color: var(--primary);
 }
+
+/* The dispatch screen's map. Colors come from the --map-* tokens, never a literal here, and no
+   element carries a style attribute (the page policy refuses them). Vans differ by colour, by shape
+   (squares for A and D, circles for B and C) and by dash, so none is told apart by colour alone. */
+.dispatch-map {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.map-land {
+  fill: var(--map-land);
+}
+
+.map-band {
+  stroke: none;
+}
+
+.map-band-1 {
+  fill: var(--map-band-1);
+}
+.map-band-2 {
+  fill: var(--map-band-2);
+}
+.map-band-3 {
+  fill: var(--map-band-3);
+}
+.map-band-4 {
+  fill: var(--map-band-4);
+}
+.map-band-5 {
+  fill: var(--map-band-5);
+}
+.map-band-6 {
+  fill: var(--map-band-6);
+}
+
+.map-band-label,
+.map-depot-label {
+  fill: var(--map-label);
+  font-size: 26px;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--map-land);
+  stroke-width: 7px;
+  stroke-linejoin: round;
+}
+
+.map-depot-label {
+  font-size: 32px;
+  font-weight: 700;
+}
+
+.map-place {
+  fill: var(--map-place);
+  opacity: 0.35;
+}
+
+.map-depot {
+  fill: var(--map-depot);
+  stroke: var(--map-land);
+  stroke-width: 4px;
+}
+
+.map-route {
+  fill: none;
+  stroke-width: 7px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.map-route-a {
+  stroke: var(--map-van-a);
+}
+.map-route-b {
+  stroke: var(--map-van-b);
+  stroke-dasharray: 22 10;
+}
+.map-route-c {
+  stroke: var(--map-van-c);
+  stroke-dasharray: 4 10;
+}
+.map-route-d {
+  stroke: var(--map-van-d);
+  stroke-dasharray: 34 10 4 10;
+}
+
+.map-mark {
+  stroke: var(--map-land);
+  stroke-width: 3px;
+}
+
+.map-mark-open {
+  fill: var(--background);
+  stroke: var(--map-place);
+  stroke-width: 5px;
+}
+.map-mark-a {
+  fill: var(--map-van-a);
+}
+.map-mark-b {
+  fill: var(--map-van-b);
+}
+.map-mark-c {
+  fill: var(--map-van-c);
+}
+.map-mark-d {
+  fill: var(--map-van-d);
+}
+
+.map-mark-text {
+  fill: var(--background);
+  font-size: 26px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.map-mark-small {
+  font-size: 18px;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  margin: 0.5rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.swatch {
+  display: inline-block;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-right: 0.375rem;
+  border: 1px solid var(--foreground);
+  vertical-align: -0.125rem;
+}
+.swatch-a {
+  background: var(--map-van-a);
+}
+.swatch-b {
+  background: var(--map-van-b);
+  border-radius: 50%;
+}
+.swatch-c {
+  background: var(--map-van-c);
+  border-radius: 50%;
+}
+.swatch-d {
+  background: var(--map-van-d);
+}
+
+.figures {
+  width: auto;
+}
+
+.figures th[scope='row'] {
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+
+.fine {
+  white-space: pre-line;
+}
