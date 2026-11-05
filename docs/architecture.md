@@ -243,7 +243,7 @@ CREATE TABLE outbox (seq INTEGER PRIMARY KEY, envelope TEXT NOT NULL, attempts I
 CREATE TABLE commands_seen (id TEXT PRIMARY KEY, result TEXT NOT NULL, at TEXT NOT NULL);
 ```
 
-**Relay.** After commit the object sends its outbox rows to `bakery-events` in one batch under `wait_until`, deleting each accepted row, and leaves an `outbox` timer 30 s out. If the send failed or the isolate died, the alarm sends what is left and re-arms only while rows remain. A row may go twice; once committed it is never lost.
+**Relay.** After commit the object sends its outbox rows to `bakery-events` in one batch under `wait_until`, deleting each accepted row, and leaves an `outbox` timer 30 s out. Each envelope travels as a JSON string, not as a `serde_json::Value`: spike S6 found on 2026-11-04 that `worker` 0.8.7 passes a `Value` map through serde-wasm-bindgen as a JavaScript `Map`, which the Queue encodes as `{}` ([roadmap.md](roadmap.md#spikes)). If the send failed or the isolate died, the alarm sends what is left and re-arms only while rows remain. A row may go twice; once committed it is never lost.
 
 **Consume.** The consumer runs in the same Worker on `#[event(queue)]` (beta in workers-rs as of 2026-11-04),[^workersrs] in batches of up to 100.[^queues] A static table in `crates/app` maps each event type to subscribers; the consumer delivers to each by `fetch` on its `/_event` path (DO RPC is not bound in workers-rs), acks when all answered 2xx, and retries otherwise.
 

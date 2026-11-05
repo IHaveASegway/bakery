@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Copied from the site (IHaveASegway/website) at commit a0f7ac1fa221867737730127f6e3a8faf4c02336, unchanged but for this note. The
+# staged-file scan needs no output path: it reads check.sh --staged, which reads no build output.
+# Local prevention, before anything leaves the machine (security.md, "Local parity"): the content
+# firewall on the staged files, their names and the identity that will commit them, then the
+# metadata of any staged image or PDF, which no diff shows.
+#
+# Enabled once per clone:  git config core.hooksPath .githooks
+# Without the private rules file the commit is refused with exit 2 and the setup steps. Never
+# skip it with --no-verify: fix the cause.
+set -euo pipefail
+root="$(git rev-parse --show-toplevel)"
+
+status=0
+"$root/scripts/firewall/check.sh" --staged </dev/null || status=$?
+
+# The metadata check lists the staged files itself, NUL-separated, and reads only images and PDFs,
+# so it always runs: a shell filter over git's quoted name list would miss a file whose name git
+# quotes, such as a macOS screenshot.
+if command -v node >/dev/null; then
+  s=0
+  node "$root/scripts/image-metadata.mjs" --staged </dev/null || s=$?
+  [ "$s" -le "$status" ] || status=$s
+else
+  staged="$(git diff --cached -z --name-only --diff-filter=ACMRT | tr '\0' '\n')"
+  if grep -qiE '\.(png|jpe?g|gif|webp|avif|heic|tiff?|svg|ico|pdf)$' <<<"$staged"; then
+    echo "pre-commit: a staged image or PDF needs its metadata checked, and node is not on PATH" >&2
+    status=2
+  fi
+fi
+
+if [ "$status" -ne 0 ]; then
+  echo "pre-commit: commit refused (exit $status: 1 is a finding, 2 is cannot prove clean)" >&2
+fi
+exit "$status"

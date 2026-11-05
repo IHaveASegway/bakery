@@ -58,7 +58,7 @@ Pins as of 2026-11-04:
 | Rust, and the `wasm32-unknown-unknown` target | stable 1.97 | `rust-toolchain.toml` | The current stable; Workers run wasm, with no Tokio | [Rust releases](https://github.com/rust-lang/rust/releases) |
 | `worker` | 0.8.7, exact (`=0.8.7`) | `Cargo.toml` workspace dependencies | A 0.x crate; minor bumps break, so it moves by hand | [crates.io](https://crates.io/crates/worker) |
 | `worker-build` | the release that matches `worker` 0.8.7 | `[workspace.metadata.tools]` | Builds the wasm and writes the JavaScript shim; confirm the matching version | [workers-rs](https://github.com/cloudflare/workers-rs) |
-| `wasm-opt`, `wasm-bindgen` | as `worker-build` fetches and `worker` pins them | `Cargo.lock` | Not installed by hand; the CLI and library must match. The size budget measures their output | [workers-rs](https://github.com/cloudflare/workers-rs) |
+| `wasm-opt`, `wasm-bindgen` | `wasm-bindgen` =0.2.130 in `workers/api`, the version `worker` resolves, with the CLI worker-build downloads matching `Cargo.lock`; `wasm-opt` 132 as worker-build fetches it | `Cargo.lock` | Not installed by hand; the CLI and library must match. The size budget measures their output | [workers-rs](https://github.com/cloudflare/workers-rs) |
 | `cargo-deny`, `cargo-audit` | latest on PR 2's day, exact | `[workspace.metadata.tools]` | Licenses, advisories, banned crates, sources; RustSec in `scheduled` too | [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) |
 | Node.js | 26 | `.nvmrc` | The site's pin; active LTS from 2026-10-28 | [nodejs/Release](https://github.com/nodejs/Release) |
 | pnpm | 11.28.6 | `"packageManager"` in `package.json` | pnpm switches itself to the pinned version | [npm](https://www.npmjs.com/package/pnpm) |
@@ -268,7 +268,7 @@ The rollback targets and the DO caveat are in [operations.md](operations.md#roll
 
 ### compatibility_date
 
-Bumped quarterly, per Worker, in a pull request that changes only the date ([operations.md](operations.md#compatibility_date-bump)); `scheduled` warns past 180 days. `nodejs_compat` is not set: the API is Rust and the web Worker has no script.
+Bumped quarterly, per Worker, in a pull request that changes only the date ([operations.md](operations.md#compatibility_date-bump)); `scheduled` warns past 180 days. `nodejs_compat` is not set: the API is Rust and the web Worker has no script. The date a config may carry is bounded by the workerd inside the Wrangler the lockfile resolves: on 2026-11-04 Wrangler 4.152.0's workerd refused `2026-11-04` (its newest date was 2026-10-26) and 4.157.0's accepted it, so a date bump may need a Wrangler bump in the same pull request.
 
 ## Config as code
 

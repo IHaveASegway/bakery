@@ -1,0 +1,21 @@
+// The storefront Worker: assets only (ADR 0008). Every field here is reviewed like code.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "bakery-web",
+  "compatibility_date": "2026-11-04",
+  // No "main": no request runs Worker code, so a page view is never an invocation.
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "404-page",
+    "html_handling": "auto-trailing-slash",
+  },
+  "routes": [{ "pattern": "bakery.ihaveasegway.com", "custom_domain": true }],
+  "workers_dev": false, // one public origin
+  "preview_urls": true, // Version URLs for the deploy smoke (from PR 11)
+  "previews": {},
+  "observability": { "enabled": true },
+  "send_metrics": false, // no Wrangler usage metrics from CI or laptops
+  // No "account_id": it comes from the CLOUDFLARE_ACCOUNT_ID secret, so it never enters the repository.
+  // Never "cache": { "enabled": true }. It bills every asset request at the Workers rate;
+  // test/wrangler.test.ts fails if it appears anywhere in a Worker's config.
+}

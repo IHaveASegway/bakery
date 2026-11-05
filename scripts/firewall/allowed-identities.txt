@@ -1,0 +1,13 @@
+# Commit identities allowed in this repository: author, committer and every Co-authored-by
+# trailer must match one line exactly, ignoring case (security.md, "Scan surfaces", surface 6).
+# An allowlist fails closed and reveals nothing. Add an address only with Joseph's approval,
+# in a pull request of its own.
+
+# Joseph's GitHub noreply address
+58600977+IHaveASegway@users.noreply.github.com
+# The committer of commits made in GitHub's web interface, merges included
+noreply@github.com
+# Dependabot
+49699333+dependabot[bot]@users.noreply.github.com
+# GitHub Actions, for any commit a workflow makes with its own token
+41898282+github-actions[bot]@users.noreply.github.com

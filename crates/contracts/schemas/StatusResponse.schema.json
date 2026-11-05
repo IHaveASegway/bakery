@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StatusResponse",
+  "description": "`GET /v1/status`: today's admission state, from the `Control` object.",
+  "type": "object",
+  "properties": {
+    "day": {
+      "description": "Today's UTC date, `YYYY-MM-DD`: the key of the daily ledger.",
+      "type": "string"
+    },
+    "flag": {
+      "description": "The demo's flag.",
+      "$ref": "#/$defs/Flag"
+    },
+    "sandbox_cap": {
+      "description": "The most sandboxes admitted in one UTC day.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "sandboxes_today": {
+      "description": "Sandboxes admitted today.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "day",
+    "sandboxes_today",
+    "sandbox_cap",
+    "flag"
+  ],
+  "$defs": {
+    "Flag": {
+      "description": "The demo's mode, set in `Control` (kill switch L1).",
+      "oneOf": [
+        {
+          "description": "Everything works.",
+          "type": "string",
+          "const": "live"
+        },
+        {
+          "description": "Reads work; commands get 503.",
+          "type": "string",
+          "const": "read-only"
+        },
+        {
+          "description": "Only the storefront's static pages work.",
+          "type": "string",
+          "const": "off"
+        }
+      ]
+    }
+  }
+}

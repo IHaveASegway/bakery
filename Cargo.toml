@@ -1,0 +1,47 @@
+# The Cargo workspace (docs/delivery.md, "Repository layout"). The crates exist because their
+# dependency rules differ: domain and app depend on no platform crate, and only workers/api
+# depends on `worker`.
+[workspace]
+resolver = "2"
+members = ["crates/domain", "crates/app", "crates/seed", "crates/contracts", "workers/api"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "MIT"
+publish = false
+repository = "https://github.com/IHaveASegway/bakery"
+
+# Exact pins, the latest stable on 2026-11-04 from the crates.io index. Dependabot moves them in
+# grouped pull requests, except worker, which moves by hand (docs/delivery.md, "Dependency policy").
+[workspace.dependencies]
+bakery-domain = { path = "crates/domain" }
+bakery-app = { path = "crates/app" }
+bakery-seed = { path = "crates/seed" }
+bakery-contracts = { path = "crates/contracts" }
+
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+schemars = "=1.2.3"
+thiserror = "=2.0.21"
+rand_chacha = { version = "=0.10.0", default-features = false }
+rand_core = "=0.10.1"
+proptest = "=1.12.0"
+worker = { version = "=0.8.7", features = ["queue"] } # exact: a 0.x minor is a breaking change
+# `#[durable_object]` expands to wasm-bindgen paths, so the API names it directly. Pinned to the
+# version worker resolves; worker-build fetches the CLI that matches Cargo.lock. Moves with worker.
+wasm-bindgen = "=0.2.130"
+
+# Read by one CI step; the single source for cargo-installed tools (delivery rule 12: installs are
+# --locked and --version-pinned).
+[workspace.metadata.tools]
+worker-build = "0.8.7" # the release that matches worker 0.8.7
+cargo-deny = "0.20.2"
+cargo-audit = "0.22.2"
+
+[profile.release]
+opt-level = "s" # size first: size drives startup
+lto = true
+codegen-units = 1
+panic = "abort"

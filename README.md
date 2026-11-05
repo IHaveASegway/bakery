@@ -18,31 +18,37 @@ Proof of Concept Bakery is a made-up bakery from the [Lab](https://ihaveasegway.
 
 ## Setup
 
-The setup lands with PR 2 (the local-first foundation). It is written here ahead of it, so the plan can be read against it. Until PR 2 merges, `pnpm install` and the commands below do not exist. Nothing is deployed until the launch pull request (PR 11), and until then both Workers, `bakery-web` and `bakery-api`, run on `wrangler dev` on your machine.
+Nothing is deployed until the launch pull request (PR 11), and until then both Workers, `bakery-web` and `bakery-api`, run on `wrangler dev` on your machine. The cargo tool versions below are the ones in `Cargo.toml`'s `[workspace.metadata.tools]`, which CI reads too; when they move, they move there.
 
-1. **Rust stable**, through `rust-toolchain.toml`, with the WebAssembly target: `rustup target add wasm32-unknown-unknown`. Then `cargo install worker-build`, the tool that compiles a `worker` crate into a Worker module ([stack.md](docs/stack.md)).
-2. **Node 26**, from `.nvmrc` (`nvm use`).
-3. **pnpm, pinned by `packageManager`.** Any pnpm switches itself to the pinned version in this repository; with none installed, `npx pnpm@<version>` does the same. Then `pnpm install`.
-4. **The hooks**, once per clone: `git config core.hooksPath .githooks`. `pnpm install` warns until they are on. The pre-commit hook runs the content firewall on staged changes and checks your commit identity; the pre-push hook refuses pushes to `main` and scans what you push.
-5. **The private rules file** for the firewall, at the same path and with the same mode as the site's: `~/.config/ihaveasegway/firewall.toml`, mode 600, backed up in the password manager ([operations.md](docs/operations.md), access setup). Without it both hooks refuse with exit 2. It is never committed, and its terms are never written anywhere else. A Claude Code cloud session has no such file and commits without the hooks, as [AGENTS.md](AGENTS.md) records.
-6. **`.dev.vars`**, copied from `.dev.vars.example` in `workers/api/` and filled with a Stripe sandbox key, a webhook secret and a cookie-signing secret. `.dev.vars` is git-ignored and never committed.
+1. **Rust**, through `rust-toolchain.toml` (rustup installs the pinned stable on first use), then the WebAssembly target and the two cargo tools, each `--locked` and pinned to the exact version, because without both `cargo install` resolves today's dependencies, not the audited ones ([delivery.md](docs/delivery.md#hardening-rules), rule 12):
+   ```sh
+   rustup target add wasm32-unknown-unknown
+   cargo install worker-build --locked --version 0.8.7   # compiles a worker crate into a Worker module (stack.md)
+   cargo install cargo-deny --locked --version 0.20.2    # licenses, advisories, bans, sources
+   ```
+2. **Node 26**, from `.nvmrc` (`nvm use`), and **pnpm, pinned by `packageManager`.** Any pnpm switches itself to the pinned version in this repository; with none installed, `npx pnpm@<version>` does the same. Then `pnpm install`.
+3. **The hooks**, once per clone: `git config core.hooksPath .githooks`. `pnpm install` warns until they are on. The pre-commit hook runs the content firewall on staged changes and checks your commit identity; the pre-push hook refuses pushes to `main` and scans what you push.
+4. **The private rules file** for the firewall, at the same path and with the same mode as the site's: `~/.config/ihaveasegway/firewall.toml`, mode 600, backed up in the password manager ([operations.md](docs/operations.md#9-local-hooks-and-the-private-firewall-file)). Without it both hooks refuse with exit 2. It is never committed, and its terms are never written anywhere else. A Claude Code cloud session has no such file and commits without the hooks, as [AGENTS.md](AGENTS.md) records.
+5. **`.dev.vars`**, copied from `workers/api/.dev.vars.example` to `workers/api/.dev.vars` and filled with a Stripe sandbox key, a webhook secret and a cookie-signing secret. `.dev.vars` is git-ignored and never committed.
+6. Optional: `pnpm --filter web exec astro telemetry disable`. CI disables Astro's telemetry, and the Wrangler configs turn off Wrangler's.
 
 ## Commands
 
-All of these are planned, and all of them run locally: nothing is deployed until the launch pull request (PR 11), and both Workers run on `wrangler dev` until then. They are listed so the plan names what the pipeline will run, and each one exists only once the pull request that adds it has merged ([roadmap.md](docs/roadmap.md)).
+All of these run locally; nothing here touches Cloudflare. CI runs the Rust checks, the build and the tests, and the firewall's self-test ([delivery.md](docs/delivery.md#before-launch)).
 
-| Command | What it does |
-| --- | --- |
-| `cargo test` | Unit and property tests for the domain, application and seed crates, run natively |
-| `cargo clippy --all-targets -- -D warnings` | Lints the whole workspace; a warning fails |
-| `cargo fmt --check` | Checks Rust formatting |
-| `cargo deny check` | Licenses, advisories, bans and sources for every crate ([stack.md](docs/stack.md)) |
-| `pnpm dev` | Astro's dev server for the storefront at http://localhost:4321 |
-| `pnpm --filter web build` | Builds the storefront into `apps/web/dist/` |
-| `pnpm --filter api dev`, or `wrangler dev` in `workers/api/` | Runs the Rust API Worker locally with its Durable Objects |
-| `pnpm e2e` | Playwright against `wrangler dev`; build first, and install Chromium once |
-| `pnpm firewall:test` | The content firewall's self-test, with throwaway rules |
-| `scripts/verify-zone.sh` | The zone audit: DNS, DNSSEC, TLS, HSTS and redirects, shared with the site |
+| Command                                                                            | What it does                                                                                                   |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `cargo test --workspace`                                                           | Unit and property tests for every crate, run natively                                                          |
+| `cargo clippy --workspace --all-targets -- -D warnings`                            | Lints the whole workspace; a warning fails                                                                     |
+| `cargo fmt --all --check`                                                          | Checks Rust formatting                                                                                         |
+| `cargo deny check`                                                                 | Licenses, advisories, bans and sources for every crate ([stack.md](docs/stack.md))                             |
+| `pnpm dev`                                                                         | Astro's dev server for the storefront at http://localhost:4321                                                 |
+| `pnpm build`                                                                       | Builds the storefront into `apps/web/dist/`                                                                    |
+| `pnpm test`                                                                        | The web app's unit tests (Vitest)                                                                              |
+| `pnpm --filter web serve`                                                          | Serves the built storefront as the assets-only Worker on `wrangler dev`, at http://localhost:8787; build first |
+| `cd workers/api && worker-build --release && npx wrangler dev --local --port 8788` | Builds the Rust API Worker and runs it locally with its Durable Objects, at http://localhost:8788              |
+| `scripts/smoke-api.sh`                                                             | Smoke-tests the API running on `wrangler dev`: health, and CORS from the allowed origin and from another       |
+| `pnpm firewall:test`                                                               | The content firewall's self-test, with throwaway rules                                                         |
 
 ## Deploy and roll back
 

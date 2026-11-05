@@ -1,0 +1,3 @@
+# Not launched: nothing here is to be indexed yet.
+User-agent: *
+Disallow: /

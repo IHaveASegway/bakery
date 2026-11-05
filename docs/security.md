@@ -124,7 +124,7 @@ sequenceDiagram
 - **A hand-rolled RS256 check on `rsa` and `sha2`:** pure Rust, built for `wasm32-unknown-unknown`, tested natively, short enough to review. `ring` has limited wasm32 support, and `jsonwebtoken`'s backends are one more build choice for [stack.md](stack.md) to police. `cargo audit` flags RUSTSEC-2023-0071 (Marvin) in `rsa`; it concerns private-key operations, and the Worker only verifies, so `deny.toml` ignores it with that reason.
 - **Only `sub` is used.** It is "unique among all Google Accounts and never reused", and `email` appears only with the `email` scope ([Google](https://developers.google.com/identity/openid-connect/openid-connect)). The account id is `HMAC-SHA256(ACCOUNT_HMAC_KEY, "google:" + sub)` and names the `Account` object. The tokens and `sub` are dropped once it is computed, never stored or logged.
 - **If `openid` alone is refused** (spike S2; the docs say the scope "must begin with openid and then include profile, email, or both"), the fallback is `openid email` with the claim dropped before anything is stored: weaker, since the consent screen then says an email is shared and an address passes through memory.
-- The consent screen's support and developer contact is `hello@ihaveasegway.com`.
+- The consent screen's developer contact is `hello@ihaveasegway.com`. Its support email can only be the signed-in account's address or a Google Group the account manages (as of 2026-11-04), so a Google account on `hello@ihaveasegway.com`, which forwards through Email Routing, takes over the field before the screen is published ([operations.md](operations.md#4-the-google-oauth-client)).
 
 ### GitHub, with the numeric user id alone
 
@@ -251,7 +251,7 @@ Assumed until Q17 · Q-psp, Q18 · Q-payment-ui and Q20 · Q-stripe-account are 
 - **Idempotent handling.** `Billing` records the event id in `webhook_events` in the same transaction as the state change; a repeat answers 200 and changes nothing. Events name their sandbox through metadata the Worker set; an event for a wiped sandbox answers 200 and is dropped, so Stripe stops retrying. Amounts come from `Billing`'s records, never from the event alone.
 - **Synthetic billing details.** `fields.billingDetails: 'never'`, with the persona's synthetic details passed to `confirmPayment`, as the integration then must ([Payment Element](https://docs.stripe.com/js/elements_object/create_payment_element)). Spike S3 checks no billing field renders.
 - **No card data touches the API.** Card fields live in Stripe's frames; the API sees Stripe's ids. The page says test cards only, such as 4242 4242 4242 4242 ([Stripe testing](https://docs.stripe.com/testing)).
-- **Stripe's retention.** Stripe keeps a sandbox's objects until they or the sandbox are deleted. Payment intents, charges, refunds and finalized invoices survive the wipe, holding synthetic details only, so a periodic reset ([operations.md](operations.md), assumed quarterly) replaces the Stripe sandbox, which rotates every Stripe key and the webhook secret with it.
+- **Stripe's retention.** Stripe keeps a sandbox's objects until they or the sandbox are deleted. Payment intents, charges, refunds and finalized invoices survive the wipe, holding synthetic details only, so a periodic reset ([operations.md](operations.md#stripe-sandbox-reset), assumed quarterly) clears them and rolls every Stripe key and the webhook secret. The sandbox itself is never deleted, because Stripe refuses a new one until the business is verified (as of 2026-11-04).
 
 ## Secrets inventory
 
@@ -272,7 +272,7 @@ Never in the repository, a log or a doc. `.dev.vars` is git-ignored; `.dev.vars.
 | `TURNSTILE_SECRET`, and the site key | Worker secret; the site key public in the page | Siteverify | Skips challenges | Yearly; on suspicion |
 | `SESSION_HMAC_KEY`, `SESSION_HMAC_KEY_PREV` | Worker secrets | Authenticated routes; the oauth cookie; API tokens; email sign-in links, later | Forges any session or API token | Yearly, `_PREV` for 24 h |
 | `ACCOUNT_HMAC_KEY` | Worker secret | Sign-in | Links a known `sub`, GitHub id or address to its account | Only on a leak: rotation orphans every `Account` |
-| `STRIPE_E2E_SECRET_KEY` | Actions secret | The `e2e` job's one step | A restricted key in a separate CI sandbox | Yearly |
+| `STRIPE_E2E_SECRET_KEY` | Actions secret | The `e2e` job's one step | A second restricted key in the same sandbox, because Stripe refuses another until the business is verified | Yearly |
 | `CLOUDFLARE_READ_TOKEN` | Actions secret | The morning object check | Workers Scripts Read | With the deploy token |
 | `BREAKER_API_TOKEN` | Worker secret | The 15-minute breaker | Analytics read; this zone's WAF custom rules edit; can block the site | With the deploy token; alerts on 401 or 403 |
 

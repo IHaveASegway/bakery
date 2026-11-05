@@ -1,0 +1,13 @@
+[package]
+name = "bakery-contracts"
+description = "The API's published language: wire types, exported as JSON Schema for the web app."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

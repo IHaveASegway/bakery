@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HealthResponse",
+  "description": "`GET /v1/health`: the Worker answers, and which build it is. Touches no object.",
+  "type": "object",
+  "properties": {
+    "commit": {
+      "description": "The commit the bundle was built from; `dev` on a laptop.",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/HealthStatus"
+    },
+    "version": {
+      "description": "The API's version.",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "commit",
+    "version"
+  ],
+  "$defs": {
+    "HealthStatus": {
+      "type": "string",
+      "enum": [
+        "ok"
+      ]
+    }
+  }
+}
