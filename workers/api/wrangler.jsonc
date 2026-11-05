@@ -19,6 +19,9 @@
       { "name": "CONTROL", "class_name": "Control" },
       { "name": "ACCOUNT", "class_name": "Account" },
       { "name": "SANDBOX", "class_name": "Sandbox" },
+      { "name": "CATALOG", "class_name": "Catalog" },
+      { "name": "ORDER", "class_name": "Order" },
+      { "name": "KITCHEN", "class_name": "Kitchen" },
     ],
   },
   // Declarative class lifecycle: each change is a deploy and a rollback boundary.
@@ -26,6 +29,9 @@
     "Control": { "type": "durable-object", "storage": "sqlite" },
     "Account": { "type": "durable-object", "storage": "sqlite" },
     "Sandbox": { "type": "durable-object", "storage": "sqlite" },
+    "Catalog": { "type": "durable-object", "storage": "sqlite" },
+    "Order": { "type": "durable-object", "storage": "sqlite" },
+    "Kitchen": { "type": "durable-object", "storage": "sqlite" },
   },
 
   "queues": {
@@ -37,6 +43,9 @@
         "max_retries": 3,
         "dead_letter_queue": "bakery-events-dlq",
       },
+      // The DLQ writer: each message and its last error into the owning Sandbox's
+      // dead_letters, then acked. It has no dead-letter queue of its own.
+      { "queue": "bakery-events-dlq", "max_batch_size": 10, "max_retries": 3 },
     ],
   },
 

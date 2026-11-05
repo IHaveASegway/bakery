@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ClockRequest",
+  "description": "`POST /v1/sandboxes/{id}/clock`, signed-in sessions only: move business time forward. The\noffset only grows, at most 14 days in total.",
+  "type": "object",
+  "properties": {
+    "minutes": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "minutes"
+  ]
+}

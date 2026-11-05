@@ -33,11 +33,16 @@ const CORS_PREFLIGHT: &[(&str, &str)] = &[
     ),
     ("Access-Control-Max-Age", "7200"),
 ];
-/// Only on an actual response, for the islands to read.
+/// Only on an actual response, for the islands to read. `Bakery-Cache` says whether the menu
+/// came from the Cache API (PR 4).
 const CORS_ACTUAL: &[(&str, &str)] = &[(
     "Access-Control-Expose-Headers",
-    "ETag, Location, Retry-After",
+    "ETag, Location, Retry-After, Bakery-Cache",
 )];
+
+/// The one `Cache-Control` a route may set instead of `no-store`: the menu's, which a browser
+/// may keep and must revalidate with its `ETag` (docs/architecture.md, "Data ownership").
+pub const REVALIDATE: &str = "private, no-cache";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BodyKind {
@@ -103,7 +108,11 @@ pub fn apply(
         Some(kind) => headers.set("Content-Type", kind.content_type())?,
         None => headers.delete("Content-Type")?,
     }
+    let revalidate = headers.get("Cache-Control")?.as_deref() == Some(REVALIDATE);
     for (k, v) in SECURITY {
+        if *k == "Cache-Control" && revalidate {
+            continue;
+        }
         headers.set(k, v)?;
     }
     for (k, v) in cors(origin, allowed, preflight) {
@@ -132,7 +141,7 @@ mod tests {
                 ("Access-Control-Allow-Credentials", "true".to_owned()),
                 (
                     "Access-Control-Expose-Headers",
-                    "ETag, Location, Retry-After".to_owned()
+                    "ETag, Location, Retry-After, Bakery-Cache".to_owned()
                 ),
             ]
         );

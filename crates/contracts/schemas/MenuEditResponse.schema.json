@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MenuEditResponse",
+  "description": "The answer to a staff edit or a publish: the published version and the items with drafts\nstill waiting for a publish.",
+  "type": "object",
+  "properties": {
+    "pending": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "pending"
+  ]
+}

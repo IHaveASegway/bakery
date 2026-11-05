@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OrderResponse",
+  "description": "`201` from placing an order (`200` with `Idempotent-Replayed: true` for the same key again),\n`GET /v1/sandboxes/{id}/orders/{oid}`, and the answer to a cancel.",
+  "type": "object",
+  "properties": {
+    "events_seq": {
+      "description": "The `seq` of the order's latest event.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "held_until": {
+      "description": "When an unpaid order expires, 15 minutes of business time after `placed_at`.",
+      "type": "string"
+    },
+    "id": {
+      "description": "The order's ULID.",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/OrderKind"
+    },
+    "lines": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/OrderLineResponse"
+      }
+    },
+    "menu_version": {
+      "description": "The published menu version the prices came from.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "note": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "placed_at": {
+      "description": "When the order was placed, a business time.",
+      "type": "string"
+    },
+    "slot": {
+      "description": "A business time.",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/OrderStatus"
+    },
+    "subtotal_cents": {
+      "type": "integer",
+      "format": "int64"
+    },
+    "tax_cents": {
+      "type": "integer",
+      "format": "int64"
+    },
+    "total_cents": {
+      "type": "integer",
+      "format": "int64"
+    },
+    "zone": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "status",
+    "kind",
+    "slot",
+    "lines",
+    "subtotal_cents",
+    "tax_cents",
+    "total_cents",
+    "placed_at",
+    "held_until",
+    "menu_version",
+    "events_seq"
+  ],
+  "$defs": {
+    "OrderKind": {
+      "description": "Pickup at the counter, or delivery to a zone.",
+      "type": "string",
+      "enum": [
+        "pickup",
+        "delivery"
+      ]
+    },
+    "OrderLineResponse": {
+      "description": "A placed line, priced from the menu version the order names; never repriced.",
+      "type": "object",
+      "properties": {
+        "item": {
+          "type": "string"
+        },
+        "qty": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "unit_cents": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "variant": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "item",
+        "variant",
+        "qty",
+        "unit_cents"
+      ]
+    },
+    "OrderStatus": {
+      "description": "An order's state (docs/domain.md, \"Order\", the diagram).",
+      "type": "string",
+      "enum": [
+        "placed",
+        "confirmed",
+        "expired",
+        "cancelled",
+        "refund_pending",
+        "in_production",
+        "ready",
+        "picked_up",
+        "out_for_delivery",
+        "delivered",
+        "closed"
+      ]
+    }
+  }
+}

@@ -11,8 +11,11 @@ export interface FaultsResponse {
   faults: Faults;
 }
 /**
- * The sandbox's fault switches. `inbox` makes the broken-subscriber demo's Inbox fail (PR 4).
+ * The sandbox's fault switches: the Queue Lab's broken subscriber, live. `kitchen` makes the
+ * Kitchen refuse every delivery with 503, so a message retries three times and lands in the
+ * dead-letter queue (PR 4); `inbox` does the same to the Inbox when it arrives (PR 8).
  */
 export interface Faults {
   inbox: boolean;
+  kitchen: boolean;
 }
