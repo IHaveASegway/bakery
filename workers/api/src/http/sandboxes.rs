@@ -13,6 +13,7 @@ use bakery_contracts::{
     ClockRequest, CreateSandboxRequest, FaultRequest, SandboxKind, SandboxResponse, SandboxState,
     WipedResponse,
 };
+use bakery_domain::clock::ClockStep;
 use bakery_domain::{Ulid, WallTime};
 use worker::{Method, Request, Response};
 
@@ -417,13 +418,15 @@ pub async fn redrive(cx: &Cx, id: Option<&str>, event: Option<&str>) -> Answer {
     }
 }
 
-/// `POST /v1/sandboxes/{id}/clock {minutes}`, signed-in sessions only: the minimal
-/// `AdvanceClock` (PR 6 adds the presets).
+/// `POST /v1/sandboxes/{id}/clock {step} | {minutes}`, signed-in sessions only: exactly one of
+/// `step` (`15m`, `1h`, `1d`, `next-opening`) and `minutes` (the older form, as the step
+/// `<n>m`); both or neither is 422 `clock` with the rule `not-positive`, as the contract says.
 pub async fn advance_clock(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answer {
     let (claims, id) = own_sandbox(cx, id)?;
     not_revoked(cx, &claims).await?;
     let body: ClockRequest = read_body(req).await?;
     let key = cx.key.ok_or_else(problem::idempotency_key)?;
+    let step = clock_step(&body).ok_or_else(|| problem::clock("not-positive"))?;
     let mut res = call(
         &cx.env,
         sandbox::BINDING,
@@ -432,7 +435,7 @@ pub async fn advance_clock(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answ
         "/_clock",
         Some(&ClockCommand {
             key: key.to_string(),
-            minutes: body.minutes,
+            step,
         }),
     )
     .await?;
@@ -445,5 +448,52 @@ pub async fn advance_clock(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answ
             Err(problem::clock(refusal.rule.as_deref().unwrap_or("")))
         }
         _ => Err(problem::internal()),
+    }
+}
+
+/// The one step a clock request names: its `step`, or its `minutes` as `<n>m`; `None` for both
+/// or neither.
+fn clock_step(body: &ClockRequest) -> Option<ClockStep> {
+    match (body.step, body.minutes) {
+        (Some(step), None) => Some(match step {
+            bakery_contracts::ClockStep::Minutes15 => ClockStep::Minutes15,
+            bakery_contracts::ClockStep::Hour => ClockStep::Hour,
+            bakery_contracts::ClockStep::Day => ClockStep::Day,
+            bakery_contracts::ClockStep::NextOpening => ClockStep::NextOpening,
+        }),
+        (None, Some(minutes)) => Some(ClockStep::Minutes(minutes)),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_clock_request_names_exactly_one_step() {
+        let req = |v: serde_json::Value| serde_json::from_value::<ClockRequest>(v).unwrap();
+        assert_eq!(
+            clock_step(&req(serde_json::json!({ "step": "1d" }))),
+            Some(ClockStep::Day)
+        );
+        assert_eq!(
+            clock_step(&req(serde_json::json!({ "step": "next-opening" }))),
+            Some(ClockStep::NextOpening)
+        );
+        assert_eq!(
+            clock_step(&req(serde_json::json!({ "minutes": 30 }))),
+            Some(ClockStep::Minutes(30))
+        );
+        assert_eq!(
+            clock_step(&req(serde_json::json!({ "minutes": 0 }))),
+            Some(ClockStep::Minutes(0)),
+            "the domain refuses it as not-positive"
+        );
+        assert_eq!(clock_step(&req(serde_json::json!({}))), None);
+        assert_eq!(
+            clock_step(&req(serde_json::json!({ "step": "1h", "minutes": 60 }))),
+            None
+        );
     }
 }

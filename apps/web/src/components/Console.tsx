@@ -12,7 +12,8 @@ import {
 } from '../lib/api';
 import { formatCountdown, utcClock, utcStamp } from '../lib/countdown';
 import { describeError, type Message as Text } from '../lib/messages';
-import Clock from './Clock';
+import CapacityEditor from './CapacityEditor';
+import ClockControl from './ClockControl';
 import DeadLetters from './DeadLetters';
 import GuestNote from './GuestNote';
 import KitchenBoard from './KitchenBoard';
@@ -262,12 +263,18 @@ export default function Console() {
           <KitchenBoard
             sandboxId={sandbox.id}
             isGuest={isGuest}
+            clockOffsetS={sandbox.clock_offset_s}
             onWiped={() => void load()}
             onRefunded={() => setLedgerTick((n) => n + 1)}
           />
           <Ledger sandboxId={sandbox.id} refresh={ledgerTick} />
           <Traffic sandboxId={sandbox.id} isGuest={isGuest} />
           <MenuEditor sandboxId={sandbox.id} isGuest={isGuest} />
+          <CapacityEditor
+            sandboxId={sandbox.id}
+            isGuest={isGuest}
+            clockOffsetS={sandbox.clock_offset_s}
+          />
 
           <h3>Faults</h3>
           <p>
@@ -307,7 +314,7 @@ export default function Console() {
           {isGuest && <GuestNote />}
 
           <DeadLetters sandboxId={sandbox.id} isGuest={isGuest} />
-          <Clock
+          <ClockControl
             sandboxId={sandbox.id}
             offsetSeconds={sandbox.clock_offset_s}
             isGuest={isGuest}

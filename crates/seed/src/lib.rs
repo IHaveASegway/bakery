@@ -3,7 +3,8 @@
 //! A [`Seed`] and a birth business date drive a ChaCha20 PRNG, and the [`Generator`] draws from
 //! it in a fixed order, so one seed and date give the same output byte for byte on every
 //! machine. The output is the sandbox's whole starting state: the menu, 60 customers, 6 venues,
-//! about 90 days of closed orders, 12 open orders and 8 catering events. Every name is made up
+//! about 90 days of closed orders, 12 open orders, 8 catering events and the coming week's seven
+//! `Schedule` days, the last derived from the rest with no draw of its own. Every name is made up
 //! from generic words; none is a real person, business or address, and no free text is seeded.
 //!
 //! Every money value is [`Cents`]; every time is a [`BusinessTime`] at the Mountain standard
@@ -14,7 +15,11 @@ mod calendar;
 mod menu;
 mod words;
 
-use bakery_domain::{BusinessTime, Cents, Ulid};
+use bakery_domain::schedule::{
+    DEFAULT_CATERING_CAPACITY, DEFAULT_SLOT_CAPACITY, DEFAULT_ZONE_CAPACITY, HoldKind, HoldStatus,
+    ItemCap, ItemQty, normalize_lines,
+};
+use bakery_domain::{BakeryDate, BusinessTime, Cents, Ulid};
 use rand_chacha::ChaCha20Rng;
 use rand_core::{Rng, SeedableRng};
 use serde::Serialize;
@@ -42,8 +47,10 @@ pub const OPEN_ORDER_COUNT: usize = 12;
 pub const TAX_BP: u32 = 1_000;
 /// The catering deposit, 25%, in basis points (docs/domain.md, "Money and time").
 pub const DEPOSIT_BP: u32 = 2_500;
-/// The three delivery zones.
-pub const ZONES: [&str; 3] = ["z1", "z2", "z3"];
+/// The three delivery zones; the Schedule's own list, so the two cannot drift.
+pub const ZONES: [&str; 3] = bakery_domain::schedule::ZONES;
+/// The `Schedule` days that exist from the start: the coming week's open days.
+pub const SCHEDULE_DAYS: usize = 7;
 
 /// A sandbox's seed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -275,6 +282,39 @@ pub struct CateringEvent {
     pub brief: Option<String>,
 }
 
+/// One open order's place on its day: a hold while it is only placed, a reservation once paid.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SchedulePlace {
+    /// The order's id.
+    #[serde(rename = "ref")]
+    pub reference: Ulid,
+    /// `slot` for a pickup, `window` for a delivery.
+    pub kind: HoldKind,
+    /// `held` for a placed order, `reserved` for every other open state.
+    pub status: HoldStatus,
+    pub start: BusinessTime,
+    pub zone: Option<&'static str>,
+    /// Item slugs, the order's variant quantities summed per item.
+    pub lines: Vec<ItemQty>,
+}
+
+/// One `Schedule` day as it exists at birth: the default capacities, the menu's item caps, and
+/// the open orders on it. A hold's `expires_at` is the Order's `held_until`, which the Worker
+/// sets when it seeds the Order, so it is not here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ScheduleDay {
+    pub date: BakeryDate,
+    /// Orders per pickup slot, each of the 32.
+    pub slot_capacity: u16,
+    /// Stops per delivery zone for the day, each of the 3.
+    pub zone_capacity: u16,
+    pub catering_capacity: u16,
+    /// Every item's `daily_cap`, by slug.
+    pub item_caps: Vec<ItemCap>,
+    /// The open orders on this day, by ref.
+    pub places: Vec<SchedulePlace>,
+}
+
 /// How many records each section holds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Rows {
@@ -289,6 +329,7 @@ pub struct Rows {
     pub open_orders: usize,
     pub open_order_lines: usize,
     pub catering_events: usize,
+    pub schedule_days: usize,
 }
 
 /// Everything the seed generates. The field order is the JSON order.
@@ -306,6 +347,7 @@ pub struct Generated {
     pub history: Vec<OrderClosed>,
     pub open_orders: Vec<OpenOrder>,
     pub catering: Vec<CateringEvent>,
+    pub schedule: Vec<ScheduleDay>,
 }
 
 impl Generated {
@@ -350,6 +392,8 @@ impl Generator {
         let history = self.history(&customers);
         let open_orders = self.open_orders(&customers);
         let catering = self.catering(&venues, birth_ms);
+        // Derived, not drawn: every value above stands.
+        let schedule = schedule_days(born_days, &open_orders);
 
         // Loyalty is a function of the history just drawn, so it is computed, not drawn.
         for customer in &mut customers {
@@ -385,6 +429,7 @@ impl Generator {
             open_orders: open_orders.len(),
             open_order_lines: open_orders.iter().map(|o| o.lines.len()).sum(),
             catering_events: catering.len(),
+            schedule_days: schedule.len(),
         };
         Generated {
             seed: self.seed,
@@ -409,6 +454,7 @@ impl Generator {
             history,
             open_orders,
             catering,
+            schedule,
         }
     }
 
@@ -772,6 +818,66 @@ impl Generator {
     }
 }
 
+/// The seven open days from `born_days` on (the birth day itself when open; a Monday is
+/// skipped, so the week spans eight calendar days when one falls in it), each with the default
+/// capacities, every item's cap, and the open orders whose slot falls on it.
+fn schedule_days(born_days: i64, open_orders: &[OpenOrder]) -> Vec<ScheduleDay> {
+    let item_caps: Vec<ItemCap> = ITEMS
+        .iter()
+        .map(|i| ItemCap {
+            item: i.slug.to_owned(),
+            daily_cap: i.daily_cap,
+        })
+        .collect();
+    (born_days..)
+        .filter(|&d| weekday(d) != MONDAY)
+        .take(SCHEDULE_DAYS)
+        .map(|day| {
+            let mut places: Vec<SchedulePlace> = open_orders
+                .iter()
+                .filter(|o| local_day(o.slot_start) == day)
+                .map(|o| SchedulePlace {
+                    reference: o.id,
+                    kind: match o.kind {
+                        OrderKind::Pickup => HoldKind::Slot,
+                        OrderKind::Delivery => HoldKind::Window,
+                    },
+                    status: if o.state == OpenState::Placed {
+                        HoldStatus::Held
+                    } else {
+                        HoldStatus::Reserved
+                    },
+                    start: o.slot_start,
+                    zone: o.zone,
+                    lines: normalize_lines(o.lines.iter().map(|l| ItemQty {
+                        item: item_of(&l.variant).to_owned(),
+                        qty: l.qty,
+                    })),
+                })
+                .collect();
+            places.sort_by_key(|p| p.reference);
+            ScheduleDay {
+                date: BakeryDate::from_days(day),
+                slot_capacity: DEFAULT_SLOT_CAPACITY,
+                zone_capacity: DEFAULT_ZONE_CAPACITY,
+                catering_capacity: DEFAULT_CATERING_CAPACITY,
+                item_caps: item_caps.clone(),
+                places,
+            }
+        })
+        .collect()
+}
+
+/// The civil day of one of the seed's business times, under Denver's rule.
+fn local_day(t: BusinessTime) -> i64 {
+    BakeryDate::of(t).days()
+}
+
+/// The item slug of a variant slug, `<item>/<suffix>`.
+fn item_of(variant: &str) -> &str {
+    variant.split_once('/').map_or(variant, |(item, _)| item)
+}
+
 fn kind_of(delivery: bool) -> OrderKind {
     if delivery {
         OrderKind::Delivery
@@ -912,7 +1018,7 @@ mod tests {
     const PINNED_FIRST_ADDRESS: &str = "p9, unit 1 (synthetic)";
     const PINNED_FIRST_CUSTOMER: &str = "01M6TCX5C0VKKM7M86WYN7SBR2";
     const PINNED_HISTORY_LEN: usize = 722;
-    const PINNED_FIRST_ORDER: &str = "01KZE0H7D0AHWTMASY3YGTFWD7";
+    const PINNED_FIRST_ORDER: &str = "01KZDX3BS0AHWTMASY3YGTFWD7";
 
     #[test]
     fn another_seed_gives_other_people() {
@@ -1108,9 +1214,7 @@ mod tests {
     }
 
     fn weekday_of(o: &OrderClosed) -> u8 {
-        // The slot is at the Mountain offset, so shifting by it gives the local calendar day.
-        let local = o.slot_start.unix_ms() + i64::from(calendar::OFFSET_MINUTES) * 60_000;
-        weekday(local.div_euclid(bakery_domain::MS_PER_DAY))
+        weekday(BakeryDate::of(o.slot_start).days())
     }
 
     #[test]
@@ -1120,9 +1224,8 @@ mod tests {
             let born_days = g.born.days();
             let mut per_day = std::collections::BTreeMap::new();
             for o in &g.history {
-                let local = o.slot_start.unix_ms() + i64::from(calendar::OFFSET_MINUTES) * 60_000;
                 *per_day
-                    .entry(local.div_euclid(bakery_domain::MS_PER_DAY))
+                    .entry(BakeryDate::of(o.slot_start).days())
                     .or_insert(0usize) += 1;
             }
             assert!(
@@ -1152,11 +1255,7 @@ mod tests {
             let busy_orders: Vec<&OrderClosed> = g
                 .history
                 .iter()
-                .filter(|o| {
-                    let local =
-                        o.slot_start.unix_ms() + i64::from(calendar::OFFSET_MINUTES) * 60_000;
-                    local.div_euclid(bakery_domain::MS_PER_DAY) == busy
-                })
+                .filter(|o| BakeryDate::of(o.slot_start).days() == busy)
                 .collect();
             assert_eq!(busy_orders.len(), 63);
             assert!(busy_orders.iter().all(|o| o.kind == OrderKind::Delivery));
@@ -1201,11 +1300,11 @@ mod tests {
                 o.subtotal_cents.checked_add(o.tax_cents).unwrap()
             );
             assert!(o.total_cents > Cents::ZERO);
-            let minutes = (o.slot_start.unix_ms() - 7 * 3_600_000).rem_euclid(86_400_000) / 60_000;
+            let minutes = bakery_domain::calendar::local_minutes(o.slot_start);
             match o.kind {
                 OrderKind::Pickup => {
                     assert!(
-                        (420..=885).contains(&minutes) && minutes % 15 == 0,
+                        (420..=885).contains(&minutes) && minutes.is_multiple_of(15),
                         "{minutes}"
                     );
                 }
@@ -1230,8 +1329,7 @@ mod tests {
             })
             .collect();
         for o in &g.history {
-            let local = o.slot_start.unix_ms() + i64::from(calendar::OFFSET_MINUTES) * 60_000;
-            let day = local.div_euclid(bakery_domain::MS_PER_DAY);
+            let day = BakeryDate::of(o.slot_start).days();
             let (_, month, dom) = civil_from_days(day);
             let lead_minutes = (o.slot_start.unix_ms() - o.placed_at.unix_ms()) / 60_000;
             for line in &o.lines {
@@ -1295,8 +1393,7 @@ mod tests {
         let g = generate(21, "2026-11-09");
         let tuesday = days_from_civil(2026, 11, 10);
         for o in &g.open_orders {
-            let local = o.slot_start.unix_ms() + i64::from(calendar::OFFSET_MINUTES) * 60_000;
-            assert_eq!(local.div_euclid(bakery_domain::MS_PER_DAY), tuesday);
+            assert_eq!(BakeryDate::of(o.slot_start).days(), tuesday);
         }
     }
 
@@ -1370,6 +1467,96 @@ mod tests {
             let confirmed_dates: HashSet<&str> =
                 g.catering[3..5].iter().map(|e| e.date.as_str()).collect();
             assert_eq!(confirmed_dates.len(), 2);
+        }
+    }
+
+    #[test]
+    fn the_week_is_seven_open_days_from_birth() {
+        // Saturday: Sat, Sun, (Mon skipped), Tue to Sat: eight calendar days.
+        let g = generate(42, DATE);
+        let dates: Vec<String> = g.schedule.iter().map(|d| d.date.to_string()).collect();
+        assert_eq!(
+            dates,
+            [
+                "2026-11-07",
+                "2026-11-08",
+                "2026-11-10",
+                "2026-11-11",
+                "2026-11-12",
+                "2026-11-13",
+                "2026-11-14"
+            ]
+        );
+        assert_eq!(g.rows.schedule_days, 7);
+        // Born on a Monday or a Tuesday: the week starts on Tuesday, and since Tuesday to Sunday
+        // is six days, the seventh is the next Tuesday.
+        for born in ["2026-11-09", "2026-11-10"] {
+            let g = generate(42, born);
+            assert_eq!(g.schedule[0].date.to_string(), "2026-11-10");
+            assert_eq!(g.schedule[5].date.to_string(), "2026-11-15");
+            assert_eq!(g.schedule[6].date.to_string(), "2026-11-17");
+        }
+        for day in &g.schedule {
+            assert!(day.date.is_open());
+            assert_eq!(
+                (day.slot_capacity, day.zone_capacity, day.catering_capacity),
+                (6, 20, 2)
+            );
+            assert_eq!(day.item_caps.len(), ITEMS.len());
+        }
+    }
+
+    #[test]
+    fn every_open_order_is_on_exactly_one_day_and_no_day_is_over_capacity() {
+        for (seed, date) in [
+            (42, DATE),
+            (21, "2026-11-09"),
+            (7, "2026-11-04"),
+            (3, "2027-01-11"),
+        ] {
+            for seed in [seed, seed + 100, seed + 1_000] {
+                let g = generate(seed, date);
+                for o in &g.open_orders {
+                    let on: Vec<&ScheduleDay> = g
+                        .schedule
+                        .iter()
+                        .filter(|d| d.places.iter().any(|p| p.reference == o.id))
+                        .collect();
+                    assert_eq!(on.len(), 1, "{}", o.id);
+                    let place = on[0].places.iter().find(|p| p.reference == o.id).unwrap();
+                    assert_eq!(place.start, o.slot_start);
+                    assert_eq!(place.zone, o.zone);
+                    assert_eq!(
+                        place.status == HoldStatus::Held,
+                        o.state == OpenState::Placed
+                    );
+                    let units: u32 = o.lines.iter().map(|l| l.qty).sum();
+                    assert_eq!(place.lines.iter().map(|l| l.qty).sum::<u32>(), units);
+                }
+                let places: usize = g.schedule.iter().map(|d| d.places.len()).sum();
+                assert_eq!(places, OPEN_ORDER_COUNT);
+                for day in &g.schedule {
+                    let mut per_slot = std::collections::HashMap::new();
+                    let mut per_zone = std::collections::HashMap::new();
+                    let mut per_item = std::collections::HashMap::new();
+                    for p in &day.places {
+                        match p.kind {
+                            HoldKind::Slot => *per_slot.entry(p.start).or_insert(0u16) += 1,
+                            _ => *per_zone.entry(p.zone.unwrap()).or_insert(0u16) += 1,
+                        }
+                        for l in &p.lines {
+                            *per_item.entry(l.item.as_str()).or_insert(0u32) += l.qty;
+                        }
+                    }
+                    assert!(per_slot.values().all(|&n| n <= day.slot_capacity));
+                    assert!(per_zone.values().all(|&n| n <= day.zone_capacity));
+                    for cap in &day.item_caps {
+                        assert!(
+                            per_item.get(cap.item.as_str()).copied().unwrap_or(0) <= cap.daily_cap
+                        );
+                    }
+                }
+            }
         }
     }
 

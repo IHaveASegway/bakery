@@ -11,7 +11,8 @@ export type Phase =
   | { name: 'nosession' }
   | { name: 'nosandbox' }
   | { name: 'seeding'; id: string; kind: SessionKind }
-  | { name: 'live'; id: string; kind: SessionKind };
+  /** `clockOffsetS`: business time minus wall time, from the sandbox as of this look. */
+  | { name: 'live'; id: string; kind: SessionKind; clockOffsetS: number };
 
 export function useSandboxPhase(): Phase {
   const [phase, setPhase] = useState<Phase>({ name: 'loading' });
@@ -34,7 +35,7 @@ export function useSandboxPhase(): Phase {
           setPhase({ name: 'seeding', id, kind });
           timer = setTimeout(() => void look(id, kind), 1_000);
         } else if (sandbox.state === 'live') {
-          setPhase({ name: 'live', id, kind });
+          setPhase({ name: 'live', id, kind, clockOffsetS: sandbox.clock_offset_s });
         } else {
           setPhase({ name: 'nosandbox' });
         }

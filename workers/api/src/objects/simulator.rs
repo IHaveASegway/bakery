@@ -41,8 +41,8 @@ use bakery_contracts::{OrderResponse, TrafficResponse};
 use bakery_domain::Cents;
 use bakery_domain::billing::Purpose;
 use bakery_domain::catalog::{ItemStatus, MenuView};
-use bakery_domain::order::{DEFAULT_TAX_BP, LineInput, OrderKind};
-use bakery_domain::{BusinessTime, Envelope, Ulid, WallTime};
+use bakery_domain::order::{DEFAULT_TAX_BP, EXPIRY_MINUTES, LineInput, OrderKind};
+use bakery_domain::{BakeryDate, BusinessTime, Envelope, Ulid, WallTime};
 use bakery_seed::{BirthDate, Generator, Seed};
 use rand_core::Rng;
 use serde::{Deserialize, Serialize};
@@ -58,6 +58,7 @@ use super::control::{self, ReserveTraffic, SettleTraffic};
 use super::kitchen::{self, Presence};
 use super::order::{self, Place};
 use super::sandbox::{self, OrderSlot, RegisterOrder};
+use super::schedule::{self, HoldAnswer};
 use super::sql::{self, exec, first, gone, json, refuse, replayed, rows, transaction_sync};
 use super::stream::{self, BACKSTOP, OUTBOX};
 use crate::clock::{SystemClock, business, business_at};
@@ -81,6 +82,10 @@ pub const TICK_MS: i64 = 60_000;
 /// A simulated order's slot: about four hours after the minute it is drawn in, rounded up to a
 /// quarter hour, so most of the menu's lead times are met.
 const SLOT_AHEAD_MINUTES: i64 = 240;
+/// The quarter hours a minute's orders spread over from there, so six a minute fill no slot
+/// (PR 6: a slot holds 6 orders): the `j`-th order of `minute` goes
+/// `(minute × 6 + j) mod 16` quarter hours later, then to the next start the day offers.
+const SPREAD_QUARTERS: i64 = 16;
 /// One simulated order in this many is a delivery.
 const DELIVERY_ONE_IN: u32 = 4;
 /// One simulated payment in about this many is declined (`pm_card_chargeDeclined`).
@@ -238,6 +243,33 @@ fn quarter_after(t: BusinessTime) -> BusinessTime {
     t.plus_minutes((up - ms) / 60_000).unwrap_or(t)
 }
 
+/// The next start the Schedule takes for `kind` at or after `t`: a pickup slot (07:00 to 14:45
+/// on the quarter hour) or a delivery window (09:00, 11:00, 13:00), on an open day.
+fn open_start(t: BusinessTime, kind: OrderKind) -> Option<BusinessTime> {
+    let mut date = BakeryDate::of(t);
+    for _ in 0..8 {
+        if date.is_open() {
+            let starts = match kind {
+                OrderKind::Pickup => date.slot_starts(),
+                OrderKind::Delivery => date.window_starts(),
+            };
+            if let Some(s) = starts.into_iter().find(|s| s.unix_ms() >= t.unix_ms()) {
+                return Some(s);
+            }
+        }
+        date = date.plus_days(1);
+    }
+    None
+}
+
+/// How many quarter hours past the base the `j`-th order of `minute` asks for.
+fn spread(minute: i64, j: u32) -> i64 {
+    (minute
+        .saturating_mul(i64::from(SIMULATOR_MAX_RATE))
+        .saturating_add(i64::from(j)))
+    .rem_euclid(SPREAD_QUARTERS)
+}
+
 /// Draws the `j`-th order of `minute`: the draws before it are made and dropped, so the same
 /// minute and index always give the same order. `None` when the menu has nothing that fits.
 pub fn draw(
@@ -250,8 +282,8 @@ pub fn draw(
 ) -> Option<Drawn> {
     let mut rng = minute_rng(seed, minute);
     let mut last = None;
-    for _ in 0..=j {
-        last = Some(draw_one(&mut rng, minute, at, menu, personas));
+    for i in 0..=j {
+        last = Some(draw_one(&mut rng, minute, i, at, menu, personas));
     }
     last.flatten()
 }
@@ -259,6 +291,7 @@ pub fn draw(
 fn draw_one(
     rng: &mut impl Rng,
     minute: i64,
+    j: u32,
     at: BusinessTime,
     menu: &MenuView,
     personas: &[Ulid],
@@ -275,7 +308,8 @@ fn draw_one(
     };
     let zone =
         delivery.then(|| bakery_seed::ZONES[below(rng, bakery_seed::ZONES.len())].to_owned());
-    let slot = quarter_after(at.plus_minutes(SLOT_AHEAD_MINUTES).ok()?);
+    let base = quarter_after(at.plus_minutes(SLOT_AHEAD_MINUTES).ok()?);
+    let slot = open_start(base.plus_minutes(15 * spread(minute, j)).ok()?, kind)?;
     let ahead = u32::try_from(SLOT_AHEAD_MINUTES - 15).unwrap_or(0);
     let fits: Vec<(&str, u16)> = menu
         .categories
@@ -407,7 +441,7 @@ impl DurableObject for Simulator {
                 _ => stream::delete_timer(&storage.sql(), &timer.id)?,
             }
         }
-        stream::arm(&storage, now).await?;
+        stream::rearm(&storage, now, CLASS).await?;
         Response::empty()
     }
 }
@@ -736,7 +770,7 @@ impl Simulator {
             "UPDATE minutes SET done = 1 WHERE run = ? AND minute = ?",
             vec![run_key.as_str().into(), minute.minute.into()],
         )?;
-        if stream::may_rearm(&sql, now, CLASS)? {
+        if stream::guard_allows(&sql, now)? {
             stream::set_timer(&sql, TICK, TICK, stream::after(now, TICK_MS)?, None)?;
             Ok(())
         } else {
@@ -876,7 +910,7 @@ impl Simulator {
         meta: &child::Meta,
         d: &Drawn,
         menu: &MenuView,
-        _now: WallTime,
+        now: WallTime,
     ) -> Result<Placed> {
         let sandbox = meta.sandbox_id()?;
         let mut res = sql::call(
@@ -885,7 +919,10 @@ impl Simulator {
             &bakery_app::names::sandbox_object_name(sandbox),
             Method::Post,
             "/_register-order",
-            Some(&RegisterOrder { key: d.key.clone() }),
+            Some(&RegisterOrder {
+                key: d.key.clone(),
+                date: Some(BakeryDate::of(d.slot)),
+            }),
         )
         .await?;
         let slot: OrderSlot = match res.status_code() {
@@ -895,6 +932,54 @@ impl Simulator {
         };
         let name = order::name(sandbox, slot.order);
         let body_hash = crate::http::body_hash(&serde_json::to_string(d)?);
+        // The same hold a visitor's order takes, before the Order decides. A refusal is logged
+        // and the order skipped, never retried.
+        let Some(day) = slot.schedule.clone() else {
+            console_log!(
+                "{{\"event\":\"sim_slot_full\",\"sandbox\":\"{sandbox}\",\"rule\":\"no-such-slot\"}}"
+            );
+            return Ok(Placed::Refused("no-such-slot".into()));
+        };
+        let at = business_at(now, slot.clock_offset_s);
+        let expires_at = at
+            .plus_minutes(EXPIRY_MINUTES)
+            .map_err(|e| Error::RustError(e.to_string()))?;
+        let request = schedule::hold_for_order(
+            slot.order,
+            d.kind,
+            d.slot,
+            d.zone.clone(),
+            &d.lines,
+            menu,
+            expires_at,
+        );
+        let day_birth = Birth {
+            sandbox,
+            name: day.clone(),
+            clock_offset_s: slot.clock_offset_s,
+            clock_v: slot.clock_v,
+        };
+        let at = match schedule::hold(
+            &self.env,
+            &day_birth,
+            &d.key,
+            &body_hash,
+            request,
+            Some(d.key.clone()),
+        )
+        .await?
+        {
+            HoldAnswer::Held(view) => view.expires_at.plus_minutes(-EXPIRY_MINUTES).ok(),
+            HoldAnswer::Refused(r) => {
+                let rule = r.rule.unwrap_or_default();
+                console_log!(
+                    "{{\"event\":\"sim_slot_full\",\"sandbox\":\"{sandbox}\",\"rule\":{rule:?}}}"
+                );
+                return Ok(Placed::Refused(rule));
+            }
+            HoldAnswer::KeyReused => return Ok(Placed::Refused("key-reused".into())),
+            HoldAnswer::Gone => return Ok(Placed::Stop),
+        };
         let mut res = sql::call(
             &self.env,
             order::BINDING,
@@ -920,6 +1005,7 @@ impl Simulator {
                 menu: menu.clone(),
                 tax_bp: DEFAULT_TAX_BP,
                 cause: Some(d.key.clone()),
+                at,
             }),
         )
         .await?;
@@ -935,6 +1021,9 @@ impl Simulator {
                     rule: Option<String>,
                 }
                 let r: Refused = serde_json::from_str(&res.text().await?).unwrap_or_default();
+                if r.error == "order" {
+                    schedule::release(&self.env, &day, &d.key, slot.order).await;
+                }
                 return Ok(Placed::Refused(r.rule.unwrap_or(r.error)));
             }
             _ => return Ok(Placed::Stop),
@@ -1106,7 +1195,17 @@ mod tests {
         for d in &first {
             assert!(d.key.starts_with("sim:"));
             assert!(personas.contains(&d.customer));
-            assert_eq!(d.slot.to_string(), "2026-11-07T13:15:00-07:00");
+            assert!(d.slot >= at.plus_minutes(SLOT_AHEAD_MINUTES).unwrap());
+            let day = BakeryDate::of(d.slot);
+            let starts = match d.kind {
+                OrderKind::Pickup => day.slot_starts(),
+                OrderKind::Delivery => day.window_starts(),
+            };
+            assert!(
+                starts.contains(&d.slot),
+                "{} is a start the day takes",
+                d.slot
+            );
             assert_eq!(d.zone.is_some(), d.kind == OrderKind::Delivery);
             for l in &d.lines {
                 assert_eq!(
@@ -1135,6 +1234,39 @@ mod tests {
             .count();
         assert!((60..=150).contains(&declined), "{declined} of 600");
         assert!(keys.iter().all(|k| card_for(k) == card_for(k)));
+    }
+
+    #[test]
+    fn a_minutes_orders_spread_over_open_starts() {
+        assert_eq!(
+            (0..6).map(|j| spread(29_000_000, j)).collect::<Vec<_>>(),
+            [0, 1, 2, 3, 4, 5]
+        );
+        assert_eq!(spread(29_000_001, 0), 6);
+        let t = |s: &str| s.parse::<BusinessTime>().unwrap();
+        // Past closing on a Saturday: Sunday's first slot and window.
+        let late = t("2026-11-07T14:50:00-07:00");
+        assert_eq!(
+            open_start(late, OrderKind::Pickup).unwrap().to_string(),
+            "2026-11-08T07:00:00-07:00"
+        );
+        assert_eq!(
+            open_start(late, OrderKind::Delivery).unwrap().to_string(),
+            "2026-11-08T09:00:00-07:00"
+        );
+        // Sunday afternoon: Monday is closed, so Tuesday.
+        assert_eq!(
+            open_start(t("2026-11-08T15:00:00-07:00"), OrderKind::Pickup)
+                .unwrap()
+                .to_string(),
+            "2026-11-10T07:00:00-07:00"
+        );
+        assert_eq!(
+            open_start(t("2026-11-07T10:00:00-07:00"), OrderKind::Pickup)
+                .unwrap()
+                .to_string(),
+            "2026-11-07T10:00:00-07:00"
+        );
     }
 
     #[test]

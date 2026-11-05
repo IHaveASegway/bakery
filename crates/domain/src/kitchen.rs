@@ -14,8 +14,14 @@
 //!   card to move, so a later event is refused with [`BoardError::UnknownOrder`] and the consumer
 //!   retries it.
 //!
-//! Protocol v1, the socket's frames, arrives with the Worker; [`Board::snapshot`] is what a
-//! joining socket is sent.
+//! The board also draws each day's bake list from the Schedule's events (docs/domain.md,
+//! "Ubiquitous language": the production plan as the kitchen board shows it). Those need no
+//! `seq` wait either: `BakeListChanged` carries the plan's `version`, and a higher one replaces
+//! a lower; `SlotReserved` and `SlotReleased` keep, per day, which orders are reserved, each
+//! ref's latest `seq` winning.
+//!
+//! Protocol v1, the socket's frames, arrives with the Worker; [`Board::snapshot`] and
+//! [`Board::bake_lists`] are what a joining socket is sent.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -24,7 +30,8 @@ use thiserror::Error;
 
 use crate::aggregate::{DomainEvent, EventCodecError};
 use crate::order::{Line, OrderEvent, OrderKind};
-use crate::{BusinessTime, Envelope, Ulid};
+use crate::schedule::{PlanLine, ScheduleEvent};
+use crate::{BakeryDate, BusinessTime, Envelope, Ulid};
 
 /// Where a card sits on the board. A card leaves the board when its order is picked up,
 /// delivered, cancelled or expired.
@@ -60,6 +67,30 @@ pub struct Card {
     pub updated_seq: u64,
 }
 
+/// One day's bake list as the board shows it: the Schedule's latest plan, and how many orders
+/// are reserved that day.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BakeList {
+    pub date: BakeryDate,
+    /// The plan's version; 0 until the day's first `BakeListChanged` arrives.
+    pub version: u32,
+    pub lines: Vec<PlanLine>,
+    pub reserved: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct Plan {
+    version: u32,
+    lines: Vec<PlanLine>,
+}
+
+/// Whether one ref is reserved on its day, as of the Schedule stream's `seq`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+struct SlotMark {
+    seq: u64,
+    reserved: bool,
+}
+
 /// What [`Board::apply`] did, so the Kitchen knows what to fan out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BoardChange {
@@ -67,6 +98,8 @@ pub enum BoardChange {
     Upserted(Card),
     /// A card left the board; send its order id.
     Removed(Ulid),
+    /// A day's bake list or reserved count changed; send it.
+    BakeList(BakeList),
     /// Nothing changed; send nothing.
     Unchanged(Ignored),
 }
@@ -95,12 +128,18 @@ pub enum BoardError {
     Codec(#[from] EventCodecError),
 }
 
-/// The board: cards by order id, the highest `seq` per order, and the event ids seen.
+/// The board: cards by order id, the highest `seq` per order, the event ids seen, and each
+/// day's plan and reserved refs. The last two are new in PR 6, so a board stored before them
+/// reads with both empty.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Board {
     cards: BTreeMap<Ulid, Card>,
     heads: BTreeMap<Ulid, u64>,
     seen: BTreeSet<Ulid>,
+    #[serde(default)]
+    plans: BTreeMap<BakeryDate, Plan>,
+    #[serde(default)]
+    slots: BTreeMap<BakeryDate, BTreeMap<Ulid, SlotMark>>,
 }
 
 impl Board {
@@ -109,6 +148,11 @@ impl Board {
     pub fn apply(&mut self, envelope: &Envelope) -> Result<BoardChange, BoardError> {
         if self.seen.contains(&envelope.id) {
             return Ok(BoardChange::Unchanged(Ignored::Duplicate));
+        }
+        if ScheduleEvent::NAMES.contains(&envelope.event_type.as_str()) {
+            let change = self.apply_schedule(envelope)?;
+            self.seen.insert(envelope.id);
+            return Ok(change);
         }
         if !OrderEvent::NAMES.contains(&envelope.event_type.as_str()) {
             self.seen.insert(envelope.id);
@@ -188,6 +232,88 @@ impl Board {
 
     pub fn card(&self, order: Ulid) -> Option<&Card> {
         self.cards.get(&order)
+    }
+
+    /// Every day the board has heard of, by date: its plan and its reserved count. The Worker
+    /// prunes days before today.
+    pub fn bake_lists(&self) -> Vec<BakeList> {
+        let dates: BTreeSet<BakeryDate> = self
+            .plans
+            .keys()
+            .chain(self.slots.keys())
+            .copied()
+            .collect();
+        dates.into_iter().map(|d| self.bake_list(d)).collect()
+    }
+
+    /// One day's bake list; empty, version 0, for a day the board has not heard of.
+    pub fn bake_list(&self, date: BakeryDate) -> BakeList {
+        let plan = self.plans.get(&date).cloned().unwrap_or_default();
+        let reserved = self
+            .slots
+            .get(&date)
+            .map_or(0, |refs| refs.values().filter(|m| m.reserved).count());
+        BakeList {
+            date,
+            version: plan.version,
+            lines: plan.lines,
+            // A day holds far fewer than 4 billion orders.
+            reserved: reserved as u32,
+        }
+    }
+
+    /// Drops the bake lists of days before `today`.
+    pub fn prune_before(&mut self, today: BakeryDate) {
+        self.plans.retain(|d, _| *d >= today);
+        self.slots.retain(|d, _| *d >= today);
+    }
+
+    fn apply_schedule(&mut self, envelope: &Envelope) -> Result<BoardChange, BoardError> {
+        let stale = Ok(BoardChange::Unchanged(Ignored::Stale));
+        match ScheduleEvent::from_envelope(envelope)? {
+            ScheduleEvent::BakeListChanged {
+                date,
+                version,
+                lines,
+            } => {
+                let plan = self.plans.entry(date).or_default();
+                if version <= plan.version {
+                    return stale;
+                }
+                *plan = Plan { version, lines };
+                Ok(BoardChange::BakeList(self.bake_list(date)))
+            }
+            ScheduleEvent::SlotReserved {
+                date, reference, ..
+            } => self.mark(date, reference, envelope.seq, true),
+            ScheduleEvent::SlotReleased {
+                date, reference, ..
+            } => self.mark(date, reference, envelope.seq, false),
+            ScheduleEvent::SlotHeld { .. }
+            | ScheduleEvent::SlotFulfilled { .. }
+            | ScheduleEvent::CapacityChanged { .. }
+            | ScheduleEvent::CapsRefreshed { .. } => {
+                Ok(BoardChange::Unchanged(Ignored::NotForBoard))
+            }
+        }
+    }
+
+    fn mark(
+        &mut self,
+        date: BakeryDate,
+        reference: Ulid,
+        seq: u64,
+        reserved: bool,
+    ) -> Result<BoardChange, BoardError> {
+        let refs = self.slots.entry(date).or_default();
+        if refs.get(&reference).is_some_and(|m| seq <= m.seq) {
+            return Ok(BoardChange::Unchanged(Ignored::Stale));
+        }
+        let was = refs.insert(reference, SlotMark { seq, reserved });
+        if was.is_some_and(|m| m.reserved) == reserved {
+            return Ok(BoardChange::Unchanged(Ignored::Stale));
+        }
+        Ok(BoardChange::BakeList(self.bake_list(date)))
     }
 
     fn move_card(
@@ -409,7 +535,7 @@ mod tests {
     fn other_types_and_bad_streams() {
         let mut board = Board::default();
         let mut slot = envelope(1, 1, &placed(1));
-        slot.event_type = "SlotReserved".into();
+        slot.event_type = "SandboxSeeded".into();
         assert_eq!(
             board.apply(&slot).unwrap(),
             BoardChange::Unchanged(Ignored::NotForBoard)
@@ -430,6 +556,204 @@ mod tests {
         }
         let orders: Vec<Ulid> = board.snapshot().iter().map(|c| c.order).collect();
         assert_eq!(orders, [ulid(1), ulid(2), ulid(3)]);
+    }
+
+    fn day(text: &str) -> BakeryDate {
+        text.parse().unwrap()
+    }
+
+    fn schedule_envelope(date: &str, seq: u64, event: &ScheduleEvent) -> Envelope {
+        Envelope {
+            v: 1,
+            id: ulid(900_000 + u128::from(seq) + 1_000 * u128::from(day(date).d())),
+            sandbox: ulid(7),
+            stream: format!("schedule:{}:{date}", ulid(7)),
+            seq,
+            event_type: event.name().to_owned(),
+            at: "2026-11-07T08:00:00-07:00".parse().unwrap(),
+            recorded_at: WallTime::from_unix_ms(1_793_000_000_000).unwrap(),
+            data: event.to_data(),
+            cause: None,
+        }
+    }
+
+    fn plan(date: &str, version: u32, qty: u32) -> ScheduleEvent {
+        ScheduleEvent::BakeListChanged {
+            date: day(date),
+            version,
+            lines: vec![PlanLine {
+                item: "fern-loaf".into(),
+                qty,
+                start: format!("{date}T09:00:00-07:00").parse().unwrap(),
+            }],
+        }
+    }
+
+    fn slot(date: &str, order: u128, reserved: bool) -> ScheduleEvent {
+        let (kind, date, start, reference) = (
+            crate::schedule::HoldKind::Slot,
+            day(date),
+            format!("{date}T09:00:00-07:00").parse().unwrap(),
+            ulid(order),
+        );
+        if reserved {
+            ScheduleEvent::SlotReserved {
+                kind,
+                date,
+                start,
+                reference,
+                revived: false,
+            }
+        } else {
+            ScheduleEvent::SlotReleased {
+                kind,
+                date,
+                start,
+                reference,
+                reason: crate::schedule::ReleaseReason::Cancelled,
+            }
+        }
+    }
+
+    #[test]
+    fn a_higher_plan_version_replaces_a_lower_and_others_are_ignored() {
+        let mut board = Board::default();
+        let change = board
+            .apply(&schedule_envelope(
+                "2026-11-08",
+                2,
+                &plan("2026-11-08", 2, 5),
+            ))
+            .unwrap();
+        let BoardChange::BakeList(list) = change else {
+            panic!("{change:?}");
+        };
+        assert_eq!((list.version, list.lines[0].qty), (2, 5));
+        // Version 1 arrives late, and version 2 again under another id: both ignored.
+        assert_eq!(
+            board
+                .apply(&schedule_envelope(
+                    "2026-11-08",
+                    1,
+                    &plan("2026-11-08", 1, 3)
+                ))
+                .unwrap(),
+            BoardChange::Unchanged(Ignored::Stale)
+        );
+        assert_eq!(
+            board
+                .apply(&schedule_envelope(
+                    "2026-11-08",
+                    7,
+                    &plan("2026-11-08", 2, 9)
+                ))
+                .unwrap(),
+            BoardChange::Unchanged(Ignored::Stale)
+        );
+        board
+            .apply(&schedule_envelope(
+                "2026-11-08",
+                3,
+                &plan("2026-11-08", 3, 8),
+            ))
+            .unwrap();
+        assert_eq!(board.bake_list(day("2026-11-08")).lines[0].qty, 8);
+    }
+
+    #[test]
+    fn reserved_refs_are_counted_per_day_by_latest_seq() {
+        let mut board = Board::default();
+        let d = "2026-11-07";
+        board
+            .apply(&schedule_envelope(d, 1, &slot(d, 1, true)))
+            .unwrap();
+        board
+            .apply(&schedule_envelope(d, 2, &slot(d, 2, true)))
+            .unwrap();
+        // Order 2's release arrives before an older, redelivered reservation of it.
+        board
+            .apply(&schedule_envelope(d, 5, &slot(d, 2, false)))
+            .unwrap();
+        assert_eq!(
+            board
+                .apply(&schedule_envelope(d, 4, &slot(d, 2, true)))
+                .unwrap(),
+            BoardChange::Unchanged(Ignored::Stale)
+        );
+        assert_eq!(board.bake_list(day(d)).reserved, 1);
+        // A duplicate delivery is a duplicate.
+        let again = schedule_envelope(d, 1, &slot(d, 1, true));
+        assert_eq!(
+            board.apply(&again).unwrap(),
+            BoardChange::Unchanged(Ignored::Duplicate)
+        );
+        // A release of an order the board never saw reserved changes no count.
+        assert_eq!(
+            board
+                .apply(&schedule_envelope(d, 6, &slot(d, 3, false)))
+                .unwrap(),
+            BoardChange::Unchanged(Ignored::Stale)
+        );
+    }
+
+    #[test]
+    fn bake_lists_are_by_date_and_prune() {
+        let mut board = Board::default();
+        board
+            .apply(&schedule_envelope(
+                "2026-11-10",
+                1,
+                &plan("2026-11-10", 1, 2),
+            ))
+            .unwrap();
+        board
+            .apply(&schedule_envelope(
+                "2026-11-07",
+                1,
+                &slot("2026-11-07", 1, true),
+            ))
+            .unwrap();
+        board
+            .apply(&schedule_envelope(
+                "2026-11-08",
+                1,
+                &plan("2026-11-08", 1, 4),
+            ))
+            .unwrap();
+        let dates: Vec<String> = board
+            .bake_lists()
+            .iter()
+            .map(|b| b.date.to_string())
+            .collect();
+        assert_eq!(dates, ["2026-11-07", "2026-11-08", "2026-11-10"]);
+        assert_eq!(board.bake_lists()[0].version, 0);
+        assert_eq!(board.bake_lists()[0].reserved, 1);
+        board.prune_before(day("2026-11-08"));
+        assert_eq!(board.bake_lists().len(), 2);
+        // Schedule events the board does not draw, and the cards, are untouched.
+        let held = ScheduleEvent::CapsRefreshed {
+            menu_version: 2,
+            caps: vec![],
+        };
+        assert_eq!(
+            board
+                .apply(&schedule_envelope("2026-11-08", 9, &held))
+                .unwrap(),
+            BoardChange::Unchanged(Ignored::NotForBoard)
+        );
+        assert!(board.snapshot().is_empty());
+    }
+
+    #[test]
+    fn a_board_stored_before_bake_lists_still_reads() {
+        let mut board = Board::default();
+        board.apply(&envelope(1, 1, &placed(1))).unwrap();
+        let mut v = serde_json::to_value(&board).unwrap();
+        let o = v.as_object_mut().unwrap();
+        o.remove("plans");
+        o.remove("slots");
+        let back: Board = serde_json::from_value(v).unwrap();
+        assert_eq!(back, board);
     }
 
     proptest! {

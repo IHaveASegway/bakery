@@ -85,6 +85,30 @@ pub struct Place {
     /// The events' `cause` when it is not the key: `sim:<ulid>` for the Simulator.
     #[serde(default)]
     pub cause: Option<String>,
+    /// The business time of placement the caller held the slot at: the order is decided at it,
+    /// so its `held_until` is the hold's `expires_at` to the millisecond. Used only when it is
+    /// no later than this object's own business time (a few seconds of skew allowed) and no
+    /// more than 15 minutes earlier; otherwise the object's own time decides.
+    #[serde(default)]
+    pub at: Option<BusinessTime>,
+}
+
+/// How far a caller's placement time may run ahead of this object's clock.
+const AT_SKEW_MS: i64 = 5_000;
+
+/// The business time `PlaceOrder` is decided at: the caller's, when it is a time this object
+/// could have read itself in the hold's 15 minutes, else this object's own.
+pub fn placement_time(own: BusinessTime, asked: Option<BusinessTime>) -> BusinessTime {
+    match asked {
+        Some(at)
+            if at.unix_ms() <= own.unix_ms() + AT_SKEW_MS
+                && own.unix_ms() - at.unix_ms()
+                    <= bakery_domain::order::EXPIRY_MINUTES * 60_000 =>
+        {
+            at
+        }
+        _ => own,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -216,7 +240,7 @@ impl DurableObject for Order {
                 _ => stream::delete_timer(&storage.sql(), &timer.id)?,
             }
         }
-        stream::arm(&storage, now).await?;
+        stream::rearm(&storage, now, CLASS).await?;
         Response::empty()
     }
 }
@@ -298,7 +322,7 @@ impl Order {
             .or_else(|_| random::ulid(now))
             .map_err(|_| Error::RustError("command id".into()))?;
         let ctx = DecideContext {
-            now: business_at(now, offset),
+            now: placement_time(business_at(now, offset), p.at),
             id,
         };
         let existing = match &meta {
@@ -769,17 +793,23 @@ fn state_record_held(events: &[Envelope]) -> Result<Option<BusinessTime>> {
     Ok(Order::state_of(events)?.record().map(|r| r.held_until))
 }
 
-/// The 422 the router turns into problem `order`: the rule, and for the note its free-text
-/// class, never the text.
+/// The 422 the router turns into a problem: the rule, for the note its free-text class, never
+/// the text, and for a lead time the sentence naming the hours (the menu's item name and the
+/// rule's numbers, nothing the visitor typed).
 fn rejection(e: &OrderError) -> Result<Response> {
+    json(&rejection_body(e), 422)
+}
+
+pub fn rejection_body(e: &OrderError) -> serde_json::Value {
     let class = match e {
         OrderError::Note(f) => Some(f.slug()),
         _ => None,
     };
-    json(
-        &serde_json::json!({ "error": "order", "rule": e.rule(), "class": class }),
-        422,
-    )
+    let message = match e {
+        OrderError::LeadTimeNotMet { .. } => Some(e.to_string()),
+        _ => None,
+    };
+    serde_json::json!({ "error": "order", "rule": e.rule(), "class": class, "message": message })
 }
 
 /// Domain values to wire values through their shared serde names.
@@ -891,6 +921,31 @@ mod tests {
         assert_eq!(r.events_seq, 1);
         assert_eq!(r.lines[0].unit_cents, 950);
         assert_eq!(r.total_cents, 2_090);
+    }
+
+    #[test]
+    fn the_callers_placement_time_is_used_only_inside_the_hold() {
+        let own: BusinessTime = "2026-11-07T09:00:00-07:00".parse().unwrap();
+        let at = |m: i64| own.plus_minutes(m).unwrap();
+        assert_eq!(placement_time(own, None), own);
+        assert_eq!(placement_time(own, Some(at(-1))), at(-1));
+        assert_eq!(placement_time(own, Some(at(-15))), at(-15));
+        assert_eq!(placement_time(own, Some(at(-16))), own);
+        assert_eq!(placement_time(own, Some(at(1))), own);
+    }
+
+    #[test]
+    fn a_lead_time_refusal_names_its_hours() {
+        let e = OrderError::LeadTimeNotMet {
+            item: "chocolate-layer-cake".into(),
+            name: "Chocolate layer cake".into(),
+            needed_minutes: 2_880,
+            away_minutes: 1_500,
+        };
+        let body = rejection_body(&e);
+        assert_eq!(body["rule"], "lead-time");
+        assert!(body["message"].as_str().unwrap().contains("48 h"));
+        assert!(rejection_body(&OrderError::NoLines)["message"].is_null());
     }
 
     #[test]

@@ -9,6 +9,7 @@ pub mod control;
 pub mod kitchen;
 pub mod order;
 pub mod sandbox;
+pub mod schedule;
 pub mod simulator;
 pub mod sql;
 pub mod stream;

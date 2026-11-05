@@ -20,18 +20,21 @@
 //!   consumer retries); 422 `{error: "envelope"}` for one that cannot be read. An event that
 //!   changed the board goes to every open socket as an `evt` frame.
 //! - `POST /_fault {on}` → 200 `{kitchen}`: the Sandbox's switch, copied here.
-//! - `GET /_board` → 200 `{cards, applied}`: the snapshot a joining socket is sent, and how many
-//!   events changed the board.
+//! - `GET /_board` → 200 `{cards, bake_lists, applied}`: the snapshot a joining socket is sent,
+//!   and how many events changed the board.
 //! - `GET /_ws?kind=staff|guest` with `Upgrade: websocket` → 101: the socket, accepted on the
 //!   Hibernation API. The router checked the session, the `Origin` and the sandbox first.
 //! - `POST /_heartbeat` → 204: the console is open with no socket (it sends one every 30 s).
 //! - `GET /_presence` → 200 `{sockets, last_heartbeat}`: what the Simulator asks each minute.
 //! - `POST /_wipe`, `POST /_clock`: the child protocol (child.rs). The wipe says `bye` to every
-//!   socket and closes it with 1001 first.
+//!   socket and closes it with 1001 first; a newer clock's `event` goes to every socket.
 //!
 //! The socket, protocol v1, JSON text frames. Server to client: `{t: "snapshot", v: 1, board:
-//! {cards}, seq}` on open, `seq` being the count of events that changed the board; `{t: "evt",
-//! v: 1, env}` for each event that changed it; `{t: "presence", v: 1, sockets}` when a socket
+//! {cards, bake_lists}, seq}` on open, `seq` being the count of events that changed the board and
+//! `bake_lists` each day's plan from today on, `[{date, version, lines: [{item, qty, start}],
+//! reserved}]` by date; `{t: "evt", v: 1, env}` for each event that changed it (an order's card,
+//! or a day's `BakeListChanged`, `SlotReserved` or `SlotReleased`), and for the Sandbox's
+//! `ClockAdvanced`, which reaches the Kitchen with its `/_clock`; `{t: "presence", v: 1, sockets}` when a socket
 //! opens or closes; `{t: "bye", v: 1, reason: "wiped" | "limit"}` before the server closes;
 //! `{t: "ack", v: 1, id}` or `{t: "nack", v: 1, id, rule}` for a command. Client to server:
 //! `{t: "cmd", v: 1, id: <ULID>, order: <ULID>, action: "start_production" | "mark_ready" |
@@ -48,8 +51,8 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
 use bakery_app::Clock;
-use bakery_domain::kitchen::{Board, BoardChange, BoardError, Card, Ignored};
-use bakery_domain::{Envelope, Ulid, WallTime};
+use bakery_domain::kitchen::{BakeList, Board, BoardChange, BoardError, Card, Ignored};
+use bakery_domain::{BakeryDate, Envelope, Ulid, WallTime};
 use serde::{Deserialize, Serialize};
 use worker::{
     DurableObject, Env, Error, Method, Request, Response, Result, SqlStorage, State, WebSocket,
@@ -118,6 +121,8 @@ pub struct FaultSwitch {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BoardView {
     pub cards: Vec<Card>,
+    #[serde(default)]
+    pub bake_lists: Vec<BakeList>,
     pub applied: u64,
 }
 
@@ -219,14 +224,25 @@ impl Closing {
     }
 }
 
-pub fn snapshot_frame(cards: &[Card], applied: u64) -> Result<String> {
+/// The `snapshot` frame: the cards and, since PR 6, the bake lists from today on, sorted by
+/// date (`[{date, version, lines: [{item, qty, start}], reserved}]`).
+pub fn snapshot_frame(cards: &[Card], bake_lists: &[BakeList], applied: u64) -> Result<String> {
     Ok(serde_json::json!({
         "t": "snapshot",
         "v": PROTOCOL,
-        "board": { "cards": cards },
+        "board": { "cards": cards, "bake_lists": bake_lists },
         "seq": applied,
     })
     .to_string())
+}
+
+/// The board's bake lists for days from `today` on: an earlier day's plan is spent.
+pub fn bake_lists_from(board: &Board, today: BakeryDate) -> Vec<BakeList> {
+    board
+        .bake_lists()
+        .into_iter()
+        .filter(|b| b.date >= today)
+        .collect()
 }
 
 pub fn evt_frame(envelope: &Envelope) -> Result<String> {
@@ -403,7 +419,7 @@ impl DurableObject for Kitchen {
                         let text = req.text().await?;
                         self.event(&meta, &text)
                     }
-                    (Method::Get, "/_ws") => self.upgrade(&req),
+                    (Method::Get, "/_ws") => self.upgrade(&req, &meta, now),
                     (Method::Post, "/_heartbeat") => {
                         exec(
                             &sql,
@@ -428,6 +444,7 @@ impl DurableObject for Kitchen {
                         json(
                             &BoardView {
                                 cards: board.snapshot(),
+                                bake_lists: bake_lists_from(&board, today(&meta, now)),
                                 applied: u64::try_from(row.applied).unwrap_or(0),
                             },
                             200,
@@ -435,8 +452,13 @@ impl DurableObject for Kitchen {
                     }
                     (Method::Post, "/_clock") => {
                         let body: ClockUpdate = sql::body(&mut req).await?;
+                        let newer = i64::from(body.clock_v) > meta.clock_v;
                         child::clock(&sql, &body)?;
                         stream::arm(&self.state.storage(), now).await?;
+                        // The console's feed shows the jump, once per advance.
+                        if let (true, Some(event)) = (newer, &body.event) {
+                            broadcast(&self.open_sockets(), &evt_frame(event)?);
+                        }
                         json(&serde_json::json!({ "clock_v": body.clock_v }), 200)
                     }
                     _ => refuse(404, "not-found"),
@@ -465,7 +487,7 @@ impl DurableObject for Kitchen {
                 _ => stream::delete_timer(&storage.sql(), &timer.id)?,
             }
         }
-        stream::arm(&storage, now).await?;
+        stream::rearm(&storage, now, CLASS).await?;
         Response::empty()
     }
 
@@ -558,6 +580,11 @@ impl DurableObject for Kitchen {
     }
 }
 
+/// The sandbox's bakery day now.
+fn today(meta: &child::Meta, now: WallTime) -> BakeryDate {
+    BakeryDate::of(meta.business(now))
+}
+
 /// A frame id goes into the log and back to the client only when it is a ULID; anything else
 /// a client sent is dropped.
 fn safe_id(id: &str) -> &str {
@@ -645,7 +672,7 @@ impl Kitchen {
     /// The upgrade: accepted on the Hibernation API with the session kind in the attachment,
     /// then the snapshot, then everyone's presence. A fifth socket is accepted only to be told
     /// why it is closed, which a refused upgrade could not say.
-    fn upgrade(&self, req: &Request) -> Result<Response> {
+    fn upgrade(&self, req: &Request, meta: &child::Meta, now: WallTime) -> Result<Response> {
         let upgrade = req.headers().get("Upgrade")?.unwrap_or_default();
         if !upgrade.eq_ignore_ascii_case("websocket") {
             return refuse(426, "upgrade");
@@ -685,6 +712,7 @@ impl Kitchen {
         let board: Board = serde_json::from_str(&row.body)?;
         server.send_with_str(snapshot_frame(
             &board.snapshot(),
+            &bake_lists_from(&board, today(meta, now)),
             u64::try_from(row.applied).unwrap_or(0),
         )?)?;
         let mut all = open;
@@ -827,6 +855,7 @@ impl Kitchen {
         let (label, changed) = match &change {
             BoardChange::Upserted(_) => ("upserted", true),
             BoardChange::Removed(_) => ("removed", true),
+            BoardChange::BakeList(_) => ("bake-list", true),
             BoardChange::Unchanged(Ignored::Duplicate) => ("duplicate", false),
             BoardChange::Unchanged(Ignored::Stale) => ("stale", false),
             BoardChange::Unchanged(Ignored::NotForBoard) => ("not-for-board", false),
@@ -921,6 +950,55 @@ mod tests {
     }
 
     #[test]
+    fn the_snapshot_carries_the_bake_lists_from_today_on() {
+        use bakery_domain::schedule::{PlanLine, ScheduleEvent};
+        let sandbox = Ulid::from_parts(1, 1);
+        let mut board = Board::default();
+        for (i, date) in ["2026-11-06", "2026-11-08", "2026-11-07"]
+            .iter()
+            .enumerate()
+        {
+            let date: BakeryDate = date.parse().unwrap();
+            let start = date.at_local(600);
+            let event = ScheduleEvent::BakeListChanged {
+                date,
+                version: 1,
+                lines: vec![PlanLine {
+                    item: "fern-loaf".into(),
+                    qty: 2,
+                    start,
+                }],
+            };
+            let n = u128::try_from(i).unwrap() + 10;
+            let envelope = Envelope {
+                v: 1,
+                id: Ulid::from_parts(1, n),
+                sandbox,
+                stream: format!("schedule:{sandbox}:{date}"),
+                seq: 1,
+                event_type: "BakeListChanged".into(),
+                at: start,
+                recorded_at: "2026-11-07T16:00:00.000Z".parse().unwrap(),
+                data: bakery_domain::DomainEvent::to_data(&event),
+                cause: None,
+            };
+            board.apply(&envelope).unwrap();
+        }
+        let lists = bake_lists_from(&board, "2026-11-07".parse().unwrap());
+        let frame: serde_json::Value =
+            serde_json::from_str(&snapshot_frame(&[], &lists, 3).unwrap()).unwrap();
+        let days = frame["board"]["bake_lists"].as_array().unwrap();
+        assert_eq!(days.len(), 2, "the 6th is past");
+        assert_eq!(days[0]["date"], "2026-11-07");
+        assert_eq!(days[1]["date"], "2026-11-08");
+        assert_eq!(days[0]["version"], 1);
+        assert_eq!(days[0]["reserved"], 0);
+        assert_eq!(days[0]["lines"][0]["item"], "fern-loaf");
+        assert_eq!(days[0]["lines"][0]["qty"], 2);
+        assert_eq!(days[0]["lines"][0]["start"], "2026-11-07T10:00:00-07:00");
+    }
+
+    #[test]
     fn frames_are_protocol_v1() {
         let ack = Answer::ack().frame(ID);
         assert_eq!(ack, format!(r#"{{"id":"{ID}","t":"ack","v":1}}"#));
@@ -936,8 +1014,9 @@ mod tests {
         let presence: serde_json::Value = serde_json::from_str(&presence_frame(3)).unwrap();
         assert_eq!(presence["sockets"], 3);
         let snap: serde_json::Value =
-            serde_json::from_str(&snapshot_frame(&[], 5).unwrap()).unwrap();
+            serde_json::from_str(&snapshot_frame(&[], &[], 5).unwrap()).unwrap();
         assert_eq!(snap["board"]["cards"], serde_json::json!([]));
+        assert_eq!(snap["board"]["bake_lists"], serde_json::json!([]));
         assert_eq!(snap["seq"], 5);
         assert_eq!(Closing::Wiped.code(), 1001);
         assert_eq!(Closing::TooMany.code(), 1008);

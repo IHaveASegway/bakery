@@ -88,7 +88,7 @@ function reduce(state: KitchenState, event: Event): KitchenState {
               cards[order] = { ...card, cause: before.cause, last: before.last };
             }
           }
-          return { ...state, board: { cards, heads: frame.board.heads } };
+          return { ...state, board: { ...frame.board, cards } };
         }
         case 'evt':
           return {

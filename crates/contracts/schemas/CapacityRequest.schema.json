@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CapacityRequest",
+  "description": "`PATCH /v1/sandboxes/{id}/schedule/{date}/capacity`, signed-in sessions only: set one\ncapacity for the day. The answer is the day's `ScheduleResponse`.",
+  "type": "object",
+  "properties": {
+    "capacity": {
+      "description": "The new capacity. Places already taken stay; a cut below them only stops new ones.",
+      "type": "integer",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0
+    },
+    "target": {
+      "description": "What to change, in the domain's grammar: `slot:HH:MM` (a slot start on the quarter hour,\nsuch as `slot:14:45`), `zone:z1` (to `z3`), `item:<slug>` (such as `item:croissant`) or\n`catering`.",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "target",
+    "capacity"
+  ]
+}

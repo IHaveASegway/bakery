@@ -6,8 +6,10 @@
 //!
 //! - `POST /_wipe {cause}` → 200 `{rows_deleted}`: alarm deleted, then `delete_all`. Idempotent:
 //!   an empty object answers `{rows_deleted: 0}`.
-//! - `POST /_clock {clock_offset_s, clock_v}` → 200 `{clock_v}`: every timer that moves with
-//!   business time gets its wall time recomputed, and the alarm is re-armed for the earliest.
+//! - `POST /_clock {clock_offset_s, clock_v, event?}` → 200 `{clock_v}`: every timer that moves
+//!   with business time gets its wall time recomputed, and the alarm is re-armed for the
+//!   earliest; re-arming the time already armed writes nothing. `event` is the `ClockAdvanced`
+//!   envelope, which only the Kitchen reads.
 //!   An older `clock_v` than the one held changes nothing. 410 when the child has no `meta`.
 //! - Every other path on a child with no `meta` row answers 410, except its create path.
 
@@ -111,6 +113,10 @@ pub async fn wipe(state: &State) -> Result<WipeReport> {
 pub struct ClockUpdate {
     pub clock_offset_s: i64,
     pub clock_v: u32,
+    /// The `ClockAdvanced` envelope, sent to the Kitchen only, which shows it on the console's
+    /// feed; every other child ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event: Option<bakery_domain::Envelope>,
 }
 
 /// `/_clock`: the new offset, and every business-time timer's wall time recomputed from it.

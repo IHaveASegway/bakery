@@ -17,6 +17,13 @@ export interface Problem {
    */
   instance?: string | null;
   /**
+   * An extension member (RFC 9457, section 3.2), set only on the `slot-full` problem: the
+   * start of the next pickup slot with a place free that day, a business time such as
+   * `2026-11-07T10:15:00-07:00`. Absent when nothing later that day is free, and on every
+   * other problem.
+   */
+  next_free?: string | null;
+  /**
    * The HTTP status code.
    */
   status: number;

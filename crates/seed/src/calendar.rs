@@ -1,18 +1,17 @@
 //! Civil-date arithmetic for the seed: the day of the week, the birth date and business times
-//! at the bakery's Mountain standard offset.
+//! under America/Denver's rule.
 //!
-//! `bakery-domain` keeps its own copy of the day-count functions private to its time module,
-//! so the seed carries a small one of its own (Howard Hinnant's `days_from_civil` and
-//! `civil_from_days`) and tests it against known dates.
+//! The day-count functions (Howard Hinnant's `days_from_civil` and `civil_from_days`, and the
+//! weekday) live in `bakery_domain::calendar`, the one copy, and are re-exported here. The seed's
+//! business times go through the same calendar, so a summer date carries `-06:00` and a winter
+//! date `-07:00`.
 
 use std::fmt;
 
-use bakery_domain::{BusinessTime, MS_PER_DAY};
+use bakery_domain::BusinessTime;
+use bakery_domain::calendar::BakeryDate;
+pub use bakery_domain::calendar::{civil_from_days, days_from_civil, weekday};
 use serde::{Serialize, Serializer};
-
-/// Mountain standard time, minutes east of UTC. The zone's summer rules arrive with the first
-/// rule that needs them (docs/domain.md, "Money and time"); the seed uses `-07:00` throughout.
-pub const OFFSET_MINUTES: i16 = -420;
 
 /// Short names, Monday first, as `days_baked` lists them.
 pub const WEEKDAY_NAMES: [&str; 7] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
@@ -20,47 +19,25 @@ pub const MONDAY: u8 = 0;
 pub const SATURDAY: u8 = 5;
 pub const SUNDAY: u8 = 6;
 
-/// Days since 1970-01-01 of a proleptic Gregorian date.
-pub fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let mp = (m + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
-}
-
-/// The `(year, month, day)` of a day count from 1970-01-01.
-pub fn civil_from_days(z: i64) -> (i64, i64, i64) {
-    let z = z + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    (yoe + era * 400 + i64::from(m <= 2), m, d)
-}
-
-/// The day of the week of a day count, Monday 0 to Sunday 6. 1970-01-01 was a Thursday.
-pub fn weekday(days: i64) -> u8 {
-    // The remainder is 0 to 6, so it fits.
-    (days + 3).rem_euclid(7) as u8
-}
-
 /// `YYYY-MM-DD` for a day count.
 pub fn date_string(days: i64) -> String {
     let (y, m, d) = civil_from_days(days);
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-/// A business time `minutes` after midnight of the day `days`, at the Mountain offset. Negative
-/// minutes reach back into earlier days.
+/// The instant the local clock reads `minutes` after midnight on the civil day `days`, at the
+/// offset Denver uses then. Minutes outside the day (negative, or past 24 hours) count elapsed
+/// minutes from that day's midnight, so they reach into the neighbouring days.
 pub fn business_time(days: i64, minutes: i64) -> BusinessTime {
-    let utc_ms = days * MS_PER_DAY + (minutes - i64::from(OFFSET_MINUTES)) * 60_000;
-    BusinessTime::new(utc_ms, OFFSET_MINUTES).expect("seed dates are far inside the year range")
+    let date = BakeryDate::from_days(days);
+    match u16::try_from(minutes) {
+        Ok(m) if m < 24 * 60 => date.at_local(m),
+        _ => {
+            let midnight = date.at_local(0);
+            bakery_domain::calendar::local(midnight.unix_ms() + minutes * 60_000)
+                .expect("seed dates are far inside the year range")
+        }
+    }
 }
 
 /// The sandbox's birth business date, `YYYY-MM-DD`.
@@ -187,5 +164,17 @@ mod tests {
         assert_eq!(t.to_string(), "2026-11-07T09:15:00-07:00");
         let earlier = business_time(days_from_civil(2026, 11, 7), -30);
         assert_eq!(earlier.to_string(), "2026-11-06T23:30:00-07:00");
+    }
+
+    #[test]
+    fn summer_business_times_carry_the_daylight_offset() {
+        let t = business_time(days_from_civil(2026, 7, 14), 14 * 60 + 45);
+        assert_eq!(t.to_string(), "2026-07-14T14:45:00-06:00");
+        assert_eq!(BakeryDate::of(t).to_string(), "2026-07-14");
+        let earlier = business_time(days_from_civil(2026, 7, 14), -30);
+        assert_eq!(earlier.to_string(), "2026-07-13T23:30:00-06:00");
+        // The day the clocks go forward: 07:00 is already daylight time.
+        let spring = business_time(days_from_civil(2026, 3, 8), 7 * 60);
+        assert_eq!(spring.to_string(), "2026-03-08T07:00:00-06:00");
     }
 }

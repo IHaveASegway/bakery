@@ -2,7 +2,7 @@
 
 What the system of the made-up bakery, Proof of Concept Bakery, protects, from whom, and how. This doc owns the threat model, the headers, the Content Security Policy (CSP) and CORS, sign-in and sessions, sandbox isolation, the privacy and data inventory, the wipe as a privacy control, payments safety, the secrets inventory, the content firewall here, commit identities, the supply chain and account continuity. Money and denial of wallet are in [cost.md](cost.md); how the Durable Object (DO) classes fit together is in [architecture.md](architecture.md); rotation, leak response and the Stripe sandbox reset are runbooks in [operations.md](operations.md). The decisions are [ADR 0005](adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md) (sandbox), 0006 (sign-in), 0007 (Stripe) and 0009 (the API hostname) ([ADR index](adr/README.md)).
 
-Status: Updated in PR 5 · 2026-11-05
+Status: Updated in PR 6 · 2026-11-05
 
 Prices, limits and versions are as of 2026-11-04, with sources.
 
@@ -209,7 +209,7 @@ Decided on 2026-11-04 (Q24 · Q-guest, Q25 · Q-ttl, Q45 · Q-guest-scope; [ADR 
 | Email address, for email sign-in, later (Q43 · Q-email-signin) | The visitor, typed each time | Nobody here: one request's memory, then Cloudflare's Email Service delivery logs | One request; Cloudflare's retention for its logs | Sending the sign-in link; only its HMAC names the `Account` |
 | Demo username and argon2id hash | The visitor | The `Account` | As the account id | Demo sign-in |
 | Sandbox contents, the two free-text fields included | The seed and the visitor | The sandbox's objects | Until 10:00 UTC; 36 h at most; recoverable by the account owner for 30 days ([The wipe](#the-wipe)) | The demo |
-| Business clock offset | The visitor (Q12 · Q-clock) | The `Sandbox` | As the sandbox | Time travel |
+| Business clock offset | The visitor (Q12 · Q-clock) | The `Sandbox`, copied to each child; signed-in visitors only, a guest's advance being 403 `guest-scope` (PR 6) | As the sandbox | Time travel |
 | Turnstile signals | Turnstile, on creation screens | Cloudflare | Cloudflare's policy | Abuse prevention; no pre-clearance, so no `cf_clearance` |
 | `HMAC(daily salt, IP)`; the address is never stored or logged | `bakery-api` | Log lines; the rate limiter's counters | Logs 7 days on Paid ([Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/)), Observability's retention from 2026-12-01 ([pricing](https://developers.cloudflare.com/observability/pricing/)); the salt one UTC day, in memory | Rate limits, caps, abuse review |
 | Country and continent | `request.cf` | Logs; Analytics Engine | Logs as above; Analytics Engine 3 months ([limits](https://developers.cloudflare.com/analytics/analytics-engine/limits/)) | Capacity and abuse review |

@@ -1,5 +1,7 @@
-import { actionFor, groupByState, isSimulated, type Card } from '../lib/kitchen';
+import { actionFor, bakeListsByDate, groupByState, isSimulated, type Card } from '../lib/kitchen';
+import { dateOf, mountainLocal } from '../lib/slots';
 import { useKitchen, type Command } from '../lib/use-kitchen';
+import BakeList from './BakeList';
 import GuestNote from './GuestNote';
 import RefundControls from './RefundControls';
 
@@ -102,11 +104,14 @@ function CardView({
 export default function KitchenBoard({
   sandboxId,
   isGuest,
+  clockOffsetS = 0,
   onWiped,
   onRefunded,
 }: {
   sandboxId: string;
   isGuest: boolean;
+  /** Business time minus wall time, to tell which bake list is today's. */
+  clockOffsetS?: number;
   onWiped: () => void;
   /** Called after a refund, so the ledger beside the board looks again. */
   onRefunded: () => void;
@@ -115,6 +120,8 @@ export default function KitchenBoard({
   const open = kitchen.status === 'open';
   const groups = groupByState(kitchen.board);
   const total = groups.reduce((n, g) => n + g.cards.length, 0);
+  const today = dateOf(mountainLocal(Date.now() + clockOffsetS * 1000));
+  const bakeLists = bakeListsByDate(kitchen.board, today);
 
   const status = {
     connecting: 'Connecting to the kitchen…',
@@ -178,6 +185,8 @@ export default function KitchenBoard({
           )}
         </section>
       ))}
+
+      <BakeList lists={bakeLists} today={today} />
 
       <h3 id="feed-heading">Activity feed</h3>
       <p className="hint">The last 50 events the board applied, newest first.</p>

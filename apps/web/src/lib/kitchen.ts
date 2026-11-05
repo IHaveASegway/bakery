@@ -36,13 +36,44 @@ export interface Card {
   last: string | null;
 }
 
+/** One line of a day's plan: how many of an item to have ready for a slot or window start. */
+export interface BakeLine {
+  item: string;
+  qty: number;
+  start: string;
+}
+
+/** One day's bake list as the board shows it: the Schedule's latest plan and the reserved count. */
+export interface BakeList {
+  /** The bakery day, `YYYY-MM-DD`. */
+  date: string;
+  /** The plan's version; 0 until the day's first `BakeListChanged`. */
+  version: number;
+  lines: BakeLine[];
+  /** How many places (orders, catering events) are reserved that day. */
+  reserved: number;
+}
+
+/** Whether one ref is reserved on its day, as of the `seq` of the event that said so. */
+export interface SlotMark {
+  seq: number;
+  reserved: boolean;
+}
+
 export interface BoardState {
   cards: Record<string, Card>;
   /** The highest `seq` applied per order, kept after the card leaves, as the domain's board does. */
   heads: Record<string, number>;
+  /** The bake lists by date. */
+  bakeLists: Record<string, BakeList>;
+  /**
+   * The reservations this page has seen events for, per day and ref, so a repeated or reordered
+   * `SlotReserved` or `SlotReleased` does not count twice. A snapshot starts it over.
+   */
+  marks: Record<string, Record<string, SlotMark>>;
 }
 
-export const EMPTY_BOARD: BoardState = { cards: {}, heads: {} };
+export const EMPTY_BOARD: BoardState = { cards: {}, heads: {}, bakeLists: {}, marks: {} };
 
 export interface Envelope {
   id: string;
@@ -98,6 +129,34 @@ function readCard(raw: unknown, fallbackOrder = ''): Card | null {
   };
 }
 
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function readBakeLines(value: unknown): BakeLine[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isObject)
+    .map((l) => ({ item: str(l['item']), qty: num(l['qty']), start: str(l['start']) }))
+    .filter((l) => l.item !== '');
+}
+
+/** The snapshot's `board.bake_lists`: `[{date, version, lines: [{item, qty, start}], reserved}]`. */
+function readBakeLists(value: unknown): BakeList[] {
+  if (!Array.isArray(value)) return [];
+  const out: BakeList[] = [];
+  for (const entry of value) {
+    if (!isObject(entry)) continue;
+    const date = str(entry['date']);
+    if (!DATE.test(date)) continue;
+    out.push({
+      date,
+      version: num(entry['version']),
+      lines: readBakeLines(entry['lines']),
+      reserved: Math.max(0, num(entry['reserved'])),
+    });
+  }
+  return out;
+}
+
 /**
  * The board from a snapshot frame's `board`. The spec leaves its exact shape to the API, so this
  * takes the three natural ones: a list of cards, `{cards: [...]}`, or `{cards: {<order>: card}}`.
@@ -112,7 +171,11 @@ export function boardFromSnapshot(raw: unknown): BoardState {
       list.push(isObject(card) && card['order'] === undefined ? { ...card, order } : card);
     }
   }
-  const board: BoardState = { cards: {}, heads: {} };
+  const board: BoardState = { cards: {}, heads: {}, bakeLists: {}, marks: {} };
+  if (isObject(raw)) {
+    for (const bakeList of readBakeLists(raw['bake_lists']))
+      board.bakeLists[bakeList.date] = bakeList;
+  }
   for (const entry of list) {
     const card = readCard(entry);
     if (card === null) continue;
@@ -194,6 +257,7 @@ const LEAVES = new Set(['OrderPickedUp', 'OrderDelivered', 'OrderExpired', 'Orde
  * An event for an order this page has no card for is ignored; the next snapshot repairs it.
  */
 export function applyEvent(board: BoardState, env: Envelope): BoardState {
+  if (SCHEDULE_EVENTS.has(env.type)) return applyScheduleEvent(board, env);
   const order = orderOf(env.stream);
   if (order === null) return board;
   const head = board.heads[order];
@@ -214,18 +278,101 @@ export function applyEvent(board: BoardState, env: Envelope): BoardState {
       cause: env.cause,
       last: env.type,
     };
-    return { cards, heads };
+    return { ...board, cards, heads };
   }
   const card = cards[order];
   if (card === undefined) return board;
   if (LEAVES.has(env.type)) {
     delete cards[order];
-    return { cards, heads };
+    return { ...board, cards, heads };
   }
   const state = MOVES[env.type];
   if (state === undefined) return board;
   cards[order] = { ...card, state, updated_seq: env.seq, cause: env.cause, last: env.type };
-  return { cards, heads };
+  return { ...board, cards, heads };
+}
+
+const SCHEDULE_EVENTS = new Set(['BakeListChanged', 'SlotReserved', 'SlotReleased']);
+
+/** The day an envelope of the Schedule's stream (`schedule:<sandbox>:<date>`) is about. */
+function scheduleDate(env: Envelope): string | null {
+  const fromData = str(env.data['date']);
+  if (DATE.test(fromData)) return fromData;
+  const fromStream = env.stream.split(':').pop() ?? '';
+  return DATE.test(fromStream) ? fromStream : null;
+}
+
+const emptyDay = (date: string): BakeList => ({ date, version: 0, lines: [], reserved: 0 });
+
+/**
+ * The Schedule's events, folded the way the Kitchen's own board does (crates/domain/src/kitchen.rs).
+ * `BakeListChanged` carries the plan's `version`: a higher one replaces the day's plan, an equal
+ * or lower one is ignored, whatever order they arrive in. `SlotReserved` and `SlotReleased` move
+ * the day's `reserved` count by ref, the latest `seq` of a ref winning, so a repeat counts once.
+ * A release of a ref this page never saw reserved changes nothing: it may have been a hold, and
+ * a count from the snapshot cannot say which. The next snapshot repairs any drift.
+ */
+function applyScheduleEvent(board: BoardState, env: Envelope): BoardState {
+  const date = scheduleDate(env);
+  if (date === null) return board;
+  const day = board.bakeLists[date] ?? emptyDay(date);
+
+  if (env.type === 'BakeListChanged') {
+    const version = num(env.data['version']);
+    if (version <= day.version) return board;
+    const next: BakeList = { ...day, version, lines: readBakeLines(env.data['lines']) };
+    return { ...board, bakeLists: { ...board.bakeLists, [date]: next } };
+  }
+
+  const ref = str(env.data['ref']);
+  if (ref === '') return board;
+  const reserved = env.type === 'SlotReserved';
+  const known = board.marks[date]?.[ref];
+  if (known !== undefined && env.seq <= known.seq) return board;
+  const marks = {
+    ...board.marks,
+    [date]: { ...board.marks[date], [ref]: { seq: env.seq, reserved } },
+  };
+  // A reservation counts once; a release counts only for a reservation this page saw.
+  const delta = reserved ? (known?.reserved ? 0 : 1) : known?.reserved ? -1 : 0;
+  if (delta === 0) return { ...board, marks };
+  const next: BakeList = { ...day, reserved: Math.max(0, day.reserved + delta) };
+  return { ...board, marks, bakeLists: { ...board.bakeLists, [date]: next } };
+}
+
+/** The bake lists by date, earliest first, from `today` on when it is given. */
+export function bakeListsByDate(board: BoardState, today: string | null = null): BakeList[] {
+  return Object.values(board.bakeLists)
+    .filter((b) => today === null || b.date >= today)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export interface BakeGroup {
+  /** The slot or window start, a business time. */
+  start: string;
+  items: { item: string; qty: number }[];
+}
+
+/** A plan's lines grouped by start (in time order) and then item (by name); same item and start summed. */
+export function groupBakeLines(lines: BakeLine[]): BakeGroup[] {
+  const groups = new Map<string, Map<string, number>>();
+  for (const line of lines) {
+    const items = groups.get(line.start) ?? new Map<string, number>();
+    items.set(line.item, (items.get(line.item) ?? 0) + line.qty);
+    groups.set(line.start, items);
+  }
+  const at = (start: string) => {
+    const ms = Date.parse(start);
+    return Number.isNaN(ms) ? Infinity : ms;
+  };
+  return [...groups.entries()]
+    .sort(([a], [b]) => at(a) - at(b) || a.localeCompare(b))
+    .map(([start, items]) => ({
+      start,
+      items: [...items.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([item, qty]) => ({ item, qty })),
+    }));
 }
 
 /** The cards in each column, by slot and then order id, empty columns kept. */

@@ -17,6 +17,7 @@ use std::str::FromStr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::DomainError;
+use crate::calendar::{civil_from_days, days_from_civil};
 
 pub const MS_PER_DAY: i64 = 86_400_000;
 const MS_PER_SECOND: i64 = 1_000;
@@ -90,8 +91,8 @@ pub struct BusinessTime {
 
 impl BusinessTime {
     /// Truncates to the whole second, since business time is shown to the second. The offset
-    /// is the bakery's, `-420` in Mountain standard time and `-360` in summer; the zone's rules
-    /// arrive with the first rule that needs them.
+    /// is the bakery's, `-420` in Mountain standard time and `-360` in summer;
+    /// [`crate::calendar::local`] picks it for an instant.
     pub fn new(unix_ms: i64, offset_minutes: i16) -> Result<BusinessTime, DomainError> {
         if offset_minutes.unsigned_abs() >= 24 * 60 {
             return Err(DomainError::InvalidTime(format!(
@@ -272,29 +273,6 @@ fn days_in_month(y: i64, m: i64) -> i64 {
         2 => 28,
         _ => 31,
     }
-}
-
-// Howard Hinnant's civil-date algorithms, "chrono-Compatible Low-Level Date Algorithms".
-fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let mp = (m + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
-}
-
-fn civil_from_days(z: i64) -> (i64, i64, i64) {
-    let z = z + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    (yoe + era * 400 + i64::from(m <= 2), m, d)
 }
 
 #[cfg(test)]

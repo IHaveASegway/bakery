@@ -162,7 +162,7 @@ impl DurableObject for Catalog {
                 _ => stream::delete_timer(&storage.sql(), &timer.id)?,
             }
         }
-        stream::arm(&storage, now).await?;
+        stream::rearm(&storage, now, CLASS).await?;
         Response::empty()
     }
 }
