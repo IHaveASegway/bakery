@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FaultsResponse",
+  "description": "The answer to a fault change: every switch as it now stands.",
+  "type": "object",
+  "properties": {
+    "faults": {
+      "$ref": "#/$defs/Faults"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "faults"
+  ],
+  "$defs": {
+    "Faults": {
+      "description": "The sandbox's fault switches. `inbox` makes the broken-subscriber demo's Inbox fail (PR 4).",
+      "type": "object",
+      "properties": {
+        "inbox": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "inbox"
+      ]
+    }
+  }
+}

@@ -28,6 +28,27 @@ thiserror = "=2.0.21"
 rand_chacha = { version = "=0.10.0", default-features = false }
 rand_core = "=0.10.1"
 proptest = "=1.12.0"
+# Sign-in (docs/security.md, "Sign-in and sessions"). All RustCrypto or zero-dependency, pure
+# Rust, built for wasm32-unknown-unknown with no getrandom backend: randomness comes in as bytes.
+# HMAC-SHA256 for the session and OAuth cookies, account ids and IP hashes; replaces nothing.
+# MIT OR Apache-2.0. Constant-time verify built in, so no `subtle` of our own.
+hmac = "=0.13.0"
+# SHA-256 for HMAC, PKCE's S256 and the RS256 digest. MIT OR Apache-2.0.
+sha2 = { version = "=0.11.1", default-features = false }
+# argon2id for demo passwords, OWASP's m=19456 KiB, t=2, p=1. MIT OR Apache-2.0. The salt is
+# ours, so the getrandom default is off.
+argon2 = { version = "=0.6.0", default-features = false, features = ["alloc", "password-hash"] }
+# RS256 verification of Google's ID tokens, hand-rolled on it (docs/security.md, "Google, with
+# the openid scope alone"); jsonwebtoken's backends and ring are what it avoids. MIT OR
+# Apache-2.0. 0.9.10 is the latest stable; 0.10 is still a release candidate. Its own sha2
+# feature is off: it would pull sha2 0.10, so the DigestInfo prefix is supplied by hand.
+rsa = { version = "=0.9.10", default-features = false, features = ["u64_digit"] }
+# base64url without padding, and lower-case hex. MIT, no dependencies; replaces base64 and hex.
+data-encoding = { version = "=2.11.1", default-features = false, features = ["alloc"] }
+# Test-time RSA keys only (a dev-dependency of bakery-app). rsa 0.9 takes a rand_core 0.6
+# generator, older than rand_core 0.10 above, so this is the ChaCha that speaks 0.6; rsa's own
+# num-bigint-dig already brings this version. MIT OR Apache-2.0.
+rand_chacha_rsa = { package = "rand_chacha", version = "=0.3.1" }
 worker = { version = "=0.8.7", features = ["queue"] } # exact: a 0.x minor is a breaking change
 # `#[durable_object]` expands to wasm-bindgen paths, so the API names it directly. Pinned to the
 # version worker resolves; worker-build fetches the CLI that matches Cargo.lock. Moves with worker.

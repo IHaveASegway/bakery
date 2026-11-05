@@ -23,9 +23,15 @@ pub const NAME: &str = "control";
 const BINDING: &str = "CONTROL";
 /// The daily cap on new sandboxes, unless the `SANDBOX_CAP` var says otherwise.
 const DEFAULT_SANDBOX_CAP: u32 = 300;
+/// Guests' share of the day's sandboxes, unless `GUEST_SANDBOX_CAP` says otherwise (Q45).
+const DEFAULT_GUEST_SANDBOX_CAP: u32 = 100;
+/// Demo accounts created in a day, unless `DEMO_ACCOUNT_CAP` says otherwise (docs/cost.md).
+const DEFAULT_DEMO_ACCOUNT_CAP: u32 = 100;
 /// Ledger rows older than this many days are pruned.
 const LEDGER_DAYS: i64 = 35;
 const SANDBOXES: &str = "sandboxes";
+const GUEST_SANDBOXES: &str = "guest_sandboxes";
+const DEMO_ACCOUNTS: &str = "demo_accounts";
 
 const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS flags (
@@ -137,6 +143,10 @@ impl Control {
         Ok(StatusResponse {
             sandboxes_today: read_meter(&sql, &day, SANDBOXES)?,
             sandbox_cap: self.cap(),
+            guests_today: read_meter(&sql, &day, GUEST_SANDBOXES)?,
+            guest_cap: cap_var(&self.env, "GUEST_SANDBOX_CAP", DEFAULT_GUEST_SANDBOX_CAP),
+            demo_accounts_today: read_meter(&sql, &day, DEMO_ACCOUNTS)?,
+            demo_account_cap: cap_var(&self.env, "DEMO_ACCOUNT_CAP", DEFAULT_DEMO_ACCOUNT_CAP),
             flag: read_flag(&sql)?,
             day,
         })
@@ -217,10 +227,15 @@ fn read_flag(sql: &SqlStorage) -> Result<Flag> {
 }
 
 pub fn sandbox_cap(env: &Env) -> u32 {
-    env.var("SANDBOX_CAP")
+    cap_var(env, "SANDBOX_CAP", DEFAULT_SANDBOX_CAP)
+}
+
+/// A cap from a var, or its default when the var is unset or unreadable.
+fn cap_var(env: &Env, name: &str, default: u32) -> u32 {
+    env.var(name)
         .ok()
         .and_then(|v| v.to_string().parse().ok())
-        .unwrap_or(DEFAULT_SANDBOX_CAP)
+        .unwrap_or(default)
 }
 
 /// Runs `body` inside `storage.transactionSync()`, which workers-rs 0.8.7 does not bind:

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FaultRequest",
+  "description": "`POST /v1/sandboxes/{id}/faults`, signed-in sessions only.",
+  "type": "object",
+  "properties": {
+    "fault": {
+      "$ref": "#/$defs/FaultName"
+    },
+    "on": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "fault",
+    "on"
+  ],
+  "$defs": {
+    "FaultName": {
+      "description": "The faults a visitor may set. PR 3 ships one.",
+      "type": "string",
+      "enum": [
+        "inbox"
+      ]
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionResponse",
+  "description": "`GET /v1/session`, and the answer to a demo sign-in: what the cookie says, read without an\nobject call.",
+  "type": "object",
+  "properties": {
+    "account": {
+      "description": "The account id, 64 hex characters; `null` for a guest.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "expires_at": {
+      "description": "When the cookie stops being accepted, a wall time such as `2026-11-05T12:00:00.000Z`.",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/SessionKind"
+    },
+    "sandbox": {
+      "description": "The current sandbox's ULID, if any.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "expires_at"
+  ],
+  "$defs": {
+    "SessionKind": {
+      "description": "How a session signed in. A guest has no account.",
+      "type": "string",
+      "enum": [
+        "guest",
+        "google",
+        "github",
+        "demo"
+      ]
+    }
+  }
+}

@@ -11,6 +11,20 @@ publish.workspace = true
 # Fakes for the ports, for other crates' tests. Never enabled in the Worker.
 test-support = []
 
+# No worker, wasm-bindgen, web-sys or getrandom, directly or through another crate: randomness
+# arrives as bytes from the Worker (docs/delivery.md, "Quality gates").
 [dependencies]
 bakery-domain = { workspace = true }
+bakery-contracts = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+argon2 = { workspace = true }
+rsa = { workspace = true }
+data-encoding = { workspace = true }
+
+[dev-dependencies]
+# Test-time RSA keys, for the ID token tests.
+rand_chacha_rsa = { workspace = true }

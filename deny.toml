@@ -12,7 +12,14 @@ all-features = true
 unmaintained = "all"
 unsound = "all"
 yanked = "deny"
-ignore = []
+ignore = [
+  # Marvin, in rsa (every version, no fix released as of 2026-11-05): a timing side channel in
+  # private-key operations. bakery-app only verifies Google's RS256 signatures with public keys,
+  # and never decrypts or signs outside its tests, which sign with a throwaway key made at test
+  # time (docs/security.md, "Google, with the openid scope alone"). Revisit if anything here
+  # starts using an RSA private key.
+  { id = "RUSTSEC-2023-0071", reason = "rsa is used for public-key signature verification only; Marvin concerns private-key operations" },
+]
 
 [licenses]
 # Only what the tree needs today. A new license is added here by hand, with a line saying which
