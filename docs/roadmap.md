@@ -103,7 +103,7 @@ Phase 1 · estimate: 5–7 focused days, spikes included · blocked by: nothing:
 
 **Done when:**
 - [ ] S1, S2, S5 and S6 have a dated Result; a failed spike has changed its owning doc.
-- [x] `GET /v1/health` on `wrangler dev` answers 200 with the build commit; a request with `Origin: https://bakery.ihaveasegway.com` gets exact CORS headers and any other origin gets none (2026-11-05: `scripts/smoke-api.sh` passes on Linux and on macOS).
+- [x] `GET /v1/health` on `wrangler dev` answers 200 with the build commit; a request with `Origin: https://bakery.ihaveasegway.com` gets exact CORS headers and any other origin gets none (`scripts/smoke-api.sh` passed on Linux on 2026-11-04, and on macOS on 2026-11-05 after the change that lets it run there).
 - [x] The placeholder Home on `wrangler dev` carries the headers in [security.md](security.md) (2026-11-05: the policy, `nosniff`, the referrer, permissions and opener policies, and no HSTS, which is the zone's).
 - [x] The Stripe sandbox and both OAuth clients exist; a sandbox-key test passes locally and no key is in the tree (2026-11-04: the restricted key reads customers, 200, and is refused the balance, 403; both client secrets authenticate against their providers).
 - [x] `firewall-selftest` proves exits 0, 1 and 2; the pre-push hook refuses `main` (2026-11-05: both, locally and in CI).
