@@ -25,12 +25,15 @@ pub enum ConfigError {
     Missing(&'static str),
     /// Present but unusable, such as a signing key under 32 bytes.
     Invalid(&'static str),
+    /// Present but not shaped like a value of its kind, such as a webhook secret without
+    /// `whsec_`.
+    Shape(&'static str),
 }
 
 impl ConfigError {
     pub fn name(self) -> &'static str {
         match self {
-            ConfigError::Missing(n) | ConfigError::Invalid(n) => n,
+            ConfigError::Missing(n) | ConfigError::Invalid(n) | ConfigError::Shape(n) => n,
         }
     }
 
@@ -42,6 +45,9 @@ impl ConfigError {
             ),
             ConfigError::Invalid(_) => format!(
                 "The API cannot use {n}: a signing key needs at least 32 bytes. Set a longer one."
+            ),
+            ConfigError::Shape(_) => format!(
+                "The API cannot use {n}: it is not shaped like a value of its kind. Set the one Stripe's dashboard or CLI shows."
             ),
         }
     }
@@ -150,7 +156,7 @@ fn need<'a>(value: &'a Option<String>, name: &'static str) -> Result<&'a str, Co
 }
 
 /// A var or secret as text; unset and empty are the same.
-fn read(env: &Env, name: &str) -> Option<String> {
+pub(crate) fn read(env: &Env, name: &str) -> Option<String> {
     env.var(name)
         .ok()
         .map(|v| v.to_string())
@@ -158,7 +164,7 @@ fn read(env: &Env, name: &str) -> Option<String> {
 }
 
 /// An override honored only on this machine; anything else logs its name and uses the default.
-fn provider_url(env: &Env, name: &'static str, default: &str) -> String {
+pub(crate) fn provider_url(env: &Env, name: &'static str, default: &str) -> String {
     let (url, refused) = resolve_override(read(env, name).as_deref(), default);
     if refused {
         console_log!("{{\"event\":\"provider_override_refused\",\"var\":{name:?}}}");

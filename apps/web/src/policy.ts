@@ -5,12 +5,15 @@
   site's ADR 0018 (page policy as a header):
   https://github.com/IHaveASegway/website/blob/main/docs/adr/0018-page-policy-as-a-header.md
 
-  Three page classes. Every page gets the strict policy, which names no third party, so a visitor
+  Four page classes. Every page gets the strict policy, which names no third party, so a visitor
   reading the privacy page loads nothing from Cloudflare. Pages that create a sandbox or an account
   (/signin/ now, /app/ because it can create a sandbox too) are the challenge class: they add
   Turnstile's origin to script-src and frame-src, and nothing else. Pages with an island but no
-  Turnstile (/menu/ and /checkout/, the cart) are the island class: the strict policy plus the
-  hashes below, and no third party.
+  third party (/menu/) are the island class: the strict policy plus the hashes below. The checkout
+  (/checkout/) is the payment class, the island class plus the three Stripe origins the Payment
+  Element needs: its script, its frames (3-D Secure included) and its API. No other page names a
+  Stripe origin, and the checkout loads Stripe.js only once an order has been placed
+  (docs/security.md, "The storefront's policy"; https://docs.stripe.com/security/guide#content-security-policy).
 
   No page of ours holds inline code of its own, but Astro writes two small inline pieces into a
   page with a hydrated island: the <astro-island> definition script and a one-rule style. So every
@@ -21,12 +24,15 @@
   Strict-Transport-Security is the zone's alone and never appears (site ADR 0011).
 */
 
-export type PageClass = 'every' | 'challenge' | 'island';
+export type PageClass = 'every' | 'challenge' | 'island' | 'payment';
 
 /** Where the browser reaches the API when nothing says otherwise. */
 export const DEFAULT_API_ORIGIN = 'https://api.bakery.ihaveasegway.com';
 
 const TURNSTILE = 'https://challenges.cloudflare.com';
+const STRIPE_SCRIPT = 'https://js.stripe.com';
+const STRIPE_FRAMES = ['https://js.stripe.com', 'https://hooks.stripe.com'];
+const STRIPE_API = 'https://api.stripe.com';
 
 /** The origin alone, so a stray path or a trailing slash in the setting cannot widen the policy. */
 export function normalizeOrigin(value: string): string {
@@ -50,14 +56,20 @@ export function directives(
 ): Record<string, string[]> {
   const api = normalizeOrigin(apiOrigin);
   const challenge = pageClass === 'challenge';
+  const payment = pageClass === 'payment';
   return {
     'default-src': ["'self'"],
-    'script-src': ["'self'", ...(challenge ? [TURNSTILE] : []), ...hashes.script],
+    'script-src': [
+      "'self'",
+      ...(challenge ? [TURNSTILE] : []),
+      ...(payment ? [STRIPE_SCRIPT] : []),
+      ...hashes.script,
+    ],
     'style-src': ["'self'", ...hashes.style],
     'img-src': ["'self'"],
     'font-src': ["'self'"],
-    'connect-src': ["'self'", api, socketOrigin(api)],
-    'frame-src': challenge ? [TURNSTILE] : ["'none'"],
+    'connect-src': ["'self'", api, socketOrigin(api), ...(payment ? [STRIPE_API] : [])],
+    'frame-src': challenge ? [TURNSTILE] : payment ? STRIPE_FRAMES : ["'none'"],
     'object-src': ["'none'"],
     'base-uri': ["'none'"],
     'frame-ancestors': ["'none'"],
@@ -91,11 +103,14 @@ export const OTHER_HEADERS: Record<string, string> = {
 /** Pages that load Turnstile. Cloudflare serves a trailing-slash path with the splat matching empty. */
 export const CHALLENGE_PATHS = ['/signin/*', '/app/*'];
 
-/** Pages with a hydrated island and no Turnstile: the menu and the cart's checkout step. */
-export const ISLAND_PATHS = ['/menu/*', '/checkout/*'];
+/** Pages with a hydrated island and no third party: the menu. */
+export const ISLAND_PATHS = ['/menu/*'];
+
+/** Pages that load Stripe: the checkout's payment step, and only it. */
+export const PAYMENT_PATHS = ['/checkout/*'];
 
 /** Every path that gets a rule of its own, which scripts/inline-hashes.mjs reads hashes for. */
-export const RULE_PATHS = [...CHALLENGE_PATHS, ...ISLAND_PATHS];
+export const RULE_PATHS = [...CHALLENGE_PATHS, ...ISLAND_PATHS, ...PAYMENT_PATHS];
 
 /**
  * The contents of dist/_headers. Cloudflare applies every matching rule in file order; a header a
@@ -123,10 +138,19 @@ export function headersFile(apiOrigin: string, hashes: Record<string, Hashes> = 
   }
   for (const path of ISLAND_PATHS) {
     lines.push(
-      '# The menu and the checkout hold an island and load nothing from a third party.',
+      '# The menu holds an island and loads nothing from a third party.',
       path,
       '  ! Content-Security-Policy',
       `  Content-Security-Policy: ${csp('island', apiOrigin, of(path))}`,
+      '',
+    );
+  }
+  for (const path of PAYMENT_PATHS) {
+    lines.push(
+      '# The checkout loads Stripe for its payment step, and only it does.',
+      path,
+      '  ! Content-Security-Policy',
+      `  Content-Security-Policy: ${csp('payment', apiOrigin, of(path))}`,
       '',
     );
   }

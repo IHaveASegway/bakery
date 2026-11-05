@@ -2,7 +2,7 @@
 
 How the bakery demo fits together: the systems around it, the two Workers and the fourteen Durable Object (DO) classes inside the API, how events move between objects, who owns each datum, how the main requests flow, and what each failure takes down. The made-up bakery, Proof of Concept Bakery (Q2 · Q-name), is a running business system built so a visitor can watch the site's Lab principles run in production code. The why is in [product.md](product.md), the language and event catalog in [domain.md](domain.md), pins in [stack.md](stack.md), threats in [security.md](security.md), prices in [cost.md](cost.md), the pipeline in [delivery.md](delivery.md), runbooks in [operations.md](operations.md), decisions in [adr/](adr/README.md). Nothing is built yet; spike S1 (a Rust DO on Workers: size, startup, SQL) runs before anything depends on this design, and nothing is deployed before the launch pull request (PR 11); until then every pull request runs on `wrangler dev` (Q44 · Q-posture, [roadmap.md](roadmap.md)).
 
-Status: Updated in PR 4 · 2026-11-05
+Status: Updated in PR 5 · 2026-11-05
 
 Limits and prices on this page are as of 2026-11-04. Sources are in the footnotes.
 
@@ -186,7 +186,7 @@ Isolation is a database per tenant per aggregate, not row-level security over a 
 | `Kitchen` | sandbox | hibernating sockets, the board, fan-out | events | to the wipe | 36 h |
 | `Schedule` | sandbox and day | slots, windows, caps, holds, reservations, production plan | router (holds); events; staff | to the wipe | hold expiries; 36 h |
 | `CateringEvent` | inquiry | event log, state, quote, deposit, balance | router; events | to the wipe | reminders; 36 h |
-| `Billing` | sandbox | intents, invoices, refunds, Stripe ids, webhook ids seen | router; verified webhooks | to the wipe | Stripe cleanup at the wipe; 36 h |
+| `Billing` | sandbox | payments and their intents, refunds, Stripe ids, the ids of the webhook events it has applied (inside the events it appended), the seed's daily totals; invoices arrive with PR 7 | router (the payment route); verified webhooks; the Queue consumer (refunds, expiry); the Simulator | to the wipe | the wipe cancels each intent still open at Stripe, best effort, before `delete_all`; 36 h |
 | `Dispatch` | sandbox and day | stops, proposed plan (Clarke–Wright), published plan | events; staff | to the wipe | 36 h |
 | `Customer` | persona | synthetic profile, preferences, consent, loyalty | router; events | to the wipe | 36 h |
 | `Crm` | sandbox | consumed event log, projections, campaigns, rebuild cursor | consumer; staff | to the wipe | rebuild batches; sends; 36 h |
@@ -245,7 +245,7 @@ CREATE TABLE commands_seen (id TEXT PRIMARY KEY, result TEXT NOT NULL, at TEXT N
 
 **Relay.** After commit the object sends its outbox rows to `bakery-events` in one batch under `wait_until`, deleting each accepted row, and leaves an `outbox` timer 30 s out. Each envelope travels as a JSON string, not as a `serde_json::Value`: spike S6 found on 2026-11-04 that `worker` 0.8.7 passes a `Value` map through serde-wasm-bindgen as a JavaScript `Map`, which the Queue encodes as `{}` ([roadmap.md](roadmap.md#spikes)). If the send failed or the isolate died, the alarm sends what is left and re-arms only while rows remain. A row may go twice; once committed it is never lost.
 
-**Consume.** The consumer runs in the same Worker on `#[event(queue)]` (beta in workers-rs as of 2026-11-04),[^workersrs] in batches of up to 100.[^queues] A static table in `crates/app` maps each event type to subscribers; the consumer delivers to each by `fetch` on its `/_event` path (DO RPC is not bound in workers-rs), acks when all answered 2xx, and retries otherwise.
+**Consume.** The consumer runs in the same Worker on `#[event(queue)]` (beta in workers-rs as of 2026-11-04),[^workersrs] in batches of up to 100.[^queues] A static table in `crates/app` maps each event type to subscribers; the consumer delivers to each by `fetch` on its `/_event` path (DO RPC is not bound in workers-rs), acks when all answered 2xx, and retries otherwise. Since PR 5 the live subscribers are the Kitchen, `Billing` and the `Order`. `Billing` is the sandbox's one; an `Order` is the one the data's `ref` names, for the routes the catalog scopes `ByPurpose` (`PaymentSucceeded`, delivered when the purpose is `order`) and `ByRef` (`RefundIssued`, and `PaymentFailed`), where the purpose narrows the route when the data carries one. An event whose route needs a `ref` it lacks has no instance to deliver to, so its delivery fails, retries and dead-letters rather than guessing one. `Billing` takes Stripe's webhook events on a path of their own, so `/_event` keeps one meaning for every subscriber.
 
 **Idempotent consumers.** Each subscriber applies an event and records its id in `seen` in one transaction, so a redelivery changes nothing.
 
@@ -367,10 +367,12 @@ sequenceDiagram
 - **Guest scope** (Q45 · Q-guest-scope): a guest sandbox can browse, order and pay with a test card. Sign-in unlocks the console's writes (menu edits, campaigns, publishing a route), the API token, simulated traffic, and a sandbox that follows the account across devices. Guests are capped at 100 of the 300 sandboxes a day in `Control`, so bots creating sandboxes hit a wall before the paid-for meters do.
 - `Control` also keeps the creation's `Idempotency-Key` with its result for the ledger's retention, so a retried creation does not take a second place. The key is checked in `Control` at admission because that is the one request a creation already makes.
 - `Control` costs one exact DO request, so it runs after the free checks: admission in layers. Its cap of 300 sandboxes a day bounds a bot ([cost.md](cost.md)).
-- **Seeding is asynchronous, as built in PR 4 (2026-11-05, [ADR 0005](adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md) decision 2).** `create` writes the Sandbox in state `seeding` and arms an alarm for now; the first alarm seeds the children in resumable batches of 7 from a cursor row, registering each child before its first write, so a crashed batch resumes where it stopped. In PR 4 the children are the Catalog, the Kitchen and 12 Orders (14, not the 33 the diagram shows; the rest arrive with their PRs). The last batch sets state `live` and appends `SandboxSeeded`. The creation answers 201 at once with `seeding`, and a repeated creation returns the same sandbox, still `seeding` or `live` with `children: 14`. Until `live`, the order, menu and clock routes answer 503 `seeding` with `Retry-After: 1`. The seeded orders' events reach the Kitchen through the outbox and the Queue like any others, so the board fills by delivery.
+- **Seeding is asynchronous, as built in PR 4 (2026-11-05, [ADR 0005](adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md) decision 2).** `create` writes the Sandbox in state `seeding` and arms an alarm for now; the first alarm seeds the children in resumable batches of 7 from a cursor row, registering each child before its first write, so a crashed batch resumes where it stopped. In PR 5 the children are the Catalog, the Kitchen, `Billing` and 12 Orders: 15 in three batches, not the 33 the diagram shows (PR 4 seeded 14 in two, without `Billing`; the rest arrive with their PRs). The last batch sets state `live` and appends `SandboxSeeded`. The creation answers 201 at once with `seeding`, and a repeated creation returns the same sandbox, still `seeding` or `live` with `children: 15`. Until `live`, the order, menu and clock routes answer 503 `seeding` with `Retry-After: 1`. The seeded orders' events reach the Kitchen through the outbox and the Queue like any others, so the board fills by delivery.
 - About 2,000 rows in about 2 s. Closed history goes into Crm's log and Billing's daily summaries; only open orders and the 8 catering jobs become live objects ([domain.md](domain.md#the-seed)). Personas and later days materialize on first touch.
 
 ### Placing and paying an order
+
+Built in PR 5 against a local fake of Stripe's API (`scripts/fake-stripe.mjs`); what only a real sandbox can show is spike S3 ([roadmap.md](roadmap.md#spikes)). Steps marked with a later PR are the design and not yet built.
 
 ```mermaid
 sequenceDiagram
@@ -385,31 +387,42 @@ sequenceDiagram
   participant K as Kitchen DO
   participant CR as Crm, Customer, Inbox
   B->>A: POST orders: cart, slot, note, Idempotency-Key
-  A->>SC: hold slot and items, key is the order id
+  A->>SC: hold slot and items (PR 6)
   A->>O: place, priced from the menu version
   O->>O: OrderPlaced in events and outbox, expiry timer 15 min
-  A->>BI: create intent
-  BI->>ST: POST payment_intents, Stripe Idempotency-Key
-  BI-->>B: client secret
+  A-->>B: 201, the order is placed
+  B->>A: POST orders/oid/payment
+  A->>BI: create the payment, order total, order id as reference
+  BI->>BI: CreateIntent committed
+  BI->>ST: POST payment_intents, Idempotency-Key ref:order:n
+  ST-->>BI: intent id, client secret
+  BI->>BI: PaymentIntentRecorded, no secret stored
+  BI-->>B: client secret, through the router
   B->>ST: Payment Element confirms, synthetic billing details, test card
   ST->>A: webhook payment_intent.succeeded
-  A->>A: verify HMAC-SHA256, 5 min tolerance
-  A->>BI: deliver, routed by metadata
+  A->>A: key guard, raw body, signature, 5 min tolerance, livemode
+  A->>BI: deliver, routed by metadata sandbox
   BI->>BI: event id unseen, PaymentSucceeded, one transaction
   BI->>Q: relay
-  Q->>O: PaymentSucceeded
-  O->>Q: OrderPaid, expiry cancelled
-  Q->>SC: hold becomes a reservation, SlotReserved
+  Q->>O: PaymentSucceeded, by purpose and ref
+  O->>Q: OrderPaid
   Q->>K: board updated
   K-->>B: evt on the kitchen socket
-  Q->>CR: timeline, loyalty points, receipt in the inbox
+  Q->>SC: hold becomes a reservation, SlotReserved (PR 6)
+  Q->>CR: timeline, loyalty points, receipt in the inbox (PR 8)
 ```
 
-- The hold is a lease: Schedule counts held and reserved places against capacity, and releases an unconfirmed hold by its own alarm.
-- The router verifies the signature (HMAC-SHA256 over `t.payload`, 5-minute tolerance)[^webhooks] before choosing an object, since an unverified body must not pick a sandbox; Billing dedupes by event id. Only the webhook marks an order paid, never the browser.
-- `fields.billingDetails: 'never'` stops the Payment Element collecting name, email, phone and address, and the page passes the persona's synthetic ones to `confirmPayment`.[^paymentelement] Whether Stripe's sandbox accepts that with test cards such as 4242 4242 4242 4242[^testing] is spike S3 ([ADR 0007](adr/0007-stripe-sandbox-and-a-payment-element-that-collects-nothing.md)).
-- **Expiry.** With no payment, the Order's alarm appends `OrderExpired`; Schedule releases the hold (`SlotReleased`) and Billing cancels the intent. A payment that lands after the expiry gets `OrderPaymentLate` and a full refund (`RefundIssued`): the compensating step.
-- A webhook for a wiped sandbox finds an empty Billing, which answers 200 so Stripe stops retrying.
+- The hold is a lease: Schedule counts held and reserved places against capacity, and releases an unconfirmed hold by its own alarm (PR 6; PR 5 has no Schedule).
+- **The intent is created after the order is committed, in a request of its own.** `POST .../orders/{oid}/payment` runs once the storefront has the placed order: the router reads the order, answers 409 `order` unless it is `placed`, and asks `Billing` for the payment. `Billing` always works in one order: decide and commit the command, call Stripe with the idempotency key the committed state names (`<ref>:<purpose>:<n>`, [domain.md](domain.md#idempotency)), then record Stripe's answer as a second command. A retry after a lost answer makes the same call with the same key. The amount is the order's total, read from the Order and never from the browser. Only the webhook marks an order paid, never the browser or that route.
+- **The client secret passes through once.** It goes from Stripe to `Billing` to the router to the browser, in the response body. It is in no event, no row and no log line (the smoke script greps the Worker's log for `_secret_` and finds none, 2026-11-05). A remount of the payment step is recovered by the idempotent re-create, not by a retrieve: `Billing` reuses the open payment and makes the same create call with the same key and body, and Stripe answers it with the same intent and the same secret. At real Stripe that holds only while the idempotency key lives, 24 hours ([Stripe](https://docs.stripe.com/api/idempotent_requests), as of 2026-11-05), and a sandbox lives under 36 h ([domain.md](domain.md#idempotency)); what a remount does after the key is gone is not built or tested, and spike S3 notes it ([operations.md](operations.md#3-the-stripe-sandbox)).
+- **The webhook route checks in this order** (`workers/api/src/http/webhook.rs`; Stripe calls it, so it has no CORS, Origin check, session or `Idempotency-Key`, and spends no rate limit, [security.md](security.md#headers-csp-and-cors)): the key guard (503 `stripe-key`); the webhook secret's shape (503 `config`); the raw body, as bytes, before anything parses it; `Stripe-Signature` over that body, constant time against each `v1`, with `t` within 5 minutes[^webhooks] (400 `signature` or `timestamp`); the parse (400 `body`); `livemode` (400 `livemode`); an event type `Billing` has no use for (200, dropped); then the sandbox, from the intent's `metadata[sandbox]`, so an unverified body never picks an object. A refund event's own metadata is not the intent's, so for one the route reads the intent from Stripe. Then `billing:<sandbox>`: 200 for an event applied, replayed or with no effect, and 200 for a wiped or unknown sandbox, so Stripe stops retrying. An event `Billing` cannot apply yet (an unknown intent, a refund before its payment) answers 409 `webhook-later` so Stripe delivers it again; that answer is in the code and no smoke check drives it.
+- **`Billing` dedupes by event id and checks the amount.** The Stripe event id is inside the event it appends, in the same transaction as the state change, so a replay finds it in the fold and changes nothing; five deliveries of one event gave one application and four replays (`scripts/smoke-payments.sh`, 2026-11-05). The amount comes from `Billing`'s own record, and an event whose amount differs is refused as `amount-mismatch`.
+- **The consumer resolves the Order.** `PaymentSucceeded` carries `purpose` and `ref`, and the routing table scopes it by purpose: for `order`, the consumer addresses `order:<sandbox>:<ref>` and the Order's `RecordPayment` appends `OrderPaid`, keyed by the delivered event's id, so a redelivery is a no-op. `PaymentFailed` reaches the Order by `ref` and changes nothing: the order keeps waiting, and a later success still counts.
+- **The Simulator pays its orders.** After placing an order on its tick, it asks `Billing` for the intent and confirms it server-side with Stripe's test payment method `pm_card_visa`; one order in six, chosen by the first byte of a hash of the order's key, uses `pm_card_chargeDeclined` and becomes a visible `PaymentFailed`. The confirm records nothing itself: the webhook does, as for a browser. A failed payment is logged `sim_pay` and does not stop the tick.
+- **Expiry.** With no payment, the Order's alarm appends `OrderExpired`; Schedule releases the hold (`SlotReleased`, PR 6) and `Billing`, on `OrderExpired` from the Queue, appends `PaymentCanceled` and cancels the intent at Stripe with the reason `abandoned`, best effort. Proven against the fake on 2026-11-05. A payment that lands after the expiry is recorded anyway, since the money moved, and the Order answers with `OrderPaymentLate` and a refund of the whole amount (`RefundIssued`): the compensating step. Native tests cover each piece (`crates/domain/src/billing.rs`, `expiry_cancels_the_open_payment_and_a_late_success_still_counts`; `crates/domain/src/order.rs`, `a_payment_after_expiry_is_late_and_refunded`); no smoke check drives the whole path.
+- **A refund runs the other way.** Staff `POST .../orders/{oid}/refund` (a full refund, or an amount in cents) needs a succeeded payment in `Billing`; a seeded order has none and answers 409 `no-stripe-payment`. The Order's `RefundOrder` appends `OrderRefundRequested`, whose event id is the refund's id, so a redelivery refunds once; the rest of an unclosed order also appends `OrderCancelled`. The consumer delivers it to `Billing`, which commits `RefundRequested`, calls Stripe's refunds with `<ref>:<purpose>-refund:<ordinal>` and records the answer as `RefundIssued` with Stripe's refund id. `RefundIssued` goes back through the Queue to the Order by `ref`, whose `RecordRefund` appends `OrderRefunded`, and a cancelled order ends `cancelled`. Stripe's `refund.created` webhook may arrive before the gateway's answer; `Billing` matches it to the one unissued request with the same payment and amount, and deduplicates by Stripe's refund id, so the two together issue one `RefundIssued`. The ledger lists each payment and refund with its Stripe id and nets to zero for a fully refunded order (`GET .../billing/ledger`).
+- `fields.billingDetails: 'never'` stops the Payment Element collecting name, email, phone and address, and the page passes the persona's synthetic ones to `confirmPayment`.[^paymentelement] Whether Stripe's sandbox accepts that with test cards such as 4242 4242 4242 4242[^testing] is spike S3 ([ADR 0007](adr/0007-stripe-sandbox-and-a-payment-element-that-collects-nothing.md)); the fake cannot answer it.
+- A webhook for a wiped sandbox finds an empty `Billing` or none, and the route answers 200 so Stripe stops retrying. The wipe cancels each intent still open at Stripe before it deletes `Billing`'s rows.
 
 ### The kitchen socket
 
@@ -565,7 +578,7 @@ sequenceDiagram
 
 - **One object per sandbox,** `simulator:<sandbox>`, registered with the Sandbox on the first "Start traffic" like any other child. It holds the rate, the running flag, the minute ledger and its alarm. It starts stopped.
 - **Alarm-driven.** Each run is a `Tick`: it draws the minute's commands from the seed's PRNG and the business clock (orders at the preset rate; in PR 4 orders only, the catering inquiry waits for PR 7 and the pickup for PR 6), issues them, records the minute and re-arms one wall-time minute later. Thirty ticks a day sit far under the loop guard's 100 re-arms.
-- **Ordinary commands, the same path.** A synthetic customer is one of the 60 personas. Each command passes the checks the router applies after admission (validation, an idempotency key of `sim:<ulid>`, the object names, the free-text rules) and goes to the same objects; every event it causes carries `cause: sim:<ulid>`, so the activity screen and the tour can tell the visitor's actions from the simulator's. Simulated orders pay with Stripe's test payment method, confirmed by the API, so the webhook path runs as for the visitor's own order.[^testing] Until PR 5 there is no Billing, so in PR 4 simulated orders stay unpaid and expire after 15 minutes of business time.
+- **Ordinary commands, the same path.** A synthetic customer is one of the 60 personas. Each command passes the checks the router applies after admission (validation, an idempotency key of `sim:<ulid>`, the object names, the free-text rules) and goes to the same objects; every event it causes carries `cause: sim:<ulid>`, so the activity screen and the tour can tell the visitor's actions from the simulator's. Simulated orders pay with Stripe's test payment method, confirmed by the API, so the webhook path runs as for the visitor's own order.[^testing] PR 4 had no Billing, so its simulated orders stayed unpaid and expired after 15 minutes of business time; since PR 5 they are paid, one in six with a declining card (6 placed, 4 confirmed and 2 declined in `scripts/smoke-payments.sh`, 2026-11-05).
 - **Bounded.** It runs only while the console is open: each `Tick` asks the Kitchen whether a console socket is open, a console without a socket sends a heartbeat `POST` every 30 s instead, and with neither for 90 s the `Tick` stops with reason `console_closed`. The start itself counts as a console sighting, so a new run has its first 90 s before it needs a socket or a heartbeat. At most 6 orders a minute and 30 minutes a sandbox a UTC day, reserved in `Control`'s `traffic(day, sandbox, minutes)` ledger. In PR 4 that ledger is the only budget charged: the DO-request and Queue budgets are not metered by `Control` yet, and PR 11's breaker reads the account's analytics instead ([cost.md](cost.md#guardrails)). The wipe stops it with everything else.
 
 ### The tour

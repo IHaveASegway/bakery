@@ -23,7 +23,7 @@ use std::cell::RefCell;
 
 use bakery_app::Clock;
 use bakery_app::names::sandbox_object_name;
-use bakery_app::routing::{Subscriber, deliver_to, strip_for};
+use bakery_app::routing::{Subscriber, deliver_to, reference, strip_for};
 use bakery_contracts::Flag;
 use bakery_domain::{Envelope, Ulid};
 use worker::{Cache, Context, Env, MessageBatch, MessageExt, Method, Result, console_log, event};
@@ -32,7 +32,7 @@ use crate::clock::SystemClock;
 use crate::http::menu_cache_key;
 use crate::objects::sandbox::{self, DeadLetterIn, DeliveryError};
 use crate::objects::sql::call;
-use crate::objects::{control, kitchen};
+use crate::objects::{billing, control, kitchen, order};
 
 /// The dead-letter queue's name, as `batch.queue()` reports it.
 const DLQ: &str = "bakery-events-dlq";
@@ -122,9 +122,19 @@ fn sandbox_of(body: &str) -> Option<Ulid> {
 /// The binding and object name that host a subscriber for this envelope. Only the classes in
 /// `routing::LIVE` are reachable; one added there without a line here fails its deliveries,
 /// which retry and dead-letter where a person sees them.
+///
+/// Billing is the sandbox's one; an Order is the one the data's `ref` names, for Billing's
+/// `ByPurpose` and `ByRef` routes (the purpose was matched already by `routing::routes_for`).
+/// An Order route with no `ref` (`RoutePublished`'s stops, `StopCompleted`, which nothing
+/// produces before PR 7) has no instance yet.
 fn subscriber(to: Subscriber, envelope: &Envelope) -> Option<(&'static str, String)> {
     match to {
         Subscriber::Kitchen => Some((kitchen::BINDING, kitchen::name(envelope.sandbox))),
+        Subscriber::Billing => Some((billing::BINDING, billing::name(envelope.sandbox))),
+        Subscriber::Order => {
+            let order = reference(envelope)?;
+            Some((order::BINDING, order::name(envelope.sandbox, order)))
+        }
         _ => None,
     }
 }
@@ -349,12 +359,22 @@ mod tests {
     }
 
     #[test]
-    fn the_kitchen_is_reachable_and_nothing_else_is_yet() {
-        let e: Envelope =
-            serde_json::from_str(&envelope(SANDBOX, &format!("order:{SANDBOX}:{OTHER}"))).unwrap();
+    fn the_kitchen_billing_and_the_order_by_ref_are_reachable_and_nothing_else_is_yet() {
+        let mut e: Envelope =
+            serde_json::from_str(&envelope(SANDBOX, &format!("billing:{SANDBOX}"))).unwrap();
+        e.event_type = "PaymentSucceeded".into();
+        e.data = serde_json::json!({ "purpose": "order", "ref": OTHER });
         assert_eq!(
             subscriber(Subscriber::Kitchen, &e),
             Some((kitchen::BINDING, format!("kitchen:{SANDBOX}")))
+        );
+        assert_eq!(
+            subscriber(Subscriber::Billing, &e),
+            Some((billing::BINDING, format!("billing:{SANDBOX}")))
+        );
+        assert_eq!(
+            subscriber(Subscriber::Order, &e),
+            Some((order::BINDING, format!("order:{SANDBOX}:{OTHER}")))
         );
         for live in bakery_app::routing::LIVE {
             assert!(
@@ -363,5 +383,17 @@ mod tests {
             );
         }
         assert_eq!(subscriber(Subscriber::Crm, &e), None);
+        // An Order route needs a `ref`.
+        e.data = serde_json::json!({});
+        assert_eq!(subscriber(Subscriber::Order, &e), None);
+        let routes = bakery_app::routing::deliver_to(&{
+            let mut paid = e.clone();
+            paid.data = serde_json::json!({ "purpose": "order", "ref": OTHER });
+            paid
+        });
+        assert_eq!(
+            routes.iter().map(|r| r.to).collect::<Vec<_>>(),
+            [Subscriber::Order]
+        );
     }
 }

@@ -3,6 +3,10 @@
 //! Storage ports are synchronous because a Durable Object's SQLite calls are; the ports that
 //! cross the network are `async`. Futures need not be `Send`: the Worker is single-threaded.
 
+use std::fmt;
+
+use bakery_domain::billing::Purpose;
+use bakery_domain::order::RefundReason;
 use bakery_domain::{BusinessTime, Cents, Envelope, Ulid, WallTime};
 use thiserror::Error;
 
@@ -56,27 +60,143 @@ pub trait Outbox {
     fn mark_sent(&self, seqs: &[u64]) -> Result<(), PortError>;
 }
 
-/// A payment intent to create at the provider.
+/// A payment intent to create at the provider (ADR 0007, decision 3). Everything here goes to
+/// Stripe: random ids, an amount and a purpose, nothing about a person.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IntentRequest {
-    /// The order or catering job it pays for.
-    pub reference: String,
+    /// Sent as `metadata[sandbox]`, which routes the webhook back to this sandbox's Billing.
+    pub sandbox: Ulid,
+    /// Billing's id for the payment, `metadata[payment]`.
+    pub payment: Ulid,
+    pub purpose: Purpose,
+    /// The order or catering job it pays for, `metadata[ref]`.
+    pub reference: Ulid,
     pub amount: Cents,
-    /// Sent as the provider's idempotency key, so a retry returns the first intent.
+    /// Sent as the provider's idempotency key, so a retry returns the first intent:
+    /// `<ref>:<purpose>:<attempt>` (`stripe::IdempotencyKey::create`).
     pub idempotency_key: String,
 }
 
-/// The provider's answer: its id for the intent and the secret the browser confirms with.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Where an intent stands at the provider, in the provider's terms reduced to four.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IntentStatus {
+    /// Waiting for the browser: a payment method, a confirmation or a 3-D Secure step. A
+    /// declined attempt returns here.
+    AwaitingPayment,
+    /// The provider is working on it.
+    Processing,
+    Succeeded,
+    Canceled,
+}
+
+/// The provider's answer to creating an intent: its id and the secret the browser confirms
+/// with. The secret is handed to the browser once and never stored or logged, so `Debug` leaves
+/// it out.
+#[derive(Clone, PartialEq, Eq)]
 pub struct IntentCreated {
     pub provider_id: String,
     pub client_secret: String,
+    pub status: IntentStatus,
 }
 
-/// Stripe's sandbox today; a second provider would be a second adapter.
+impl fmt::Debug for IntentCreated {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("IntentCreated")
+            .field("provider_id", &self.provider_id)
+            .field("status", &self.status)
+            .finish_non_exhaustive()
+    }
+}
+
+/// An intent as the provider reports it after a confirm, a cancel or a read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntentSnapshot {
+    pub provider_id: String,
+    pub status: IntentStatus,
+    pub amount: Cents,
+    /// The last attempt's decline code, such as `card_declined`.
+    pub failure_code: Option<String>,
+}
+
+/// The provider's published test payment methods (https://docs.stripe.com/testing). The
+/// server-side path, the Simulator's, confirms with one of these and nothing else: no card
+/// number is ever in the bakery's code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TestCard {
+    /// `pm_card_visa`: succeeds.
+    Visa,
+    /// `pm_card_chargeDeclined`: declined with `card_declined`.
+    ChargeDeclined,
+}
+
+impl TestCard {
+    pub fn payment_method(self) -> &'static str {
+        match self {
+            TestCard::Visa => "pm_card_visa",
+            TestCard::ChargeDeclined => "pm_card_chargeDeclined",
+        }
+    }
+}
+
+/// Confirms an intent server-side with a test payment method.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfirmRequest {
+    /// The provider's `pi_...` id.
+    pub intent: String,
+    pub card: TestCard,
+    /// `stripe::IdempotencyKey::confirm`.
+    pub idempotency_key: String,
+}
+
+/// Cancels an open intent: an expired order's, or the wipe's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CancelRequest {
+    pub intent: String,
+    /// `stripe::IdempotencyKey::cancel`.
+    pub idempotency_key: String,
+}
+
+/// A refund of a succeeded intent, part or whole (ADR 0007, decision 5). Billing has checked the
+/// amount against what is left, so it is always named.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefundIntentRequest {
+    /// `metadata[sandbox]`, so the `refund.created` webhook finds its way back.
+    pub sandbox: Ulid,
+    pub payment: Ulid,
+    /// Billing's id for the refund, `metadata[refund]`: the webhook names its request by it.
+    pub refund: Ulid,
+    pub purpose: Purpose,
+    pub reference: Ulid,
+    pub intent: String,
+    pub amount: Cents,
+    pub reason: RefundReason,
+    /// `stripe::IdempotencyKey::refund`.
+    pub idempotency_key: String,
+}
+
+/// The provider's answer to a refund.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefundCreated {
+    /// The provider's `re_...` id.
+    pub provider_id: String,
+    pub amount: Cents,
+    /// `true` once the provider reports the refund `succeeded`; a sandbox's card refunds are.
+    pub succeeded: bool,
+}
+
+/// Stripe's sandbox today; a second provider would be a second adapter (ADR 0007, decision 8).
+/// Every call that changes something carries an idempotency key, so the object can retry it
+/// after a timeout and get the first answer back.
 #[allow(async_fn_in_trait)]
 pub trait PaymentGateway {
     async fn create_intent(&self, request: IntentRequest) -> Result<IntentCreated, PortError>;
+    /// Confirms with a test payment method. A decline is `Ok`, with the status back at
+    /// `AwaitingPayment` and the code in `failure_code`.
+    async fn confirm_intent(&self, request: ConfirmRequest) -> Result<IntentSnapshot, PortError>;
+    async fn cancel_intent(&self, request: CancelRequest) -> Result<IntentSnapshot, PortError>;
+    async fn refund(&self, request: RefundIntentRequest) -> Result<RefundCreated, PortError>;
+    /// A read, so no idempotency key.
+    async fn retrieve_intent(&self, intent: &str) -> Result<IntentSnapshot, PortError>;
 }
 
 /// A note to the operator's own verified address. Visitors never get email.

@@ -11,6 +11,7 @@
 //! - [`names`]: object names (docs/architecture.md, "Object naming").
 //! - [`wipe`]: when sandboxes and accounts end (docs/security.md, "The wipe").
 //! - [`log`]: the request log line (docs/security.md, "Privacy and data inventory").
+//! - [`stripe`]: Stripe's calls, answers and webhooks as data, and the key guard (ADR 0007).
 //! - [`routing`]: the subscriber table the Queue consumer reads (docs/domain.md, "The event
 //!   catalog").
 
@@ -21,6 +22,7 @@ pub mod log;
 pub mod names;
 pub mod ports;
 pub mod routing;
+pub mod stripe;
 pub mod wipe;
 
 #[cfg(any(test, feature = "test-support"))]
@@ -30,4 +32,8 @@ pub mod test_support;
 mod scheduling_flow;
 
 pub use health::{BuildInfo, Health, HealthStatus, health};
-pub use ports::{Clock, EventStore, IdGen, Mailbox, Outbox, PaymentGateway, PortError};
+pub use ports::{
+    CancelRequest, Clock, ConfirmRequest, EventStore, IdGen, IntentCreated, IntentRequest,
+    IntentSnapshot, IntentStatus, Mailbox, Outbox, PaymentGateway, PortError, RefundCreated,
+    RefundIntentRequest, TestCard,
+};

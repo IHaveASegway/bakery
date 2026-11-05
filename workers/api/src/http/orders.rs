@@ -5,8 +5,8 @@
 //! registers `order:<sandbox>:<ulid>` before anything is written there; the Catalog gives the
 //! published menu the prices come from; the Order decides. The same key again finds the same
 //! ULID, and the Order's `commands_seen` answers the first result with `Idempotent-Replayed:
-//! true`, appending nothing. Payment arrives in PR 5; until then an order waits 15 minutes of
-//! business time and expires.
+//! true`, appending nothing. An unpaid order waits 15 minutes of business time and expires; PR 5's
+//! payment route (payments.rs) pays it, and only Stripe's webhook marks it paid.
 
 use bakery_contracts::OrderRequest;
 use bakery_domain::catalog::MenuView;
@@ -27,7 +27,7 @@ use bakery_app::names::sandbox_object_name;
 type Answer = Result<Response, Failure>;
 
 /// An Order's answer, passed on: its status, its body, and the replay header.
-async fn answered(mut res: Response, created: u16, location: Option<String>) -> Answer {
+pub(super) async fn answered(mut res: Response, created: u16, location: Option<String>) -> Answer {
     match res.status_code() {
         200 | 201 => {
             let replayed = res.headers().get("Idempotent-Replayed")?.is_some();
@@ -150,7 +150,7 @@ pub async fn place(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answer {
 
 /// The order's object name, once the Sandbox's registry holds it (docs/architecture.md,
 /// "Object naming": an aggregate's ULID must be registered before it is addressed).
-async fn registered(cx: &Cx, id: Ulid, oid: Option<&str>) -> Result<String, Failure> {
+pub(super) async fn registered(cx: &Cx, id: Ulid, oid: Option<&str>) -> Result<String, Failure> {
     let oid: Ulid = oid
         .and_then(|o| o.parse().ok())
         .ok_or_else(|| problem::not_found().because("no-order"))?;

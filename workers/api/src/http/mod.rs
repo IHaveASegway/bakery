@@ -11,10 +11,12 @@ mod menu;
 mod oauth;
 mod orders;
 mod outbound;
+mod payments;
 mod problem;
 mod routes;
 mod sandboxes;
 mod traffic;
+mod webhook;
 
 use std::cell::RefCell;
 
@@ -89,6 +91,12 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
     let allowed_origin = cfg.allowed_origin.clone();
 
     let matched = routes::match_route(&method, &path);
+    // Stripe's webhook gets no CORS headers whatever Origin it carries.
+    let cors_origin = if routes::is_server_to_server_path(&path) {
+        None
+    } else {
+        origin.clone()
+    };
     let mut preflight = false;
     let mut ip_hash = None;
     let mut note = Note::default();
@@ -128,7 +136,7 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
     };
     headers::apply(
         &mut res,
-        origin.as_deref(),
+        cors_origin.as_deref(),
         allowed_origin.as_deref(),
         preflight,
     )?;
@@ -179,6 +187,11 @@ async fn checked(
     cx: &mut Cx,
     ip_hash: Option<String>,
 ) -> std::result::Result<Response, Failure> {
+    // Stripe's webhook: its signature on the raw body is the only check, before anything else
+    // reads the request (docs/security.md, "Payments safety").
+    if routes::is_server_to_server(route.id) {
+        return webhook::receive(cx, req).await;
+    }
     let headers = req.headers();
     // The socket's upgrade is a GET, but it carries the cookie and ignores CORS: the exact
     // Origin is the defence against cross-site hijacking (docs/security.md, the threats table).
@@ -280,6 +293,11 @@ async fn checked(
         RouteId::GetTraffic => traffic::get(cx, id.as_deref()).await,
         RouteId::StartTraffic => traffic::start(cx, req, id.as_deref()).await,
         RouteId::StopTraffic => traffic::stop(cx, id.as_deref()).await,
+        RouteId::Pay => payments::pay(cx, id.as_deref(), sub).await,
+        RouteId::Refund => payments::refund(cx, req, id.as_deref(), sub).await,
+        RouteId::Ledger => payments::ledger(cx, id.as_deref()).await,
+        // Answered before the checks above.
+        RouteId::StripeWebhook => Err(problem::internal()),
     }
 }
 

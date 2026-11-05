@@ -2,7 +2,7 @@
 
 The made-up bakery's language and rules: the terms every doc, screen and type uses, the aggregates and the Durable Object (DO) that hosts each, their commands, events, invariants and state machines, the event catalog and its envelope, how money, time and identifiers are represented, how idempotency works at every boundary, what a sandbox is born with, and which of the site's Lab principles runs where. The code that implements it is `crates/domain` (aggregates as `decide` and `evolve`, events, value objects) and `crates/seed`; how objects, the Queue and the Workers fit together is [architecture.md](architecture.md). Why the bakery exists is [product.md](product.md).
 
-Status: Updated in PR 4 · 2026-11-05
+Status: Updated in PR 5 · 2026-11-05
 
 Prices, limits and versions are as of 2026-11-04, with sources. Every menu price, package price and tax rate on this page is the made-up bakery's demo data, not a platform price.
 
@@ -74,11 +74,11 @@ Hosted by `Order`, one object per order (`order:<sandbox>:<ULID>`). It protects 
 |---|---|---|---|
 | `PlaceOrder` | customer | `OrderPlaced` | no held slot or window; a line outside the menu version; lead time not met; note fails the free-text rules |
 | `CancelOrder` | customer before payment; customer or staff before production | `OrderCancelled`, or `OrderRefundRequested` once paid | in production or later |
-| `RecordPayment` | `PaymentSucceeded` | `OrderPaid`, or `OrderPaymentLate` when expired or cancelled | a second payment for a paid order |
+| `RecordPayment` | `PaymentSucceeded` | `OrderPaid`, or `OrderPaymentLate` when expired or cancelled | a second payment for a paid order; an amount that differs from the total (`amount-mismatch`) |
 | `Expire` | the expiry timer | `OrderExpired` | already paid |
 | `StartProduction`, `MarkReady`, `MarkPickedUp` | staff, from the board | `OrderProductionStarted`, `OrderReady`, `OrderPickedUp` | out of order |
 | `MarkOutForDelivery`, `MarkDelivered` | `RoutePublished`, `StopCompleted` | `OrderOutForDelivery`, `OrderDelivered` | a pickup order |
-| `RefundOrder` | staff, full or partial | `OrderRefundRequested` | the amount exceeds paid minus refunded |
+| `RefundOrder` | staff, full or partial | `OrderRefundRequested`, with `OrderCancelled` when it is the rest of an unclosed order | the amount exceeds paid minus refunded (`refund-exceeds-paid`); any state but `confirmed`, `in_production`, `ready`, `picked_up`, `delivered` and `closed` (`out-of-order`) |
 | `RecordRefund` | `RefundIssued` | `OrderRefunded` | an unknown refund |
 | `Close` | the end-of-day timer | `OrderClosed` | not picked up or delivered |
 
@@ -105,8 +105,12 @@ stateDiagram-v2
   out_for_delivery --> delivered: StopCompleted
   picked_up --> closed: end of business day
   delivered --> closed: end of business day
+  in_production --> refund_pending: RefundOrder, the rest
+  ready --> refund_pending: RefundOrder, the rest
+  picked_up --> refund_pending: RefundOrder, the rest
+  delivered --> refund_pending: RefundOrder, the rest
   refund_pending --> cancelled: OrderRefunded
-  closed --> closed: partial refund
+  closed --> closed: refund
   cancelled --> [*]
   expired --> [*]
   closed --> [*]
@@ -116,8 +120,16 @@ Notes from building `Order` in PR 4 (2026-11-05), each a reading of this section
 
 - **Two edges the diagram implies but does not draw.** `cancelled --> refund_pending` when a payment lands after the order was cancelled (`OrderPaymentLate`, as for `expired`), and a self-loop on `refund_pending` for a partial refund requested while one is already pending.
 - **A cancelled paid order emits two events together:** `OrderCancelled` and `OrderRefundRequested`, in one commit.
-- **`RefundOrder` by staff is accepted only in `closed`.**
+- **`RefundOrder` by staff was accepted only in `closed`.** PR 5 widened it (below).
 - **`Expire` before `held_until` is rejected as not due.** The timer's own run, after the held time, is accepted, and a second run is a replay under the key `timer:expiry`.
+
+Notes from building `Billing` and the refunds in PR 5 (2026-11-05), each a reading of this section and not a change to it unless it says so:
+
+- **`RefundOrder` is now accepted in `confirmed`, `in_production`, `ready`, `picked_up`, `delivered` and `closed`** (`crates/domain/src/order.rs`, proven by the domain's tests and by `scripts/smoke-payments.sh` for a confirmed order). This widens the PR 4 note above, which took the first sentence of the catalog's row literally. A partial refund leaves the state as it is. A refund of all that is left, in a state before `closed`, is a cancellation by staff: `OrderCancelled` and `OrderRefundRequested` together, state `refund_pending`, then `cancelled` on `OrderRefunded`. In `closed` the order stays `closed`. The diagram gains four edges for it.
+- **`out_for_delivery` is refused (`out-of-order`).** The build took the explicit list of states, which leaves it out, over the words "every paid, non-terminal state", which would include it. It stays refused until Joseph says which reading he meant.
+- **`RecordPayment` refuses an amount that differs from the order's total** as `amount-mismatch` and emits nothing. Billing creates the intent from the total, so a mismatch is a bug; the Worker logs the refusal and answers the event 200, so Stripe does not retry it.
+- **A known gap, closed by PR 8.** A seeded paid order has no Stripe payment, because the seed writes its history into no `Billing` yet. A staff refund of one answers 409 `no-stripe-payment`, and a customer's cancellation of a seeded confirmed order stays `refund_pending`: `Billing` logs `refund_skipped` and no money is returned, since none was taken. PR 8, which writes the seed's history into `Billing` and `Crm`, closes it. The seed's daily totals are stored in `Billing`'s `history` table and appear in no response yet, because the ledger's lines each need a Stripe id.
+- **`webhook-later` is unproven.** A webhook `Billing` cannot apply yet (an unknown intent, a refund before its payment) answers 409 `webhook-later` so Stripe retries. The code does it; `scripts/smoke-payments.sh` has no check for it.
 
 ### CateringEvent
 
@@ -288,10 +300,12 @@ Every event, past tense, by producer. Types: `id` is a ULID string, `cents` an `
 | `CateringBalancePaid`, `CateringClosed` | CateringEvent | `payment: id?` | Schedule; Crm; Inbox | fulfils; customer stats; receipt |
 | `CateringCancelled` | CateringEvent | `refund_deposit: bool` | Schedule; Billing; Crm | releases the day; refunds if true; lost |
 | `PaymentIntentCreated` | Billing | `payment: id, purpose: order, deposit or balance, ref: id, amount_cents` | Crm | logs it |
-| `PaymentSucceeded` | Billing | `payment: id, purpose, ref: id, amount_cents, stripe_event: string` | Order or CateringEvent, by purpose | records the payment |
-| `PaymentFailed` | Billing | `payment: id, code: string` | Order or CateringEvent; Inbox | keeps waiting; a "card declined" notice |
-| `PaymentCanceled` | Billing | `payment: id` | Crm | logs it |
-| `RefundIssued` | Billing | `refund: id, payment: id, ref: id, amount_cents` | Order or CateringEvent | records the refund |
+| `PaymentIntentRecorded` | Billing | `payment: id, intent: string` | none | Billing's own record of the intent Stripe made; the client secret is never in an event |
+| `PaymentSucceeded` | Billing | `payment: id, purpose, ref: id, amount_cents, stripe_event: string, intent: string` | Order or CateringEvent, by purpose | records the payment |
+| `PaymentFailed` | Billing | `payment: id, purpose, ref: id, code: string, stripe_event: string` | Order or CateringEvent; Inbox | keeps waiting; a "card declined" notice |
+| `PaymentCanceled` | Billing | `payment: id, purpose, ref: id, stripe_event: string?` | Crm | logs it |
+| `RefundRequested` | Billing | `refund: id, payment: id, purpose, ref: id, amount_cents, reason: string` | none | Billing's own record that a refund was asked of Stripe |
+| `RefundIssued` | Billing | `refund: id, payment: id, purpose, ref: id, amount_cents, stripe_refund: string, stripe_event: string?` | Order or CateringEvent | records the refund |
 | `InvoiceIssued` | Billing | `invoice: id, ref: id, amount_cents, due: date` | CateringEvent | records the invoice |
 | `RouteProposed` | Dispatch | `date, plan_v: u16, vans: u8, minutes: u32` | Crm | logs it |
 | `RoutePublished` | Dispatch | `date, plan_v: u16, source: server or browser, vans: [{van: u8, stops: [order id]}], minutes: u32` | Order (each stop); Kitchen | out for delivery; van labels |
@@ -368,7 +382,7 @@ Every boundary that can repeat a message has a key and a table.
 |---|---|---|---|
 | HTTP command | `Idempotency-Key` header, a ULID, required on every POST | the target object's `commands_seen`, with the stored result; creation keys in `Control`, checked at admission | the stored result again, with `Idempotent-Replayed: true`; a reused key with a different body gets 422 problem+json |
 | Socket command | the `cmd` frame's ULID `id` | the Kitchen's last 64 ids, then the Order's `commands_seen` | `ack` again, as in the site's protocol v1 |
-| Call to Stripe | Stripe's `Idempotency-Key` header: `<ref>:<purpose>:<attempt>` | Stripe | Stripe returns the first result[^brandur] |
+| Call to Stripe | Stripe's `Idempotency-Key` header: `<ref>:<purpose>:<n>` to create an intent, and the purpose suffixed with the call for the others: `<ref>:<purpose>-confirm:<n>`, `<ref>:<purpose>-cancel:<n>`, `<ref>:<purpose>-refund:<ordinal>` (`n` is the payment's attempt, `ordinal` the refund's) | Stripe | Stripe returns the first result[^brandur]; a key reused on a different body gets 400 `idempotency_error` ([Stripe](https://docs.stripe.com/api/idempotent_requests), as of 2026-11-05), which is why no two calls share one |
 | Stripe webhook | the Stripe event id | Billing's `webhooks_seen` | 200, no effect |
 | Queue delivery | the envelope's `id` | each subscriber's `seen` | ack, no effect |
 | Alarm | the `timers` row id | the object's `timers` | the row is gone, so nothing runs |
@@ -423,6 +437,8 @@ All of them live and die with the sandbox, so none needs pruning. A command and 
 | Total | 34 objects | | 1,978, about 2,000 |
 
 That is close to the 2,000 rows [cost.md](cost.md) starts from; spike S5 measures the real figure, wipe included.
+
+**As built in PR 5 (2026-11-05).** A sandbox seeds 15 children in three batches of 7 (`workers/api/src/objects/sandbox.rs`, and its test that the plan is the Catalog, the Kitchen and `Billing` first, then the 12 open orders), where PR 4 seeded 14 in two. `Billing`'s seed is the 90 daily totals, in its `history` table (day, orders, cents); the 16 deposits and balances arrive with the catering PR. Those totals appear in no response yet.
 
 ## The principle map
 

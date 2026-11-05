@@ -3,7 +3,9 @@
 # idempotency, the expiry on the business clock, the event relay with the `kitchen` fault, the
 # dead-letter list and its redrive, the kitchen board's socket (snapshot, events, commands,
 # presence, its limits and its hibernation), the console's heartbeat, simulated traffic and
-# Control's minute ledger, and the wipe of every child. It proves each line of docs/roadmap.md's
+# Control's minute ledger, and the wipe of every child. Since PR 5 the Simulator pays each order
+# it places, so the script also starts scripts/fake-stripe.mjs and points the Worker at it; the
+# payment paths themselves are scripts/smoke-payments.sh's. It proves each line of docs/roadmap.md's
 # PR 4 "Done when" that can be proven locally, prints ok or FAIL per check as
 # scripts/smoke-auth.sh does, and exits non-zero on any failure.
 #
@@ -21,9 +23,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${SMOKE_PORT:-8788}"
 FAKE_PORT="${SMOKE_FAKE_PORT:-8790}"
+STRIPE_PORT="${SMOKE_STRIPE_PORT:-8791}"
 BASE="http://127.0.0.1:${PORT}"
 WS="ws://127.0.0.1:${PORT}"
 FAKE="http://127.0.0.1:${FAKE_PORT}"
+STRIPE="http://127.0.0.1:${STRIPE_PORT}"
 STOREFRONT="http://127.0.0.1:8787"
 STARTUP_TIMEOUT_S="${STARTUP_TIMEOUT_S:-240}"
 DEV_VARS="$ROOT/workers/api/.dev.vars"
@@ -31,10 +35,12 @@ DEV_VARS="$ROOT/workers/api/.dev.vars"
 TMP="$(mktemp -d -t smoke-orders.XXXXXX)"
 LOG="$TMP/worker.log"
 FAKE_LOG="$TMP/fake.log"
+STRIPE_LOG="$TMP/stripe.log"
 FAILURES=0
 PASSES=0
 SERVER_PID=""
 FAKE_PID=""
+STRIPE_PID=""
 WROTE_DEV_VARS=""
 BACKUP=""
 
@@ -50,6 +56,7 @@ stop() {
   for pid in ${WS_A:-} ${WS_B:-} ${WS_G:-} ${WS_L[@]:-} ${REDRIVE_PROBE:-}; do kill -TERM "$pid" 2>/dev/null || true; done
   stop_pid "$SERVER_PID"
   stop_pid "$FAKE_PID"
+  stop_pid "$STRIPE_PID"
   if [[ -n "$WROTE_DEV_VARS" ]]; then rm -f "$DEV_VARS"; fi
   if [[ -n "$BACKUP" && -f "$BACKUP" ]]; then mv "$BACKUP" "$DEV_VARS"; fi
   if [[ -n "${SMOKE_ORDERS_LOG:-}" ]]; then cp "$LOG" "$SMOKE_ORDERS_LOG" 2>/dev/null || true; fi
@@ -74,9 +81,9 @@ if [[ -e "$DEV_VARS" ]]; then
   BACKUP="$TMP/dev.vars.backup"
   mv "$DEV_VARS" "$BACKUP"
 fi
-for p in "$PORT" "$FAKE_PORT"; do
+for p in "$PORT" "$FAKE_PORT" "$STRIPE_PORT"; do
   if curl -s -o /dev/null "http://127.0.0.1:$p/" 2>/dev/null; then
-    echo "something already listens on port $p; stop it or set SMOKE_PORT / SMOKE_FAKE_PORT" >&2
+    echo "something already listens on port $p; stop it or set SMOKE_PORT / SMOKE_FAKE_PORT / SMOKE_STRIPE_PORT" >&2
     exit 2
   fi
 done
@@ -231,6 +238,10 @@ write_dev_vars() {
     echo "ALLOWED_ORIGIN=$STOREFRONT"
     echo "API_ORIGIN=$BASE"
     echo "TRAFFIC_MINUTES_CAP=2"
+    # The fake Stripe's own test-shaped values (scripts/fake-stripe.mjs), not secrets.
+    echo "STRIPE_API_BASE=$STRIPE"
+    echo "STRIPE_SECRET_KEY=rk_test_fake000000000000000000000000"
+    echo "STRIPE_WEBHOOK_SECRET=whsec_fake0000000000000000000000000000"
   } > "$DEV_VARS"
   WROTE_DEV_VARS=1
 }
@@ -294,12 +305,14 @@ pickable() {
 
 # ---------- start ----------
 
-echo "starting the fake provider on $FAKE"
+echo "starting the fake provider on $FAKE and the fake Stripe on $STRIPE"
 set -m
 node "$ROOT/scripts/fake-providers.mjs" --port "$FAKE_PORT" > "$FAKE_LOG" 2>&1 < /dev/null &
 FAKE_PID=$!
+FAKE_STRIPE_WEBHOOK_URL="$BASE/v1/stripe/webhook" node "$ROOT/scripts/fake-stripe.mjs" --port "$STRIPE_PORT" > "$STRIPE_LOG" 2>&1 < /dev/null &
+STRIPE_PID=$!
 set +m
-for _ in $(seq 1 100); do curl -s -o /dev/null "$FAKE/_health" && break; sleep 0.1; done
+for _ in $(seq 1 100); do curl -s -o /dev/null "$FAKE/_health" && curl -s -o /dev/null "$STRIPE/_health" && break; sleep 0.1; done
 
 start_worker
 
@@ -310,7 +323,7 @@ expect_status guest 201
 expect_json guest "['seeding', 'live'].includes(b.state) && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(b.persona) && b.faults.kitchen === false"
 GID="$(json_field guest b.id)"
 check "guest: seeding reaches live within 20 s" "wait_live guest_live G '$GID'"
-expect_json guest_live "b.state === 'live' && b.children === 14"
+expect_json guest_live "b.state === 'live' && b.children === 15"
 
 CANARY="$(random_text 24)"
 command_as signup D 192.0.2.42 POST /v1/auth/demo "{\"password\":\"$CANARY\",\"turnstile_token\":\"pass-1\"}"
@@ -319,7 +332,7 @@ command_as demo D 192.0.2.42 POST /v1/sandboxes '{"replace":false}'
 expect_status demo 201
 DID="$(json_field demo b.id)"
 check "demo: seeding reaches live within 20 s" "wait_live demo_live D '$DID'"
-expect_json demo_live "b.state === 'live' && b.children === 14 && b.kind === 'account'"
+expect_json demo_live "b.state === 'live' && b.children === 15 && b.kind === 'account'"
 DUSER="$(json_field signup b.username)"
 
 # A second demo account whose traffic runs with no console at all: no socket, no heartbeat. Its
@@ -697,7 +710,10 @@ done
 sleep 1
 SIM_ORDERS="$(probe_field "$TMP/ws_a.out" "frames.filter((f) => f.t === 'evt' && f.env.type === 'OrderPlaced' && f.at >= $SIM_FROM_MS).length")"
 check "rate 6 with a console socket open: $SIM_ORDERS orders on the board in the first minute, 1 to 6" "(( SIM_ORDERS >= 1 && SIM_ORDERS <= 6 ))"
-expect_probe "every event the Simulator caused carries cause sim:<ulid>" "$TMP/ws_a.out" "evts.filter((e) => e.at_ms >= $SIM_FROM_MS).length > 0 && evts.filter((e) => e.at_ms >= $SIM_FROM_MS).every((e) => /^sim:[0-9A-HJKMNP-TV-Z]{26}$/.test(e.cause))"
+# Since PR 5 a simulated order's OrderPaid follows its OrderPlaced; its cause is Billing's
+# PaymentSucceeded, the event that paid it, so the check reads the placements.
+expect_probe "every order the Simulator placed carries cause sim:<ulid>" "$TMP/ws_a.out" "evts.filter((e) => e.at_ms >= $SIM_FROM_MS && e.type === 'OrderPlaced').length > 0 && evts.filter((e) => e.at_ms >= $SIM_FROM_MS && e.type === 'OrderPlaced').every((e) => /^sim:[0-9A-HJKMNP-TV-Z]{26}$/.test(e.cause))"
+expect_probe "the Simulator's orders are paid: OrderPaid reaches the board, caused by Billing's event" "$TMP/ws_a.out" "evts.some((e) => e.at_ms >= $SIM_FROM_MS && e.type === 'OrderPaid' && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(e.cause))"
 get_as traffic_running D "/v1/sandboxes/$DID/traffic"
 expect_json traffic_running "b.running === true && b.minutes_used === 1 && b.minutes_left === 1 && b.orders === $SIM_ORDERS"
 command_as traffic_stop D 192.0.2.42 DELETE "/v1/sandboxes/$DID/traffic"

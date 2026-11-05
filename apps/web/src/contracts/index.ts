@@ -11,6 +11,7 @@ export type { DemoSignupResponse } from './DemoSignupResponse';
 export type { FaultName, FaultRequest } from './FaultRequest';
 export type { Faults, FaultsResponse } from './FaultsResponse';
 export type { HealthResponse, HealthStatus } from './HealthResponse';
+export type { LedgerEntry, LedgerKind, LedgerResponse, PaymentPurpose } from './LedgerResponse';
 export type { MenuEditResponse } from './MenuEditResponse';
 export type { MenuItemPatch, MenuItemStatus } from './MenuItemPatch';
 export type {
@@ -25,8 +26,11 @@ export type {
 export type { OrderLineResponse } from './OrderLineResponse';
 export type { OrderKind, OrderLineRequest, OrderRequest } from './OrderRequest';
 export type { OrderResponse, OrderStatus } from './OrderResponse';
+export type { PaymentResponse, PaymentStatus } from './PaymentResponse';
 export type { Problem } from './Problem';
-export type { SandboxKind, SandboxResponse, SandboxState } from './SandboxResponse';
+export type { RefundReason, RefundRequest } from './RefundRequest';
+export type { RefundResponse } from './RefundResponse';
+export type { PersonaAddress, SandboxKind, SandboxResponse, SandboxState } from './SandboxResponse';
 export type {
   BakeLineView,
   BakeListView,

@@ -39,6 +39,14 @@
       "description": "The visitor's customer persona: the seed's first customer's ULID. Orders the visitor\nplaces are this customer's.",
       "type": "string"
     },
+    "persona_address": {
+      "description": "The persona's synthetic address, from the seed: the Payment Element's billing address,\nso the visitor types none (ADR 0007, decision 6).",
+      "$ref": "#/$defs/PersonaAddress"
+    },
+    "persona_name": {
+      "description": "The persona's synthetic display name, from the seed: the Payment Element's billing name.",
+      "type": "string"
+    },
     "seed": {
       "description": "The seed the sandbox was generated from. A JSON number: JavaScript reads it exactly only\nbelow 2^53, so the router mints seeds in that range.",
       "type": "integer",
@@ -68,6 +76,8 @@
     "wipe_at",
     "seed",
     "persona",
+    "persona_name",
+    "persona_address",
     "clock_offset_s",
     "clock_v",
     "token_v",
@@ -90,6 +100,38 @@
       "required": [
         "inbox",
         "kitchen"
+      ]
+    },
+    "PersonaAddress": {
+      "description": "A made-up address, labelled synthetic in its first line, passed to Stripe's\n`confirmPayment` as the billing address.",
+      "type": "object",
+      "properties": {
+        "city": {
+          "type": "string"
+        },
+        "country": {
+          "description": "An ISO 3166-1 alpha-2 code.",
+          "type": "string"
+        },
+        "line1": {
+          "description": "`<place label>, unit <n> (synthetic)`, such as `p17, unit 3 (synthetic)`.",
+          "type": "string"
+        },
+        "postal_code": {
+          "type": "string"
+        },
+        "state": {
+          "description": "A two-letter state code.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "line1",
+        "city",
+        "state",
+        "postal_code",
+        "country"
       ]
     },
     "SandboxKind": {
