@@ -206,6 +206,174 @@ td {
   color: var(--muted-foreground);
 }
 
+/* The storefront (menu, cart, checkout) and the console's kitchen. Colors come from tokens only. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+select,
+textarea,
+input[type='number'] {
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-md);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+}
+
+select,
+textarea {
+  display: block;
+  width: 100%;
+}
+
+input[type='number'] {
+  width: 5rem;
+}
+
+input[type='radio'] {
+  width: 1.25rem;
+  height: 1.25rem;
+  vertical-align: -0.2em;
+}
+
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+fieldset {
+  min-width: 0;
+  margin: 0 0 1rem;
+  padding: 0;
+  border: 0;
+}
+
+legend {
+  padding: 0;
+  font-weight: 600;
+}
+
+button.link {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font-weight: 400;
+  text-decoration: underline;
+}
+
+button.link:disabled {
+  color: var(--muted-foreground);
+  border: 0;
+}
+
+.items,
+.variants,
+.cart-lines,
+.cards,
+.card-lines,
+.feed,
+.letters,
+.editor {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr);
+  gap: 0 1rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.item h3 {
+  margin: 0;
+}
+
+.item p {
+  margin: 0.25rem 0;
+}
+
+.glyph {
+  width: 3rem;
+  height: 3rem;
+  color: var(--foreground);
+}
+
+.variants li,
+.cart-lines li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  padding: 0.375rem 0;
+}
+
+.variant-name,
+.line-name {
+  flex: 1 1 8rem;
+  font-weight: 600;
+}
+
+.price {
+  font-variant-numeric: tabular-nums;
+}
+
+.qty {
+  display: inline-block;
+  margin: 0;
+  font-weight: 400;
+}
+
+.totals {
+  max-width: 24rem;
+}
+
+.problem-slot {
+  margin: 0;
+}
+
+.column > h4 {
+  margin: 1.25rem 0 0.5rem;
+}
+
+.card,
+.letters li,
+.editor li {
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.card p,
+.letters p,
+.editor p {
+  margin: 0.25rem 0;
+}
+
+.card-lines {
+  margin: 0.25rem 0;
+}
+
+.feed li {
+  padding: 0.375rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
 /* On a phone the table's rows become blocks, so nothing scrolls sideways at 320 px. */
 @media (max-width: 40rem) {
   table,
@@ -241,5 +409,16 @@ td {
   button,
   .action {
     transition: background-color 120ms;
+  }
+
+  /* A card that arrives or moves on the board fades in; with reduced motion it just appears. */
+  .card {
+    animation: card-in 240ms ease-out;
+  }
+
+  @keyframes card-in {
+    from {
+      opacity: 0;
+    }
   }
 }

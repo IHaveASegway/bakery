@@ -1,0 +1,17 @@
+---
+import Base from '../../layouts/Base.astro';
+import StoreMenu from '../../components/StoreMenu';
+---
+
+<Base
+  title="Menu | Proof of Concept Bakery"
+  description="The made-up bakery's menu: 24 items in 5 categories, with prices, allergens and lead times."
+>
+  <h1>Menu</h1>
+  <p>
+    Twenty-four items in five categories, drawn rather than photographed. The prices are the demo’s
+    own, in US dollars, and nothing here can be bought with real money. Allergens are the nine major
+    US ones, and an item that needs notice says how much.
+  </p>
+  <StoreMenu client:load />
+</Base>

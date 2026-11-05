@@ -1,0 +1,16 @@
+---
+import Base from '../../layouts/Base.astro';
+import Checkout from '../../components/Checkout';
+---
+
+<Base
+  title="Checkout | Proof of Concept Bakery"
+  description="Choose pickup or delivery, add a note and place a demo order in your private sandbox."
+>
+  <h1>Checkout</h1>
+  <p>
+    The cart lives in this tab only and is cleared when the order is placed. The order goes to your
+    private sandbox and is deleted with it at 10:00 UTC.
+  </p>
+  <Checkout client:load />
+</Base>

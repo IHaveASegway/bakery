@@ -5,20 +5,23 @@
   site's ADR 0018 (page policy as a header):
   https://github.com/IHaveASegway/website/blob/main/docs/adr/0018-page-policy-as-a-header.md
 
-  Two page classes. Every page gets the strict policy, which names no third party, so a visitor
+  Three page classes. Every page gets the strict policy, which names no third party, so a visitor
   reading the privacy page loads nothing from Cloudflare. Pages that create a sandbox or an account
-  (/signin/ now, /app/ because it can create a sandbox too) add Turnstile's origin to script-src
-  and frame-src, and nothing else.
+  (/signin/ now, /app/ because it can create a sandbox too) are the challenge class: they add
+  Turnstile's origin to script-src and frame-src, and nothing else. Pages with an island but no
+  Turnstile (/menu/ and /checkout/, the cart) are the island class: the strict policy plus the
+  hashes below, and no third party.
 
-  No page of ours holds inline code, but Astro writes two small inline pieces into a page with a
-  hydrated island: the <astro-island> definition script and a one-rule style. So /signin/ and /app/
-  allow those by SHA-256 hash, read from the built HTML by scripts/inline-hashes.mjs, and never by
-  'unsafe-inline' or 'unsafe-eval'. Pages with no island, which are all the others, get no hash.
+  No page of ours holds inline code of its own, but Astro writes two small inline pieces into a
+  page with a hydrated island: the <astro-island> definition script and a one-rule style. So every
+  page of the challenge and island classes allows those by SHA-256 hash, read from the built HTML
+  by scripts/inline-hashes.mjs, and never by 'unsafe-inline' or 'unsafe-eval'. Pages with no
+  island, which are all the others, get no hash.
 
   Strict-Transport-Security is the zone's alone and never appears (site ADR 0011).
 */
 
-export type PageClass = 'every' | 'challenge';
+export type PageClass = 'every' | 'challenge' | 'island';
 
 /** Where the browser reaches the API when nothing says otherwise. */
 export const DEFAULT_API_ORIGIN = 'https://api.bakery.ihaveasegway.com';
@@ -88,10 +91,16 @@ export const OTHER_HEADERS: Record<string, string> = {
 /** Pages that load Turnstile. Cloudflare serves a trailing-slash path with the splat matching empty. */
 export const CHALLENGE_PATHS = ['/signin/*', '/app/*'];
 
+/** Pages with a hydrated island and no Turnstile: the menu and the cart's checkout step. */
+export const ISLAND_PATHS = ['/menu/*', '/checkout/*'];
+
+/** Every path that gets a rule of its own, which scripts/inline-hashes.mjs reads hashes for. */
+export const RULE_PATHS = [...CHALLENGE_PATHS, ...ISLAND_PATHS];
+
 /**
  * The contents of dist/_headers. Cloudflare applies every matching rule in file order; a header a
  * later rule sets again is appended, which for the policy would mean two policies, both enforced.
- * So a challenge rule first detaches the policy and then sets its own.
+ * So a challenge or island rule first detaches the policy and then sets its own.
  */
 export function headersFile(apiOrigin: string, hashes: Record<string, Hashes> = {}): string {
   const of = (path: string) => hashes[path] ?? NO_HASHES;
@@ -109,6 +118,15 @@ export function headersFile(apiOrigin: string, hashes: Record<string, Hashes> = 
       path,
       '  ! Content-Security-Policy',
       `  Content-Security-Policy: ${csp('challenge', apiOrigin, of(path))}`,
+      '',
+    );
+  }
+  for (const path of ISLAND_PATHS) {
+    lines.push(
+      '# The menu and the checkout hold an island and load nothing from a third party.',
+      path,
+      '  ! Content-Security-Policy',
+      `  Content-Security-Policy: ${csp('island', apiOrigin, of(path))}`,
       '',
     );
   }

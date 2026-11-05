@@ -8,7 +8,8 @@
     "serve": "wrangler dev --local --ip 127.0.0.1 --port 8787 --show-interactive-dev-session=false",
     "typecheck": "astro check",
     "test": "vitest run",
-    "contracts": "node scripts/contracts.mjs"
+    "contracts": "node scripts/contracts.mjs",
+    "menu": "node scripts/menu.mjs"
   },
   "dependencies": {
     "@astrojs/react": "7.1.2",

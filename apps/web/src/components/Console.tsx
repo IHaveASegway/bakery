@@ -12,7 +12,13 @@ import {
 } from '../lib/api';
 import { formatCountdown, utcClock, utcStamp } from '../lib/countdown';
 import { describeError, type Message as Text } from '../lib/messages';
+import Clock from './Clock';
+import DeadLetters from './DeadLetters';
+import GuestNote from './GuestNote';
+import KitchenBoard from './KitchenBoard';
+import MenuEditor from './MenuEditor';
 import Message from './Message';
+import Traffic from './Traffic';
 
 // Nothing here is stored in the browser: the session is the cookie, and every load asks the API.
 type View =
@@ -61,6 +67,24 @@ export default function Console() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // The first alarm seeds a new sandbox (ADR 0005); until it is live, ask every second.
+  const seedingId =
+    view.name === 'sandbox' && view.sandbox.state === 'seeding' ? view.sandbox.id : null;
+  useEffect(() => {
+    if (seedingId === null) return;
+    const timer = setInterval(() => {
+      getSandbox(seedingId).then(
+        (sandbox) => {
+          if (sandbox.state !== 'seeding') {
+            setView((v) => (v.name === 'sandbox' ? { ...v, sandbox } : v));
+          }
+        },
+        () => undefined,
+      );
+    }, 1_000);
+    return () => clearInterval(timer);
+  }, [seedingId]);
 
   /** Runs one action: busy while it runs, any problem shown in the live region. */
   async function act(run: () => Promise<void>) {
@@ -226,29 +250,62 @@ export default function Console() {
         </dd>
       </dl>
 
-      <h3>Faults</h3>
-      <p>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={sandbox.faults.inbox}
-            disabled={busy || isGuest}
-            onChange={(e) =>
-              void act(async () => {
-                const on = e.target.checked;
-                const { faults } = await setFault(sandbox.id, { fault: 'inbox', on });
-                setView({ ...view, sandbox: { ...sandbox, faults } });
-              })
-            }
-          />{' '}
-          Inbox refuses deliveries
-        </label>
-      </p>
-      {isGuest && (
-        <p className="hint">
-          Guests browse, order and pay. Sign in to use the console’s writes.{' '}
-          <a href="/signin/">Sign in</a>.
+      {sandbox.state === 'seeding' ? (
+        <p aria-live="polite">
+          <strong>Seeding your bakery.</strong> The menu, the kitchen and the day’s open orders are
+          being made. This page updates by itself.
         </p>
+      ) : (
+        <>
+          <KitchenBoard sandboxId={sandbox.id} isGuest={isGuest} onWiped={() => void load()} />
+          <Traffic sandboxId={sandbox.id} isGuest={isGuest} />
+          <MenuEditor sandboxId={sandbox.id} isGuest={isGuest} />
+
+          <h3>Faults</h3>
+          <p>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={sandbox.faults.kitchen}
+                disabled={busy || isGuest}
+                onChange={(e) =>
+                  void act(async () => {
+                    const on = e.target.checked;
+                    const { faults } = await setFault(sandbox.id, { fault: 'kitchen', on });
+                    setView({ ...view, sandbox: { ...sandbox, faults } });
+                  })
+                }
+              />{' '}
+              Kitchen refuses deliveries
+            </label>
+          </p>
+          <p>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={sandbox.faults.inbox}
+                disabled={busy || isGuest}
+                onChange={(e) =>
+                  void act(async () => {
+                    const on = e.target.checked;
+                    const { faults } = await setFault(sandbox.id, { fault: 'inbox', on });
+                    setView({ ...view, sandbox: { ...sandbox, faults } });
+                  })
+                }
+              />{' '}
+              Inbox refuses deliveries (PR 8)
+            </label>
+          </p>
+          {isGuest && <GuestNote />}
+
+          <DeadLetters sandboxId={sandbox.id} isGuest={isGuest} />
+          <Clock
+            sandboxId={sandbox.id}
+            offsetSeconds={sandbox.clock_offset_s}
+            isGuest={isGuest}
+            onAdvanced={() => void load()}
+          />
+        </>
       )}
 
       <h3>Sandbox actions</h3>

@@ -1,0 +1,580 @@
+{
+  "source": { "seed": 42, "born": "2026-11-07" },
+  "categories": [
+    {
+      "slug": "breads",
+      "name": "Breads",
+      "items": [
+        {
+          "slug": "country-loaf",
+          "name": "Country loaf",
+          "allergens": ["wheat"],
+          "daily_cap": 40,
+          "days_baked": ["tue", "wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": { "over_qty": 4, "lead_minutes": 720 },
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "country-loaf/whole",
+              "label": "Whole",
+              "price_cents": 950,
+              "lead_minutes": 120
+            },
+            {
+              "slug": "country-loaf/half",
+              "label": "Half",
+              "price_cents": 550,
+              "lead_minutes": 120
+            }
+          ]
+        },
+        {
+          "slug": "seeded-rye",
+          "name": "Seeded rye",
+          "allergens": ["wheat", "sesame"],
+          "daily_cap": 40,
+          "days_baked": ["wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": { "over_qty": 4, "lead_minutes": 720 },
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "seeded-rye/whole",
+              "label": "Whole",
+              "price_cents": 1050,
+              "lead_minutes": 120
+            },
+            { "slug": "seeded-rye/half", "label": "Half", "price_cents": 600, "lead_minutes": 120 }
+          ]
+        },
+        {
+          "slug": "baguette",
+          "name": "Baguette",
+          "allergens": ["wheat"],
+          "daily_cap": 40,
+          "days_baked": ["tue", "wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": { "over_qty": 4, "lead_minutes": 720 },
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            { "slug": "baguette/whole", "label": "Whole", "price_cents": 450, "lead_minutes": 120 },
+            { "slug": "baguette/half", "label": "Half", "price_cents": 275, "lead_minutes": 120 }
+          ]
+        },
+        {
+          "slug": "focaccia",
+          "name": "Focaccia",
+          "allergens": ["wheat"],
+          "daily_cap": 40,
+          "days_baked": ["tue", "wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": { "over_qty": 4, "lead_minutes": 720 },
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "focaccia/whole",
+              "label": "Whole",
+              "price_cents": 1200,
+              "lead_minutes": 120
+            },
+            { "slug": "focaccia/half", "label": "Half", "price_cents": 700, "lead_minutes": 120 }
+          ]
+        },
+        {
+          "slug": "brioche-loaf",
+          "name": "Brioche loaf",
+          "allergens": ["wheat", "milk", "eggs"],
+          "daily_cap": 40,
+          "days_baked": ["fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": { "over_qty": 4, "lead_minutes": 720 },
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "brioche-loaf/whole",
+              "label": "Whole",
+              "price_cents": 1100,
+              "lead_minutes": 120
+            },
+            {
+              "slug": "brioche-loaf/half",
+              "label": "Half",
+              "price_cents": 650,
+              "lead_minutes": 120
+            }
+          ]
+        },
+        {
+          "slug": "sandwich-loaf",
+          "name": "Sandwich loaf",
+          "allergens": ["wheat", "milk", "soybeans"],
+          "daily_cap": 40,
+          "days_baked": ["tue", "wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": { "over_qty": 4, "lead_minutes": 720 },
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "sandwich-loaf/whole",
+              "label": "Whole",
+              "price_cents": 900,
+              "lead_minutes": 120
+            },
+            {
+              "slug": "sandwich-loaf/half",
+              "label": "Half",
+              "price_cents": 525,
+              "lead_minutes": 120
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "pastries",
+      "name": "Pastries",
+      "items": [
+        {
+          "slug": "croissant",
+          "name": "Croissant",
+          "allergens": ["wheat", "milk", "eggs"],
+          "daily_cap": 80,
+          "days_baked": ["tue", "wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": null,
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "croissant/single",
+              "label": "Single",
+              "price_cents": 450,
+              "lead_minutes": 120
+            },
+            {
+              "slug": "croissant/box-6",
+              "label": "Box of 6",
+              "price_cents": 2400,
+              "lead_minutes": 120
+            }
+          ]
+        },
+        {
+          "slug": "pain-au-chocolat",
+          "name": "Pain au chocolat",
+          "allergens": ["wheat", "milk", "eggs", "soybeans"],
+          "daily_cap": 80,
+          "days_baked": ["tue", "wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": null,
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "pain-au-chocolat/single",
+              "label": "Single",
+              "price_cents": 500,
+              "lead_minutes": 120
+            },
+            {
+              "slug": "pain-au-chocolat/box-6",
+              "label": "Box of 6",
+              "price_cents": 2700,
+              "lead_minutes": 120
+            }
+          ]
+        },
+        {
+          "slug": "almond-croissant",
+          "name": "Almond croissant",
+          "allergens": ["wheat", "milk", "eggs", "tree-nuts"],
+          "daily_cap": 80,
+          "days_baked": ["tue", "wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": null,
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "almond-croissant/single",
+              "label": "Single",
+              "price_cents": 575,
+              "lead_minutes": 120
+            },
+            {
+              "slug": "almond-croissant/box-6",
+              "label": "Box of 6",
+              "price_cents": 3100,
+              "lead_minutes": 120
+            }
+          ]
+        },
+        {
+          "slug": "morning-bun",
+          "name": "Morning bun",
+          "allergens": ["wheat", "milk", "eggs"],
+          "daily_cap": 80,
+          "days_baked": ["tue", "wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": null,
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "morning-bun/single",
+              "label": "Single",
+              "price_cents": 475,
+              "lead_minutes": 120
+            },
+            {
+              "slug": "morning-bun/box-6",
+              "label": "Box of 6",
+              "price_cents": 2550,
+              "lead_minutes": 120
+            }
+          ]
+        },
+        {
+          "slug": "cardamom-knot",
+          "name": "Cardamom knot",
+          "allergens": ["wheat", "milk", "eggs"],
+          "daily_cap": 80,
+          "days_baked": ["tue", "wed", "thu", "fri", "sat", "sun"],
+          "season": { "from": "10-15", "to": "03-15" },
+          "bulk_lead": null,
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "cardamom-knot/single",
+              "label": "Single",
+              "price_cents": 525,
+              "lead_minutes": 120
+            },
+            {
+              "slug": "cardamom-knot/box-6",
+              "label": "Box of 6",
+              "price_cents": 2850,
+              "lead_minutes": 120
+            }
+          ]
+        },
+        {
+          "slug": "fruit-danish",
+          "name": "Fruit danish",
+          "allergens": ["wheat", "milk", "eggs"],
+          "daily_cap": 80,
+          "days_baked": ["tue", "wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": null,
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "fruit-danish/single",
+              "label": "Single",
+              "price_cents": 500,
+              "lead_minutes": 120
+            },
+            {
+              "slug": "fruit-danish/box-6",
+              "label": "Box of 6",
+              "price_cents": 2700,
+              "lead_minutes": 120
+            }
+          ]
+        },
+        {
+          "slug": "scone",
+          "name": "Scone",
+          "allergens": ["wheat", "milk", "eggs"],
+          "daily_cap": 80,
+          "days_baked": ["tue", "wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": null,
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            { "slug": "scone/single", "label": "Single", "price_cents": 400, "lead_minutes": 120 },
+            { "slug": "scone/box-6", "label": "Box of 6", "price_cents": 2150, "lead_minutes": 120 }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "cakes",
+      "name": "Cakes",
+      "items": [
+        {
+          "slug": "chocolate-layer-cake",
+          "name": "Chocolate layer cake",
+          "allergens": ["wheat", "milk", "eggs", "soybeans"],
+          "daily_cap": 30,
+          "days_baked": ["wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": null,
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "chocolate-layer-cake/6-inch",
+              "label": "6-inch",
+              "price_cents": 3800,
+              "lead_minutes": 2880
+            },
+            {
+              "slug": "chocolate-layer-cake/9-inch",
+              "label": "9-inch",
+              "price_cents": 6400,
+              "lead_minutes": 2880
+            },
+            {
+              "slug": "chocolate-layer-cake/slice",
+              "label": "Slice",
+              "price_cents": 650,
+              "lead_minutes": 120
+            }
+          ]
+        },
+        {
+          "slug": "lemon-olive-oil-cake",
+          "name": "Lemon olive oil cake",
+          "allergens": ["wheat", "eggs", "tree-nuts"],
+          "daily_cap": 30,
+          "days_baked": ["wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": null,
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "lemon-olive-oil-cake/6-inch",
+              "label": "6-inch",
+              "price_cents": 3400,
+              "lead_minutes": 2880
+            },
+            {
+              "slug": "lemon-olive-oil-cake/9-inch",
+              "label": "9-inch",
+              "price_cents": 5800,
+              "lead_minutes": 2880
+            },
+            {
+              "slug": "lemon-olive-oil-cake/slice",
+              "label": "Slice",
+              "price_cents": 575,
+              "lead_minutes": 120
+            }
+          ]
+        },
+        {
+          "slug": "carrot-cake",
+          "name": "Carrot cake",
+          "allergens": ["wheat", "milk", "eggs", "tree-nuts"],
+          "daily_cap": 30,
+          "days_baked": ["wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": null,
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "carrot-cake/6-inch",
+              "label": "6-inch",
+              "price_cents": 3600,
+              "lead_minutes": 2880
+            },
+            {
+              "slug": "carrot-cake/9-inch",
+              "label": "9-inch",
+              "price_cents": 6000,
+              "lead_minutes": 2880
+            },
+            {
+              "slug": "carrot-cake/slice",
+              "label": "Slice",
+              "price_cents": 600,
+              "lead_minutes": 120
+            }
+          ]
+        },
+        {
+          "slug": "seasonal-fruit-tart",
+          "name": "Seasonal fruit tart",
+          "allergens": ["wheat", "milk", "eggs", "tree-nuts"],
+          "daily_cap": 30,
+          "days_baked": ["wed", "thu", "fri", "sat", "sun"],
+          "season": { "from": "05-01", "to": "09-30" },
+          "bulk_lead": null,
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "seasonal-fruit-tart/6-inch",
+              "label": "6-inch",
+              "price_cents": 4000,
+              "lead_minutes": 2880
+            },
+            {
+              "slug": "seasonal-fruit-tart/9-inch",
+              "label": "9-inch",
+              "price_cents": 6800,
+              "lead_minutes": 2880
+            },
+            {
+              "slug": "seasonal-fruit-tart/slice",
+              "label": "Slice",
+              "price_cents": 700,
+              "lead_minutes": 120
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "savory",
+      "name": "Savory",
+      "items": [
+        {
+          "slug": "ham-and-cheese-croissant",
+          "name": "Ham and cheese croissant",
+          "allergens": ["wheat", "milk", "eggs"],
+          "daily_cap": 50,
+          "days_baked": ["tue", "wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": null,
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "ham-and-cheese-croissant/single",
+              "label": "Single",
+              "price_cents": 750,
+              "lead_minutes": 120
+            }
+          ]
+        },
+        {
+          "slug": "quiche-slice",
+          "name": "Quiche slice",
+          "allergens": ["wheat", "milk", "eggs"],
+          "daily_cap": 50,
+          "days_baked": ["tue", "wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": null,
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "quiche-slice/single",
+              "label": "Single",
+              "price_cents": 650,
+              "lead_minutes": 120
+            }
+          ]
+        },
+        {
+          "slug": "hand-pie",
+          "name": "Hand pie",
+          "allergens": ["wheat", "milk"],
+          "daily_cap": 50,
+          "days_baked": ["tue", "wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": null,
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "hand-pie/single",
+              "label": "Single",
+              "price_cents": 600,
+              "lead_minutes": 120
+            }
+          ]
+        },
+        {
+          "slug": "focaccia-sandwich",
+          "name": "Focaccia sandwich",
+          "allergens": ["wheat", "milk", "sesame"],
+          "daily_cap": 50,
+          "days_baked": ["tue", "wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": null,
+          "pickup_only": false,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "focaccia-sandwich/single",
+              "label": "Single",
+              "price_cents": 1100,
+              "lead_minutes": 120
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "drinks",
+      "name": "Drinks",
+      "items": [
+        {
+          "slug": "drip-coffee",
+          "name": "Drip coffee",
+          "allergens": [],
+          "daily_cap": 200,
+          "days_baked": ["tue", "wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": null,
+          "pickup_only": true,
+          "status": "available",
+          "variants": [
+            {
+              "slug": "drip-coffee/small",
+              "label": "Small",
+              "price_cents": 300,
+              "lead_minutes": 0
+            },
+            { "slug": "drip-coffee/large", "label": "Large", "price_cents": 375, "lead_minutes": 0 }
+          ]
+        },
+        {
+          "slug": "latte",
+          "name": "Latte",
+          "allergens": ["milk"],
+          "daily_cap": 200,
+          "days_baked": ["tue", "wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": null,
+          "pickup_only": true,
+          "status": "available",
+          "variants": [
+            { "slug": "latte/small", "label": "Small", "price_cents": 450, "lead_minutes": 0 },
+            { "slug": "latte/large", "label": "Large", "price_cents": 550, "lead_minutes": 0 }
+          ]
+        },
+        {
+          "slug": "chai",
+          "name": "Chai",
+          "allergens": ["milk"],
+          "daily_cap": 200,
+          "days_baked": ["tue", "wed", "thu", "fri", "sat", "sun"],
+          "season": null,
+          "bulk_lead": null,
+          "pickup_only": true,
+          "status": "available",
+          "variants": [
+            { "slug": "chai/small", "label": "Small", "price_cents": 475, "lead_minutes": 0 },
+            { "slug": "chai/large", "label": "Large", "price_cents": 575, "lead_minutes": 0 }
+          ]
+        }
+      ]
+    }
+  ]
+}
