@@ -43,6 +43,13 @@
 //! - `POST /_redrive {key, id}` → `DeadLetter`: the stored envelope sent to the Queue again with
 //!   its own id, and the row removed; 404 `{error: "unknown-dead-letter"}`.
 //! - `POST /_wipe {cause}` → `WipeAnswer`.
+//! - `GET /_token` → `TokenState`: the lifecycle state and the token version the router checks a
+//!   bearer token against, with the last issued token's times and masked form for the console.
+//! - `POST /_token/issue {key, rotate, tid, iat, exp}` → `TokenIssued`: the claims the Worker
+//!   signs, at the current token version, or with `rotate` (`RotateApiToken`) at the version plus
+//!   one and `ApiTokenRotated` appended in the same transaction. The token itself never reaches
+//!   this object; a repeated key replays the claims, so the Worker signs the same token again.
+//! - `POST /_token/masked {token_v, tid, masked}`: the issued token's masked form, for `GET`.
 
 use std::cell::Cell;
 
@@ -116,6 +123,17 @@ const DAYS_AHEAD: i64 = 30;
 /// new order would be (docs/domain.md, "Order": 15 minutes).
 const SEED_HOLD_MINUTES: i64 = bakery_domain::order::EXPIRY_MINUTES;
 
+/// The last token issued at the current version (PR 10): its id and times, and its masked form
+/// once the Worker has signed it. Never the token, and never its MAC beyond the masked form's
+/// last 4 characters. Created on first use too, for a sandbox born before the table existed.
+const API_TOKEN_TABLE: &str = "CREATE TABLE IF NOT EXISTS api_token (
+       id INTEGER PRIMARY KEY CHECK (id = 1),
+       token_v INTEGER NOT NULL,
+       tid TEXT NOT NULL,
+       iat INTEGER NOT NULL,
+       exp INTEGER NOT NULL,
+       masked TEXT)";
+
 const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS meta (
        id TEXT NOT NULL,
@@ -150,6 +168,7 @@ const SCHEMA: &[&str] = &[
     // Each persona's first-touch payload for its `Customer`: the seed's profile, consent and
     // opening points (PR 8), so registering a customer reads a row and never the whole seed.
     "CREATE TABLE IF NOT EXISTS personas (id TEXT PRIMARY KEY, register TEXT NOT NULL)",
+    API_TOKEN_TABLE,
     "CREATE TABLE IF NOT EXISTS delivery_errors (id TEXT PRIMARY KEY, error TEXT NOT NULL, at TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS dead_letters (
        id TEXT PRIMARY KEY,
@@ -291,6 +310,49 @@ pub struct DeadLetterIn {
 pub struct Redrive {
     pub key: String,
     pub id: String,
+}
+
+/// `/_token`'s answer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenState {
+    /// `seeding`, `live` or `wiping`.
+    pub state: String,
+    pub token_v: u32,
+    #[serde(default)]
+    pub issued_at: Option<String>,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    #[serde(default)]
+    pub masked: Option<String>,
+}
+
+/// `IssueApiToken`, or `RotateApiToken` with `rotate`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenCommand {
+    /// The command's `Idempotency-Key`.
+    pub key: String,
+    pub rotate: bool,
+    /// The new token's id, 32 hex characters: the rate limit's key, never a secret.
+    pub tid: String,
+    /// Unix seconds.
+    pub iat: i64,
+    pub exp: i64,
+}
+
+/// `/_token/issue`'s answer: the claims the Worker signs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenIssued {
+    pub tid: String,
+    pub iat: i64,
+    pub exp: i64,
+    pub token_v: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenMasked {
+    pub token_v: u32,
+    pub tid: String,
+    pub masked: String,
 }
 
 #[derive(Deserialize)]
@@ -482,6 +544,15 @@ impl DurableObject for Sandbox {
                     (Method::Post, "/_redrive") => {
                         let body: Redrive = sql::body(&mut req).await?;
                         self.redrive(body, now).await
+                    }
+                    (Method::Get, "/_token") => json(&self.token_state(&meta)?, 200),
+                    (Method::Post, "/_token/issue") => {
+                        let body: TokenCommand = sql::body(&mut req).await?;
+                        self.issue_token(&meta, body, now).await
+                    }
+                    (Method::Post, "/_token/masked") => {
+                        let body: TokenMasked = sql::body(&mut req).await?;
+                        self.token_masked(&body)
                     }
                     _ => refuse(404, "not-found"),
                 }
@@ -1317,6 +1388,131 @@ impl Sandbox {
             vec![name.into()],
         )?;
         Ok(n.is_some_and(|r| r.n > 0))
+    }
+
+    /// What the router checks a bearer token against: the state and the token version, read
+    /// from `meta` with no other query but the last token's row.
+    fn token_state(&self, meta: &MetaRow) -> Result<TokenState> {
+        #[derive(Deserialize)]
+        struct TokenRow {
+            iat: i64,
+            exp: i64,
+            masked: Option<String>,
+        }
+        let token_v = u32::try_from(meta.token_v).unwrap_or(0);
+        let row: Option<TokenRow> = if has_table(&self.sql(), "api_token")? {
+            first(
+                &self.sql(),
+                "SELECT iat, exp, masked FROM api_token WHERE token_v = ?",
+                vec![meta.token_v.into()],
+            )?
+        } else {
+            None
+        };
+        let wall = |s: i64| {
+            WallTime::from_unix_ms(s.saturating_mul(1_000))
+                .map(|t| t.to_string())
+                .ok()
+        };
+        Ok(TokenState {
+            state: meta.state.clone(),
+            token_v,
+            issued_at: row.as_ref().and_then(|r| wall(r.iat)),
+            expires_at: row.as_ref().and_then(|r| wall(r.exp)),
+            masked: row.and_then(|r| r.masked),
+        })
+    }
+
+    /// `IssueApiToken` and `RotateApiToken` (docs/domain.md, "Sandbox"): the token row and the
+    /// command's key in one transaction, and for a rotation the version plus one and
+    /// `ApiTokenRotated { token_v }` with them, so a token naming the old version is refused from
+    /// the next request on. The version only grows. A key seen with the other command is 422.
+    async fn issue_token(
+        &self,
+        meta: &MetaRow,
+        cmd: TokenCommand,
+        now: WallTime,
+    ) -> Result<Response> {
+        if meta.state == "wiping" {
+            return gone();
+        }
+        let sql = self.sql();
+        exec(&sql, API_TOKEN_TABLE, vec![])?;
+        let kind = if cmd.rotate { "rotate" } else { "issue" };
+        let seen = stream::seen(&sql, &cmd.key)?;
+        match bakery_domain::outbox::check_command(seen.as_ref(), kind) {
+            Ok(bakery_domain::outbox::CommandCheck::Replay(result)) => return replayed(result),
+            Ok(bakery_domain::outbox::CommandCheck::Fresh) => {}
+            Err(_) => return refuse(422, "key-reused"),
+        }
+        let token_v = meta.token_v + i64::from(cmd.rotate);
+        let issued = TokenIssued {
+            tid: cmd.tid.clone(),
+            iat: cmd.iat,
+            exp: cmd.exp,
+            token_v: u32::try_from(token_v).map_err(|_| Error::RustError("token_v".into()))?,
+        };
+        let answer = serde_json::to_string(&issued)?;
+        let event = if cmd.rotate {
+            let sandbox = meta.sandbox()?;
+            Some(Envelope {
+                v: bakery_domain::ENVELOPE_VERSION,
+                id: random::ulid(now)?,
+                sandbox,
+                stream: bakery_app::names::sandbox_object_name(sandbox),
+                seq: stream::head(&sql, sandbox, "")?.last_seq + 1,
+                event_type: "ApiTokenRotated".into(),
+                at: business_at(now, meta.clock_offset_s),
+                recorded_at: now,
+                data: serde_json::json!({ "token_v": token_v }),
+                cause: Some(cmd.key.clone()),
+            })
+        } else {
+            None
+        };
+        let stored = answer.clone();
+        let tx_sql = self.sql();
+        transaction_sync(&self.state.storage(), move || {
+            if let Some(event) = &event {
+                exec(&tx_sql, "UPDATE meta SET token_v = ?", vec![token_v.into()])?;
+                stream::append(&tx_sql, std::slice::from_ref(event))?;
+            }
+            exec(
+                &tx_sql,
+                "INSERT OR REPLACE INTO api_token (id, token_v, tid, iat, exp, masked)
+                 VALUES (1, ?, ?, ?, ?, NULL)",
+                vec![
+                    token_v.into(),
+                    cmd.tid.as_str().into(),
+                    cmd.iat.into(),
+                    cmd.exp.into(),
+                ],
+            )?;
+            stream::remember(&tx_sql, &cmd.key, kind, &stored, now)?;
+            Ok(())
+        })?;
+        if cmd.rotate {
+            stream::relay_soon(&self.state, &self.env, now, CLASS).await?;
+        }
+        let mut res = Response::ok(answer)?;
+        res.headers_mut().set("Content-Type", "application/json")?;
+        Ok(res)
+    }
+
+    /// The signed token's masked form, kept for `GET` while that token is the last issued.
+    fn token_masked(&self, body: &TokenMasked) -> Result<Response> {
+        if has_table(&self.sql(), "api_token")? {
+            exec(
+                &self.sql(),
+                "UPDATE api_token SET masked = ? WHERE token_v = ? AND tid = ?",
+                vec![
+                    body.masked.as_str().into(),
+                    i64::from(body.token_v).into(),
+                    body.tid.as_str().into(),
+                ],
+            )?;
+        }
+        json(&serde_json::json!({ "ok": true }), 200)
     }
 
     /// `AdvanceClock` (docs/domain.md, "Sandbox"): the step from the domain's rules (`15m`,

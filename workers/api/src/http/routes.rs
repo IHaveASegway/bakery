@@ -1,5 +1,6 @@
-//! The route table: every route's method, path, scope and limit in one list, so the 405's
-//! `Allow`, the Origin exemptions and the scopes cannot drift apart. Plain data, tested natively.
+//! The route table: every route's method, path, scope, limit and bearer rule in one list, so
+//! the 405's `Allow`, the Origin exemptions and the scopes cannot drift apart. Plain data, tested
+//! natively, and held to the contract table in crates/contracts in both directions.
 
 /// Who may call a route.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,6 +23,15 @@ pub enum Limit {
     Command,
     /// `UPGRADE_LIMIT`, per session: the kitchen socket's upgrades.
     Upgrade,
+}
+
+/// Whether the sandbox's API token in `Authorization: Bearer` may stand in for the cookie
+/// (docs/security.md, "The API token"): on the sandbox's own routes, never on the account-level
+/// ones, the socket, the webhook, or the two that mint a token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bearer {
+    Yes,
+    No,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,6 +100,9 @@ pub enum RouteId {
     GetActivity,
     StartRebuild,
     GetRebuild,
+    IssueToken,
+    RotateToken,
+    GetToken,
 }
 
 #[derive(Debug)]
@@ -101,6 +114,7 @@ pub struct Route {
     pub pattern: &'static str,
     pub scope: Scope,
     pub limit: Limit,
+    pub bearer: Bearer,
 }
 
 const fn route(
@@ -109,6 +123,7 @@ const fn route(
     pattern: &'static str,
     scope: Scope,
     limit: Limit,
+    bearer: Bearer,
 ) -> Route {
     Route {
         id,
@@ -116,6 +131,14 @@ const fn route(
         pattern,
         scope,
         limit,
+        bearer,
+    }
+}
+
+impl Route {
+    /// Whether an API token may stand in for the cookie here.
+    pub fn takes_bearer(&self) -> bool {
+        self.bearer == Bearer::Yes
     }
 }
 
@@ -128,6 +151,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/health",
         Scope::Public,
         Limit::None,
+        Bearer::No,
     ),
     route(
         RouteId::Status,
@@ -135,6 +159,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/status",
         Scope::Public,
         Limit::None,
+        Bearer::No,
     ),
     route(
         RouteId::GoogleStart,
@@ -142,6 +167,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/auth/google/start",
         Scope::Public,
         Limit::None,
+        Bearer::No,
     ),
     route(
         RouteId::GoogleCallback,
@@ -149,6 +175,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/auth/google/callback",
         Scope::Public,
         Limit::None,
+        Bearer::No,
     ),
     route(
         RouteId::GithubStart,
@@ -156,6 +183,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/auth/github/start",
         Scope::Public,
         Limit::None,
+        Bearer::No,
     ),
     route(
         RouteId::GithubCallback,
@@ -163,6 +191,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/auth/github/callback",
         Scope::Public,
         Limit::None,
+        Bearer::No,
     ),
     route(
         RouteId::DemoSignup,
@@ -170,6 +199,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/auth/demo",
         Scope::Public,
         Limit::Command,
+        Bearer::No,
     ),
     route(
         RouteId::DemoSignin,
@@ -177,6 +207,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/auth/demo/signin",
         Scope::Public,
         Limit::Command,
+        Bearer::No,
     ),
     route(
         RouteId::Signout,
@@ -184,6 +215,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/auth/signout",
         Scope::Session,
         Limit::Command,
+        Bearer::No,
     ),
     route(
         RouteId::Session,
@@ -191,6 +223,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/session",
         Scope::Session,
         Limit::None,
+        Bearer::No,
     ),
     route(
         RouteId::CreateSandbox,
@@ -198,6 +231,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes",
         Scope::Public,
         Limit::SandboxCreate,
+        Bearer::No,
     ),
     route(
         RouteId::GetSandbox,
@@ -205,6 +239,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::WipeSandbox,
@@ -212,6 +247,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}",
         Scope::Session,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::SetFault,
@@ -219,6 +255,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/faults",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     // PR 4: the menu, orders, dead letters and the minimal clock.
     route(
@@ -227,6 +264,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/menu",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::PatchMenuItem,
@@ -234,6 +272,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/menu/items/{sub}",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::PublishMenu,
@@ -241,6 +280,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/menu/publish",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::PlaceOrder,
@@ -248,6 +288,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/orders",
         Scope::Session,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::GetOrder,
@@ -255,6 +296,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/orders/{sub}",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::CancelOrder,
@@ -262,6 +304,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/orders/{sub}/cancel",
         Scope::Session,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::ListDeadLetters,
@@ -269,6 +312,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/dead-letters",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::Redrive,
@@ -276,6 +320,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/dead-letters/{sub}/redrive",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::AdvanceClock,
@@ -283,6 +328,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/clock",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     // PR 4: the kitchen board's socket, the console's heartbeat and simulated traffic. The
     // upgrade is a GET that carries the cookie, so it takes the Origin check too (router).
@@ -292,6 +338,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/kitchen/ws",
         Scope::Session,
         Limit::Upgrade,
+        Bearer::No,
     ),
     route(
         RouteId::Heartbeat,
@@ -299,6 +346,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/heartbeat",
         Scope::Session,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::GetTraffic,
@@ -306,6 +354,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/traffic",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::StartTraffic,
@@ -313,6 +362,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/traffic",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::StopTraffic,
@@ -320,6 +370,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/traffic",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     // PR 5: payments and refunds through Stripe's sandbox. The webhook is Stripe's, not a
     // browser's: no CORS, no Origin, no session and no Idempotency-Key (router), its signature
@@ -330,6 +381,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/orders/{sub}/payment",
         Scope::Session,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::Refund,
@@ -337,6 +389,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/orders/{sub}/refund",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::Ledger,
@@ -344,6 +397,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/billing/ledger",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::StripeWebhook,
@@ -351,6 +405,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/stripe/webhook",
         Scope::Public,
         Limit::None,
+        Bearer::No,
     ),
     // PR 6: a bakery day's schedule, which any session reads (the checkout's slot picker), and
     // the staff's capacity editor.
@@ -360,6 +415,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/schedule/{sub}",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::SetCapacity,
@@ -367,6 +423,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/schedule/{sub}/capacity",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     // PR 7: catering. The inquiry, the reads and the customer's steps are any session's (guests
     // browse, order and pay); the staff's steps are a signed-in session's.
@@ -376,6 +433,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/catering",
         Scope::Session,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::ListCatering,
@@ -383,6 +441,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/catering",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::GetCatering,
@@ -390,6 +449,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/catering/{sub}",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::AcceptQuote,
@@ -397,6 +457,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/catering/{sub}/accept",
         Scope::Session,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::CateringDeposit,
@@ -404,6 +465,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/catering/{sub}/deposit",
         Scope::Session,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::PayBalance,
@@ -411,6 +473,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/catering/{sub}/pay-balance",
         Scope::Session,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::CancelCatering,
@@ -418,6 +481,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/catering/{sub}/cancel",
         Scope::Session,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::SendQuote,
@@ -425,6 +489,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/catering/{sub}/quote",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::DeclineCatering,
@@ -432,6 +497,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/catering/{sub}/decline",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::StartCateringProduction,
@@ -439,6 +505,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/catering/{sub}/start-production",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::MarkCateringDelivered,
@@ -446,6 +513,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/catering/{sub}/delivered",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::StaffCancelCatering,
@@ -453,6 +521,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/catering/{sub}/staff-cancel",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     // PR 8: CRM, campaigns and the inbox. Every read is any session's (a guest reads
     // everything); a consent change is the session's, the route allowing a guest its own persona
@@ -463,6 +532,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/customers",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::GetCustomer,
@@ -470,6 +540,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/customers/{sub}",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::GetTimeline,
@@ -477,6 +548,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/customers/{sub}/timeline",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::SetConsent,
@@ -484,6 +556,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/customers/{sub}/consent",
         Scope::Session,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::ListSegments,
@@ -491,6 +564,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/segments",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::GetSegment,
@@ -498,6 +572,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/segments/{sub}",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::ListCampaigns,
@@ -505,6 +580,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/campaigns",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::CreateCampaign,
@@ -512,6 +588,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/campaigns",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::GetCampaign,
@@ -519,6 +596,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/campaigns/{sub}",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::EditCampaign,
@@ -526,6 +604,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/campaigns/{sub}",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::ScheduleCampaign,
@@ -533,6 +612,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/campaigns/{sub}/schedule",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::CancelCampaign,
@@ -540,6 +620,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/campaigns/{sub}/cancel",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::ListInbox,
@@ -547,6 +628,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/inbox",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::GetMessage,
@@ -554,6 +636,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/inbox/{sub}",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::GetLeads,
@@ -561,6 +644,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/leads",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::GetActivity,
@@ -568,6 +652,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/activity",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
     ),
     route(
         RouteId::StartRebuild,
@@ -575,6 +660,7 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/rebuild",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
     ),
     route(
         RouteId::GetRebuild,
@@ -582,6 +668,34 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/rebuild",
         Scope::Session,
         Limit::None,
+        Bearer::Yes,
+    ),
+    // PR 10: the sandbox's API token (docs/security.md, "The API token"). Issuing and rotating
+    // take the cookie, never a token, so a token never mints its successor; reading its
+    // version and times takes either.
+    route(
+        RouteId::IssueToken,
+        "POST",
+        "/v1/sandboxes/{id}/token",
+        Scope::SignedIn,
+        Limit::Command,
+        Bearer::No,
+    ),
+    route(
+        RouteId::RotateToken,
+        "POST",
+        "/v1/sandboxes/{id}/token/rotate",
+        Scope::SignedIn,
+        Limit::Command,
+        Bearer::No,
+    ),
+    route(
+        RouteId::GetToken,
+        "GET",
+        "/v1/sandboxes/{id}/token",
+        Scope::SignedIn,
+        Limit::None,
+        Bearer::Yes,
     ),
 ];
 
@@ -1150,5 +1264,153 @@ mod tests {
             .find(|r| r.id == RouteId::KitchenSocket)
             .unwrap();
         assert_eq!(socket.limit, Limit::Upgrade);
+    }
+
+    // ---------- the route table in crates/contracts, both ways ----------
+
+    use bakery_contracts::routes::{ROUTES as CONTRACT, RouteSpec, Session};
+
+    const README: &str = include_str!("../../README.md");
+
+    /// The pull request the README's routes table covers, from its lead line
+    /// "Through PR <n> it answers:". Rows of later pull requests may be in the contract table
+    /// before this Worker serves them; rows up to this one must be served.
+    fn readme_pr() -> u8 {
+        README
+            .lines()
+            .find_map(|l| {
+                l.strip_prefix("Through PR ")
+                    .and_then(|rest| rest.strip_suffix(" it answers:"))
+            })
+            .and_then(|n| n.trim().parse().ok())
+            .expect("the README says which pull request its routes table covers")
+    }
+
+    /// `PlaceOrder` to `place-order`, the contract table's id.
+    fn kebab(id: RouteId) -> String {
+        let mut out = String::new();
+        for (i, c) in format!("{id:?}").chars().enumerate() {
+            if c.is_ascii_uppercase() {
+                if i > 0 {
+                    out.push('-');
+                }
+                out.push(c.to_ascii_lowercase());
+            } else {
+                out.push(c);
+            }
+        }
+        out
+    }
+
+    /// A path with every `{segment}` written `{}`: the Worker's `{sub}` is the table's `{oid}`.
+    fn shape(path: &str) -> String {
+        path.split('/')
+            .map(|s| if s.starts_with('{') { "{}" } else { s })
+            .collect::<Vec<_>>()
+            .join("/")
+    }
+
+    /// The contract's session rules a Worker scope routes by.
+    fn scope_allows(scope: Scope, session: Session) -> bool {
+        match scope {
+            Scope::Public => matches!(session, Session::Public | Session::Stripe),
+            Scope::Session => matches!(session, Session::Any | Session::Sandbox | Session::Cookie),
+            Scope::SignedIn => session == Session::SignedIn,
+        }
+    }
+
+    fn agrees(route: &Route, spec: &RouteSpec) {
+        let id = spec.id;
+        assert_eq!(route.method, spec.method, "{id}: method");
+        assert_eq!(shape(route.pattern), shape(spec.path), "{id}: pattern");
+        assert!(
+            scope_allows(route.scope, spec.session),
+            "{id}: the Worker's {:?} against the table's {:?}",
+            route.scope,
+            spec.session
+        );
+        assert_eq!(route.takes_bearer(), spec.bearer, "{id}: bearer");
+    }
+
+    #[test]
+    fn every_route_served_is_in_the_contract_table() {
+        for route in ROUTES {
+            let id = kebab(route.id);
+            let spec = CONTRACT
+                .iter()
+                .find(|s| s.id == id)
+                .unwrap_or_else(|| panic!("the Worker serves {id}, which crates/contracts lacks"));
+            agrees(route, spec);
+        }
+    }
+
+    #[test]
+    fn every_contract_route_through_the_readme_pr_is_served() {
+        let covered = readme_pr();
+        let mut served = 0;
+        for spec in CONTRACT.iter().filter(|s| s.pr <= covered) {
+            let route = ROUTES
+                .iter()
+                .find(|r| kebab(r.id) == spec.id)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "{} is PR {}, the README covers PR {covered}, and the Worker does not serve it",
+                        spec.id, spec.pr
+                    )
+                });
+            agrees(route, spec);
+            served += 1;
+        }
+        assert!(served >= 64, "{served} routes through PR {covered}");
+    }
+
+    #[test]
+    fn token_routes_and_the_bearer_rule() {
+        let s = "01JC8Z6K3W9QF2N4T7XRB5M0HD";
+        let some = |v: &str| Some(v.to_owned());
+        assert_eq!(
+            id_of(match_route("POST", &format!("/v1/sandboxes/{s}/token"))),
+            Some((RouteId::IssueToken, some(s)))
+        );
+        assert_eq!(
+            id_of(match_route(
+                "POST",
+                &format!("/v1/sandboxes/{s}/token/rotate")
+            )),
+            Some((RouteId::RotateToken, some(s)))
+        );
+        assert_eq!(
+            id_of(match_route("GET", &format!("/v1/sandboxes/{s}/token"))),
+            Some((RouteId::GetToken, some(s)))
+        );
+        assert_eq!(
+            allow(&format!("/v1/sandboxes/{s}/token")),
+            "POST, GET, OPTIONS"
+        );
+        for r in ROUTES {
+            let sandbox_route = r.pattern.starts_with("/v1/sandboxes/{id}");
+            let minted_or_socket = matches!(
+                r.id,
+                RouteId::IssueToken | RouteId::RotateToken | RouteId::KitchenSocket
+            );
+            assert_eq!(
+                r.takes_bearer(),
+                sandbox_route && !minted_or_socket,
+                "{:?}: a token acts in its own sandbox, never on the socket or to mint its successor",
+                r.id
+            );
+            if minted_or_socket || r.id == RouteId::GetToken {
+                assert_eq!(
+                    r.scope,
+                    if r.id == RouteId::KitchenSocket {
+                        Scope::Session
+                    } else {
+                        Scope::SignedIn
+                    },
+                    "{:?}",
+                    r.id
+                );
+            }
+        }
     }
 }

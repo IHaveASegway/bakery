@@ -75,8 +75,9 @@
 
   // The free layer of admission, before Control (docs/architecture.md, "Creating a sandbox"):
   // per IP hash on POST /v1/sandboxes, per session on other commands and on the kitchen
-  // socket's upgrades (docs/cost.md, "Guardrails": 6 a minute). The namespace ids are the
-  // account's own labels for the limits, not secrets.
+  // socket's upgrades (docs/cost.md, "Guardrails": 6 a minute), and per API token id on every
+  // request a token makes, at the session's command rate (PR 10; docs/security.md, "The API
+  // token"). The namespace ids are the account's own labels for the limits, not secrets.
   "ratelimits": [
     {
       "name": "SANDBOX_CREATE_LIMIT",
@@ -85,6 +86,7 @@
     },
     { "name": "COMMAND_LIMIT", "namespace_id": "1002", "simple": { "limit": 60, "period": 60 } },
     { "name": "UPGRADE_LIMIT", "namespace_id": "1003", "simple": { "limit": 6, "period": 60 } },
+    { "name": "TOKEN_LIMIT", "namespace_id": "1004", "simple": { "limit": 60, "period": 60 } },
   ],
 
   "vars": {
