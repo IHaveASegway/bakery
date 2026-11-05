@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "TimelineResponse",
-  "description": "`GET /v1/sandboxes/{id}/customers/{cid}/timeline`: the customer's events in business-time\norder. While a rebuild runs the timeline is partial; `GET .../crm/rebuild` says so.",
+  "description": "`GET /v1/sandboxes/{id}/customers/{cid}/timeline`: the customer's events in business-time\norder. While a rebuild runs the timeline is partial; `GET .../rebuild` says so.",
   "type": "object",
   "properties": {
     "customer": {

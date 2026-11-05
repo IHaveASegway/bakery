@@ -22,6 +22,8 @@ export type MessageKind =
 
 /**
  * `GET /v1/sandboxes/{id}/inbox`: the newest messages first, and how many there are in all.
+ * `?kind=` keeps one kind, `?to=` one customer's, `?limit=` the newest that many (50 when left
+ * out).
  * The customer persona sees its own; staff see every customer's.
  */
 export interface InboxResponse {
@@ -29,7 +31,7 @@ export interface InboxResponse {
   total: number;
 }
 /**
- * One message in the sandbox's inbox.
+ * One message in the sandbox's inbox, and `GET /v1/sandboxes/{id}/inbox/{mid}`.
  */
 export interface MessageResponse {
   body: string;

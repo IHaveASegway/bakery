@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "RebuildResponse",
-  "description": "`GET /v1/sandboxes/{id}/crm/rebuild`, and `202` from `POST` to it, staff only (a guest gets\n`403` `guest-scope`): \"Rebuild projections\" drops Crm's projections and replays its log, 200\nevents per alarm. A `POST` while one runs answers `202` with its progress and starts nothing.",
+  "description": "`GET /v1/sandboxes/{id}/rebuild`, which any session of the sandbox reads, and `202` from\n`POST` to it, staff only (a guest gets `403` `guest-scope`): \"Rebuild projections\" drops\nCrm's projections and replays its log, 200 events per alarm. A `POST` while one runs is `409`\nproblem of type `rebuild` and starts nothing; `GET` says how far the running one is.",
   "type": "object",
   "properties": {
     "applied": {

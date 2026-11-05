@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ActivityResponse",
-  "description": "`GET /v1/sandboxes/{id}/crm/activity`: the sandbox's logged events (clock moves, faults,\nmenu and capacity changes, payment intents, routes, traffic), in business-time order.",
+  "description": "`GET /v1/sandboxes/{id}/activity`: the sandbox's logged events (clock moves, faults,\nmenu and capacity changes, payment intents, routes, traffic, token rotations), newest first;\n`?limit=` keeps the newest that many.",
   "type": "object",
   "properties": {
     "entries": {
