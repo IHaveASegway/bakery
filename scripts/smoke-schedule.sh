@@ -37,9 +37,9 @@ STARTUP_TIMEOUT_S="${STARTUP_TIMEOUT_S:-240}"
 DEV_VARS="$ROOT/workers/api/.dev.vars"
 
 # The fake's own test-shaped values, as its header lists them. Not secrets.
-STRIPE_KEY="rk_test_fake000000000000000000000000"
-WEBHOOK_SECRET="whsec_fake0000000000000000000000000000"
-PUBLISHABLE="pk_test_fake000000000000000000000000"
+STRIPE_KEY="rk_test_not_a_key"
+WEBHOOK_SECRET="whsec_not_a_secret"
+PUBLISHABLE="pk_test_not_a_key"
 
 TMP="$(mktemp -d -t smoke-schedule.XXXXXX)"
 LOG="$TMP/worker.log"
