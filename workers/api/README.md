@@ -75,6 +75,22 @@ Through PR 8 it answers:
 | `OPTIONS` on any of these                                 | none                                          | the CORS preflight                                                                                                                                                                                                                                                                                                                                                                                  | 204                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | anything else                                             |                                               |                                                                                                                                                                                                                                                                                                                                                                                                     | 404 or 405 with `Allow`, `application/problem+json`                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
+The catering routes' statuses, as run on 2026-11-05 by `../../scripts/smoke-catering.sh` (151 checks,
+`wrangler dev` 4.157.0). Proven over HTTP: 201 with `Location` for an inquiry and 200
+`Idempotent-Replayed` for its key again; 422 `catering` for `catering-lead` (naming the earliest date
+and "7 business days"), for a headcount of 9 and of 201, and for `brief-email`, `brief-phone`,
+`brief-card-number` and `brief-url`, none echoing the brief; 422 `idempotency-key` for a reused key;
+200 for the list (a guest reads the 8 seeded events) and for one event, and 404 for another sandbox's
+event; 200 for `quote`, `accept`, `deposit` (the same client secret and payment on a second call),
+`start-production`, `delivered` and `decline`; 202 for `pay-balance`; 200 for `cancel` (refunding the
+deposit 8 days out) and for `staff-cancel` (no refund 3 days out); 409 `catering` for `accept` from
+`inquiry` (`out-of-order`), for a repeated `quote`, for `deposit` and `pay-balance` before their
+states, and for `accept` on an expired quote (`quote-expired`); 409 `slot-full` for a third
+acceptance on a day; 403 `guest-scope` for a guest's `quote`. Not run over HTTP, so known from the
+domain's unit tests and the code only: the 409s of `decline`, `start-production`, `delivered`,
+`cancel` and `staff-cancel`, 422 `quote-total`, 422 `date` for an unparseable date, and 503
+`stripe-key` on `deposit` and `pay-balance` (the guard is proven on PR 5's routes).
+
 Every `POST`, `PATCH` and `DELETE` needs `Origin` equal to `ALLOWED_ORIGIN` and no `Sec-Fetch-Site: cross-site`
 (403 `origin`); every `POST` needs an `Idempotency-Key` holding a ULID (400 `idempotency-key`).
 Stripe's webhook is the one exception to both, and to CORS: Stripe calls it, not a browser, and its
