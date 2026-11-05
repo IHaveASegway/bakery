@@ -242,6 +242,41 @@ stateDiagram-v2
   fulfilled --> [*]
 ```
 
+### Dispatch
+
+As built in PR 9 (2026-11-05; `crates/domain/src/dispatch.rs`, [ADR 0012](adr/0012-delivery-dispatch.md)). Hosted by `Dispatch`, one object per sandbox and bakery day (`dispatch:<sandbox>:<YYYY-MM-DD>`). It holds the day's stops, the server's proposed plan, the browser's submitted plan and the published plan, and it is the one place a plan becomes the record: whoever made a plan, only one that passes the validator is published. A stop is one delivery order at one of the 64 places, sized in **units** (the order's line quantities summed), and a van's capacity counts units: 250 a van as seeded, which the busy Saturday needs (400 to about 790 units across the seeds the domain stream swept on 2026-11-05, with one order reaching 74), where 20 would not fit.
+
+| Command | From | Emits | Rejected when |
+|---|---|---|---|
+| `AddStop` | `OrderPlaced` for a delivery (a pickup has no stop) | `StopAdded`, provisional | `wrong-day`: the window is on another bakery day. Nothing for an order already added or removed |
+| `ConfirmStop` | `OrderPaid` | `StopConfirmed` | never; nothing for a stop already confirmed, delivered or removed |
+| `RemoveStop` | `OrderExpired`, `OrderCancelled` | `StopRemoved`, reason `expired` or `cancelled` | never; nothing for a stop already removed or delivered |
+| `Propose {vans, capacity}` | staff | `RouteProposed`: the Clarke–Wright plan over the confirmed stops, which becomes the day's vans and capacity | `vans` (not 1 to 4), `capacity` (0), `no-stops`, `place-unknown` |
+| `SubmitPlan {routes}` | staff, with the plan the browser's VROOM made | `PlanSubmitted`, minutes recomputed from the matrix | `no-stops`, and the validator's rules below |
+| `Publish {plan, departed}` | staff, `plan` being `proposed` or `submitted` | `RoutePublished` as `plan_v + 1`, superseding the last | `no-plan`, `stop-missing`, `no-stops`, the validator's rules again, and `published` when `departed` |
+| `CompleteStop {stop}` | staff, or a driver | `StopCompleted` | `no-plan`, `stop-unknown`. Nothing the second time |
+
+Events: `StopAdded`, `StopConfirmed`, `StopRemoved`, `RouteProposed`, `PlanSubmitted`, `RoutePublished` and `StopCompleted` ([the catalog](#the-event-catalog)). The first three and `PlanSubmitted` have no subscriber and are the Dispatch's own log, like the Schedule's `SlotHeld`. The stop's status runs provisional, confirmed, then removed or completed.
+
+The rules, by the slug a problem document names them with (a refused command is a `dispatch` problem; [security.md](security.md#sandbox-isolation) lists the statuses):
+
+| Slug | The rule |
+|---|---|
+| `vans` | A day plans with 1 to 4 vans; a plan names each van once, numbered from 1 to the day's vans |
+| `capacity` | A van carries at least 1 unit |
+| `no-stops` | There are confirmed stops to plan |
+| `place-unknown` | Each stop's place is in the travel-time matrix |
+| `route-ends` | Each van starts and ends at the bakery, place 0 |
+| `wrong-day` | A stop's window is on the day's own bakery date |
+| `stop-unknown` | A plan names only confirmed stops of this day (a provisional, removed, delivered or unknown one is refused), and a completion names a stop number the published plan has |
+| `stop-twice` | A stop appears once |
+| `over-capacity` | No van carries more units than the capacity |
+| `stop-missing` | Every confirmed stop not yet delivered appears |
+| `no-plan` | A publish names a plan that exists, and a completion needs a published plan |
+| `published` | A plan is not replaced once a van has left |
+
+Invariants: a published plan covers every confirmed, undelivered stop exactly once, within capacity, each route from the bakery and back to it, and no more vans than the day has, because the validator holds for every plan before it is stored and again at publish, since stops may have come and gone between; a client's totals are never read, so a plan's minutes are always recomputed from the matrix, and a browser plan carrying a total is refused; a stop's number is its position in the published plan counted from 1 across the vans in van order, the `stop` of `OrderOutForDelivery`, of `StopCompleted` and of the complete-stop request, and a republish renumbers; publishing again with a key already used emits nothing, so one key stores one plan and appends one `RoutePublished`; a `ConfirmStop` or `RemoveStop` that arrives before its `AddStop` is recorded, so the stop arrives confirmed or never, and a removed stop is never added again; a delivered stop drops out of later plans. `departed` is not in the log: the object reads the published plan's Orders (any out for delivery, delivered or closed) and hands the fact to `Publish`, as it hands `Propose` the matrix. The matrix rides in the command and is never stored. `last_back` is 09:00 plus the longest van's drive minutes plus `SERVICE_MINUTES` (3) for each of its stops, the route data's `serviceSeconds` of 180; a van's `minutes`, and the comparison's, stay drive minutes.
+
 ### Simulator
 
 Hosted by `Simulator`, one object per sandbox (`simulator:<sandbox>`), registered with the Sandbox on the first "Start traffic" (Q40 · Q-traffic). It protects the rate, the running flag and the minute ledger; the orders it causes belong to their own aggregates ([architecture.md](architecture.md#simulated-traffic)).
@@ -254,7 +289,7 @@ Hosted by `Simulator`, one object per sandbox (`simulator:<sandbox>`), registere
 
 Invariants: at most 6 orders a minute; at most 30 minutes of traffic a sandbox a UTC day, reserved in `Control`'s ledger when it starts and settled when it stops; it runs only while the console's socket or heartbeat was seen in the last 90 s; every command it issues carries an idempotency key and a `cause` of `sim:<ulid>`; the wipe stops it.
 
-The other aggregates are small enough to need no diagram: `Customer` (preferences, consent, loyalty: earn-only for now, redemption later), `Billing`'s payments (requires payment, succeeded, failed, canceled, refunded), `Dispatch`'s plan (proposed, published, superseded by a later publish) and `Inbox`'s messages (delivered, opened, clicked).
+The other aggregates are small enough to need no diagram: `Customer` (preferences, consent, loyalty: earn-only for now, redemption later), `Billing`'s payments (requires payment, succeeded, failed, canceled, refunded) and `Inbox`'s messages (delivered, opened, clicked).
 
 ## The event catalog
 
@@ -417,7 +452,7 @@ All of them live and die with the sandbox, so none needs pruning. A command and 
 
 **Catering: 8 events across the lifecycle**: an inquiry, a quote, an accepted quote awaiting its deposit, two confirmed, one delivered and invoiced, one paid and closed, and one declined. **Venues: 6 made-up names**, such as Harbor Loft and Orchard Pavilion, each pinned to one of the 64 places.
 
-**Delivery addresses** are 64 public places in Salt Lake City from OpenStreetMap, of which the bakery is one, with no coordinates or street addresses in any served file. As built on 2026-11-05 ([ADR 0012](adr/0012-delivery-dispatch.md), [tools/route-data/out/README.md](../tools/route-data/out/README.md)): a new build with a self-hosted [openrouteservice v9.10.0](https://github.com/GIScience/openrouteservice/releases/tag/v9.10.0) (no API key), osmium-tool 1.16.0 to clip and pick, over the [openstreetmap.fr US West extract](https://download.openstreetmap.fr/extracts/north-america/us-west-latest.osm.pbf) (the mirror, because Geofabrik's Utah file was unreachable from the build machine; replication timestamp 2026-11-05T00:58:30Z; ODbL). The places are chosen by a written rule: parks (33), stations (14), gardens (8), libraries (7), one viewpoint and one square, the square being the bakery's spot (index 0); none a business, a residence, a university or a church, and none snapped farther than 500 m from a road (1,000 m for viewpoints). Each place is a drop-off spot, never somebody's home. The label the map and the matrix show is the place's public OpenStreetMap `name` ("The bakery" for index 0), and the made-up address is what the staff screens show for a customer. A stop's `place` is the place's index in the matrix (0 to 63). The seed names a place `p<n>`, which `place_label` and `place_index` in `crates/domain` map to index n−1, and the API shows the matrix's label for it, falling back to `p<n>` when the matrix has none. The seed draws `p1` to `p64`, so `p1`, the bakery's own index 0, can be drawn as a drop-off; whether the seed should draw `p2` to `p64` is for the Worker pass to settle and record here. The served files, `route-data.json` and `isochrones.json`, hold labels, kinds and integer view units (a 2000 by 1123 box, 15.216 m a unit); `crates/seed/data/salt-lake-city/` also holds `matrix.json`, in whole minutes. The OSM element ids and the extract's checksums are in `provenance.json`, which is not served. The dispatch screen credits "© OpenStreetMap contributors; routing by openrouteservice (self-hosted)" with a link to OpenStreetMap's copyright page, as the ODbL asks. The travel times are free-flow, with no traffic. The site's Route Lab keeps its own Seattle data.
+**Delivery addresses** are 64 public places in Salt Lake City from OpenStreetMap, of which the bakery is one, with no coordinates or street addresses in any served file. As built on 2026-11-05 ([ADR 0012](adr/0012-delivery-dispatch.md), [tools/route-data/out/README.md](../tools/route-data/out/README.md)): a new build with a self-hosted [openrouteservice v9.10.0](https://github.com/GIScience/openrouteservice/releases/tag/v9.10.0) (no API key), osmium-tool 1.16.0 to clip and pick, over the [openstreetmap.fr US West extract](https://download.openstreetmap.fr/extracts/north-america/us-west-latest.osm.pbf) (the mirror, because Geofabrik's Utah file was unreachable from the build machine; replication timestamp 2026-11-05T00:58:30Z; ODbL). The places are chosen by a written rule: parks (33), stations (14), gardens (8), libraries (7), one viewpoint and one square, the square being the bakery's spot (index 0); none a business, a residence, a university or a church, and none snapped farther than 500 m from a road (1,000 m for viewpoints). Each place is a drop-off spot, never somebody's home. The label the map and the matrix show is the place's public OpenStreetMap `name` ("The bakery" for index 0), and the made-up address is what the staff screens show for a customer. A stop's `place` is the place's index in the matrix (0 to 63). The seed names a place `p<n>`, which `place_label` and `place_index` in `crates/domain` map to index n−1, and the API shows the matrix's label for it, falling back to `p<n>` when the matrix has none. The seed draws `p1` to `p64`, and as built on 2026-11-05 the Worker pass kept that draw: `p1` is index 0, the bakery's own square, so a seeded delivery drawn `p1` is a zero-minute stop at the bakery. `TravelMatrix::place_index` takes `p<n>` as index n−1 whatever the fixture's labels say, and the API shows the label "The bakery" for it. Whether the seed should draw `p2` to `p64` instead is Joseph's call, an open question in [the roadmap](roadmap.md#pr-9-dispatch), because changing the draw changes the seed's output. The served files, `route-data.json` and `isochrones.json`, hold labels, kinds and integer view units (a 2000 by 1123 box, 15.216 m a unit); `crates/seed/data/salt-lake-city/` also holds `matrix.json`, in whole minutes. The OSM element ids and the extract's checksums are in `provenance.json`, which is not served. The dispatch screen credits "© OpenStreetMap contributors; routing by openrouteservice (self-hosted)" with a link to OpenStreetMap's copyright page, as the ODbL asks. The travel times are free-flow, with no traffic. The site's Route Lab keeps its own Seattle data.
 
 **Seed history versus `OrderClosed` (PR 4, 2026-11-05).** The seed's history record is not yet the `OrderClosed` event: it has no `refunded_cents`, its lines carry no `item` and use `qty: u32` where the event has `u16`, and it names `slot_start` where the event says `slot`. PR 8 reconciles the two when it writes the history into Crm's log.
 
@@ -436,7 +471,7 @@ All of them live and die with the sandbox, so none needs pruning. A command and 
 | Kitchen | 1 | the board, a timer | 13 |
 | CateringEvent | 8 | 5 events, state, the quote, 2 timers each | 72 |
 | Billing | 1 | 90 daily totals, 16 deposits and balances | 107 |
-| Dispatch | 1 | 10 stops, 2 plans | 13 |
+| Dispatch | 1 | the open deliveries' stops (2 for seed 42 born 2026-11-07), 1 proposal | 13 |
 | Crm | 1 | 720 history events, 60 customers, 60 loyalty rows, segments, memberships, campaigns | 942 |
 | Inbox | 1 | 240 messages | 241 |
 | Account, Control | shared | the sandbox pointer; the ledger | 4 |
@@ -447,6 +482,8 @@ All of them live and die with the sandbox, so none needs pruning. A command and 
 That is close to the 2,000 rows [cost.md](cost.md) starts from; spike S5 measures the real figure, wipe included.
 
 **As built in PR 5 (2026-11-05).** A sandbox seeds 15 children in three batches of 7 (`workers/api/src/objects/sandbox.rs`, and its test that the plan is the Catalog, the Kitchen and `Billing` first, then the 12 open orders), where PR 4 seeded 14 in two. `Billing`'s seed is the 90 daily totals, in its `history` table (day, orders, cents); the 16 deposits and balances arrive with the catering PR. Those totals appear in no response yet.
+
+**As built in PR 9 (2026-11-05).** A sandbox seeds 36 children in six batches of up to 7 (`workers/api/src/objects/sandbox.rs`, and its test that the plan has 36 and takes six runs): the Catalog, the Kitchen, `Billing`, Crm and the Inbox first, then the 7 Schedule days, then today's Dispatch, the 12 open orders, the 8 catering events and the 3 days that hold their places. The Dispatch day for business today is among them, seeded by `bakery_seed::seed_dispatch` with one stop for each open delivery order, confirmed when the order is paid, and the server's proposal (4 vans on a Saturday, 1 otherwise, 250 units a van); nothing is published, because a published plan would send the seeded ready orders out for delivery. A day with no confirmed delivery has no proposal. The Dispatch goes before the orders so an order's events find its stop's day already born. The seed's JSON is unchanged, 614,580 B and byte-identical to PR 8's, because the dispatch day makes no new draw. The row above counts the day for seed 42, where the open orders give 2 deliveries; the figure of 10 stops this table first assumed would need new draws, and so move pinned values.
 
 ## The principle map
 
