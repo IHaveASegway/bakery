@@ -12,8 +12,15 @@
 //!   `OrderRefundRequested` for the whole amount, since Billing refunds only on the latter
 //!   (docs/architecture.md, "Placing and paying an order": "a full refund"). From `cancelled`
 //!   that is the one transition the diagram does not draw, `cancelled --> refund_pending`.
-//! - A staff refund (`RefundOrder`) is taken in `closed` only, the diagram's `closed --> closed:
-//!   partial refund`. A refund before the day ends is a cancellation.
+//! - A staff refund (`RefundOrder`), full or partial, is taken in every paid state that is not
+//!   terminal and not on the road: `confirmed`, `in_production`, `ready`, `picked_up`,
+//!   `delivered` and `closed`. A partial refund leaves the state as it is. A full refund (all
+//!   that is left) of an order that is not yet `closed` is a cancellation by staff, as above:
+//!   `OrderCancelled` and `OrderRefundRequested`, then `cancelled` on `OrderRefunded`. In
+//!   `closed` a full refund leaves it `closed`, the diagram's `closed --> closed`.
+//! - `RecordPayment` checks the amount against the order's total. Billing created the intent
+//!   from that total, so a different amount is a bug: it is refused as `amount-mismatch` and
+//!   emits nothing.
 //! - Repeats are no-ops: a command whose effect already holds (a second `MarkReady`, the
 //!   expiry timer firing twice, the same payment recorded again) emits nothing.
 //!
@@ -321,6 +328,8 @@ pub enum OrderError {
     NotPlaced,
     #[error("a payment is positive cents")]
     PaymentNotPositive,
+    #[error("the payment is {paid:?} cents and the order's total {total:?}")]
+    AmountMismatch { paid: Cents, total: Cents },
     #[error("the order is already paid by another payment")]
     SecondPayment,
     #[error("the order is already paid")]
@@ -391,6 +400,7 @@ impl OrderError {
             OrderError::AlreadyPlaced => "already-placed",
             OrderError::NotPlaced => "not-placed",
             OrderError::PaymentNotPositive => "payment-not-positive",
+            OrderError::AmountMismatch { .. } => "amount-mismatch",
             OrderError::SecondPayment => "second-payment",
             OrderError::AlreadyPaid => "already-paid",
             OrderError::NotDue => "not-due",
@@ -747,6 +757,12 @@ fn decide_placed(
             if *amount <= Cents::ZERO {
                 return Err(OrderError::PaymentNotPositive);
             }
+            if *amount != r.total_cents {
+                return Err(OrderError::AmountMismatch {
+                    paid: *amount,
+                    total: r.total_cents,
+                });
+            }
             if let Some(p) = r.payment {
                 return if p.id == *payment {
                     none
@@ -833,8 +849,17 @@ fn decide_placed(
             }
         }
         OrderCommand::RefundOrder { amount, reason } => {
-            if r.status != S::Closed {
-                return Err(out_of_order());
+            match r.status {
+                S::Confirmed
+                | S::InProduction
+                | S::Ready
+                | S::PickedUp
+                | S::Delivered
+                | S::Closed => {}
+                // Unpaid, ending, already being refunded, or in a van.
+                S::Placed | S::Expired | S::Cancelled | S::RefundPending | S::OutForDelivery => {
+                    return Err(out_of_order());
+                }
             }
             let payment = r.payment.ok_or_else(out_of_order)?;
             if *amount <= Cents::ZERO {
@@ -844,11 +869,21 @@ fn decide_placed(
             if *amount > available {
                 return Err(OrderError::RefundExceedsPaid { available });
             }
-            Ok(vec![OrderEvent::OrderRefundRequested {
+            let requested = OrderEvent::OrderRefundRequested {
                 payment: payment.id,
                 amount_cents: *amount,
                 reason: *reason,
-            }])
+            };
+            // All that is left, before the day ends: the order is cancelled by staff.
+            if *amount == available && r.status != S::Closed {
+                return Ok(vec![
+                    OrderEvent::OrderCancelled {
+                        by: CancelledBy::Staff,
+                    },
+                    requested,
+                ]);
+            }
+            Ok(vec![requested])
         }
         OrderCommand::RecordRefund { refund, amount } => {
             if r.refunds.contains(refund) {
@@ -886,9 +921,13 @@ mod tests {
     use OrderStatus as S;
     use proptest::prelude::*;
 
-    /// Every edge of the diagram in docs/domain.md, "Order", plus the one this module adds
-    /// (`cancelled --> refund_pending`, a payment after a cancellation) and the self-loop of a
-    /// partial refund issued while a refund is pending. `None` is `[*]`.
+    /// Every edge of the diagram in docs/domain.md, "Order", plus the ones this module adds:
+    /// `cancelled --> refund_pending` (a payment after a cancellation), the self-loop of a
+    /// partial refund issued while a refund is pending, a staff refund's self-loop in each paid
+    /// state it is taken in (a partial refund requested, or any refund issued, leaves the state
+    /// as it is; `out_for_delivery` only sees one issued), and a full staff refund's cancellation
+    /// from `in_production`, `ready`, `picked_up` and `delivered` (from `confirmed` the diagram
+    /// draws it already). `None` is `[*]`.
     const TRANSITIONS: &[(Option<OrderStatus>, OrderStatus)] = &[
         (None, S::Placed),
         (Some(S::Placed), S::Confirmed),
@@ -907,6 +946,16 @@ mod tests {
         (Some(S::Closed), S::Closed),
         (Some(S::Cancelled), S::RefundPending),
         (Some(S::RefundPending), S::RefundPending),
+        (Some(S::Confirmed), S::Confirmed),
+        (Some(S::InProduction), S::InProduction),
+        (Some(S::Ready), S::Ready),
+        (Some(S::OutForDelivery), S::OutForDelivery),
+        (Some(S::PickedUp), S::PickedUp),
+        (Some(S::Delivered), S::Delivered),
+        (Some(S::InProduction), S::RefundPending),
+        (Some(S::Ready), S::RefundPending),
+        (Some(S::PickedUp), S::RefundPending),
+        (Some(S::Delivered), S::RefundPending),
     ];
 
     fn at(text: &str) -> BusinessTime {
@@ -1426,6 +1475,212 @@ mod tests {
     }
 
     #[test]
+    fn a_payment_for_another_amount_is_refused() {
+        let state = placed(OrderKind::Pickup);
+        assert_eq!(
+            Order::decide(
+                &state,
+                &OrderCommand::RecordPayment {
+                    payment: id(10),
+                    amount: Cents(2_089)
+                },
+                &ctx_at(NOW)
+            ),
+            Err(OrderError::AmountMismatch {
+                paid: Cents(2_089),
+                total: Cents(2_090)
+            })
+        );
+        assert_eq!(
+            OrderError::AmountMismatch {
+                paid: Cents(1),
+                total: Cents(2)
+            }
+            .rule(),
+            "amount-mismatch"
+        );
+    }
+
+    fn refund(amount: i64) -> OrderCommand {
+        OrderCommand::RefundOrder {
+            amount: Cents(amount),
+            reason: RefundReason::Quality,
+        }
+    }
+
+    #[test]
+    fn staff_refund_part_of_an_open_order_and_its_state_holds() {
+        let states = [
+            (vec![], S::Confirmed),
+            (vec![OrderCommand::StartProduction], S::InProduction),
+            (
+                vec![OrderCommand::StartProduction, OrderCommand::MarkReady],
+                S::Ready,
+            ),
+            (
+                vec![
+                    OrderCommand::StartProduction,
+                    OrderCommand::MarkReady,
+                    OrderCommand::MarkPickedUp,
+                ],
+                S::PickedUp,
+            ),
+        ];
+        for (steps, status) in states {
+            let mut state = paid(OrderKind::Pickup);
+            for cmd in steps {
+                state = step(state, cmd, SLOT).unwrap();
+            }
+            assert_eq!(state.status(), Some(status));
+            let (state, events) = execute::<Order>(state, &refund(500), &ctx_at(SLOT)).unwrap();
+            assert_eq!(
+                events,
+                [OrderEvent::OrderRefundRequested {
+                    payment: id(10),
+                    amount_cents: Cents(500),
+                    reason: RefundReason::Quality
+                }],
+                "{status:?}"
+            );
+            assert_eq!(state.status(), Some(status));
+            let (state, events) = execute::<Order>(
+                state,
+                &OrderCommand::RecordRefund {
+                    refund: id(20),
+                    amount: Cents(500),
+                },
+                &ctx_at(SLOT),
+            )
+            .unwrap();
+            assert!(matches!(
+                events.as_slice(),
+                [OrderEvent::OrderRefunded { full: false, .. }]
+            ));
+            assert_eq!(state.status(), Some(status));
+        }
+    }
+
+    #[test]
+    fn a_full_staff_refund_before_close_cancels_the_order() {
+        let state = step(paid(OrderKind::Pickup), OrderCommand::StartProduction, SLOT).unwrap();
+        // A part first, then the rest: the rest is the full refund.
+        let state = step(state, refund(90), SLOT).unwrap();
+        let (state, events) = execute::<Order>(state, &refund(2_000), &ctx_at(SLOT)).unwrap();
+        assert_eq!(
+            events,
+            [
+                OrderEvent::OrderCancelled {
+                    by: CancelledBy::Staff
+                },
+                OrderEvent::OrderRefundRequested {
+                    payment: id(10),
+                    amount_cents: Cents(2_000),
+                    reason: RefundReason::Quality
+                }
+            ]
+        );
+        assert_eq!(state.status(), Some(S::RefundPending));
+        // Nothing is left to refund, and a pending order takes no more.
+        assert_eq!(
+            Order::decide(&state, &refund(1), &ctx_at(SLOT)),
+            Err(OrderError::OutOfOrder {
+                command: "RefundOrder",
+                status: S::RefundPending
+            })
+        );
+        let state = step(
+            state,
+            OrderCommand::RecordRefund {
+                refund: id(20),
+                amount: Cents(90),
+            },
+            SLOT,
+        )
+        .unwrap();
+        assert_eq!(state.status(), Some(S::RefundPending));
+        let (state, events) = execute::<Order>(
+            state,
+            &OrderCommand::RecordRefund {
+                refund: id(21),
+                amount: Cents(2_000),
+            },
+            &ctx_at(SLOT),
+        )
+        .unwrap();
+        assert!(matches!(
+            events.as_slice(),
+            [OrderEvent::OrderRefunded { full: true, .. }]
+        ));
+        assert_eq!(state.status(), Some(S::Cancelled));
+    }
+
+    #[test]
+    fn a_full_refund_after_close_stays_closed() {
+        let mut state = paid(OrderKind::Pickup);
+        for cmd in [
+            OrderCommand::StartProduction,
+            OrderCommand::MarkReady,
+            OrderCommand::MarkPickedUp,
+            OrderCommand::Close,
+        ] {
+            state = step(state, cmd, SLOT).unwrap();
+        }
+        let (state, events) = execute::<Order>(state, &refund(2_090), &ctx_at(SLOT)).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(state.status(), Some(S::Closed));
+        let state = step(
+            state,
+            OrderCommand::RecordRefund {
+                refund: id(20),
+                amount: Cents(2_090),
+            },
+            SLOT,
+        )
+        .unwrap();
+        assert_eq!(state.status(), Some(S::Closed));
+    }
+
+    #[test]
+    fn staff_cannot_refund_an_unpaid_or_moving_order() {
+        assert_eq!(
+            Order::decide(&placed(OrderKind::Pickup), &refund(100), &ctx_at(NOW)),
+            Err(OrderError::OutOfOrder {
+                command: "RefundOrder",
+                status: S::Placed
+            })
+        );
+        let mut state = paid(OrderKind::Delivery);
+        for cmd in [
+            OrderCommand::StartProduction,
+            OrderCommand::MarkReady,
+            OrderCommand::MarkOutForDelivery {
+                route: "van-1".into(),
+                stop: 1,
+            },
+        ] {
+            state = step(state, cmd, SLOT).unwrap();
+        }
+        assert_eq!(
+            Order::decide(&state, &refund(100), &ctx_at(SLOT)),
+            Err(OrderError::OutOfOrder {
+                command: "RefundOrder",
+                status: S::OutForDelivery
+            })
+        );
+        let state = step(state, OrderCommand::MarkDelivered { stop: 1 }, SLOT).unwrap();
+        assert_eq!(
+            Order::decide(&state, &refund(2_091), &ctx_at(SLOT)),
+            Err(OrderError::RefundExceedsPaid {
+                available: Cents(2_090)
+            })
+        );
+        assert_eq!(
+            Order::decide(&state, &refund(0), &ctx_at(SLOT)),
+            Err(OrderError::RefundNotPositive)
+        );
+    }
+
+    #[test]
     fn exactly_one_payment_counts() {
         let state = paid(OrderKind::Pickup);
         assert_eq!(
@@ -1549,22 +1804,30 @@ mod tests {
             })
     }
 
+    /// Stands for the placed order's total in a generated `RecordPayment`, which the loop swaps
+    /// in, so most payments match and some do not.
+    const TOTAL: Cents = Cents(-7_777);
+    /// Stands for all that is left to refund in a generated `RefundOrder`: a full refund.
+    const REST: Cents = Cents(-8_888);
+
     fn command() -> impl Strategy<Value = OrderCommand> {
         let ids = || prop::sample::select(vec![10u128, 11, 20, 21, 22]).prop_map(id);
         // A few amounts, so refunds often sum exactly to a payment.
         let amount = || prop::sample::select(vec![-1i64, 0, 500, 1_000, 2_000]).prop_map(Cents);
+        let paying = || prop::sample::select(vec![TOTAL, TOTAL, TOTAL, Cents(0), Cents(500)]);
         prop_oneof![
             1 => place_strategy(),
             1 => prop::sample::select(vec![CancelledBy::Customer, CancelledBy::Staff])
                 .prop_map(|by| OrderCommand::CancelOrder { by }),
-            2 => (ids(), amount()).prop_map(|(payment, amount)| OrderCommand::RecordPayment { payment, amount }),
+            2 => (ids(), paying()).prop_map(|(payment, amount)| OrderCommand::RecordPayment { payment, amount }),
             1 => Just(OrderCommand::Expire),
             2 => Just(OrderCommand::StartProduction),
             2 => Just(OrderCommand::MarkReady),
             1 => Just(OrderCommand::MarkPickedUp),
             1 => (0u16..3).prop_map(|stop| OrderCommand::MarkOutForDelivery { route: "van-1".into(), stop }),
             1 => (0u16..3).prop_map(|stop| OrderCommand::MarkDelivered { stop }),
-            1 => amount().prop_map(|amount| OrderCommand::RefundOrder { amount, reason: RefundReason::Goodwill }),
+            2 => prop::sample::select(vec![Cents(-1), Cents(500), Cents(1_000), REST, REST])
+                .prop_map(|amount| OrderCommand::RefundOrder { amount, reason: RefundReason::Goodwill }),
             2 => (ids(), amount()).prop_map(|(refund, amount)| OrderCommand::RecordRefund { refund, amount }),
             2 => Just(OrderCommand::Close),
         ]
@@ -1585,6 +1848,19 @@ mod tests {
             let mut now = at(NOW);
             let mut placed_lines: Option<Vec<Line>> = None;
             for (minutes, cmd) in &steps {
+                let total = state.record().map_or(Cents(1), |r| r.total_cents);
+                let cmd = &match cmd {
+                    OrderCommand::RecordPayment { payment, amount } if *amount == TOTAL => {
+                        OrderCommand::RecordPayment { payment: *payment, amount: total }
+                    }
+                    OrderCommand::RefundOrder { amount, reason } if *amount == REST => {
+                        let rest = state.record().map_or(Cents(1), |r| {
+                            Cents(r.paid().0 - r.refund_requested.0)
+                        });
+                        OrderCommand::RefundOrder { amount: rest, reason: *reason }
+                    }
+                    other => other.clone(),
+                };
                 now = now.plus_minutes(*minutes).unwrap();
                 let ctx = DecideContext { now, id: id(99) };
                 let before = state.status();

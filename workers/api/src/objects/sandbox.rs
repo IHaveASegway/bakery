@@ -32,8 +32,8 @@ use std::cell::Cell;
 use bakery_app::Clock;
 use bakery_app::wipe::{backstop_at, next_wipe_at};
 use bakery_contracts::{
-    ClockResponse, DeadLetter, FaultName, Faults, FaultsResponse, SandboxKind, SandboxResponse,
-    SandboxState,
+    ClockResponse, DeadLetter, FaultName, Faults, FaultsResponse, PersonaAddress, SandboxKind,
+    SandboxResponse, SandboxState,
 };
 use bakery_domain::catalog::{Category, Item, Variant};
 use bakery_domain::order::{Line, OrderEvent, OrderKind};
@@ -51,7 +51,7 @@ use super::sql::{
     self, exec, first, gone, has_table, json, refuse, replayed, rows, transaction_sync, user_rows,
 };
 use super::stream::{self, OUTBOX};
-use super::{catalog, kitchen, order, simulator};
+use super::{billing, catalog, kitchen, order, simulator};
 use crate::clock::{SystemClock, alarm_time, business, business_at};
 use crate::random;
 
@@ -63,6 +63,7 @@ pub const CLASS: &str = "Sandbox";
 const DISPATCH: &[(&str, &str)] = &[
     (catalog::CLASS, catalog::BINDING),
     (kitchen::CLASS, kitchen::BINDING),
+    (billing::CLASS, billing::BINDING),
     (order::CLASS, order::BINDING),
     (simulator::CLASS, simulator::BINDING),
 ];
@@ -72,8 +73,8 @@ const BACKSTOP: &str = "backstop";
 const SEED: &str = "seed";
 const CLOCK: &str = "clock";
 
-/// Children seeded per alarm run: the Catalog, the Kitchen and the 12 open orders take two
-/// runs, each far inside the 1,000 subrequests a Free invocation may make (Workers limits,
+/// Children seeded per alarm run: the Catalog, the Kitchen, Billing and the 12 open orders take
+/// three runs, each far inside the 1,000 subrequests a Free invocation may make (Workers limits,
 /// https://developers.cloudflare.com/workers/platform/limits/, as of 2026-11-05).
 const SEED_BATCH: usize = 7;
 /// The pause between seeding runs, so a run's subrequests have finished.
@@ -104,6 +105,13 @@ const SCHEMA: &[&str] = &[
        clock_v INTEGER NOT NULL,
        wiped_at TEXT)",
     "CREATE TABLE IF NOT EXISTS faults (name TEXT PRIMARY KEY, \"on\" INTEGER NOT NULL)",
+    // The persona's synthetic display name and address line, from the seed, for the Payment
+    // Element's billing details (ADR 0007, decision 6): read on every GET, so kept, not
+    // regenerated.
+    "CREATE TABLE IF NOT EXISTS persona (
+       id INTEGER PRIMARY KEY CHECK (id = 1),
+       name TEXT NOT NULL,
+       line1 TEXT NOT NULL)",
     // The seeding cursor: the index of the next child to seed (ADR 0005, decision 2).
     "CREATE TABLE IF NOT EXISTS seeding (id INTEGER PRIMARY KEY CHECK (id = 1), step INTEGER NOT NULL)",
     // docs/domain.md, "Idempotency": creating an aggregate maps the client's key to its ULID.
@@ -429,11 +437,13 @@ impl Sandbox {
             return refuse(409, "identity");
         }
         let generated = Self::generated(body.seed, body.born)?;
-        let persona = generated
+        let first_customer = generated
             .customers
             .first()
-            .map(|c| c.id.to_string())
             .ok_or_else(|| Error::RustError("the seed has no customers".into()))?;
+        let persona = first_customer.id.to_string();
+        let persona_name = first_customer.display_name.clone();
+        let persona_line1 = first_customer.address.line1.clone();
         let wipe_at = next_wipe_at(body.born).map_err(|e| Error::RustError(e.to_string()))?;
         let backstop = backstop_at(body.born).map_err(|e| Error::RustError(e.to_string()))?;
         if !self.schema_ready.get() {
@@ -467,6 +477,11 @@ impl Sandbox {
                 )?;
             }
             exec(&sql, "INSERT INTO seeding (id, step) VALUES (1, 0)", vec![])?;
+            exec(
+                &sql,
+                "INSERT INTO persona (id, name, line1) VALUES (1, ?, ?)",
+                vec![persona_name.into(), persona_line1.into()],
+            )?;
             for (purpose, at) in [(WIPE, wipe_at), (BACKSTOP, backstop), (SEED, now)] {
                 stream::set_timer(&sql, purpose, purpose, at, None)?;
             }
@@ -494,6 +509,7 @@ impl Sandbox {
             n: i64,
         }
         let children: Option<N> = first(&self.sql(), "SELECT count(*) AS n FROM registry", vec![])?;
+        let (persona_name, line1) = self.persona(meta)?;
         Ok(SandboxResponse {
             id: meta.id.clone(),
             kind: if meta.kind == "guest" {
@@ -510,12 +526,46 @@ impl Sandbox {
             wipe_at: meta.wipe_at.clone(),
             seed: u64::try_from(meta.seed).unwrap_or(0),
             persona: meta.persona.clone(),
+            persona_name,
+            persona_address: PersonaAddress {
+                line1,
+                city: bakery_seed::ADDRESS_CITY.to_owned(),
+                state: bakery_seed::ADDRESS_STATE.to_owned(),
+                postal_code: bakery_seed::ADDRESS_POSTAL_CODE.to_owned(),
+                country: bakery_seed::ADDRESS_COUNTRY.to_owned(),
+            },
             clock_offset_s: meta.clock_offset_s,
             clock_v: u32::try_from(meta.clock_v).unwrap_or(0),
             token_v: u32::try_from(meta.token_v).unwrap_or(0),
             faults: self.faults()?,
             children: u32::try_from(children.map_or(0, |c| c.n)).unwrap_or(0),
         })
+    }
+
+    /// The persona's display name and address line: from the `persona` row, or for a sandbox
+    /// created before that table existed, from its seed.
+    fn persona(&self, meta: &MetaRow) -> Result<(String, String)> {
+        #[derive(Deserialize)]
+        struct PersonaRow {
+            name: String,
+            line1: String,
+        }
+        if has_table(&self.sql(), "persona")?
+            && let Some(row) =
+                first::<PersonaRow>(&self.sql(), "SELECT name, line1 FROM persona", vec![])?
+        {
+            return Ok((row.name, row.line1));
+        }
+        let born: WallTime = meta
+            .born
+            .parse()
+            .map_err(|_| Error::RustError("meta born".into()))?;
+        let g = Self::generated(u64::try_from(meta.seed).unwrap_or(0), born)?;
+        let c = g
+            .customers
+            .first()
+            .ok_or_else(|| Error::RustError("the seed has no customers".into()))?;
+        Ok((c.display_name.clone(), c.address.line1.clone()))
     }
 
     // ---------- seeding ----------
@@ -1191,7 +1241,7 @@ struct SeedChild {
     open: Option<usize>,
 }
 
-/// The Catalog, the Kitchen, then the seed's 12 open orders: 14 children.
+/// The Catalog, the Kitchen, Billing, then the seed's 12 open orders: 15 children.
 fn seed_plan(g: &Generated, sandbox: Ulid) -> Vec<SeedChild> {
     let mut plan = vec![
         SeedChild {
@@ -1204,6 +1254,12 @@ fn seed_plan(g: &Generated, sandbox: Ulid) -> Vec<SeedChild> {
             class: kitchen::CLASS,
             binding: kitchen::BINDING,
             name: kitchen::name(sandbox),
+            open: None,
+        },
+        SeedChild {
+            class: billing::CLASS,
+            binding: billing::BINDING,
+            name: billing::name(sandbox),
             open: None,
         },
     ];
@@ -1244,6 +1300,10 @@ impl SeedChild {
                     variants: via_json::<_, Vec<Variant>>(&g.variants)?,
                 })?
             }
+            None if self.class == billing::CLASS => serde_json::to_value(billing::SeedBilling {
+                birth,
+                days: billing::daily_totals(&g.history),
+            })?,
             None => serde_json::to_value(kitchen::SeedKitchen {
                 birth,
                 fault: false,
@@ -1342,19 +1402,20 @@ mod tests {
     }
 
     #[test]
-    fn the_plan_is_fourteen_children_catalog_and_kitchen_first() {
+    fn the_plan_is_fifteen_children_catalog_kitchen_and_billing_first() {
         let g = generated();
         let sandbox = Ulid::from_parts(1, 1);
         let plan = seed_plan(&g, sandbox);
-        assert_eq!(plan.len(), 14);
+        assert_eq!(plan.len(), 15);
         assert_eq!(plan[0].name, format!("catalog:{sandbox}"));
         assert_eq!(plan[1].name, format!("kitchen:{sandbox}"));
+        assert_eq!(plan[2].name, format!("billing:{sandbox}"));
         assert!(
-            plan[2..]
+            plan[3..]
                 .iter()
                 .all(|c| c.class == "Order" && c.name.starts_with(&format!("order:{sandbox}:")))
         );
-        assert_eq!(plan.len().div_ceil(SEED_BATCH), 2, "two seeding runs");
+        assert_eq!(plan.len().div_ceil(SEED_BATCH), 3, "three seeding runs");
         // Every class but the Simulator, which is born on the first "Start traffic".
         for (class, _) in DISPATCH.iter().filter(|(c, _)| *c != simulator::CLASS) {
             assert!(plan.iter().any(|c| c.class == *class), "{class}");

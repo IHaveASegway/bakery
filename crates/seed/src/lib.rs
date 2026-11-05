@@ -133,8 +133,43 @@ pub struct Customer {
     pub home_zone: &'static str,
     /// `p1` to `p64`: the delivery address, a map label and nothing more.
     pub place: String,
+    /// The billing address the Payment Element is given for this customer (ADR 0007, decision
+    /// 6): made from the place label and the customer's position, labelled synthetic.
+    pub address: Address,
     /// One point per whole dollar of subtotal across the customer's closed orders.
     pub loyalty_points: u32,
+}
+
+/// The city, state, ZIP code and country of every synthetic address: the bakery's own city
+/// (docs/domain.md, "Money and time"), with a first line that is a map label and says it is
+/// made up.
+pub const ADDRESS_CITY: &str = "Salt Lake City";
+pub const ADDRESS_STATE: &str = "UT";
+pub const ADDRESS_POSTAL_CODE: &str = "84101";
+pub const ADDRESS_COUNTRY: &str = "US";
+
+/// A synthetic billing address. Only `line1` varies, and it names no street.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Address {
+    /// `<place>, unit <n> (synthetic)`, `n` being the customer's position from 1.
+    pub line1: String,
+    pub city: &'static str,
+    pub state: &'static str,
+    pub postal_code: &'static str,
+    pub country: &'static str,
+}
+
+impl Address {
+    /// Computed, not drawn, so adding it moved no draw and no seed's stream changed.
+    pub fn synthetic(place: &str, unit: usize) -> Address {
+        Address {
+            line1: format!("{place}, unit {unit} (synthetic)"),
+            city: ADDRESS_CITY,
+            state: ADDRESS_STATE,
+            postal_code: ADDRESS_POSTAL_CODE,
+            country: ADDRESS_COUNTRY,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -427,7 +462,8 @@ impl Generator {
         let names = self.distinct_pairs(words::GIVEN, words::FAMILY, CUSTOMER_COUNT);
         names
             .into_iter()
-            .map(|display_name| {
+            .enumerate()
+            .map(|(i, display_name)| {
                 let id = Ulid::from_parts(birth_ms, self.random_u128());
                 let count = 1 + self.below(3);
                 let mut pool: Vec<usize> = (0..ITEMS.len()).collect();
@@ -440,6 +476,7 @@ impl Generator {
                 let marketing = self.below(100) < 70;
                 let home_zone = ZONES[self.below(ZONES.len())];
                 let place = format!("p{}", 1 + self.below(PLACE_COUNT));
+                let address = Address::synthetic(&place, i + 1);
                 Customer {
                     id,
                     display_name,
@@ -447,6 +484,7 @@ impl Generator {
                     marketing,
                     home_zone,
                     place,
+                    address,
                     loyalty_points: 0,
                 }
             })
@@ -951,6 +989,33 @@ mod tests {
         assert_eq!(g.history[0].id.to_string(), PINNED_FIRST_ORDER);
     }
 
+    #[test]
+    fn every_customer_has_a_synthetic_address_from_their_place() {
+        let g = generate(42, DATE);
+        for (i, c) in g.customers.iter().enumerate() {
+            assert_eq!(
+                c.address.line1,
+                format!("{}, unit {} (synthetic)", c.place, i + 1)
+            );
+            assert_eq!(
+                (
+                    c.address.city,
+                    c.address.state,
+                    c.address.postal_code,
+                    c.address.country
+                ),
+                ("Salt Lake City", "UT", "84101", "US")
+            );
+        }
+        // Pinned with the stream: the persona's, the first customer's.
+        assert_eq!(g.customers[0].address.line1, PINNED_FIRST_ADDRESS);
+        assert_eq!(
+            generate(42, DATE).customers[0].address,
+            g.customers[0].address
+        );
+    }
+
+    const PINNED_FIRST_ADDRESS: &str = "p9, unit 1 (synthetic)";
     const PINNED_FIRST_CUSTOMER: &str = "01M6TCX5C0VKKM7M86WYN7SBR2";
     const PINNED_HISTORY_LEN: usize = 722;
     const PINNED_FIRST_ORDER: &str = "01KZDX3BS0AHWTMASY3YGTFWD7";

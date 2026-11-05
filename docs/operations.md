@@ -2,7 +2,7 @@
 
 How Proof of Concept Bakery, the made-up bakery, is set up, watched and repaired by one person: access setup, observability, alerting, runbooks and the maintenance calendar. It follows the site's [operations.md](https://github.com/IHaveASegway/website/blob/main/docs/operations.md), and the two share an account, a zone and a time budget. Each runbook is a short numbered list for use under stress. The pipeline these runbooks drive is in [delivery.md](delivery.md); the secrets inventory, the wipe's design and the privacy rules are in [security.md](security.md); prices and the kill switch's design are in [cost.md](cost.md).
 
-Status: Updated in PR 4 · 2026-11-05
+Status: Updated in PR 5 · 2026-11-05
 
 Prices, limits and versions are as of 2026-11-04, with sources. Steps that depend on a console's current labels say "confirm when building". A Durable Object (DO) is the unit that holds state; every DO class here is SQLite-backed.
 
@@ -39,9 +39,36 @@ Q17 · Q-psp, Q20 · Q-stripe-account, [ADR 0007](adr/0007-stripe-sandbox-and-a-
 Created in PR 2, because local development needs the keys; the production webhook comes on launch day.
 
 1. Use the test-mode sandbox Stripe gives the account: an isolated test environment with its own keys and webhooks, free, not processed by card networks ([Stripe](https://docs.stripe.com/sandboxes), as of 2026-11-04). Stripe refuses a second sandbox until the business is verified (seen in the dashboard on 2026-11-04), and a made-up bakery has nothing to verify, so this is the only one and it is never deleted.
-2. A restricted key named `bakery-api-local`, with Write on payment intents, customers, invoices, and charges and refunds, and nothing else, becomes `STRIPE_SECRET_KEY` in `.dev.vars` (created 2026-11-04). At launch, a separate key with the same permissions becomes the Worker secret. The publishable key, public by design, is `STRIPE_PUBLISHABLE_KEY`.
-3. Locally, the Stripe CLI forwards events to `wrangler dev` and prints a signing secret for `.dev.vars` ([Stripe CLI](https://docs.stripe.com/stripe-cli), as of 2026-11-04). At launch, a webhook endpoint at `https://api.bakery.ihaveasegway.com/v1/stripe/webhook`; its signing secret becomes `STRIPE_WEBHOOK_SECRET`. Signatures are HMAC-SHA256 over `t.payload` with a 5-minute tolerance ([Stripe](https://docs.stripe.com/webhooks#verify-manually)).
+2. A restricted key named `bakery-api-local`, with Write on payment intents, customers, invoices, and charges and refunds, and nothing else, becomes `STRIPE_SECRET_KEY` in `.dev.vars` (created 2026-11-04). At launch, a separate key with the same permissions becomes the Worker secret. The publishable key, public by design, is `STRIPE_PUBLISHABLE_KEY` for the Worker, which hands it to the browser in the payment answer only when it starts `pk_test_`, and `PUBLIC_STRIPE_PUBLISHABLE_KEY` for the storefront's build, which fails unless it is empty or starts `pk_test_`. A restricted key is preferred to a secret key: the Worker accepts either, `rk_test_` or `sk_test_`, and refuses anything else with 503 `stripe-key` ([security.md](security.md#payments-safety)). PR 5 calls payment intents (create, retrieve, confirm, cancel) and refunds (create) and nothing else, so customers and invoices are PR 7's.
+3. Locally, the Stripe CLI forwards events to `wrangler dev` and prints a signing secret for `.dev.vars` ([Stripe CLI](https://docs.stripe.com/stripe-cli), as of 2026-11-04). `STRIPE_WEBHOOK_SECRET` must start `whsec_`, or the webhook route answers 503 `config`. At launch, a webhook endpoint at `https://api.bakery.ihaveasegway.com/v1/stripe/webhook`; its signing secret becomes `STRIPE_WEBHOOK_SECRET`. Select these events and no others: `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `refund.created` and `refund.updated`. The Worker acknowledges `charge.refunded` and drops it, and answers 200 to any event type it has no use for, so selecting more only costs deliveries. Signatures are HMAC-SHA256 over `t.payload` with a 5-minute tolerance ([Stripe](https://docs.stripe.com/webhooks#verify-manually)).
 4. A second restricted key in the same sandbox, `bakery-ci-e2e`, with the same permissions: the GitHub secret `STRIPE_E2E_SECRET_KEY`, set on 2026-11-04 for the `e2e` job that arrives in PR 11. Stripe recommends a separate sandbox for automated tests, which the refusal above rules out, so CI and local work share test data, and `e2e` asserts only on objects it created. Test cards only ([Stripe testing](https://docs.stripe.com/testing)).
+
+#### Working on payments without a Stripe account, from PR 5
+
+`scripts/fake-stripe.mjs` is a dependency-free Node (22 or later) stand-in for the part of Stripe's API the Worker uses and for the signed webhooks Stripe sends back. It is a fixture and never a Stripe, and everything in PR 5 was proven against it and not against Stripe (checked 2026-11-05 by `scripts/smoke-payments.sh`, [roadmap.md](roadmap.md#pr-5-payments)). To use it by hand:
+
+1. Put these three lines in `workers/api/.dev.vars` (git-ignored; the values are test-shaped fakes and not secrets, and `STRIPE_API_BASE` is honored only for `127.0.0.1` and `localhost`):
+
+   ```sh
+   STRIPE_API_BASE=http://127.0.0.1:8791
+   STRIPE_SECRET_KEY=rk_test_fake000000000000000000000000
+   STRIPE_WEBHOOK_SECRET=whsec_fake0000000000000000000000000000
+   ```
+
+2. Start the fake: `node scripts/fake-stripe.mjs` (port 8791; `--port` changes it). It posts its webhooks to `http://127.0.0.1:8788/v1/stripe/webhook`, which is `wrangler dev`'s default, and signs them with the `whsec_` value above.
+3. Start the Worker as in `workers/api/README.md`. For the storefront's payment step to mount, `PUBLIC_STRIPE_PUBLISHABLE_KEY` or the Worker's `STRIPE_PUBLISHABLE_KEY` must hold a `pk_test_` key; the fake has no Payment Element behind it, so that step is for the real sandbox. Server-side, the Simulator and the smoke test pay with `pm_card_visa`.
+4. The fake's controls (`POST /_config`, `GET /_events`, `GET /_requests`, `POST /_reset`, `GET /_health`, header of the script) replay a webhook, break its signature or its timestamp, flip a byte of the body, or send it as live mode, to watch the Worker refuse it. `scripts/smoke-payments.sh` runs all of that.
+
+#### What spike S3 must still do
+
+[S3](roadmap.md#spikes) runs on Joseph's machine with a real sandbox key, and PR 5's code waits on it for these:
+
+- Confirm that the Payment Element with `fields.billingDetails: 'never'` and the persona's synthetic details confirms a payment with the test card 4242 4242 4242 4242 ([Stripe testing](https://docs.stripe.com/testing)), shows no name, email or address field, and raises no CSP violation with the `payment` page class's three origins.
+- Put the real key in `.dev.vars` with the fake's lines removed, run the Stripe CLI against the Worker (`stripe listen --forward-to http://127.0.0.1:8788/v1/stripe/webhook`, which prints the `whsec_` value for `STRIPE_WEBHOOK_SECRET`; not run here) and confirm that a real `payment_intent.succeeded` verifies and marks the order paid, that a body altered by one byte is refused, and that `refund.created` and `payment_intent.canceled` arrive carrying what the fake's do.
+- **Confirm `automatic_payment_methods[allow_redirects]=never` against a real sandbox.** The adapter sends it with `automatic_payment_methods[enabled]=true` when it creates an intent, so a server-side confirm with a test payment method needs no `return_url`. Without it Stripe asks for one on such a confirm; the fake does not model that, so only a real sandbox can say whether the parameter is accepted and enough.
+- Read the dashboard's API version and set it as the `STRIPE_API_VERSION` var in `wrangler.jsonc`. Until then no `Stripe-Version` is sent and the account's default applies ([stack.md](stack.md)).
+- Confirm the restricted key `bakery-api-local` works with the permissions PR 5 uses, including the read the webhook route makes of a payment intent to find a refund's sandbox.
+- The storefront recovers a payment step's client secret on a remount by the idempotent re-create and not by a retrieve. At real Stripe that holds while the idempotency key lives, 24 hours ([Stripe](https://docs.stripe.com/api/idempotent_requests), as of 2026-11-05), and a sandbox lives under 36 h ([architecture.md](architecture.md#placing-and-paying-an-order)). Check what a remount past 24 hours does, since the code has not been run that way.
 
 ### 4. The Google OAuth client
 
@@ -68,8 +95,10 @@ Locally they live in `.dev.vars`, git-ignored, with names in `.dev.vars.example`
 | `SESSION_HMAC_KEY`, `SESSION_HMAC_KEY_PREV` | HMAC key for the 24 h session cookie and for the per-sandbox API tokens (Q42; same claims, `Authorization: Bearer`, so no new secret), and the old key during rotation | With overlap |
 | `ACCOUNT_HMAC_KEY` | Key for `HMAC(secret, sub)` and `HMAC(secret, github id)`, the account id | On compromise only: it orphans Google and GitHub accounts |
 | `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_SECRET`, `TURNSTILE_SECRET` | The Google client secret; the GitHub OAuth app's client secret (its client id is public and goes in `vars`); Turnstile's server secret | Yearly or on exposure |
-| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | The restricted sandbox key; the endpoint secret | Yearly, at a reset, or on exposure |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | The restricted sandbox key (`rk_test_`, preferred to a secret key, which is `sk_test_`; the Worker refuses any other prefix); the endpoint's `whsec_` signing secret, which the Worker refuses otherwise. Each lives in `.dev.vars` locally and is a Worker secret from launch; neither is ever a var | Yearly, at a reset, or on exposure |
 | `BREAKER_API_TOKEN` | The cron breaker's Cloudflare token | With the deploy token |
+
+`STRIPE_PUBLISHABLE_KEY` is not a secret and not in the table: an optional public var (`pk_test_` only) in `.dev.vars` locally and `wrangler.jsonc` from launch. `STRIPE_API_BASE` and `STRIPE_API_VERSION` are public too: the first is a local-only override, honored for `127.0.0.1` and `localhost` and never set in `wrangler.jsonc`; the second, once S3 reads it, is pinned there ([security.md](security.md#secrets-inventory)).
 
 The local-only provider overrides (`GOOGLE_ISSUER`, `GITHUB_AUTHORIZE_URL`, `GITHUB_TOKEN_URL`, `GITHUB_USER_URL`, `TURNSTILE_SITEVERIFY_URL`) are not secrets and are never set as Worker secrets or in `wrangler.jsonc`; they live in `.dev.vars` for `wrangler dev` against the fake provider. Beside `ALLOWED_ORIGIN` (`http://127.0.0.1:8787` locally), `.dev.vars` also sets the public var `API_ORIGIN` (`http://127.0.0.1:8788` locally; `https://api.bakery.ihaveasegway.com` in `wrangler.jsonc`), the base of the OAuth redirect URIs. [security.md](security.md#secrets-inventory) owns the rule.
 

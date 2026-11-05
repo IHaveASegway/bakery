@@ -71,24 +71,52 @@ describe('dist/_headers', () => {
     );
   });
 
-  test.each(['/menu/*', '/checkout/*'])(
-    '%s is an island page: its own policy with hashes, and no Turnstile',
-    (path) => {
-      const lines = rule(text, path);
-      expect(lines.indexOf('! Content-Security-Policy')).toBe(0);
-      const policy = policyOf(lines);
-      expect(policy).not.toContain('challenges.cloudflare.com');
-      expect(directive(policy, 'frame-src')).toEqual(["'none'"]);
-      // Astro's island loader and its one-rule style are allowed by hash, never by 'unsafe-inline'.
-      expect(
-        directive(policy, 'script-src').filter((s) => s.startsWith("'sha256-")),
-      ).not.toHaveLength(0);
-      expect(directive(policy, 'script-src')[0]).toBe("'self'");
-      expect(directive(policy, 'connect-src')).toEqual(
-        directive(policyOf(rule(text, '/*')), 'connect-src'),
-      );
-    },
-  );
+  test('/menu/* is an island page: its own policy with hashes, and no third party', () => {
+    const lines = rule(text, '/menu/*');
+    expect(lines.indexOf('! Content-Security-Policy')).toBe(0);
+    const policy = policyOf(lines);
+    expect(policy).not.toContain('challenges.cloudflare.com');
+    expect(policy).not.toContain('stripe.com');
+    expect(directive(policy, 'frame-src')).toEqual(["'none'"]);
+    // Astro's island loader and its one-rule style are allowed by hash, never by 'unsafe-inline'.
+    expect(
+      directive(policy, 'script-src').filter((s) => s.startsWith("'sha256-")),
+    ).not.toHaveLength(0);
+    expect(directive(policy, 'script-src')[0]).toBe("'self'");
+    expect(directive(policy, 'connect-src')).toEqual(
+      directive(policyOf(rule(text, '/*')), 'connect-src'),
+    );
+  });
+
+  test('/checkout/* is the payment page: the island policy plus exactly Stripe’s three origins', () => {
+    const lines = rule(text, '/checkout/*');
+    expect(lines.indexOf('! Content-Security-Policy')).toBe(0);
+    const policy = policyOf(lines);
+    const base = policyOf(rule(text, '/*'));
+    expect(policy).not.toContain('challenges.cloudflare.com');
+    expect(directive(policy, 'script-src')[0]).toBe("'self'");
+    expect(directive(policy, 'script-src')[1]).toBe('https://js.stripe.com');
+    // The island hashes stay.
+    expect(
+      directive(policy, 'script-src').filter((s) => s.startsWith("'sha256-")),
+    ).not.toHaveLength(0);
+    expect(directive(policy, 'frame-src')).toEqual([
+      'https://js.stripe.com',
+      'https://hooks.stripe.com',
+    ]);
+    expect(directive(policy, 'connect-src')).toEqual([
+      ...directive(base, 'connect-src'),
+      'https://api.stripe.com',
+    ]);
+  });
+
+  test('no rule but /checkout/* carries a Stripe origin', () => {
+    for (const path of rules.filter((r) => r !== '/checkout/*')) {
+      expect(rule(text, path).join('\n'), path).not.toContain('stripe.com');
+    }
+    // And the file names Stripe nowhere outside that rule.
+    expect(text.split('stripe.com').length - 1).toBe(4);
+  });
 
   test('no rule carries unsafe-inline, unsafe-eval or a nonce; "/*" carries no hash either', () => {
     for (const path of rules) {

@@ -5,6 +5,7 @@
 //!
 //! - [`aggregate`]: the `decide` and `evolve` shape every aggregate shares, and events as an
 //!   envelope's `type` and `data`.
+//! - [`billing`]: payments, refunds and the ledger, hosted by `Billing` (ADR 0007).
 //! - [`catalog`]: the menu, hosted by `Catalog` (docs/domain.md, "MenuItem availability").
 //! - [`order`]: the Order, hosted by `Order` (docs/domain.md, "Order").
 //! - [`kitchen`]: the board the `Kitchen` projects from order and schedule events.
@@ -16,6 +17,8 @@
 
 pub mod aggregate;
 pub mod calendar;
+
+pub mod billing;
 pub mod catalog;
 pub mod clock;
 mod envelope;

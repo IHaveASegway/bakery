@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RefundRequest",
+  "description": "`POST /v1/sandboxes/{id}/orders/{oid}/refund`, staff only. No `amount_cents` refunds all\nthat is left; refunding all that is left of an order not yet closed cancels it.",
+  "type": "object",
+  "properties": {
+    "amount_cents": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "int64",
+      "default": null
+    },
+    "reason": {
+      "$ref": "#/$defs/RefundReason"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "reason"
+  ],
+  "$defs": {
+    "RefundReason": {
+      "description": "Why staff give money back: a choice from a list, never free text (docs/domain.md, \"Free\ntext and personal data\"). The other two reasons the domain knows, `cancelled` and\n`payment_late`, are the system's own.",
+      "type": "string",
+      "enum": [
+        "missing_item",
+        "quality",
+        "goodwill"
+      ]
+    }
+  }
+}

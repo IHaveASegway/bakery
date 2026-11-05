@@ -14,6 +14,15 @@
 //! - `POST /_command {key, action, cause?}` with `action` one of `cancel`, `start_production`,
 //!   `mark_ready`, `mark_picked_up` → 200 `OrderResponse`; the same 422s; a replay as above.
 //!   The Kitchen's socket commands arrive here with the frame's id as the key (W2).
+//! - `POST /_refund {key, body_hash, amount?, reason}` → 200 `RefundAnswer`: `RefundOrder` by
+//!   staff, `amount` defaulting to all that is left; `refund` is the id of the
+//!   `OrderRefundRequested` event, the id Billing keeps the refund under. The same 422s and
+//!   replay as `/_command`.
+//! - `POST /_event` with an envelope, from the consumer → 200 `{outcome}`: `PaymentSucceeded` is
+//!   `RecordPayment`, `RefundIssued` is `RecordRefund`, each under the key `evt:<event id>`, so
+//!   a redelivery replays; `PaymentFailed` and anything else is acknowledged and changes
+//!   nothing. A rule the event breaks (an amount that is not the total, a refund the order never
+//!   asked for) is logged by its rule and acknowledged, since a retry cannot fix it.
 //! - `POST /_seed {birth, events, at}` → 201: one of the seed's open orders, its events written
 //!   as they are (no `decide`: the seed is checked against the rules by a test in bakery-app).
 //! - `POST /_wipe`, `POST /_clock`: the child protocol (child.rs).
@@ -28,11 +37,11 @@ use bakery_contracts::{OrderLineResponse, OrderResponse};
 use bakery_domain::catalog::MenuView;
 use bakery_domain::order::{
     CancelledBy, LineInput, Order as OrderAggregate, OrderCommand, OrderError, OrderEvent,
-    OrderKind, OrderState, OrderStatus, PlaceOrder,
+    OrderKind, OrderState, OrderStatus, PlaceOrder, RefundReason,
 };
 use bakery_domain::outbox::{CommandCheck, Stamp, check_command, envelopes};
 use bakery_domain::{
-    BusinessTime, DecideContext, DomainEvent, Envelope, Ulid, WallTime, execute, replay,
+    BusinessTime, Cents, DecideContext, DomainEvent, Envelope, Ulid, WallTime, execute, replay,
 };
 use serde::{Deserialize, Serialize};
 use worker::{
@@ -97,6 +106,26 @@ pub struct Command {
     pub cause: Option<String>,
 }
 
+/// `POST /_refund`: staff give money back.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Refund {
+    pub key: String,
+    #[serde(default)]
+    pub body_hash: String,
+    /// `None` refunds all that is left.
+    #[serde(default)]
+    pub amount: Option<Cents>,
+    pub reason: RefundReason,
+}
+
+/// `/_refund`'s answer, stored as the key's result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RefundAnswer {
+    pub refund: Ulid,
+    pub amount_cents: Cents,
+    pub order: OrderResponse,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SeedOrder {
     pub birth: Birth,
@@ -148,6 +177,14 @@ impl DurableObject for Order {
                         let body: Command = sql::body(&mut req).await?;
                         self.command(&meta, body, now).await
                     }
+                    (Method::Post, "/_refund") => {
+                        let body: Refund = sql::body(&mut req).await?;
+                        self.refund(&meta, body, now).await
+                    }
+                    (Method::Post, "/_event") => {
+                        let text = req.text().await?;
+                        self.event(&meta, &text, now).await
+                    }
                     (Method::Post, "/_clock") => {
                         let body: ClockUpdate = sql::body(&mut req).await?;
                         child::clock(&sql, &body)?;
@@ -182,6 +219,15 @@ impl DurableObject for Order {
         stream::arm(&storage, now).await?;
         Response::empty()
     }
+}
+
+/// What a command's stored answer is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AnswerKind {
+    /// The `OrderResponse`.
+    Order,
+    /// A `RefundAnswer`.
+    Refund,
 }
 
 /// What a command decided, ready to commit.
@@ -291,6 +337,7 @@ impl Order {
                 now,
                 (&p.key, &p.body_hash, &cause),
                 held_until.map(|h| (h, offset)),
+                AnswerKind::Order,
             )
             .await?;
         let mut out = Response::ok(res)?.with_status(201);
@@ -347,11 +394,167 @@ impl Order {
                 now,
                 (&c.key, &c.body_hash, &cause),
                 None,
+                AnswerKind::Order,
             )
             .await?;
         let mut out = Response::ok(res)?;
         out.headers_mut().set("Content-Type", "application/json")?;
         Ok(out)
+    }
+
+    /// `RefundOrder` by staff. The router has checked that Billing holds the order's payment.
+    async fn refund(&self, meta: &child::Meta, r: Refund, now: WallTime) -> Result<Response> {
+        let sql = self.sql();
+        let seen = stream::seen(&sql, &r.key)?;
+        match check_command(seen.as_ref(), &r.body_hash) {
+            Ok(CommandCheck::Replay(result)) => return replayed(result),
+            Ok(CommandCheck::Fresh) => {}
+            Err(_) => return refuse(422, "key-reused"),
+        }
+        let existing = self.stream(meta)?;
+        let state = Self::state_of(&existing)?;
+        // No amount: all that is left of what was paid.
+        let amount = r.amount.unwrap_or_else(|| {
+            state
+                .record()
+                .and_then(|rec| {
+                    rec.payment
+                        .and_then(|p| p.amount.checked_sub(rec.refund_requested).ok())
+                })
+                .unwrap_or(Cents::ZERO)
+        });
+        let id: Ulid = r.key.parse().or_else(|_| random::ulid(now))?;
+        let ctx = DecideContext {
+            now: meta.business(now),
+            id,
+        };
+        let cmd = OrderCommand::RefundOrder {
+            amount,
+            reason: r.reason,
+        };
+        let (state, events) = match execute::<OrderAggregate>(state, &cmd, &ctx) {
+            Ok(done) => done,
+            Err(e) => return rejection(&e),
+        };
+        let birth = Self::birth_of(meta)?;
+        let res = self
+            .commit(
+                &birth,
+                false,
+                &existing,
+                Decided { state, events },
+                ctx.now,
+                now,
+                (&r.key, &r.body_hash, &r.key),
+                None,
+                AnswerKind::Refund,
+            )
+            .await?;
+        let mut out = Response::ok(res)?;
+        out.headers_mut().set("Content-Type", "application/json")?;
+        Ok(out)
+    }
+
+    /// One delivery from the consumer: Billing's outcome for this order.
+    async fn event(&self, meta: &child::Meta, text: &str, now: WallTime) -> Result<Response> {
+        let Ok(envelope) = serde_json::from_str::<Envelope>(text) else {
+            return refuse(422, "envelope");
+        };
+        if envelope.sandbox.to_string() != meta.sandbox {
+            return refuse(422, "envelope");
+        }
+        #[derive(Deserialize)]
+        struct Paid {
+            payment: Ulid,
+            amount_cents: Cents,
+            #[serde(rename = "ref")]
+            reference: Ulid,
+        }
+        #[derive(Deserialize)]
+        struct Refunded {
+            refund: Ulid,
+            amount_cents: Cents,
+            #[serde(rename = "ref")]
+            reference: Ulid,
+        }
+        let data = envelope.data.clone();
+        let (cmd, reference) = match envelope.event_type.as_str() {
+            "PaymentSucceeded" => match serde_json::from_value::<Paid>(data) {
+                Ok(d) => (
+                    OrderCommand::RecordPayment {
+                        payment: d.payment,
+                        amount: d.amount_cents,
+                    },
+                    d.reference,
+                ),
+                Err(_) => return refuse(422, "envelope"),
+            },
+            "RefundIssued" => match serde_json::from_value::<Refunded>(data) {
+                Ok(d) => (
+                    OrderCommand::RecordRefund {
+                        refund: d.refund,
+                        amount: d.amount_cents,
+                    },
+                    d.reference,
+                ),
+                Err(_) => return refuse(422, "envelope"),
+            },
+            // PaymentFailed: the order keeps waiting, and its expiry still runs.
+            _ => return json(&serde_json::json!({ "outcome": "ignored" }), 200),
+        };
+        if meta.name != name(envelope.sandbox, reference) {
+            return refuse(422, "envelope");
+        }
+        let key = format!("evt:{}", envelope.id);
+        let sql = self.sql();
+        if stream::seen(&sql, &key)?.is_some() {
+            return json(&serde_json::json!({ "outcome": "duplicate" }), 200);
+        }
+        let existing = self.stream(meta)?;
+        let state = Self::state_of(&existing)?;
+        let ctx = DecideContext {
+            now: meta.business(now),
+            id: envelope.id,
+        };
+        let (state, events) = match execute::<OrderAggregate>(state, &cmd, &ctx) {
+            Ok(done) => done,
+            Err(e) => {
+                console_log!(
+                    "{{\"event\":\"order_event_refused\",\"id\":\"{}\",\"type\":{:?},\"rule\":\"{}\"}}",
+                    envelope.id,
+                    envelope.event_type,
+                    e.rule()
+                );
+                return json(
+                    &serde_json::json!({ "outcome": "refused", "rule": e.rule() }),
+                    200,
+                );
+            }
+        };
+        let birth = Self::birth_of(meta)?;
+        let cause = envelope.id.to_string();
+        self.commit(
+            &birth,
+            false,
+            &existing,
+            Decided { state, events },
+            ctx.now,
+            now,
+            (&key, "", &cause),
+            None,
+            AnswerKind::Order,
+        )
+        .await?;
+        json(&serde_json::json!({ "outcome": "applied" }), 200)
+    }
+
+    fn birth_of(meta: &child::Meta) -> Result<Birth> {
+        Ok(Birth {
+            sandbox: meta.sandbox_id()?,
+            name: meta.name.clone(),
+            clock_offset_s: meta.clock_offset_s,
+            clock_v: u32::try_from(meta.clock_v).unwrap_or(0),
+        })
     }
 
     /// One transaction: `meta` on the first write, the events and their outbox rows, the key
@@ -368,6 +571,7 @@ impl Order {
         now: WallTime,
         (key, body_hash, cause): (&str, &str, &str),
         expiry: Option<(BusinessTime, i64)>,
+        kind: AnswerKind,
     ) -> Result<String> {
         let sql = self.sql();
         let last_seq = existing.last().map_or(0, |e| e.seq);
@@ -392,9 +596,28 @@ impl Order {
         .map_err(|e| Error::RustError(e.to_string()))?;
         let mut all: Vec<Envelope> = existing.to_vec();
         all.extend(built.iter().cloned());
-        let answer = response_of(&decided.state, &all)
+        let order = response_of(&decided.state, &all)
             .ok_or_else(|| Error::RustError("no order after a command".into()))?;
-        let answer = serde_json::to_string(&answer)?;
+        let answer = match kind {
+            AnswerKind::Order => serde_json::to_string(&order)?,
+            AnswerKind::Refund => {
+                let requested = built
+                    .iter()
+                    .zip(&decided.events)
+                    .find_map(|(e, d)| match d {
+                        OrderEvent::OrderRefundRequested { amount_cents, .. } => {
+                            Some((e.id, *amount_cents))
+                        }
+                        _ => None,
+                    })
+                    .ok_or_else(|| Error::RustError("a refund requested nothing".into()))?;
+                serde_json::to_string(&RefundAnswer {
+                    refund: requested.0,
+                    amount_cents: requested.1,
+                    order,
+                })?
+            }
+        };
         let placed = decided.state.status() == Some(OrderStatus::Placed);
         let (birth, key, hash, stored) = (
             birth.clone(),
@@ -462,6 +685,7 @@ impl Order {
                     now,
                     (EXPIRY_KEY, "", EXPIRY_KEY),
                     None,
+                    AnswerKind::Order,
                 )
                 .await?;
                 console_log!("{{\"event\":\"order_expired\",\"object\":\"{CLASS}\"}}");

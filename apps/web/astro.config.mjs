@@ -4,12 +4,15 @@ import { defineConfig } from 'astro/config';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { hashesByRule } from './scripts/inline-hashes.mjs';
+import { checkPublishableKey } from './src/lib/publishable-key.ts';
 import { DEFAULT_API_ORIGIN, RULE_PATHS, headersFile } from './src/policy.ts';
 
 /**
  * Writes dist/_headers from src/policy.ts once the build is done, so `pnpm build` stays one
  * command. The API origin is read the way the islands read it, from Vite's resolved env, so a
- * PUBLIC_API_ORIGIN in .env or in the shell reaches the policy and the client alike.
+ * PUBLIC_API_ORIGIN in .env or in the shell reaches the policy and the client alike. The same
+ * resolved env carries PUBLIC_STRIPE_PUBLISHABLE_KEY, which is empty or a pk_test_ key or the build
+ * stops here (docs/security.md, "Payments safety").
  */
 function pagePolicy() {
   let apiOrigin = DEFAULT_API_ORIGIN;
@@ -23,6 +26,7 @@ function pagePolicy() {
               {
                 name: 'page-policy-env',
                 configResolved(config) {
+                  checkPublishableKey(config.env.PUBLIC_STRIPE_PUBLISHABLE_KEY);
                   apiOrigin = config.env.PUBLIC_API_ORIGIN || DEFAULT_API_ORIGIN;
                 },
               },

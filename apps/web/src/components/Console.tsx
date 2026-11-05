@@ -17,6 +17,7 @@ import ClockControl from './ClockControl';
 import DeadLetters from './DeadLetters';
 import GuestNote from './GuestNote';
 import KitchenBoard from './KitchenBoard';
+import Ledger from './Ledger';
 import MenuEditor from './MenuEditor';
 import Message from './Message';
 import Traffic from './Traffic';
@@ -43,6 +44,7 @@ export default function Console() {
   const [view, setView] = useState<View>({ name: 'loading' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Text | null>(null);
+  const [ledgerTick, setLedgerTick] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -263,7 +265,9 @@ export default function Console() {
             isGuest={isGuest}
             clockOffsetS={sandbox.clock_offset_s}
             onWiped={() => void load()}
+            onRefunded={() => setLedgerTick((n) => n + 1)}
           />
+          <Ledger sandboxId={sandbox.id} refresh={ledgerTick} />
           <Traffic sandboxId={sandbox.id} isGuest={isGuest} />
           <MenuEditor sandboxId={sandbox.id} isGuest={isGuest} />
           <CapacityEditor

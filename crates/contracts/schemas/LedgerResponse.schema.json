@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LedgerResponse",
+  "description": "`GET /v1/sandboxes/{id}/billing/ledger`: every entry in order, and the totals.",
+  "type": "object",
+  "properties": {
+    "entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/LedgerEntry"
+      }
+    },
+    "net_cents": {
+      "description": "`paid_cents - refunded_cents`.",
+      "type": "integer",
+      "format": "int64"
+    },
+    "paid_cents": {
+      "type": "integer",
+      "format": "int64"
+    },
+    "refunded_cents": {
+      "description": "A positive amount.",
+      "type": "integer",
+      "format": "int64"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "entries",
+    "net_cents",
+    "paid_cents",
+    "refunded_cents"
+  ],
+  "$defs": {
+    "LedgerEntry": {
+      "description": "One line of the ledger: a payment's success or a refund issued.",
+      "type": "object",
+      "properties": {
+        "amount_cents": {
+          "description": "Signed: positive for a payment, negative for a refund.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "at": {
+          "description": "The business time of the event that made it.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/LedgerKind"
+        },
+        "purpose": {
+          "$ref": "#/$defs/PaymentPurpose"
+        },
+        "ref": {
+          "description": "The order or catering job's ULID.",
+          "type": "string"
+        },
+        "stripe_id": {
+          "description": "Stripe's id: the intent's `pi_...` for a payment, the refund's `re_...` for a refund.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "at",
+        "kind",
+        "purpose",
+        "ref",
+        "amount_cents",
+        "stripe_id"
+      ]
+    },
+    "LedgerKind": {
+      "type": "string",
+      "enum": [
+        "payment",
+        "refund"
+      ]
+    },
+    "PaymentPurpose": {
+      "description": "What a payment pays for.",
+      "type": "string",
+      "enum": [
+        "order",
+        "deposit",
+        "balance"
+      ]
+    }
+  }
+}
