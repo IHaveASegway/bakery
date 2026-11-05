@@ -862,6 +862,182 @@ pub struct LedgerResponse {
     pub refunded_cents: i64,
 }
 
+/// A catering event's state (docs/domain.md, "CateringEvent", the diagram). `paid` is passed
+/// through in the same step as `closed`, so a response never shows it today; it is listed
+/// because the diagram has it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CateringState {
+    Inquiry,
+    Quoted,
+    /// Accepted, the day held for 15 minutes of business time while the deposit is paid.
+    Accepted,
+    Confirmed,
+    InProduction,
+    Delivered,
+    Invoiced,
+    Paid,
+    Closed,
+    Declined,
+    Expired,
+    Cancelled,
+}
+
+/// `POST /v1/sandboxes/{id}/catering`, the customer's inquiry; the customer is the sandbox's
+/// persona. `201` with the `CateringResponse` (`200` with `Idempotent-Replayed: true` for the
+/// same key again). A refused inquiry is `422` problem+json naming its rule: `headcount`,
+/// `unknown-package`, `unknown-venue`, `closed-day`, `catering-lead` (its detail names the
+/// 7-business-day rule and the earliest date allowed), or `brief-too-long`, `brief-email`,
+/// `brief-phone`, `brief-card-number` or `brief-url`, which never echo the brief.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CateringInquiryRequest {
+    /// The event day, `YYYY-MM-DD`: an open day (Tuesday to Sunday) at least 7 business days
+    /// after today.
+    pub date: String,
+    /// 10 to 200 people.
+    pub headcount: u16,
+    /// A package slug, such as `breakfast-spread` (`pastry-platter`, `breakfast-spread`,
+    /// `lunch-boxes`, `celebration-cake-and-coffee`).
+    pub package: String,
+    /// A venue, `v1` to `v6`.
+    pub venue: String,
+    /// At most 500 characters, with no email address, phone number, card number or URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief: Option<String>,
+}
+
+/// `POST /v1/sandboxes/{id}/catering/{cid}/quote`, staff only. `200` with the
+/// `CateringResponse`, now `quoted`; `409` problem of type `catering` naming the rule
+/// (`out-of-order`) once the inquiry is past `inquiry`; `422` `quote-total` for a total under 1
+/// cent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct QuoteRequest {
+    /// A staff override of the total, in cents, at least 1. Absent: the package's price per
+    /// head times the headcount. The deposit is 25% of the total, rounded half-up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_cents: Option<i64>,
+}
+
+/// Why a confirmed catering event is cancelled: a choice from a list, never free text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CateringCancelReason {
+    CustomerChange,
+    VenueLost,
+    Other,
+}
+
+/// `POST /v1/sandboxes/{id}/catering/{cid}/cancel`, by the customer or staff, as the session
+/// is. Only a `confirmed` event is cancelled: `200` with the `CateringResponse`, `cancelled`,
+/// its `refund_deposit` true when the event day is more than 7 days away; `409` problem of type
+/// `catering` naming the rule (`out-of-order`) in any other state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CateringCancelRequest {
+    pub reason: CateringCancelReason,
+}
+
+/// Why staff decline an inquiry: a choice from a list, never free text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DeclineReason {
+    TooSoon,
+    OverCapacity,
+    Other,
+}
+
+/// `POST /v1/sandboxes/{id}/catering/{cid}/decline`, staff only, while the inquiry is an
+/// `inquiry`. `200` with the `CateringResponse`, `declined`; `409` problem of type `catering`
+/// naming the rule (`out-of-order`) once it is quoted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DeclineRequest {
+    pub reason: DeclineReason,
+}
+
+/// A catering reminder: what it is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReminderKind {
+    /// 3 business days after the quote, while it is still quoted.
+    FollowUp,
+    /// 2 days before the event, while it is confirmed or in production.
+    EventSoon,
+    /// When the balance invoice is 7 days old, while it is unpaid.
+    InvoiceDue,
+}
+
+/// A reminder still to come, and when.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CateringReminder {
+    pub kind: ReminderKind,
+    /// A business time, such as `2026-11-19T07:00:00-07:00`.
+    pub at: String,
+}
+
+/// `GET /v1/sandboxes/{id}/catering/{cid}`, and the answer to every catering command: the
+/// inquiry, `quote`, `decline`, `accept`, `cancel`, and staff's `production` and `delivered`.
+/// It mirrors the CateringEvent aggregate's state. A refused step is `409` problem of type
+/// `catering` naming the rule (`out-of-order`, `quote-expired`); an `accept` when the day's two
+/// catering places are taken is `409` `slot-full`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CateringResponse {
+    /// The catering event's ULID.
+    pub catering: String,
+    pub state: CateringState,
+    /// The event day, `YYYY-MM-DD`.
+    pub date: String,
+    pub headcount: u16,
+    pub package: String,
+    pub venue: String,
+    /// The brief, shown back to its own sandbox only, as text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief: Option<String>,
+    /// From the quote on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_cents: Option<i64>,
+    /// 25% of the total, rounded half-up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deposit_cents: Option<i64>,
+    /// `total_cents - deposit_cents`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub balance_cents: Option<i64>,
+    /// When the quote stops being accepted, a business time: 07:00 on the 14th business day
+    /// after the quote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valid_until: Option<String>,
+    /// The deposit's payment ULID, once paid.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deposit_payment: Option<String>,
+    /// The balance invoice's ULID, once issued.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invoice: Option<String>,
+    /// The balance invoice's due date, `YYYY-MM-DD`, 7 days after delivery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invoice_due: Option<String>,
+    /// The reminders still to come, earliest first; empty once the event ends.
+    pub reminders: Vec<CateringReminder>,
+    /// Set on a cancellation: whether the deposit goes back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refund_deposit: Option<bool>,
+    /// The inquiry's business time.
+    pub created_at: String,
+    /// The business time of the latest change.
+    pub updated_at: String,
+}
+
+/// `GET /v1/sandboxes/{id}/catering`: the sandbox's catering events, the seeded eight and any
+/// since, by date.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CateringListResponse {
+    pub events: Vec<CateringResponse>,
+}
+
 /// Every exported schema as `(file name, pretty JSON with a trailing newline)`, in a fixed
 /// order. The binary writes these bytes and the test compares them.
 pub fn schemas() -> Vec<(&'static str, String)> {
@@ -916,6 +1092,21 @@ pub fn schemas() -> Vec<(&'static str, String)> {
         ("RefundRequest.schema.json", render::<RefundRequest>()),
         ("RefundResponse.schema.json", render::<RefundResponse>()),
         ("LedgerResponse.schema.json", render::<LedgerResponse>()),
+        (
+            "CateringInquiryRequest.schema.json",
+            render::<CateringInquiryRequest>(),
+        ),
+        ("QuoteRequest.schema.json", render::<QuoteRequest>()),
+        (
+            "CateringCancelRequest.schema.json",
+            render::<CateringCancelRequest>(),
+        ),
+        ("DeclineRequest.schema.json", render::<DeclineRequest>()),
+        ("CateringResponse.schema.json", render::<CateringResponse>()),
+        (
+            "CateringListResponse.schema.json",
+            render::<CateringListResponse>(),
+        ),
     ]
 }
 
@@ -1329,5 +1520,94 @@ mod tests {
         assert_eq!(value["entries"][1]["kind"], "refund");
         assert_eq!(value["entries"][1]["amount_cents"], -2090);
         assert_eq!(value["net_cents"], 0);
+    }
+
+    #[test]
+    fn catering_shapes() {
+        let inquiry: CateringInquiryRequest = serde_json::from_str(
+            r#"{"date":"2026-11-21","headcount":40,"package":"breakfast-spread","venue":"v3"}"#,
+        )
+        .unwrap();
+        assert_eq!(inquiry.brief, None);
+        assert_eq!(inquiry.headcount, 40);
+        for bad in [
+            r#"{"date":"2026-11-21","headcount":40,"package":"p","venue":"v3","customer":"x"}"#,
+            r#"{"date":"2026-11-21","headcount":-1,"package":"p","venue":"v3"}"#,
+            r#"{"date":"2026-11-21","package":"p","venue":"v3"}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<CateringInquiryRequest>(bad).is_err(),
+                "{bad}"
+            );
+        }
+        let staff: QuoteRequest = serde_json::from_str("{}").unwrap();
+        assert_eq!(staff.total_cents, None);
+        assert_eq!(serde_json::to_value(&staff).unwrap(), json!({}));
+        let cancel: CateringCancelRequest =
+            serde_json::from_str(r#"{"reason":"venue_lost"}"#).unwrap();
+        assert_eq!(cancel.reason, CateringCancelReason::VenueLost);
+        assert!(serde_json::from_str::<CateringCancelRequest>(r#"{"reason":"weather"}"#).is_err());
+        let decline: DeclineRequest = serde_json::from_str(r#"{"reason":"too_soon"}"#).unwrap();
+        assert_eq!(decline.reason, DeclineReason::TooSoon);
+        assert!(
+            serde_json::from_str::<DeclineRequest>(r#"{"reason":"too soon, sorry"}"#).is_err(),
+            "a reason is a choice, never free text"
+        );
+
+        let inquiry_only = CateringResponse {
+            catering: "01JC8Z6K3W9QF2N4T7XRB5M0HD".into(),
+            state: CateringState::Inquiry,
+            date: "2026-11-21".into(),
+            headcount: 40,
+            package: "breakfast-spread".into(),
+            venue: "v3".into(),
+            brief: None,
+            total_cents: None,
+            deposit_cents: None,
+            balance_cents: None,
+            valid_until: None,
+            deposit_payment: None,
+            invoice: None,
+            invoice_due: None,
+            reminders: vec![],
+            refund_deposit: None,
+            created_at: "2026-11-03T10:00:00-07:00".into(),
+            updated_at: "2026-11-03T10:00:00-07:00".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(&inquiry_only).unwrap(),
+            json!({ "catering": "01JC8Z6K3W9QF2N4T7XRB5M0HD", "state": "inquiry",
+                    "date": "2026-11-21", "headcount": 40, "package": "breakfast-spread",
+                    "venue": "v3", "reminders": [],
+                    "created_at": "2026-11-03T10:00:00-07:00",
+                    "updated_at": "2026-11-03T10:00:00-07:00" })
+        );
+        let confirmed = CateringResponse {
+            state: CateringState::InProduction,
+            total_cents: Some(58_000),
+            deposit_cents: Some(14_500),
+            balance_cents: Some(43_500),
+            valid_until: Some("2026-11-19T07:00:00-07:00".into()),
+            deposit_payment: Some("01JC8Z6F1A5H3D7K9M2P4R6T8V".into()),
+            reminders: vec![CateringReminder {
+                kind: ReminderKind::EventSoon,
+                at: "2026-11-19T07:00:00-07:00".into(),
+            }],
+            ..inquiry_only.clone()
+        };
+        let value = serde_json::to_value(&confirmed).unwrap();
+        assert_eq!(value["state"], "in_production");
+        assert_eq!(value["reminders"][0]["kind"], "event_soon");
+        assert_eq!(
+            serde_json::from_value::<CateringResponse>(value).unwrap(),
+            confirmed
+        );
+        let list = CateringListResponse {
+            events: vec![inquiry_only, confirmed],
+        };
+        assert_eq!(
+            serde_json::to_value(&list).unwrap()["events"][1]["balance_cents"],
+            43_500
+        );
     }
 }

@@ -12,6 +12,7 @@ import {
   parseRefundAmount,
   publishableKeyFor,
   returnUrl,
+  pollUntil,
   waitForPaid,
 } from '../src/lib/payment';
 
@@ -189,5 +190,30 @@ describe('the receipt', () => {
 
   test('an unpaid one does not claim it', () => {
     expect(html(false)).not.toContain('Paid in Stripe’s sandbox');
+  });
+});
+
+describe('pollUntil', () => {
+  test('returns the value the classifier calls paid or closed, and looks again on null', async () => {
+    const values = [1, 2, 3, 4];
+    let n = 0;
+    const result = await pollUntil(
+      async () => values[n++]!,
+      (v) => (v === 3 ? 'closed' : null),
+      { sleep: async () => {} },
+    );
+    expect(result).toEqual({ kind: 'closed', value: 3 });
+    expect(n).toBe(3);
+  });
+
+  test('honours its own interval and limit', async () => {
+    const slept: number[] = [];
+    const result = await pollUntil(
+      async () => 0,
+      () => null,
+      { sleep: async (ms) => void slept.push(ms), intervalMs: 250, limitMs: 1_000 },
+    );
+    expect(result).toEqual({ kind: 'timeout' });
+    expect(slept).toEqual([250, 250, 250, 250, 250]);
   });
 });

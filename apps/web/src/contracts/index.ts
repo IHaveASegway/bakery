@@ -1,10 +1,20 @@
 // The one place the web app imports contract types from. Every file beside this one is generated
 // from crates/contracts/schemas by scripts/contracts.mjs; a test fails when they are stale.
 export type { CapacityRequest } from './CapacityRequest';
+export type { CateringCancelReason, CateringCancelRequest } from './CateringCancelRequest';
+export type { CateringInquiryRequest } from './CateringInquiryRequest';
+export type { CateringListResponse } from './CateringListResponse';
+export type {
+  CateringReminder,
+  CateringResponse,
+  CateringState,
+  ReminderKind,
+} from './CateringResponse';
 export type { ClockRequest, ClockStep } from './ClockRequest';
 export type { ClockResponse } from './ClockResponse';
 export type { CreateSandboxRequest } from './CreateSandboxRequest';
 export type { DeadLetter } from './DeadLetter';
+export type { DeclineReason, DeclineRequest } from './DeclineRequest';
 export type { DemoSigninRequest } from './DemoSigninRequest';
 export type { DemoSignupRequest } from './DemoSignupRequest';
 export type { DemoSignupResponse } from './DemoSignupResponse';
@@ -28,6 +38,7 @@ export type { OrderKind, OrderLineRequest, OrderRequest } from './OrderRequest';
 export type { OrderResponse, OrderStatus } from './OrderResponse';
 export type { PaymentResponse, PaymentStatus } from './PaymentResponse';
 export type { Problem } from './Problem';
+export type { QuoteRequest } from './QuoteRequest';
 export type { RefundReason, RefundRequest } from './RefundRequest';
 export type { RefundResponse } from './RefundResponse';
 export type { PersonaAddress, SandboxKind, SandboxResponse, SandboxState } from './SandboxResponse';

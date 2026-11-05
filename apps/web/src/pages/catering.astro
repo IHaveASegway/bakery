@@ -1,0 +1,19 @@
+---
+import Base from '../layouts/Base.astro';
+import Catering from '../components/Catering';
+---
+
+<Base
+  title="Catering | Proof of Concept Bakery"
+  description="Ask the made-up bakery about an event: pick a day, a headcount, a package and a venue, accept a quote and pay the deposit in your private sandbox."
+>
+  <h1>Catering</h1>
+  <p>
+    The bakery caters breakfasts, pastry tables, lunches and celebrations at six made-up venues, at
+    most two events a day, booked at least seven business days ahead. Ask about one below, accept
+    the staff’s quote, and pay the deposit and the balance with Stripe’s test card: no money moves.
+    Nothing here asks for your name, email, phone or address. Your events go to your private sandbox
+    and are deleted with it at 10:00 UTC.
+  </p>
+  <Catering client:load />
+</Base>

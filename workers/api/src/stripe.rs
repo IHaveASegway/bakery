@@ -22,8 +22,9 @@
 use std::cell::Cell;
 
 use bakery_app::ports::{
-    CancelRequest, ConfirmRequest, IntentCreated, IntentRequest, IntentSnapshot, PaymentGateway,
-    PortError, RefundCreated, RefundIntentRequest,
+    CancelRequest, ConfirmRequest, CustomerCreated, CustomerRequest, IntentCreated, IntentRequest,
+    IntentSnapshot, InvoiceCreated, InvoiceRequest, InvoiceSnapshot, PaymentGateway, PortError,
+    RefundCreated, RefundIntentRequest,
 };
 use bakery_app::stripe::{
     self as wire, API_BASE, KeyKind, Metadata, PaymentIntent, StripeRequest, is_sandbox_secret_key,
@@ -144,14 +145,13 @@ impl Stripe {
         }
         let mut init = RequestInit::new();
         init.with_headers(headers);
-        match &r.body {
-            Some(body) => {
-                init.with_method(Method::Post);
-                init.with_body(Some(body.as_str().into()));
-            }
-            None => {
-                init.with_method(Method::Get);
-            }
+        init.with_method(match r.method {
+            wire::Method::Get => Method::Get,
+            wire::Method::Post => Method::Post,
+            wire::Method::Delete => Method::Delete,
+        });
+        if let Some(body) = &r.body {
+            init.with_body(Some(body.as_str().into()));
         }
         let req = Request::new_with_init(&r.url(&self.base), &init).map_err(unreachable)?;
         let mut res = Fetch::Request(req).send().await.map_err(unreachable)?;
@@ -196,6 +196,56 @@ impl PaymentGateway for Stripe {
     async fn retrieve_intent(&self, intent: &str) -> Result<IntentSnapshot, PortError> {
         let (status, body) = self.send(&wire::retrieve_intent(intent)?).await?;
         wire::read_intent(status, &body, intent)
+    }
+
+    async fn create_customer(
+        &self,
+        request: CustomerRequest,
+    ) -> Result<CustomerCreated, PortError> {
+        let (status, body) = self.send(&wire::create_customer(&request)).await?;
+        wire::read_customer(status, &body)
+    }
+
+    async fn delete_customer(&self, customer: &str) -> Result<(), PortError> {
+        let (status, body) = self.send(&wire::delete_customer(customer)?).await?;
+        wire::read_deleted(status, &body)
+    }
+
+    /// The draft, its one item, then the finalize: three calls, each under its own key, so a
+    /// retry after any of them returns the same invoice.
+    async fn create_invoice(&self, request: InvoiceRequest) -> Result<InvoiceCreated, PortError> {
+        let (status, body) = self.send(&wire::create_invoice_draft(&request)?).await?;
+        let draft = wire::read_invoice(status, &body)?;
+        let (status, body) = self
+            .send(&wire::invoice_item(&request, &draft.provider_id)?)
+            .await?;
+        wire::read_invoice_item(status, &body, &draft.provider_id, request.amount)?;
+        let (status, body) = self
+            .send(&wire::finalize_invoice(&request, &draft.provider_id)?)
+            .await?;
+        wire::read_invoice_created(status, &body)
+    }
+
+    async fn void_invoice(
+        &self,
+        invoice: &str,
+        idempotency_key: &str,
+    ) -> Result<InvoiceSnapshot, PortError> {
+        let (status, body) = self
+            .send(&wire::void_invoice(invoice, idempotency_key)?)
+            .await?;
+        wire::read_invoice(status, &body)
+    }
+
+    async fn pay_invoice_test(
+        &self,
+        invoice: &str,
+        idempotency_key: &str,
+    ) -> Result<InvoiceSnapshot, PortError> {
+        let (status, body) = self
+            .send(&wire::pay_invoice_test(invoice, idempotency_key)?)
+            .await?;
+        wire::read_invoice(status, &body)
     }
 }
 

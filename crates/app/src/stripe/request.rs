@@ -1,16 +1,27 @@
-//! The five calls the bakery makes, as data: method, path, form body and idempotency key, and the
+//! The calls the bakery makes, as data: method, path, form body and idempotency key, and the
 //! readers that turn Stripe's answers into the port's types. The Worker's adapter adds the base
 //! URL and the headers and sends it with `fetch`; nothing here touches the network.
+//!
+//! PR 5's five are the intent calls and the refund. PR 7 adds the balance invoice's: a customer
+//! (created, and deleted at the wipe), and an invoice drafted, given its one item, finalized,
+//! voided, paid on the test path and read. The draft comes before its item, and the item names
+//! the invoice: an item created first is a pending item of the customer, and a draft made with
+//! `pending_invoice_items_behavior=include` would sweep up every pending item the persona has,
+//! two catering balances in one invoice if two were raised together. The draft says `exclude`
+//! for the same reason.
 
 use bakery_domain::billing::{Purpose, is_stripe_id};
 use bakery_domain::{Cents, Ulid};
 use serde::de::DeserializeOwned;
 
 use super::form::Form;
-use super::wire::{PaymentIntent, Refund, RefundStatus, StripeError};
+use super::wire::{
+    Customer, Deleted, Invoice, InvoiceItem, PaymentIntent, Refund, RefundStatus, StripeError,
+};
 use crate::ports::{
-    CancelRequest, ConfirmRequest, IntentCreated, IntentRequest, IntentSnapshot, PortError,
-    RefundCreated, RefundIntentRequest,
+    CancelRequest, ConfirmRequest, CustomerCreated, CustomerRequest, IntentCreated, IntentRequest,
+    IntentSnapshot, InvoiceCreated, InvoiceRequest, InvoiceSnapshot, PortError, RefundCreated,
+    RefundIntentRequest, TestCard,
 };
 
 /// Stripe's API origin. `STRIPE_API_BASE` replaces it locally, loopback hosts only.
@@ -23,6 +34,7 @@ pub const CURRENCY: &str = "usd";
 pub enum Method {
     Get,
     Post,
+    Delete,
 }
 
 impl Method {
@@ -30,6 +42,7 @@ impl Method {
         match self {
             Method::Get => "GET",
             Method::Post => "POST",
+            Method::Delete => "DELETE",
         }
     }
 }
@@ -40,7 +53,7 @@ pub struct StripeRequest {
     pub method: Method,
     /// Such as `/v1/payment_intents/pi_.../confirm`.
     pub path: String,
-    /// The form body of a POST; `None` for a GET.
+    /// The form body of a POST; `None` for a GET or a DELETE.
     pub body: Option<String>,
     /// Stripe's `Idempotency-Key` header, on every POST.
     pub idempotency_key: Option<String>,
@@ -84,23 +97,170 @@ pub enum Call {
     Confirm,
     Cancel,
     Refund,
+    /// The balance invoice's draft; its item and finalize suffix the key ([`invoice_item`],
+    /// [`finalize_invoice`]).
+    Invoice,
+    Void,
+    Pay,
 }
 
-/// Stripe idempotency keys, `<ref>:<purpose>:<attempt>` (docs/domain.md, "Idempotency"). The
-/// create call uses the purpose as it is; the other calls suffix it with the call, so no two
-/// calls share a key, since Stripe refuses one key on two different requests. `attempt` is the
+/// Stripe idempotency keys, `<sandbox>:<ref>:<purpose>:<attempt>` (docs/domain.md,
+/// "Idempotency"). The sandbox comes first because two sandboxes born from the same seed share
+/// their seeded refs, and Stripe keeps a key for 24 hours
+/// (https://docs.stripe.com/api/idempotent_requests, as of 2026-11-05): without it the second
+/// sandbox's call would get the first one's answer, or a 400 for a different body. The create
+/// call uses the purpose as it is; the other calls suffix it with the call, so no two calls
+/// share a key, since Stripe refuses one key on two different requests. `attempt` is the
 /// payment's [`attempt`](bakery_domain::billing::PaymentRecord::attempt) for the three intent
 /// calls and the refund's [`ordinal`](bakery_domain::billing::RefundRecord::ordinal) for a
 /// refund. A confirm is made once per intent: a second confirm with another card needs another
 /// attempt number.
-pub fn idempotency_key(call: Call, reference: Ulid, purpose: Purpose, attempt: u32) -> String {
+pub fn idempotency_key(
+    call: Call,
+    sandbox: Ulid,
+    reference: Ulid,
+    purpose: Purpose,
+    attempt: u32,
+) -> String {
     let purpose = purpose.as_str();
-    match call {
-        Call::Create => format!("{reference}:{purpose}:{attempt}"),
-        Call::Confirm => format!("{reference}:{purpose}-confirm:{attempt}"),
-        Call::Cancel => format!("{reference}:{purpose}-cancel:{attempt}"),
-        Call::Refund => format!("{reference}:{purpose}-refund:{attempt}"),
+    let suffix = match call {
+        Call::Create => "",
+        Call::Confirm => "-confirm",
+        Call::Cancel => "-cancel",
+        Call::Refund => "-refund",
+        Call::Invoice => "-invoice",
+        Call::Void => "-void",
+        Call::Pay => "-pay",
+    };
+    format!("{sandbox}:{reference}:{purpose}{suffix}:{attempt}")
+}
+
+/// The key of a persona's Stripe customer, `<sandbox>:<persona>:customer`. The sandbox is in it
+/// because two sandboxes born from one seed share their personas' ids.
+pub fn customer_key(sandbox: Ulid, persona: Ulid) -> String {
+    format!("{sandbox}:{persona}:customer")
+}
+
+fn checked_path(id: &str, prefix: &str, base: &str, suffix: &str) -> Result<String, PortError> {
+    if !is_stripe_id(id, prefix) {
+        let what = prefix.trim_end_matches('_');
+        let name = match what {
+            "in" => "invoice-id",
+            "cus" => "customer-id",
+            _ => "id",
+        };
+        return Err(PortError::Rejected(name.into()));
     }
+    Ok(format!("{base}/{id}{suffix}"))
+}
+
+/// `POST /v1/customers`: the sandbox and the persona in metadata, and nothing else.
+pub fn create_customer(r: &CustomerRequest) -> StripeRequest {
+    let form = Form::new()
+        .nested(&["metadata", "sandbox"], r.sandbox.to_string())
+        .nested(&["metadata", "persona"], r.persona.to_string());
+    post("/v1/customers".to_owned(), form, &r.idempotency_key)
+}
+
+/// `DELETE /v1/customers/{id}`, with no body and no key.
+pub fn delete_customer(customer: &str) -> Result<StripeRequest, PortError> {
+    Ok(StripeRequest {
+        method: Method::Delete,
+        path: checked_path(customer, "cus_", "/v1/customers", "")?,
+        body: None,
+        idempotency_key: None,
+    })
+}
+
+/// `days_until_due`: the days from today to the due date, at least 1.
+pub fn days_until_due(r: &InvoiceRequest) -> i64 {
+    r.today.days_until(r.due).max(1)
+}
+
+fn invoice_metadata(form: Form, r: &InvoiceRequest) -> Form {
+    form.nested(&["metadata", "sandbox"], r.sandbox.to_string())
+        .nested(&["metadata", "invoice"], r.invoice.to_string())
+        .nested(&["metadata", "purpose"], Purpose::Balance.as_str())
+        .nested(&["metadata", "ref"], r.reference.to_string())
+}
+
+/// `POST /v1/invoices`: the draft. `send_invoice` with `days_until_due`, so Stripe charges
+/// nothing automatically; `auto_advance=false`, so it finalizes nothing on its own; no pending
+/// items swept in.
+pub fn create_invoice_draft(r: &InvoiceRequest) -> Result<StripeRequest, PortError> {
+    if !is_stripe_id(&r.customer, "cus_") {
+        return Err(PortError::Rejected("customer-id".into()));
+    }
+    if r.amount <= Cents::ZERO {
+        return Err(PortError::Rejected("amount".into()));
+    }
+    let form = Form::new()
+        .field("customer", &r.customer)
+        .field("currency", CURRENCY)
+        .field("collection_method", "send_invoice")
+        .field("days_until_due", days_until_due(r).to_string())
+        .field("auto_advance", "false")
+        .field("pending_invoice_items_behavior", "exclude");
+    Ok(post(
+        "/v1/invoices".to_owned(),
+        invoice_metadata(form, r),
+        &r.idempotency_key,
+    ))
+}
+
+/// `POST /v1/invoiceitems`: the balance, on the draft `invoice`, under the key `<key>:item`.
+pub fn invoice_item(r: &InvoiceRequest, invoice: &str) -> Result<StripeRequest, PortError> {
+    if !is_stripe_id(invoice, "in_") {
+        return Err(PortError::Rejected("invoice-id".into()));
+    }
+    let form = Form::new()
+        .field("customer", &r.customer)
+        .field("invoice", invoice)
+        .field("amount", r.amount.0.to_string())
+        .field("currency", CURRENCY)
+        .field("description", "Catering balance");
+    Ok(post(
+        "/v1/invoiceitems".to_owned(),
+        invoice_metadata(form, r),
+        &format!("{}:item", r.idempotency_key),
+    ))
+}
+
+/// `POST /v1/invoices/{id}/finalize`, still not auto-advancing, under the key `<key>:finalize`.
+pub fn finalize_invoice(r: &InvoiceRequest, invoice: &str) -> Result<StripeRequest, PortError> {
+    Ok(post(
+        checked_path(invoice, "in_", "/v1/invoices", "/finalize")?,
+        Form::new().field("auto_advance", "false"),
+        &format!("{}:finalize", r.idempotency_key),
+    ))
+}
+
+/// `POST /v1/invoices/{id}/void`.
+pub fn void_invoice(invoice: &str, idempotency_key: &str) -> Result<StripeRequest, PortError> {
+    Ok(post(
+        checked_path(invoice, "in_", "/v1/invoices", "/void")?,
+        Form::new(),
+        idempotency_key,
+    ))
+}
+
+/// `POST /v1/invoices/{id}/pay` with the provider's test card: the test path only.
+pub fn pay_invoice_test(invoice: &str, idempotency_key: &str) -> Result<StripeRequest, PortError> {
+    Ok(post(
+        checked_path(invoice, "in_", "/v1/invoices", "/pay")?,
+        Form::new().field("payment_method", TestCard::Visa.payment_method()),
+        idempotency_key,
+    ))
+}
+
+/// `GET /v1/invoices/{id}`.
+pub fn retrieve_invoice(invoice: &str) -> Result<StripeRequest, PortError> {
+    Ok(StripeRequest {
+        method: Method::Get,
+        path: checked_path(invoice, "in_", "/v1/invoices", "")?,
+        body: None,
+        idempotency_key: None,
+    })
 }
 
 fn intent_path(intent: &str, suffix: &str) -> Result<String, PortError> {
@@ -317,6 +477,72 @@ pub fn snapshot(pi: &PaymentIntent) -> IntentSnapshot {
     }
 }
 
+fn live(livemode: bool) -> Result<(), PortError> {
+    if livemode {
+        Err(PortError::Rejected("livemode".into()))
+    } else {
+        Ok(())
+    }
+}
+
+/// The port's answer to [`create_customer`].
+pub fn read_customer(status: u16, body: &str) -> Result<CustomerCreated, PortError> {
+    let c: Customer = parse(status, body)?;
+    live(c.livemode)?;
+    Ok(CustomerCreated { provider_id: c.id })
+}
+
+/// The port's answer to [`delete_customer`]: a customer already gone is no error.
+pub fn read_deleted(status: u16, body: &str) -> Result<(), PortError> {
+    match parse::<Deleted>(status, body) {
+        Ok(d) if d.deleted => Ok(()),
+        Ok(_) => Err(PortError::Unavailable("not-deleted".into())),
+        Err(StripeFailure::Api {
+            status: 404,
+            code: Some(code),
+            ..
+        }) if code == "resource_missing" => Ok(()),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// An invoice read from any of its answers: the draft, the finalize, the void, the payment or a
+/// read.
+pub fn read_invoice(status: u16, body: &str) -> Result<InvoiceSnapshot, PortError> {
+    let inv: Invoice = parse(status, body)?;
+    live(inv.livemode)?;
+    Ok(InvoiceSnapshot {
+        provider_id: inv.id,
+        status: inv.status.to_port(),
+        amount_due: Cents(inv.amount_due),
+        amount_paid: Cents(inv.amount_paid),
+    })
+}
+
+/// The port's answer to [`finalize_invoice`], the last of `create_invoice`'s three calls.
+pub fn read_invoice_created(status: u16, body: &str) -> Result<InvoiceCreated, PortError> {
+    let s = read_invoice(status, body)?;
+    Ok(InvoiceCreated {
+        provider_id: s.provider_id,
+        status: s.status,
+    })
+}
+
+/// The answer to [`invoice_item`]: the item must be on the invoice it named, for the amount.
+pub fn read_invoice_item(
+    status: u16,
+    body: &str,
+    invoice: &str,
+    amount: Cents,
+) -> Result<(), PortError> {
+    let item: InvoiceItem = parse(status, body)?;
+    live(item.livemode)?;
+    if item.invoice.as_deref() != Some(invoice) || item.amount != amount.0 {
+        return Err(PortError::Rejected("invoice-item".into()));
+    }
+    Ok(())
+}
+
 /// The port's answer to [`create_refund`]. A failed or canceled refund is refused.
 pub fn read_refund(status: u16, body: &str) -> Result<RefundCreated, PortError> {
     let refund: Refund = parse(status, body)?;
@@ -350,22 +576,27 @@ mod tests {
 
     #[test]
     fn idempotency_keys_follow_the_domain_doc() {
-        let r = ulid(2);
+        let (s, r) = (ulid(1), ulid(2));
         assert_eq!(
-            idempotency_key(Call::Create, r, Purpose::Order, 1),
-            format!("{r}:order:1")
+            idempotency_key(Call::Create, s, r, Purpose::Order, 1),
+            format!("{s}:{r}:order:1")
         );
         assert_eq!(
-            idempotency_key(Call::Confirm, r, Purpose::Order, 1),
-            format!("{r}:order-confirm:1")
+            idempotency_key(Call::Confirm, s, r, Purpose::Order, 1),
+            format!("{s}:{r}:order-confirm:1")
         );
         assert_eq!(
-            idempotency_key(Call::Cancel, r, Purpose::Deposit, 2),
-            format!("{r}:deposit-cancel:2")
+            idempotency_key(Call::Cancel, s, r, Purpose::Deposit, 2),
+            format!("{s}:{r}:deposit-cancel:2")
         );
         assert_eq!(
-            idempotency_key(Call::Refund, r, Purpose::Balance, 3),
-            format!("{r}:balance-refund:3")
+            idempotency_key(Call::Refund, s, r, Purpose::Balance, 3),
+            format!("{s}:{r}:balance-refund:3")
+        );
+        // Two sandboxes born from one seed share a ref, never a key.
+        assert_ne!(
+            idempotency_key(Call::Create, s, r, Purpose::Order, 1),
+            idempotency_key(Call::Create, ulid(9), r, Purpose::Order, 1)
         );
     }
 
@@ -539,6 +770,221 @@ mod tests {
         assert_eq!(
             read_refund(200, r#"{"id":"re_fake_1","amount":500,"status":"failed"}"#),
             Err(PortError::Rejected("refund-failed".into()))
+        );
+    }
+
+    fn invoice_request() -> InvoiceRequest {
+        InvoiceRequest {
+            sandbox: ulid(1),
+            invoice: ulid(6),
+            customer: "cus_fake_1".into(),
+            reference: ulid(5),
+            amount: Cents(43_500),
+            due: "2026-11-28".parse().unwrap(),
+            today: "2026-11-21".parse().unwrap(),
+            idempotency_key: idempotency_key(Call::Invoice, ulid(1), ulid(5), Purpose::Balance, 1),
+        }
+    }
+
+    #[test]
+    fn a_customer_carries_ids_and_nothing_else() {
+        assert_eq!(
+            customer_key(ulid(1), ulid(7)),
+            format!("{}:{}:customer", ulid(1), ulid(7))
+        );
+        let req = create_customer(&CustomerRequest {
+            sandbox: ulid(1),
+            persona: ulid(7),
+            idempotency_key: "k1".into(),
+        });
+        assert_eq!(
+            (req.method, req.path.as_str()),
+            (Method::Post, "/v1/customers")
+        );
+        assert_eq!(
+            req.body.as_deref().unwrap(),
+            format!(
+                "metadata[sandbox]={}&metadata[persona]={}",
+                ulid(1),
+                ulid(7)
+            )
+        );
+        assert_eq!(req.idempotency_key.as_deref(), Some("k1"));
+        let del = delete_customer("cus_fake_1").unwrap();
+        assert_eq!(
+            (
+                del.method,
+                del.path.as_str(),
+                &del.body,
+                &del.idempotency_key
+            ),
+            (Method::Delete, "/v1/customers/cus_fake_1", &None, &None)
+        );
+        assert_eq!(Method::Delete.as_str(), "DELETE");
+        assert_eq!(
+            del.headers("sk_test_not_a_key", None).len(),
+            1,
+            "no content type and no key on a delete"
+        );
+        assert_eq!(
+            delete_customer("cus_x/../../v1/refunds"),
+            Err(PortError::Rejected("customer-id".into()))
+        );
+        assert_eq!(
+            read_customer(
+                200,
+                r#"{"id":"cus_fake_1","object":"customer","email":null,"metadata":{},"livemode":false}"#
+            ),
+            Ok(CustomerCreated {
+                provider_id: "cus_fake_1".into()
+            })
+        );
+        assert_eq!(
+            read_customer(200, r#"{"id":"cus_fake_1","livemode":true}"#),
+            Err(PortError::Rejected("livemode".into()))
+        );
+        assert_eq!(
+            read_deleted(
+                200,
+                r#"{"id":"cus_fake_1","object":"customer","deleted":true}"#
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            read_deleted(
+                404,
+                r#"{"error":{"type":"invalid_request_error","code":"resource_missing"}}"#
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn an_invoice_is_drafted_given_its_item_and_finalized() {
+        let r = invoice_request();
+        let keys = |call| idempotency_key(call, ulid(1), ulid(5), Purpose::Balance, 1);
+        let (s, j) = (ulid(1), ulid(5));
+        assert_eq!(r.idempotency_key, format!("{s}:{j}:balance-invoice:1"));
+        assert_eq!(keys(Call::Void), format!("{s}:{j}:balance-void:1"));
+        assert_eq!(keys(Call::Pay), format!("{s}:{j}:balance-pay:1"));
+        assert_eq!(days_until_due(&r), 7);
+        let draft = create_invoice_draft(&r).unwrap();
+        assert_eq!(
+            (draft.method, draft.path.as_str()),
+            (Method::Post, "/v1/invoices")
+        );
+        let meta = format!(
+            "&metadata[sandbox]={}&metadata[invoice]={}&metadata[purpose]=balance&metadata[ref]={}",
+            ulid(1),
+            ulid(6),
+            ulid(5)
+        );
+        assert_eq!(
+            draft.body.as_deref().unwrap(),
+            format!(
+                "customer=cus_fake_1&currency=usd&collection_method=send_invoice\
+                 &days_until_due=7&auto_advance=false&pending_invoice_items_behavior=exclude{meta}"
+            )
+        );
+        let item = invoice_item(&r, "in_fake_2").unwrap();
+        assert_eq!(item.path, "/v1/invoiceitems");
+        assert_eq!(
+            item.body.as_deref().unwrap(),
+            format!(
+                "customer=cus_fake_1&invoice=in_fake_2&amount=43500&currency=usd\
+                 &description=Catering%20balance{meta}"
+            )
+        );
+        assert_eq!(
+            item.idempotency_key,
+            Some(format!("{}:{}:balance-invoice:1:item", ulid(1), ulid(5)))
+        );
+        let fin = finalize_invoice(&r, "in_fake_2").unwrap();
+        assert_eq!(fin.path, "/v1/invoices/in_fake_2/finalize");
+        assert_eq!(fin.body.as_deref(), Some("auto_advance=false"));
+        assert_eq!(
+            fin.idempotency_key,
+            Some(format!(
+                "{}:{}:balance-invoice:1:finalize",
+                ulid(1),
+                ulid(5)
+            ))
+        );
+        let void = void_invoice("in_fake_2", "kv").unwrap();
+        assert_eq!(
+            (void.path.as_str(), void.body.as_deref()),
+            ("/v1/invoices/in_fake_2/void", Some(""))
+        );
+        let pay = pay_invoice_test("in_fake_2", "kp").unwrap();
+        assert_eq!(
+            (pay.path.as_str(), pay.body.as_deref()),
+            (
+                "/v1/invoices/in_fake_2/pay",
+                Some("payment_method=pm_card_visa")
+            )
+        );
+        let get = retrieve_invoice("in_fake_2").unwrap();
+        assert_eq!(
+            (get.method, get.path.as_str()),
+            (Method::Get, "/v1/invoices/in_fake_2")
+        );
+        // Ids that are not an invoice's never reach a path, and a due date today is a day.
+        for bad in ["in_fake/../../v1/refunds", "pi_fake_1", "in_"] {
+            assert_eq!(
+                retrieve_invoice(bad),
+                Err(PortError::Rejected("invoice-id".into()))
+            );
+            assert!(invoice_item(&r, bad).is_err());
+        }
+        let mut same_day = invoice_request();
+        same_day.due = same_day.today;
+        assert_eq!(days_until_due(&same_day), 1);
+        let mut no_customer = invoice_request();
+        no_customer.customer = "someone".into();
+        assert_eq!(
+            create_invoice_draft(&no_customer),
+            Err(PortError::Rejected("customer-id".into()))
+        );
+    }
+
+    #[test]
+    fn reading_invoices() {
+        let open = r#"{"id":"in_fake_2","object":"invoice","status":"open","amount_due":43500,
+            "amount_paid":0,"customer":"cus_fake_1","livemode":false}"#;
+        assert_eq!(
+            read_invoice_created(200, open),
+            Ok(InvoiceCreated {
+                provider_id: "in_fake_2".into(),
+                status: crate::ports::InvoiceStatus::Open
+            })
+        );
+        let paid = read_invoice(
+            200,
+            r#"{"id":"in_fake_2","status":"paid","amount_due":43500,"amount_paid":43500}"#,
+        )
+        .unwrap();
+        assert_eq!(paid.status, crate::ports::InvoiceStatus::Paid);
+        assert_eq!(paid.amount_paid, Cents(43_500));
+        assert_eq!(
+            read_invoice(200, r#"{"id":"in_fake_2","status":"open","livemode":true}"#),
+            Err(PortError::Rejected("livemode".into()))
+        );
+        let item =
+            r#"{"id":"ii_fake_3","object":"invoiceitem","amount":43500,"invoice":"in_fake_2"}"#;
+        assert_eq!(
+            read_invoice_item(200, item, "in_fake_2", Cents(43_500)),
+            Ok(())
+        );
+        assert_eq!(
+            read_invoice_item(200, item, "in_fake_9", Cents(43_500)),
+            Err(PortError::Rejected("invoice-item".into()))
+        );
+        assert_eq!(
+            read_invoice(
+                400,
+                r#"{"error":{"type":"invalid_request_error","code":"invoice_not_editable"}}"#
+            ),
+            Err(PortError::Rejected("invoice_not_editable".into()))
         );
     }
 

@@ -5,8 +5,8 @@
 //!
 //! The table names every subscriber the catalog names, including classes that do not exist
 //! yet. [`LIVE`] says which do, and [`deliver_to`] filters by it, so PR 4's consumer delivered to
-//! the Kitchen only, PR 5's adds Billing and the Order, PR 6's the Schedule, and each later pull
-//! request turns its classes on by adding them to [`LIVE`].
+//! the Kitchen only, PR 5's adds Billing and the Order, PR 6's the Schedule, PR 7's the
+//! CateringEvent, and each later pull request turns its classes on by adding them to [`LIVE`].
 //! A test reads the catalog table out of docs/domain.md and checks this one against it.
 
 use bakery_domain::Envelope;
@@ -44,16 +44,19 @@ impl Subscriber {
     }
 }
 
-/// The classes that exist, as of PR 6 (docs/roadmap.md, "PR 6": scheduling): the Kitchen board,
-/// Billing (refund requests and expiries from the Order), the Order (payments and refunds from
-/// Billing, by purpose and `ref`) and the Schedule (an order's day, from its slot; every day
-/// from today on for `MenuPublished`). The consumer delivers to no other; Crm and the rest join
-/// as their pull requests build them.
+/// The classes that exist, as of PR 7 (docs/roadmap.md, "PR 7": catering and billing): the
+/// Kitchen board, Billing (refund requests and expiries from the Order; the balance invoice
+/// and the deposit's refund from the CateringEvent), the Order (payments and refunds from
+/// Billing, by purpose and `ref`), the Schedule (an order's day, from its slot; a catering
+/// event's day, from its date; every day from today on for `MenuPublished`) and the
+/// CateringEvent (deposits and balances from Billing, by purpose and `ref`, and its invoice).
+/// The consumer delivers to no other; Crm and the rest join as their pull requests build them.
 pub const LIVE: &[Subscriber] = &[
     Subscriber::Kitchen,
     Subscriber::Billing,
     Subscriber::Order,
     Subscriber::Schedule,
+    Subscriber::CateringEvent,
 ];
 
 /// Which instances of a class an event goes to, where the catalog narrows it.
@@ -151,6 +154,7 @@ pub const ROUTES: &[(&str, &[Route])] = &[
     ("CateringInquiryReceived", &[all(Crm), all(Inbox)]),
     ("CateringQuoteSent", &[all(Crm), all(Inbox)]),
     ("CateringQuoteAccepted", &[all(Crm)]),
+    ("CateringDepositLapsed", &[all(Schedule)]),
     ("CateringQuoteExpired", &[all(Crm), all(Inbox)]),
     ("CateringDeclined", &[all(Crm), all(Inbox)]),
     (
@@ -278,6 +282,7 @@ mod tests {
     use super::*;
     use bakery_domain::billing::BillingEvent;
     use bakery_domain::catalog::CatalogEvent;
+    use bakery_domain::catering::CateringEvent as CateringEvents;
     use bakery_domain::order::OrderEvent;
     use bakery_domain::schedule::ScheduleEvent;
     use bakery_domain::{DomainEvent, Ulid, WallTime};
@@ -379,7 +384,7 @@ mod tests {
         assert_eq!(in_table, in_doc);
         assert_eq!(ROUTES.len(), in_table.len(), "an event is listed twice");
         // The table has as many rows as the catalog has events.
-        assert_eq!(in_doc.len(), 62);
+        assert_eq!(in_doc.len(), 63);
     }
 
     #[test]
@@ -389,9 +394,31 @@ mod tests {
             .chain(CatalogEvent::NAMES)
             .chain(ScheduleEvent::NAMES)
             .chain(BillingEvent::NAMES)
+            .chain(CateringEvents::NAMES)
         {
             assert!(routes(name).is_some(), "{name} has no row");
         }
+    }
+
+    #[test]
+    fn the_catering_saga_reaches_the_schedule_and_billing() {
+        let schedule_and = |name: &str| classes(routes_for(&envelope(name, json!({}))));
+        // Confirm, Release, Fulfil.
+        assert_eq!(
+            schedule_and("CateringDepositPaid"),
+            ["Schedule", "Crm", "Inbox"]
+        );
+        assert_eq!(schedule_and("CateringDepositLapsed"), ["Schedule"]);
+        assert_eq!(
+            schedule_and("CateringCancelled"),
+            ["Schedule", "Billing", "Crm"]
+        );
+        assert_eq!(schedule_and("CateringClosed"), ["Schedule", "Crm", "Inbox"]);
+        // The balance invoice: raised on delivery, recorded by the job, paid by purpose.
+        assert_eq!(schedule_and("CateringDelivered"), ["Billing", "Kitchen"]);
+        assert_eq!(schedule_and("InvoiceIssued"), ["CateringEvent"]);
+        let balance = envelope("PaymentSucceeded", json!({ "purpose": "balance" }));
+        assert_eq!(classes(routes_for(&balance)), ["CateringEvent"]);
     }
 
     #[test]
@@ -465,8 +492,8 @@ mod tests {
     }
 
     #[test]
-    fn pr6_delivers_to_the_kitchen_billing_the_order_and_the_schedule() {
-        assert_eq!(LIVE, [Kitchen, Billing, Order, Schedule]);
+    fn pr7_delivers_to_the_kitchen_billing_the_order_the_schedule_and_the_catering_event() {
+        assert_eq!(LIVE, [Kitchen, Billing, Order, Schedule, CateringEvent]);
         let paid = envelope("OrderPaid", json!({ "payment": "x", "amount_cents": 1 }));
         assert_eq!(classes(deliver_to(&paid)), ["Schedule", "Kitchen"]);
         assert_eq!(
@@ -513,7 +540,26 @@ mod tests {
                 name,
                 json!({ "purpose": "deposit", "ref": order.to_string() }),
             );
-            assert!(deliver_to(&to_catering).is_empty(), "{name}");
+            assert_eq!(
+                classes(deliver_to(&to_catering)),
+                ["CateringEvent"],
+                "{name}"
+            );
+        }
+        // The saga's edges: the day, Billing and the event itself.
+        for (name, to) in [
+            ("CateringDepositPaid", &["Schedule"][..]),
+            ("CateringDepositLapsed", &["Schedule"]),
+            ("CateringDelivered", &["Billing", "Kitchen"]),
+            ("CateringClosed", &["Schedule"]),
+            ("CateringCancelled", &["Schedule", "Billing"]),
+            ("InvoiceIssued", &["CateringEvent"]),
+        ] {
+            assert_eq!(
+                classes(deliver_to(&envelope(name, json!({})))),
+                to,
+                "{name}"
+            );
         }
         assert_eq!(
             reference(&envelope("RefundIssued", json!({ "ref": "nope" }))),

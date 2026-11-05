@@ -58,34 +58,63 @@ export type Waited =
 export const POLL_INTERVAL_MS = 1_000;
 export const POLL_LIMIT_MS = 30_000;
 
+export interface PollOptions {
+  sleep: (ms: number) => Promise<void>;
+  stopped?: () => boolean;
+  intervalMs?: number;
+  limitMs?: number;
+}
+
+export type Polled<T> =
+  | { kind: 'paid'; value: T }
+  | { kind: 'closed'; value: T }
+  | { kind: 'timeout' }
+  | { kind: 'stopped' };
+
 /**
- * Asks for the order every second, for up to 30 seconds, until the webhook has marked it paid
- * (never the browser: a succeeded confirm alone proves nothing here). A failed read is just a
- * missed look. The sleep and the stop flag are parameters so a test runs it in no time.
+ * Reads every second, for up to 30 seconds, until `classify` calls the answer `paid` (what was
+ * waited for happened) or `closed` (it can no longer happen). A failed read is just a missed
+ * look. The sleep and the stop flag are parameters so a test runs it in no time. The order's
+ * payment wait and the catering waits (docs/architecture.md, "The catering saga") are this loop.
  */
-export async function waitForPaid(
-  read: () => Promise<OrderResponse>,
-  options: {
-    sleep: (ms: number) => Promise<void>;
-    stopped?: () => boolean;
-    intervalMs?: number;
-    limitMs?: number;
-  },
-): Promise<Waited> {
+export async function pollUntil<T>(
+  read: () => Promise<T>,
+  classify: (value: T) => 'paid' | 'closed' | null,
+  options: PollOptions,
+): Promise<Polled<T>> {
   const interval = options.intervalMs ?? POLL_INTERVAL_MS;
   const limit = options.limitMs ?? POLL_LIMIT_MS;
   for (let waited = 0; waited <= limit; waited += interval) {
     if (options.stopped?.()) return { kind: 'stopped' };
     try {
-      const order = await read();
-      if (isPaid(order.status)) return { kind: 'paid', order };
-      if (isClosed(order.status)) return { kind: 'closed', order };
+      const value = await read();
+      const kind = classify(value);
+      if (kind === 'paid') return { kind, value };
+      if (kind === 'closed') return { kind, value };
     } catch {
       // The next look tries again.
     }
     await options.sleep(interval);
   }
   return { kind: 'timeout' };
+}
+
+/**
+ * Asks for the order every second, for up to 30 seconds, until the webhook has marked it paid
+ * (never the browser: a succeeded confirm alone proves nothing here).
+ */
+export async function waitForPaid(
+  read: () => Promise<OrderResponse>,
+  options: PollOptions,
+): Promise<Waited> {
+  const result = await pollUntil(
+    read,
+    (order) => (isPaid(order.status) ? 'paid' : isClosed(order.status) ? 'closed' : null),
+    options,
+  );
+  if (result.kind === 'paid') return { kind: 'paid', order: result.value };
+  if (result.kind === 'closed') return { kind: 'closed', order: result.value };
+  return result;
 }
 
 export type RefundAmount = { ok: true; cents: number } | { ok: false; message: string };

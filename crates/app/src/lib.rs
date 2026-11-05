@@ -33,7 +33,8 @@ mod scheduling_flow;
 
 pub use health::{BuildInfo, Health, HealthStatus, health};
 pub use ports::{
-    CancelRequest, Clock, ConfirmRequest, EventStore, IdGen, IntentCreated, IntentRequest,
-    IntentSnapshot, IntentStatus, Mailbox, Outbox, PaymentGateway, PortError, RefundCreated,
+    CancelRequest, Clock, ConfirmRequest, CustomerCreated, CustomerRequest, EventStore, IdGen,
+    IntentCreated, IntentRequest, IntentSnapshot, IntentStatus, InvoiceCreated, InvoiceRequest,
+    InvoiceSnapshot, InvoiceStatus, Mailbox, Outbox, PaymentGateway, PortError, RefundCreated,
     RefundIntentRequest, TestCard,
 };

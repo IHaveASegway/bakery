@@ -34,7 +34,8 @@ function directive(policy: string, name: string): string[] {
 describe('dist/_headers', () => {
   expect(existsSync(file), 'run pnpm build first').toBe(true);
   const text = readFileSync(file, 'utf8');
-  const rules = ['/*', '/signin/*', '/app/*', '/menu/*', '/checkout/*', '/_astro/*'];
+  const rules = ['/*', '/signin/*', '/app/*', '/menu/*', '/checkout/*', '/catering/*', '/_astro/*'];
+  const paymentRules = ['/checkout/*', '/catering/*'];
 
   test('the "/*" rule carries the policy and the other security headers', () => {
     const all = rule(text, '/*');
@@ -88,34 +89,38 @@ describe('dist/_headers', () => {
     );
   });
 
-  test('/checkout/* is the payment page: the island policy plus exactly Stripe’s three origins', () => {
-    const lines = rule(text, '/checkout/*');
-    expect(lines.indexOf('! Content-Security-Policy')).toBe(0);
-    const policy = policyOf(lines);
-    const base = policyOf(rule(text, '/*'));
-    expect(policy).not.toContain('challenges.cloudflare.com');
-    expect(directive(policy, 'script-src')[0]).toBe("'self'");
-    expect(directive(policy, 'script-src')[1]).toBe('https://js.stripe.com');
-    // The island hashes stay.
-    expect(
-      directive(policy, 'script-src').filter((s) => s.startsWith("'sha256-")),
-    ).not.toHaveLength(0);
-    expect(directive(policy, 'frame-src')).toEqual([
-      'https://js.stripe.com',
-      'https://hooks.stripe.com',
-    ]);
-    expect(directive(policy, 'connect-src')).toEqual([
-      ...directive(base, 'connect-src'),
-      'https://api.stripe.com',
-    ]);
-  });
+  test.each(paymentRules)(
+    '%s is a payment page: the island policy plus exactly Stripe’s three origins',
+    (path) => {
+      const lines = rule(text, path);
+      expect(lines.indexOf('! Content-Security-Policy')).toBe(0);
+      const policy = policyOf(lines);
+      const base = policyOf(rule(text, '/*'));
+      expect(policy).not.toContain('challenges.cloudflare.com');
+      expect(directive(policy, 'script-src')[0]).toBe("'self'");
+      expect(directive(policy, 'script-src')[1]).toBe('https://js.stripe.com');
+      // The island hashes stay.
+      expect(
+        directive(policy, 'script-src').filter((s) => s.startsWith("'sha256-")),
+      ).not.toHaveLength(0);
+      expect(directive(policy, 'frame-src')).toEqual([
+        'https://js.stripe.com',
+        'https://hooks.stripe.com',
+      ]);
+      expect(directive(policy, 'connect-src')).toEqual([
+        ...directive(base, 'connect-src'),
+        'https://api.stripe.com',
+      ]);
+    },
+  );
 
-  test('no rule but /checkout/* carries a Stripe origin', () => {
-    for (const path of rules.filter((r) => r !== '/checkout/*')) {
-      expect(rule(text, path).join('\n'), path).not.toContain('stripe.com');
+  test('exactly /checkout/* and /catering/* carry a Stripe origin', () => {
+    for (const path of rules) {
+      const names = rule(text, path).join('\n').includes('stripe.com');
+      expect(names, path).toBe(paymentRules.includes(path));
     }
-    // And the file names Stripe nowhere outside that rule.
-    expect(text.split('stripe.com').length - 1).toBe(4);
+    // And the file names Stripe nowhere outside those rules: four origins in each.
+    expect(text.split('stripe.com').length - 1).toBe(4 * paymentRules.length);
   });
 
   test('no rule carries unsafe-inline, unsafe-eval or a nonce; "/*" carries no hash either', () => {

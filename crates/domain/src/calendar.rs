@@ -192,6 +192,25 @@ impl BakeryDate {
         local(utc).expect("a bakery date's times are within the year range")
     }
 
+    /// The `n`th open day (a business day: Tuesday to Sunday) strictly after this one, so
+    /// `n = 1` is the next open day. This day never counts itself, open or not.
+    pub fn nth_open_day_after(self, n: u32) -> BakeryDate {
+        let mut day = self;
+        let mut left = n;
+        while left > 0 {
+            day = day.plus_days(1);
+            if day.is_open() {
+                left -= 1;
+            }
+        }
+        day
+    }
+
+    /// Calendar days from `self` to `later`; negative when `later` comes first.
+    pub fn days_until(self, later: BakeryDate) -> i64 {
+        later.days() - self.days()
+    }
+
     /// 07:00 local.
     pub fn opening(self) -> BusinessTime {
         self.at_local(OPENING_MINUTES)
@@ -223,6 +242,22 @@ pub fn local_minutes(t: BusinessTime) -> u16 {
     let local_ms = t.unix_ms() + i64::from(offset_minutes_at(t.unix_ms())) * MS_PER_MINUTE;
     // A day has 1,440 minutes, so it fits.
     (local_ms.rem_euclid(MS_PER_DAY) / MS_PER_MINUTE) as u16
+}
+
+/// `t` moved by `days` calendar days at the same local wall-clock time, at the offset Denver
+/// uses on the day it lands: "a week later" across a daylight transition is still the same hour
+/// on the clock.
+pub fn same_time_days_later(t: BusinessTime, days: i64) -> BusinessTime {
+    BakeryDate::of(t).plus_days(days).at_local(local_minutes(t))
+}
+
+/// `t` plus `minutes` of elapsed time, shown at the offset Denver uses then.
+pub fn plus_elapsed_minutes(t: BusinessTime, minutes: i64) -> Result<BusinessTime, DomainError> {
+    let ms = minutes
+        .checked_mul(MS_PER_MINUTE)
+        .and_then(|d| t.unix_ms().checked_add(d))
+        .ok_or_else(|| DomainError::InvalidTime(format!("{minutes} minutes from {t}")))?;
+    local(ms)
 }
 
 /// The next 07:00 on an open day strictly after `after`: what "next opening" moves the clock to.
@@ -471,6 +506,32 @@ mod tests {
         }
         assert_eq!(date("2026-12-31").plus_days(1), date("2027-01-01"));
         assert!(date("2026-11-07") < date("2026-11-08"));
+    }
+
+    #[test]
+    fn business_days_skip_mondays_and_never_count_the_start() {
+        // Saturday 2026-11-07: Sun 1, (Mon closed), Tue 2 ... Sat 14 is the 6th, Sun 15 the 7th.
+        assert_eq!(date("2026-11-07").nth_open_day_after(1), date("2026-11-08"));
+        assert_eq!(date("2026-11-07").nth_open_day_after(2), date("2026-11-10"));
+        assert_eq!(date("2026-11-07").nth_open_day_after(7), date("2026-11-15"));
+        // From a Monday, the closed day itself is not counted either.
+        assert_eq!(date("2026-11-09").nth_open_day_after(1), date("2026-11-10"));
+        assert_eq!(date("2026-11-09").nth_open_day_after(7), date("2026-11-17"));
+        assert_eq!(date("2026-11-07").nth_open_day_after(0), date("2026-11-07"));
+        assert_eq!(date("2026-11-07").days_until(date("2026-11-15")), 8);
+        assert_eq!(date("2026-11-15").days_until(date("2026-11-07")), -8);
+    }
+
+    #[test]
+    fn same_time_later_keeps_the_wall_clock_across_a_transition() {
+        let before: BusinessTime = "2026-10-29T14:00:00-06:00".parse().unwrap();
+        assert_eq!(
+            same_time_days_later(before, 7).to_string(),
+            "2026-11-05T14:00:00-07:00"
+        );
+        let t = plus_elapsed_minutes("2026-11-01T01:50:00-06:00".parse().unwrap(), 15).unwrap();
+        // 01:50 MDT plus 15 minutes is 01:05 MST, the repeated hour's second pass.
+        assert_eq!(t.to_string(), "2026-11-01T01:05:00-07:00");
     }
 
     proptest! {

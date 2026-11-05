@@ -36,7 +36,7 @@ use crate::stripe::{self, Unavailable};
 type Answer = Result<Response, Failure>;
 
 /// The key guard, first on every payment route.
-fn guard(cx: &Cx) -> Result<(), Failure> {
+pub(super) fn guard(cx: &Cx) -> Result<(), Failure> {
     stripe::key_guard(&cx.env).map(|_| ()).map_err(refusal)
 }
 
@@ -48,7 +48,7 @@ fn refusal(u: Unavailable) -> Failure {
 }
 
 /// A Billing refusal, mapped to the visitor's problem.
-async fn billing_failure(mut res: Response) -> Failure {
+pub(super) async fn billing_failure(mut res: Response) -> Failure {
     #[derive(Default, serde::Deserialize)]
     struct Body {
         #[serde(default)]
@@ -83,7 +83,7 @@ async fn order_of(cx: &Cx, name: &str) -> Result<OrderResponse, Failure> {
     }
 }
 
-fn wire_status(s: PaymentStatus) -> WireStatus {
+pub(super) fn wire_status(s: PaymentStatus) -> WireStatus {
     match s {
         PaymentStatus::Created => WireStatus::Created,
         PaymentStatus::Succeeded => WireStatus::Succeeded,

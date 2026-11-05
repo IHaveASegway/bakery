@@ -7,6 +7,26 @@
 // documented, not Stripe's behavior everywhere. It listens on 127.0.0.1 only, holds nothing real,
 // keeps everything in memory, and writes no key or body to its log.
 //
+// What it models: payment intents (create, read, confirm with pm_card_visa or
+// pm_card_chargeDeclined, cancel), refunds, and since PR 7 a catering balance's Stripe Invoicing
+// path: customers (create, delete), invoice items, invoices (draft, finalize, pay on the test
+// path, void, read), and the invoice.paid and invoice.voided webhooks.
+//
+// Known differences from Stripe, each a simplification a test may lean on:
+//   - A refund's metadata is the intent's, not its own, so every event names its sandbox.
+//   - It sends no email, ever: Stripe emails a send_invoice invoice to a customer that has an
+//     email, and the bakery's customers have none (spike S3 confirms Stripe sends nothing).
+//   - An invoice has no payment intent of its own. /pay takes a test payment method, as the
+//     intent's confirm does, or paid_out_of_band=true; at Stripe the visitor pays the invoice's
+//     payment with the Payment Element (spike S3). No payment_intent.* event is sent for it, and
+//     a paid invoice cannot be refunded here.
+//   - Finalizing sends no invoice.finalized event; pay and void send invoice.paid,
+//     invoice.payment_failed and invoice.voided only.
+//   - due_date is the finalize time plus days_until_due days, in wall time; there is no
+//     invoice.overdue and nothing ever becomes uncollectible.
+//   - Taxes, discounts, prices and products do not exist: an item is an amount and a currency.
+//   - pending_invoice_items_behavior defaults to exclude, as in Stripe's current API versions.
+//
 // It exists because the real sandbox needs Joseph's account and key and cannot run in CI. Spike S3
 // confirms against the real sandbox the two things only it can: that the Payment Element with
 // `fields.billingDetails: 'never'` confirms a payment, and that a webhook reaches the Worker.
@@ -35,13 +55,30 @@
 //                                          declines with card_declined; any other id is resource_missing.
 //   POST /v1/payment_intents/{id}/cancel
 //   POST /v1/refunds                       payment_intent (or charge), optional amount and reason.
+//   POST /v1/customers                     metadata[...], and optional email and name, which the
+//                                          bakery never sends.
+//   DELETE /v1/customers/{id}              { id, object, deleted: true }; no idempotency key.
+//   POST /v1/invoiceitems                  customer, amount, currency, optional invoice (a draft)
+//                                          and description; with no invoice it waits as pending.
+//   POST /v1/invoices                      customer, collection_method (send_invoice needs
+//                                          days_until_due), auto_advance, currency,
+//                                          pending_invoice_items_behavior, metadata[...]: a draft.
+//   POST /v1/invoices/{id}/finalize        draft to open.
+//   POST /v1/invoices/{id}/pay             the test path: payment_method=pm_card_visa pays it
+//                                          (invoice.paid), pm_card_chargeDeclined is a 402
+//                                          card_declined (invoice.payment_failed); open only.
+//   POST /v1/invoices/{id}/void            open to void (invoice.voided).
+//   GET  /v1/invoices/{id}
 // An Idempotency-Key on a POST replays the stored status and body; the same key with different
 // parameters is a 400 idempotency_error. Errors use Stripe's shape: { error: { type, code, message } }.
 //
 // Webhooks. After a successful confirm, a decline, a cancel and a refund it posts the matching
 // events (payment_intent.succeeded, payment_intent.payment_failed, payment_intent.canceled,
-// charge.refunded then refund.created) in the background, so the API call returns first, as it does
-// at Stripe. Each carries Stripe-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">.
+// charge.refunded then refund.created), and after an invoice is paid, declined or voided
+// (invoice.paid, invoice.payment_failed, invoice.voided, each carrying the invoice and so its
+// metadata), in the background, so the API call returns first, as it does at Stripe. Each carries
+// Stripe-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">, and every fault
+// below applies to invoice events as to the others.
 // A delivery that is not answered 2xx, or not answered at all, is tried twice more after 500 ms.
 //
 // Test controls, all under /_ :
@@ -56,13 +93,15 @@
 //     replay: n        the next webhook is sent n times (the same event, a fresh t each time), then
 //                      this goes back to 1.
 //   GET  /_config      the current config.
-//   GET  /_events      every event sent: id, type, the intent id, the faults applied, and each
-//                      delivery's attempt and status code (0 means no answer).
+//   GET  /_events      every event sent: id, type, the intent id (the invoice's id for an invoice
+//                      event), the faults applied, and each delivery's attempt and status code (0
+//                      means no answer).
 //   POST /_send_event  JSON { event_id }. Sends a stored event once more, waits, and answers it.
 //   GET  /_requests    every /v1 request since the last reset: shape only. Method, path, status,
 //                      whether an Idempotency-Key came, the auth scheme, the Stripe-Version and the
 //                      sorted body field names. Never a key, a body value or a client secret.
-//   POST /_reset       clears intents, refunds, idempotency keys, events, requests and config.
+//   POST /_reset       clears intents, refunds, customers, invoice items, invoices, idempotency
+//                      keys, events, requests and config.
 //   GET  /_health      { ok: true }.
 import crypto from 'node:crypto';
 import http from 'node:http';
@@ -130,6 +169,9 @@ let config = defaultConfig();
 let requests = [];
 let intents = new Map(); // id -> { pi, refunded, chargeId }
 let refunds = new Map(); // id -> refund object
+let customers = new Map(); // id -> customer object
+let invoiceItems = new Map(); // id -> invoice item object
+let invoices = new Map(); // id -> invoice object, its lines included
 let idempotency = new Map(); // key -> { fingerprint, status, body }
 let events = []; // one record per event: { id, type, intent, payload, sends, deliveries }
 let queue = Promise.resolve(); // webhook deliveries run one after another, in order
@@ -139,6 +181,9 @@ function reset() {
   requests = [];
   intents = new Map();
   refunds = new Map();
+  customers = new Map();
+  invoiceItems = new Map();
+  invoices = new Map();
   idempotency = new Map();
   events = [];
 }
@@ -592,11 +637,279 @@ function getIntent(id) {
   return entry ? { status: 200, body: entry.pi } : noSuchIntent(id);
 }
 
+// ---------- Customers and invoices ----------
+
+const noSuch = (kind, id, param) =>
+  fail(404, 'invalid_request_error', `No such ${kind}: '${id}'`, 'resource_missing', param);
+const missing = (param) =>
+  fail(
+    400,
+    'invalid_request_error',
+    `Missing required param: ${param}.`,
+    'parameter_missing',
+    param,
+  );
+const optionalString = (v) => (typeof v === 'string' && v !== '' ? v : null);
+
+function createCustomer(f) {
+  const customer = {
+    id: newId('cus_fake'),
+    object: 'customer',
+    created: nowSeconds(),
+    email: optionalString(f.email),
+    livemode: false,
+    metadata: metadataOf(f.metadata),
+    name: optionalString(f.name),
+  };
+  customers.set(customer.id, customer);
+  return { status: 200, body: customer };
+}
+
+function deleteCustomer(id) {
+  if (!customers.has(id)) return noSuch('customer', id, 'id');
+  customers.delete(id);
+  return { status: 200, body: { id, object: 'customer', deleted: true } };
+}
+
+// The totals Stripe derives from the lines, kept on the object so a read sees them.
+function retotal(invoice) {
+  const total = invoice.lines.data.reduce((sum, line) => sum + line.amount, 0);
+  invoice.subtotal = total;
+  invoice.total = total;
+  invoice.amount_due = total;
+  invoice.amount_remaining = invoice.status === 'paid' ? 0 : total - invoice.amount_paid;
+}
+
+function createInvoiceItem(f) {
+  if (typeof f.customer !== 'string' || !f.customer) return missing('customer');
+  if (!customers.has(f.customer)) return noSuch('customer', f.customer, 'customer');
+  if (f.amount === undefined) return missing('amount');
+  if (!isAmount(f.amount)) {
+    return fail(
+      400,
+      'invalid_request_error',
+      'Invalid positive integer',
+      'parameter_invalid_integer',
+      'amount',
+    );
+  }
+  if (typeof f.currency !== 'string' || !f.currency) return missing('currency');
+  let invoice = null;
+  if (f.invoice !== undefined) {
+    invoice = invoices.get(f.invoice);
+    if (!invoice) return noSuch('invoice', f.invoice, 'invoice');
+    if (invoice.status !== 'draft') {
+      return fail(
+        400,
+        'invalid_request_error',
+        `You can only add invoice items to draft invoices; ${invoice.id} is ${invoice.status}.`,
+        'invoice_not_editable',
+        'invoice',
+      );
+    }
+    if (invoice.customer !== f.customer) {
+      return fail(
+        400,
+        'invalid_request_error',
+        'The invoice item and its invoice must have the same customer.',
+        'parameter_invalid_string',
+        'invoice',
+      );
+    }
+  }
+  const item = {
+    id: newId('ii_fake'),
+    object: 'invoiceitem',
+    amount: Number(f.amount),
+    currency: f.currency.toLowerCase(),
+    customer: f.customer,
+    date: nowSeconds(),
+    description: optionalString(f.description),
+    invoice: invoice ? invoice.id : null,
+    livemode: false,
+    metadata: metadataOf(f.metadata),
+  };
+  invoiceItems.set(item.id, item);
+  if (invoice) {
+    invoice.lines.data.push(snapshot(item));
+    retotal(invoice);
+  }
+  return { status: 200, body: item };
+}
+
+function createInvoice(f) {
+  if (typeof f.customer !== 'string' || !f.customer) return missing('customer');
+  if (!customers.has(f.customer)) return noSuch('customer', f.customer, 'customer');
+  const method = f.collection_method ?? 'charge_automatically';
+  if (!['charge_automatically', 'send_invoice'].includes(method)) {
+    return fail(
+      400,
+      'invalid_request_error',
+      'Invalid collection_method',
+      'parameter_invalid_enum',
+      'collection_method',
+    );
+  }
+  let days = null;
+  if (f.days_until_due !== undefined) {
+    if (!/^\d{1,4}$/.test(f.days_until_due)) {
+      return fail(
+        400,
+        'invalid_request_error',
+        'Invalid integer',
+        'parameter_invalid_integer',
+        'days_until_due',
+      );
+    }
+    days = Number(f.days_until_due);
+  }
+  if (method === 'send_invoice' && days === null) {
+    return fail(
+      400,
+      'invalid_request_error',
+      'Invoices with collection_method=send_invoice need days_until_due or due_date.',
+      'parameter_missing',
+      'days_until_due',
+    );
+  }
+  const behavior = f.pending_invoice_items_behavior ?? 'exclude';
+  if (!['include', 'exclude'].includes(behavior)) {
+    return fail(
+      400,
+      'invalid_request_error',
+      'Invalid pending_invoice_items_behavior',
+      'parameter_invalid_enum',
+      'pending_invoice_items_behavior',
+    );
+  }
+  const invoice = {
+    id: newId('in_fake'),
+    object: 'invoice',
+    amount_due: 0,
+    amount_paid: 0,
+    amount_remaining: 0,
+    auto_advance: f.auto_advance === 'true',
+    collection_method: method,
+    created: nowSeconds(),
+    currency: typeof f.currency === 'string' && f.currency ? f.currency.toLowerCase() : 'usd',
+    customer: f.customer,
+    customer_email: customers.get(f.customer).email,
+    days_until_due: days,
+    due_date: null,
+    lines: { object: 'list', data: [], has_more: false },
+    livemode: false,
+    metadata: metadataOf(f.metadata),
+    status: 'draft',
+    status_transitions: { finalized_at: null, paid_at: null, voided_at: null },
+    subtotal: 0,
+    total: 0,
+  };
+  if (behavior === 'include') {
+    for (const item of invoiceItems.values()) {
+      if (item.customer === f.customer && item.invoice === null) {
+        item.invoice = invoice.id;
+        invoice.lines.data.push(snapshot(item));
+      }
+    }
+  }
+  retotal(invoice);
+  invoices.set(invoice.id, invoice);
+  return { status: 200, body: invoice };
+}
+
+function invoiceState(invoice, verb) {
+  return fail(
+    400,
+    'invalid_request_error',
+    `You cannot ${verb} this invoice because it has a status of ${invoice.status}.`,
+    'invoice_unexpected_state',
+  );
+}
+
+function finalizeInvoice(id, f) {
+  const invoice = invoices.get(id);
+  if (!invoice) return noSuch('invoice', id, 'invoice');
+  if (invoice.status !== 'draft') return invoiceState(invoice, 'finalize');
+  const at = nowSeconds();
+  if (f.auto_advance !== undefined) invoice.auto_advance = f.auto_advance === 'true';
+  invoice.status = 'open';
+  invoice.status_transitions.finalized_at = at;
+  if (invoice.days_until_due !== null) invoice.due_date = at + invoice.days_until_due * 86400;
+  retotal(invoice);
+  return { status: 200, body: invoice };
+}
+
+function markPaid(invoice) {
+  invoice.status = 'paid';
+  invoice.amount_paid = invoice.amount_due;
+  invoice.status_transitions.paid_at = nowSeconds();
+  retotal(invoice);
+}
+
+function payInvoice(id, f) {
+  const invoice = invoices.get(id);
+  if (!invoice) return noSuch('invoice', id, 'invoice');
+  if (invoice.status !== 'open') return invoiceState(invoice, 'pay');
+  if (f.paid_out_of_band === 'true') {
+    markPaid(invoice);
+    return { status: 200, body: invoice, events: [['invoice.paid', invoice, id]] };
+  }
+  const method = f.payment_method;
+  if (typeof method !== 'string' || !method) return missing('payment_method');
+  if (method === 'pm_card_visa') {
+    markPaid(invoice);
+    return { status: 200, body: invoice, events: [['invoice.paid', invoice, id]] };
+  }
+  if (method === 'pm_card_chargeDeclined') {
+    return {
+      ...fail(402, 'card_error', 'Your card was declined.', 'card_declined'),
+      events: [['invoice.payment_failed', invoice, id]],
+    };
+  }
+  return noSuch('PaymentMethod', method, 'payment_method');
+}
+
+function voidInvoice(id) {
+  const invoice = invoices.get(id);
+  if (!invoice) return noSuch('invoice', id, 'invoice');
+  if (!['open', 'uncollectible'].includes(invoice.status)) return invoiceState(invoice, 'void');
+  invoice.status = 'void';
+  invoice.status_transitions.voided_at = nowSeconds();
+  retotal(invoice);
+  return { status: 200, body: invoice, events: [['invoice.voided', invoice, id]] };
+}
+
+function getInvoice(id) {
+  const invoice = invoices.get(id);
+  return invoice ? { status: 200, body: invoice } : noSuch('invoice', id, 'invoice');
+}
+
 // ---------- Routing ----------
+
+function matchBilling(method, pathname) {
+  if (method === 'POST' && pathname === '/v1/customers') return (f) => createCustomer(f);
+  if (method === 'POST' && pathname === '/v1/invoiceitems') return (f) => createInvoiceItem(f);
+  if (method === 'POST' && pathname === '/v1/invoices') return (f) => createInvoice(f);
+  const c = /^\/v1\/customers\/([^/]+)$/.exec(pathname);
+  if (c && method === 'DELETE') {
+    const id = decodeURIComponent(c[1]);
+    return () => deleteCustomer(id);
+  }
+  const m = /^\/v1\/invoices\/([^/]+)(?:\/(finalize|pay|void))?$/.exec(pathname);
+  if (!m) return null;
+  const id = decodeURIComponent(m[1]);
+  if (method === 'GET' && !m[2]) return () => getInvoice(id);
+  if (method === 'POST' && m[2] === 'finalize') return (f) => finalizeInvoice(id, f);
+  if (method === 'POST' && m[2] === 'pay') return (f) => payInvoice(id, f);
+  if (method === 'POST' && m[2] === 'void') return () => voidInvoice(id);
+  return null;
+}
 
 function matchApi(method, pathname) {
   if (method === 'POST' && pathname === '/v1/payment_intents') return (f) => createIntent(f);
   if (method === 'POST' && pathname === '/v1/refunds') return (f) => createRefund(f);
+  const billing = matchBilling(method, pathname);
+  if (billing) return billing;
   const m = /^\/v1\/payment_intents\/([^/]+)(?:\/(confirm|cancel))?$/.exec(pathname);
   if (!m) return null;
   const id = decodeURIComponent(m[1]);

@@ -2,10 +2,15 @@
 // every call sends credentials and no script ever sees a token.
 import type {
   CapacityRequest,
+  CateringCancelRequest,
+  CateringInquiryRequest,
+  CateringListResponse,
+  CateringResponse,
   ClockRequest,
   ClockResponse,
   CreateSandboxRequest,
   DeadLetter,
+  DeclineRequest,
   DemoSigninRequest,
   DemoSignupRequest,
   DemoSignupResponse,
@@ -18,6 +23,7 @@ import type {
   OrderRequest,
   OrderResponse,
   PaymentResponse,
+  QuoteRequest,
   RefundRequest,
   RefundResponse,
   SandboxResponse,
@@ -236,6 +242,67 @@ export const setCapacity = (id: string, date: string, req: CapacityRequest) =>
     `${sandboxPath(id)}/schedule/${encodeURIComponent(date)}/capacity`,
     { body: req },
   );
+
+const cateringPath = (id: string, cid?: string) =>
+  `${sandboxPath(id)}/catering${cid === undefined ? '' : `/${encodeURIComponent(cid)}`}`;
+
+/**
+ * `POST /v1/sandboxes/{id}/catering`: a catering inquiry, from any session of the sandbox. The
+ * caller owns the idempotency key, as with an order (see lib/attempt.ts). 201, or 200 with
+ * `Idempotent-Replayed` for a repeated key; a refused inquiry is a 422 `catering` naming the rule.
+ */
+export const submitInquiry = (id: string, req: CateringInquiryRequest, key: string) =>
+  request<CateringResponse>('POST', cateringPath(id), { body: req, key });
+
+/** `GET .../catering`: the sandbox's catering events, newest first. */
+export const listCatering = (id: string) => request<CateringListResponse>('GET', cateringPath(id));
+
+/** `GET .../catering/{cid}`. */
+export const getCatering = (id: string, cid: string) =>
+  request<CateringResponse>('GET', cateringPath(id, cid));
+
+/** `POST .../catering/{cid}/accept`: accept the quote, which holds one of the day's two places. */
+export const acceptQuote = (id: string, cid: string) =>
+  request<CateringResponse>('POST', `${cateringPath(id, cid)}/accept`);
+
+/**
+ * `POST .../catering/{cid}/deposit`: the deposit's PaymentIntent for the Payment Element, exactly
+ * as an order's `/payment`. The catering id is the idempotency key, so a remount or a retry gets
+ * the same intent back.
+ */
+export const createDeposit = (id: string, cid: string) =>
+  request<PaymentResponse>('POST', `${cateringPath(id, cid)}/deposit`, { key: cid });
+
+/**
+ * `POST .../catering/{cid}/pay-balance`: pays the balance invoice with Stripe's test card; 202.
+ * The catering id is the key. The page then asks `getCatering` until the event is `paid`/`closed`.
+ */
+export const payBalance = (id: string, cid: string) =>
+  request<CateringResponse>('POST', `${cateringPath(id, cid)}/pay-balance`, { key: cid });
+
+/** `POST .../catering/{cid}/cancel`: the customer cancels; the Worker derives `by: customer`. */
+export const cancelCatering = (id: string, cid: string, req: CateringCancelRequest) =>
+  request<CateringResponse>('POST', `${cateringPath(id, cid)}/cancel`, { body: req });
+
+/** Staff: `POST .../catering/{cid}/quote`. Without `total_cents` the API prices it. */
+export const sendQuote = (id: string, cid: string, req: QuoteRequest) =>
+  request<CateringResponse>('POST', `${cateringPath(id, cid)}/quote`, { body: req });
+
+/** Staff: `POST .../catering/{cid}/decline`. */
+export const declineInquiry = (id: string, cid: string, req: DeclineRequest) =>
+  request<CateringResponse>('POST', `${cateringPath(id, cid)}/decline`, { body: req });
+
+/** Staff: `POST .../catering/{cid}/start-production`. */
+export const startCateringProduction = (id: string, cid: string) =>
+  request<CateringResponse>('POST', `${cateringPath(id, cid)}/start-production`);
+
+/** Staff: `POST .../catering/{cid}/delivered`; the invoice is raised afterwards, from the Queue. */
+export const markCateringDelivered = (id: string, cid: string) =>
+  request<CateringResponse>('POST', `${cateringPath(id, cid)}/delivered`);
+
+/** Staff: `POST .../catering/{cid}/staff-cancel`; the Worker derives `by: staff`. */
+export const staffCancelCatering = (id: string, cid: string, req: CateringCancelRequest) =>
+  request<CateringResponse>('POST', `${cateringPath(id, cid)}/staff-cancel`, { body: req });
 
 /** The sign-in links are navigations through the API, not fetches (security.md, "Sign-in"). */
 export const signinUrl = (provider: 'google' | 'github') =>

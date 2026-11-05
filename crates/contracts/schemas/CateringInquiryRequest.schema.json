@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CateringInquiryRequest",
+  "description": "`POST /v1/sandboxes/{id}/catering`, the customer's inquiry; the customer is the sandbox's\npersona. `201` with the `CateringResponse` (`200` with `Idempotent-Replayed: true` for the\nsame key again). A refused inquiry is `422` problem+json naming its rule: `headcount`,\n`unknown-package`, `unknown-venue`, `closed-day`, `catering-lead` (its detail names the\n7-business-day rule and the earliest date allowed), or `brief-too-long`, `brief-email`,\n`brief-phone`, `brief-card-number` or `brief-url`, which never echo the brief.",
+  "type": "object",
+  "properties": {
+    "brief": {
+      "description": "At most 500 characters, with no email address, phone number, card number or URL.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "date": {
+      "description": "The event day, `YYYY-MM-DD`: an open day (Tuesday to Sunday) at least 7 business days\nafter today.",
+      "type": "string"
+    },
+    "headcount": {
+      "description": "10 to 200 people.",
+      "type": "integer",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0
+    },
+    "package": {
+      "description": "A package slug, such as `breakfast-spread` (`pastry-platter`, `breakfast-spread`,\n`lunch-boxes`, `celebration-cake-and-coffee`).",
+      "type": "string"
+    },
+    "venue": {
+      "description": "A venue, `v1` to `v6`.",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "date",
+    "headcount",
+    "package",
+    "venue"
+  ]
+}

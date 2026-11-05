@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CateringListResponse",
+  "description": "`GET /v1/sandboxes/{id}/catering`: the sandbox's catering events, the seeded eight and any\nsince, by date.",
+  "type": "object",
+  "properties": {
+    "events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CateringResponse"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "events"
+  ],
+  "$defs": {
+    "CateringReminder": {
+      "description": "A reminder still to come, and when.",
+      "type": "object",
+      "properties": {
+        "at": {
+          "description": "A business time, such as `2026-11-19T07:00:00-07:00`.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ReminderKind"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "at"
+      ]
+    },
+    "CateringResponse": {
+      "description": "`GET /v1/sandboxes/{id}/catering/{cid}`, and the answer to every catering command: the\ninquiry, `quote`, `decline`, `accept`, `cancel`, and staff's `production` and `delivered`.\nIt mirrors the CateringEvent aggregate's state. A refused step is `409` problem of type\n`catering` naming the rule (`out-of-order`, `quote-expired`); an `accept` when the day's two\ncatering places are taken is `409` `slot-full`.",
+      "type": "object",
+      "properties": {
+        "balance_cents": {
+          "description": "`total_cents - deposit_cents`.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "brief": {
+          "description": "The brief, shown back to its own sandbox only, as text.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "catering": {
+          "description": "The catering event's ULID.",
+          "type": "string"
+        },
+        "created_at": {
+          "description": "The inquiry's business time.",
+          "type": "string"
+        },
+        "date": {
+          "description": "The event day, `YYYY-MM-DD`.",
+          "type": "string"
+        },
+        "deposit_cents": {
+          "description": "25% of the total, rounded half-up.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "deposit_payment": {
+          "description": "The deposit's payment ULID, once paid.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "headcount": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "invoice": {
+          "description": "The balance invoice's ULID, once issued.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "invoice_due": {
+          "description": "The balance invoice's due date, `YYYY-MM-DD`, 7 days after delivery.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "package": {
+          "type": "string"
+        },
+        "refund_deposit": {
+          "description": "Set on a cancellation: whether the deposit goes back.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "reminders": {
+          "description": "The reminders still to come, earliest first; empty once the event ends.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CateringReminder"
+          }
+        },
+        "state": {
+          "$ref": "#/$defs/CateringState"
+        },
+        "total_cents": {
+          "description": "From the quote on.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "updated_at": {
+          "description": "The business time of the latest change.",
+          "type": "string"
+        },
+        "valid_until": {
+          "description": "When the quote stops being accepted, a business time: 07:00 on the 14th business day\nafter the quote.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "venue": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "catering",
+        "state",
+        "date",
+        "headcount",
+        "package",
+        "venue",
+        "reminders",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    "CateringState": {
+      "description": "A catering event's state (docs/domain.md, \"CateringEvent\", the diagram). `paid` is passed\nthrough in the same step as `closed`, so a response never shows it today; it is listed\nbecause the diagram has it.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "inquiry",
+            "quoted",
+            "confirmed",
+            "in_production",
+            "delivered",
+            "invoiced",
+            "paid",
+            "closed",
+            "declined",
+            "expired",
+            "cancelled"
+          ]
+        },
+        {
+          "description": "Accepted, the day held for 15 minutes of business time while the deposit is paid.",
+          "type": "string",
+          "const": "accepted"
+        }
+      ]
+    },
+    "ReminderKind": {
+      "description": "A catering reminder: what it is for.",
+      "oneOf": [
+        {
+          "description": "3 business days after the quote, while it is still quoted.",
+          "type": "string",
+          "const": "follow_up"
+        },
+        {
+          "description": "2 days before the event, while it is confirmed or in production.",
+          "type": "string",
+          "const": "event_soon"
+        },
+        {
+          "description": "When the balance invoice is 7 days old, while it is unpaid.",
+          "type": "string",
+          "const": "invoice_due"
+        }
+      ]
+    }
+  }
+}

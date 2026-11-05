@@ -22,6 +22,19 @@
 //!   an item the menu does not list, nothing is refused on items. The Order checks the menu.
 //! - **Events carry what the fold needs.** `SlotHeld` carries the zone and lines and
 //!   `CapsRefreshed` the caps, so the state is the fold of its events.
+//!
+//! **The catering place (PR 7).** A catering event takes one of the day's
+//! [`DEFAULT_CATERING_CAPACITY`] places. Its [`HoldRequest`] is built by
+//! `catering::hold_request`: `kind: Catering`, `ref` the catering id, `start` the event day's
+//! opening (07:00 local), `lines` one line of the package's slug with the headcount as its
+//! quantity (the bake list shows "breakfast-spread × 40" at 07:00), and `expires_at` the
+//! moment the deposit hold lapses, 15 minutes of business time after the quote was accepted.
+//! The package's slug is not a menu item, so no item cap counts it. The routing table drives the
+//! rest: `Confirm` on `CateringDepositPaid`, `Release` on `CateringCancelled` (`cancelled`) and
+//! on `CateringDepositLapsed` (`deposit_lapsed`, which releases only a place still held), and
+//! `Fulfil` on `CateringClosed`. A catering place that was released may be held again by the
+//! same catering id, since an accepted quote whose deposit hold lapsed can be accepted again;
+//! an order's released place cannot, as an order is held once.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -97,6 +110,9 @@ pub enum ReleaseReason {
     Cancelled,
     /// The hold's own timer, at `expires_at`.
     HoldExpired,
+    /// `CateringDepositLapsed`: no deposit 15 minutes after the quote was accepted. Releases a
+    /// place still held, never a reserved one.
+    DepositLapsed,
 }
 
 /// One item's quantity in a hold: variant quantities summed per item.
@@ -244,7 +260,8 @@ pub enum ScheduleCommand {
     Hold(Box<HoldRequest>),
     /// From `OrderPaid` (later `CateringDepositPaid`).
     Confirm { reference: Ulid },
-    /// From `OrderExpired`, `OrderCancelled`, or the hold's own timer.
+    /// From `OrderExpired`, `OrderCancelled`, `CateringCancelled`, `CateringDepositLapsed`, or
+    /// the hold's own timer.
     Release {
         reference: Ulid,
         reason: ReleaseReason,
@@ -665,7 +682,10 @@ impl Aggregate for Schedule {
                     (HoldStatus::Released | HoldStatus::Fulfilled, _) => false,
                     // The timer releases only an unpaid hold whose time is up.
                     (HoldStatus::Held, ReleaseReason::HoldExpired) => h.expires_at <= ctx.now,
-                    (HoldStatus::Reserved, ReleaseReason::HoldExpired) => false,
+                    (
+                        HoldStatus::Reserved,
+                        ReleaseReason::HoldExpired | ReleaseReason::DepositLapsed,
+                    ) => false,
                     (HoldStatus::Held | HoldStatus::Reserved, _) => true,
                 };
                 if !releases {
@@ -740,7 +760,7 @@ impl Aggregate for Schedule {
                 expires_at,
                 ..
             } => {
-                state.holds.entry(*reference).or_insert_with(|| Hold {
+                let fresh = Hold {
                     reference: *reference,
                     kind: *kind,
                     start: *start,
@@ -749,7 +769,17 @@ impl Aggregate for Schedule {
                     expires_at: *expires_at,
                     status: HoldStatus::Held,
                     revived: false,
-                });
+                };
+                match state.holds.get(reference) {
+                    None => {
+                        state.holds.insert(*reference, fresh);
+                    }
+                    // A catering place given back is taken again (see the module doc).
+                    Some(h) if rehold_allowed(h) => {
+                        state.holds.insert(*reference, fresh);
+                    }
+                    Some(_) => {}
+                }
             }
             ScheduleEvent::SlotReserved {
                 reference, revived, ..
@@ -794,6 +824,11 @@ impl Aggregate for Schedule {
         }
         state
     }
+}
+
+/// Whether a place may be held again under its ref: a catering place that was released.
+fn rehold_allowed(h: &Hold) -> bool {
+    h.kind == HoldKind::Catering && h.status == HoldStatus::Released
 }
 
 /// `BakeListChanged` if moving `reference` to `status` changes the plan's lines.
@@ -849,7 +884,11 @@ fn hold(state: &ScheduleState, req: &HoldRequest) -> Result<Vec<ScheduleEvent>, 
         }
     };
     let lines = normalize_lines(req.lines.iter().cloned());
-    if let Some(existing) = state.holds.get(&req.reference) {
+    if let Some(existing) = state
+        .holds
+        .get(&req.reference)
+        .filter(|h| !(rehold_allowed(h) && req.kind == HoldKind::Catering))
+    {
         let same = existing.kind == req.kind
             && existing.start.unix_ms() == start.unix_ms()
             && existing.zone == zone
@@ -1529,6 +1568,92 @@ mod tests {
     }
 
     #[test]
+    fn a_catering_place_puts_the_package_on_the_bake_list_and_can_be_held_again() {
+        // As catering::hold_request builds it: the day's opening, the package × the headcount.
+        let opening = date().opening();
+        assert_eq!(opening.to_string(), "2026-11-07T07:00:00-07:00");
+        let cater = |expires: &str| {
+            ScheduleCommand::Hold(Box::new(HoldRequest {
+                reference: id(1),
+                kind: HoldKind::Catering,
+                start: opening,
+                zone: None,
+                lines: lines(&[("breakfast-spread", 40)]),
+                expires_at: at(expires),
+            }))
+        };
+        let held = ok(fresh(), cater("2026-11-07T06:15:00-07:00"));
+        assert_eq!(held.catering_taken(), 1);
+        // The deposit hold lapses: the place goes back, and the plan never had it.
+        let (lapsed, events) = run(
+            held,
+            &ScheduleCommand::Release {
+                reference: id(1),
+                reason: ReleaseReason::DepositLapsed,
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            events.as_slice(),
+            [ScheduleEvent::SlotReleased {
+                reason: ReleaseReason::DepositLapsed,
+                ..
+            }]
+        ));
+        assert_eq!(lapsed.catering_taken(), 0);
+        // Accepted again: the same catering id holds the place again, with its new expiry.
+        let (again, events) = run(lapsed, &cater("2026-11-07T06:40:00-07:00")).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(again.hold(id(1)).unwrap().status, HoldStatus::Held);
+        assert_eq!(
+            again.hold(id(1)).unwrap().expires_at.to_string(),
+            "2026-11-07T06:40:00-07:00"
+        );
+        assert_eq!(
+            run(again.clone(), &cater("2026-11-07T06:40:00-07:00"))
+                .unwrap()
+                .1,
+            []
+        );
+        // The deposit is paid: the package is on the bake list at the opening.
+        let paid = ok(again, ScheduleCommand::Confirm { reference: id(1) });
+        assert_eq!(
+            paid.plan().lines,
+            [PlanLine {
+                item: "breakfast-spread".into(),
+                qty: 40,
+                start: opening
+            }]
+        );
+        // A lapse never releases a reserved place.
+        assert_eq!(
+            run(
+                paid,
+                &ScheduleCommand::Release {
+                    reference: id(1),
+                    reason: ReleaseReason::DepositLapsed
+                }
+            )
+            .unwrap()
+            .1,
+            []
+        );
+        // An order's released place is not held again under its id.
+        let order = ok(fresh(), pickup(2, "09:00", &[]));
+        let order = ok(
+            order,
+            ScheduleCommand::Release {
+                reference: id(2),
+                reason: ReleaseReason::Expired,
+            },
+        );
+        assert_eq!(
+            run(order, &pickup(2, "09:15", &[])).unwrap_err(),
+            ScheduleError::RefHeld
+        );
+    }
+
+    #[test]
     fn a_start_shown_at_another_offset_is_stored_at_denvers() {
         // The same instant as 09:00 MST, written in UTC.
         let mut hold = pickup(1, "09:00", &[]);
@@ -1716,6 +1841,7 @@ mod tests {
             Just(ReleaseReason::Expired),
             Just(ReleaseReason::Cancelled),
             Just(ReleaseReason::HoldExpired),
+            Just(ReleaseReason::DepositLapsed),
         ];
         let target = prop_oneof![
             (0usize..3).prop_map(|i| Target::Slot([420, 435, 885][i])),

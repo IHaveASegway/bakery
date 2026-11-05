@@ -10,10 +10,11 @@
   (/signin/ now, /app/ because it can create a sandbox too) are the challenge class: they add
   Turnstile's origin to script-src and frame-src, and nothing else. Pages with an island but no
   third party (/menu/) are the island class: the strict policy plus the hashes below. The checkout
-  (/checkout/) is the payment class, the island class plus the three Stripe origins the Payment
-  Element needs: its script, its frames (3-D Secure included) and its API. No other page names a
-  Stripe origin, and the checkout loads Stripe.js only once an order has been placed
-  (docs/security.md, "The storefront's policy"; https://docs.stripe.com/security/guide#content-security-policy).
+  (/checkout/) and the catering page (/catering/) are the payment class, the island class plus the
+  three Stripe origins the Payment Element needs: its script, its frames (3-D Secure included) and
+  its API. No other page names a Stripe origin, and these two load Stripe.js only once an order has
+  been placed or a quote accepted, for the deposit (docs/security.md, "The storefront's policy";
+  https://docs.stripe.com/security/guide#content-security-policy).
 
   No page of ours holds inline code of its own, but Astro writes two small inline pieces into a
   page with a hydrated island: the <astro-island> definition script and a one-rule style. So every
@@ -106,8 +107,8 @@ export const CHALLENGE_PATHS = ['/signin/*', '/app/*'];
 /** Pages with a hydrated island and no third party: the menu. */
 export const ISLAND_PATHS = ['/menu/*'];
 
-/** Pages that load Stripe: the checkout's payment step, and only it. */
-export const PAYMENT_PATHS = ['/checkout/*'];
+/** Pages that load Stripe: the checkout's payment step and the catering page's deposit step. */
+export const PAYMENT_PATHS = ['/checkout/*', '/catering/*'];
 
 /** Every path that gets a rule of its own, which scripts/inline-hashes.mjs reads hashes for. */
 export const RULE_PATHS = [...CHALLENGE_PATHS, ...ISLAND_PATHS, ...PAYMENT_PATHS];
@@ -147,7 +148,7 @@ export function headersFile(apiOrigin: string, hashes: Record<string, Hashes> = 
   }
   for (const path of PAYMENT_PATHS) {
     lines.push(
-      '# The checkout loads Stripe for its payment step, and only it does.',
+      '# The checkout and the catering page load Stripe for a payment step, and only they do.',
       path,
       '  ! Content-Security-Policy',
       `  Content-Security-Policy: ${csp('payment', apiOrigin, of(path))}`,

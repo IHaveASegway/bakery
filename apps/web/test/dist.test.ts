@@ -36,6 +36,9 @@ describe('dist', () => {
   test.each([
     ['signin/index.html', '/signin/*'],
     ['app/index.html', '/app/*'],
+    ['menu/index.html', '/menu/*'],
+    ['checkout/index.html', '/checkout/*'],
+    ['catering/index.html', '/catering/*'],
   ])('%s: every inline script and style has its hash in %s', (file, path) => {
     const html = page(file);
     const hashes = inlineHashes(html) as { script: string[]; style: string[] };

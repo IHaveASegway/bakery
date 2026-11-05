@@ -7,6 +7,8 @@
 //!   envelope's `type` and `data`.
 //! - [`billing`]: payments, refunds and the ledger, hosted by `Billing` (ADR 0007).
 //! - [`catalog`]: the menu, hosted by `Catalog` (docs/domain.md, "MenuItem availability").
+//! - [`catering`]: the catering saga, hosted by `CateringEvent` (docs/domain.md,
+//!   "CateringEvent").
 //! - [`order`]: the Order, hosted by `Order` (docs/domain.md, "Order").
 //! - [`kitchen`]: the board the `Kitchen` projects from order and schedule events.
 //! - [`calendar`]: the bakery day in America/Denver, its slots, windows and openings.
@@ -20,6 +22,7 @@ pub mod calendar;
 
 pub mod billing;
 pub mod catalog;
+pub mod catering;
 pub mod clock;
 mod envelope;
 mod error;

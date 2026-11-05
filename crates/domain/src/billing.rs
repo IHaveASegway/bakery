@@ -22,6 +22,17 @@
 //!   Stripe event); the object then cancels each intent at Stripe, best effort. A payment that
 //!   succeeds at Stripe anyway is still recorded: the money moved, and the Order refunds it as a
 //!   late payment.
+//! - **Invoices (PR 7).** A catering balance is a Stripe invoice, not an intent (ADR 0007,
+//!   decision 4). `CreateInvoice` checks the request and emits nothing: the catalog has no row
+//!   for an invoice asked for and not yet made, so the object holds the command while it creates
+//!   the Stripe customer (once per persona, reused from [`BillingState::stripe_customer_for`]),
+//!   the invoice and its item, and finalizes it; `RecordInvoice` then emits `InvoiceIssued`
+//!   once, with Stripe's ids. A retry after a failure starts again from `CreateInvoice`, and
+//!   Stripe's idempotency keys return the same customer and invoice. The invoice is paid through
+//!   the webhook path: `invoice.paid` becomes `PaymentSucceeded` with purpose `balance`, whose
+//!   `payment` is the invoice's id (one invoice, one payment) and whose `intent` is Stripe's
+//!   `in_...` id, so the ledger shows it like any payment; `invoice.voided` (the wipe's) becomes
+//!   `PaymentCanceled`. A balance cannot be refunded yet.
 //!
 //! Two events go beyond the catalog's Billing rows, because the state is the fold of the log and
 //! these two facts change it: `PaymentIntentRecorded` (Stripe's id for the intent) and
@@ -36,6 +47,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::aggregate::{Aggregate, DecideContext, DomainEvent};
+use crate::calendar::BakeryDate;
 use crate::order::RefundReason;
 use crate::{BusinessTime, Cents, DomainError, Ulid};
 
@@ -128,6 +140,33 @@ impl RefundRecord {
     }
 }
 
+/// Where a balance invoice stands, as Billing knows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InvoiceStatus {
+    /// Finalized at Stripe and unpaid.
+    Open,
+    Paid,
+    /// Voided, at the wipe.
+    Void,
+}
+
+/// One balance invoice, made at Stripe and recorded by `RecordInvoice`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvoiceRecord {
+    /// The catering job's id.
+    pub reference: Ulid,
+    /// The persona the Stripe customer stands for.
+    pub customer: Ulid,
+    pub amount: Cents,
+    pub due: BakeryDate,
+    /// Stripe's `in_...` id.
+    pub stripe_invoice: String,
+    /// Stripe's `cus_...` id, carrying `metadata[sandbox|persona]` and nothing else.
+    pub stripe_customer: String,
+    pub status: InvoiceStatus,
+}
+
 /// Billing's state: the fold of its events.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BillingState {
@@ -135,6 +174,8 @@ pub struct BillingState {
     /// Every Stripe event id that changed the state.
     webhooks_seen: BTreeSet<String>,
     refunds: BTreeMap<Ulid, RefundRecord>,
+    #[serde(default)]
+    invoices: BTreeMap<Ulid, InvoiceRecord>,
 }
 
 impl BillingState {
@@ -181,6 +222,53 @@ impl BillingState {
         self.refunds()
             .find(|(_, r)| r.stripe_refund.as_deref() == Some(stripe_refund))
     }
+
+    pub fn invoice(&self, id: Ulid) -> Option<&InvoiceRecord> {
+        self.invoices.get(&id)
+    }
+
+    pub fn invoices(&self) -> impl Iterator<Item = (Ulid, &InvoiceRecord)> {
+        self.invoices.iter().map(|(id, i)| (*id, i))
+    }
+
+    /// The invoice Stripe's `in_...` id belongs to.
+    pub fn invoice_for_stripe(&self, stripe_invoice: &str) -> Option<(Ulid, &InvoiceRecord)> {
+        self.invoices()
+            .find(|(_, i)| i.stripe_invoice == stripe_invoice)
+    }
+
+    /// The invoice for a catering job that is not void, if there is one.
+    pub fn invoice_for(&self, reference: Ulid) -> Option<(Ulid, &InvoiceRecord)> {
+        self.invoices()
+            .find(|(_, i)| i.reference == reference && i.status != InvoiceStatus::Void)
+    }
+
+    /// The Stripe customer already made for a persona, to reuse for its next invoice.
+    pub fn stripe_customer_for(&self, persona: Ulid) -> Option<&str> {
+        self.invoices
+            .values()
+            .find(|i| i.customer == persona)
+            .map(|i| i.stripe_customer.as_str())
+    }
+
+    /// What the wipe removes at Stripe (ADR 0007, decision 9): the open invoices' ids, to void.
+    pub fn open_invoices(&self) -> Vec<&str> {
+        self.invoices
+            .values()
+            .filter(|i| i.status == InvoiceStatus::Open)
+            .map(|i| i.stripe_invoice.as_str())
+            .collect()
+    }
+
+    /// Every Stripe customer Billing made, once each, sorted: the wipe deletes them.
+    pub fn stripe_customers(&self) -> Vec<&str> {
+        let set: BTreeSet<&str> = self
+            .invoices
+            .values()
+            .map(|i| i.stripe_customer.as_str())
+            .collect();
+        set.into_iter().collect()
+    }
 }
 
 /// A verified Stripe event, reduced to what Billing reads. `bakery-app`'s Stripe module builds
@@ -207,6 +295,17 @@ pub enum WebhookKind {
         /// The refund's id in Billing, from the refund's `metadata[refund]`; `None` for a refund
         /// made outside the bakery, such as in Stripe's dashboard.
         request: Option<Ulid>,
+    },
+    /// `invoice.paid`: a balance invoice paid in full.
+    InvoicePaid {
+        /// Stripe's `in_...` id.
+        invoice: String,
+        /// `amount_paid`.
+        amount: Cents,
+    },
+    /// `invoice.voided`.
+    InvoiceVoided {
+        invoice: String,
     },
 }
 
@@ -244,6 +343,26 @@ pub enum BillingCommand {
     },
     /// From `OrderExpired`: the order's open payments are canceled.
     CancelForExpiry { reference: Ulid },
+    /// From `CateringDelivered`: checks a balance invoice may be raised, and emits nothing (see
+    /// the module doc). `invoice` is a fresh id from the consumer; `customer` the persona.
+    CreateInvoice {
+        invoice: Ulid,
+        customer: Ulid,
+        reference: Ulid,
+        amount: Cents,
+        due: BakeryDate,
+    },
+    /// The gateway's answer to raising the invoice: Stripe's invoice and customer ids, with the
+    /// `CreateInvoice` it answers.
+    RecordInvoice {
+        invoice: Ulid,
+        customer: Ulid,
+        reference: Ulid,
+        amount: Cents,
+        due: BakeryDate,
+        stripe_id: String,
+        stripe_customer: String,
+    },
 }
 
 /// Billing's events. The catalog's rows, plus the two this module adds (see the module doc).
@@ -307,6 +426,18 @@ pub enum BillingEvent {
         #[serde(default)]
         stripe_event: Option<String>,
     },
+    /// A balance invoice finalized at Stripe. Beyond the catalog's data: the persona and
+    /// Stripe's two ids, random ids that name no one.
+    InvoiceIssued {
+        invoice: Ulid,
+        #[serde(rename = "ref")]
+        reference: Ulid,
+        amount_cents: Cents,
+        due: BakeryDate,
+        customer: Ulid,
+        stripe_invoice: String,
+        stripe_customer: String,
+    },
 }
 
 impl DomainEvent for BillingEvent {
@@ -318,6 +449,7 @@ impl DomainEvent for BillingEvent {
         "PaymentCanceled",
         "RefundRequested",
         "RefundIssued",
+        "InvoiceIssued",
     ];
 
     fn name(&self) -> &'static str {
@@ -329,6 +461,7 @@ impl DomainEvent for BillingEvent {
             BillingEvent::PaymentCanceled { .. } => "PaymentCanceled",
             BillingEvent::RefundRequested { .. } => "RefundRequested",
             BillingEvent::RefundIssued { .. } => "RefundIssued",
+            BillingEvent::InvoiceIssued { .. } => "InvoiceIssued",
         }
     }
 }
@@ -380,6 +513,14 @@ pub enum BillingError {
     UnknownRefund,
     #[error("the refund disagrees with its request")]
     RefundMismatch,
+    #[error("this job already has invoice {invoice}")]
+    InvoiceExists { invoice: Ulid },
+    #[error("no invoice has that Stripe id")]
+    UnknownInvoice,
+    #[error("not an invoice id")]
+    BadInvoiceId,
+    #[error("not a customer id")]
+    BadCustomerId,
     #[error("amount out of range")]
     Overflow,
 }
@@ -402,6 +543,10 @@ impl BillingError {
             BillingError::RefundExceedsPaid { .. } => "refund-exceeds-paid",
             BillingError::UnknownRefund => "unknown-refund",
             BillingError::RefundMismatch => "refund-mismatch",
+            BillingError::InvoiceExists { .. } => "invoice-exists",
+            BillingError::UnknownInvoice => "unknown-invoice",
+            BillingError::BadInvoiceId => "invoice-id",
+            BillingError::BadCustomerId => "customer-id",
             BillingError::Overflow => "overflow",
         }
     }
@@ -444,6 +589,12 @@ impl Billing {
             | WebhookKind::Failed { intent, .. }
             | WebhookKind::Canceled { intent }
             | WebhookKind::Refunded { intent, .. } => intent,
+            WebhookKind::InvoicePaid { invoice, amount } => {
+                return Billing::invoice_paid(state, event_id, invoice, *amount);
+            }
+            WebhookKind::InvoiceVoided { invoice } => {
+                return Billing::invoice_voided(state, event_id, invoice);
+            }
         };
         let (payment, p) = state
             .payment_for_intent(intent)
@@ -491,6 +642,9 @@ impl Billing {
                 }),
                 S::Succeeded | S::Canceled => Ok(WebhookOutcome::NoEffect),
             },
+            WebhookKind::InvoicePaid { .. } | WebhookKind::InvoiceVoided { .. } => {
+                Ok(WebhookOutcome::NoEffect)
+            }
             WebhookKind::Refunded {
                 refund,
                 amount,
@@ -539,6 +693,92 @@ impl Billing {
                 })
             }
         }
+    }
+}
+
+impl Billing {
+    /// `invoice.paid`: the balance's `PaymentSucceeded`, keyed by the invoice's id, once. An unknown
+    /// invoice is refused so Stripe retries it, as an unknown intent is (`RecordInvoice` may not
+    /// have committed yet); an amount that differs from the invoice's is refused, never believed.
+    fn invoice_paid(
+        state: &BillingState,
+        event_id: &str,
+        stripe_invoice: &str,
+        amount: Cents,
+    ) -> Result<WebhookOutcome, BillingError> {
+        let (invoice, i) = state
+            .invoice_for_stripe(stripe_invoice)
+            .ok_or(BillingError::UnknownInvoice)?;
+        if amount != i.amount {
+            return Err(BillingError::AmountMismatch { expected: i.amount });
+        }
+        // Paid already, or void: Stripe never pays a void invoice, and one live invoice per job
+        // is what `CreateInvoice` keeps.
+        if i.status != InvoiceStatus::Open {
+            return Ok(WebhookOutcome::NoEffect);
+        }
+        Ok(WebhookOutcome::Applied(vec![
+            BillingEvent::PaymentSucceeded {
+                payment: invoice,
+                purpose: Purpose::Balance,
+                reference: i.reference,
+                amount_cents: i.amount,
+                stripe_event: event_id.to_owned(),
+                intent: i.stripe_invoice.clone(),
+            },
+        ]))
+    }
+
+    /// `invoice.voided`: the balance's payment is canceled, as an expired order's is.
+    fn invoice_voided(
+        state: &BillingState,
+        event_id: &str,
+        stripe_invoice: &str,
+    ) -> Result<WebhookOutcome, BillingError> {
+        let (invoice, i) = state
+            .invoice_for_stripe(stripe_invoice)
+            .ok_or(BillingError::UnknownInvoice)?;
+        if i.status != InvoiceStatus::Open {
+            return Ok(WebhookOutcome::NoEffect);
+        }
+        Ok(WebhookOutcome::Applied(vec![
+            BillingEvent::PaymentCanceled {
+                payment: invoice,
+                purpose: Purpose::Balance,
+                reference: i.reference,
+                stripe_event: Some(event_id.to_owned()),
+            },
+        ]))
+    }
+
+    /// The rules `CreateInvoice` and `RecordInvoice` share: `Ok(true)` when this invoice is
+    /// already recorded with the same data.
+    fn check_invoice(
+        state: &BillingState,
+        invoice: Ulid,
+        customer: Ulid,
+        reference: Ulid,
+        amount: Cents,
+        due: BakeryDate,
+    ) -> Result<bool, BillingError> {
+        if amount <= Cents::ZERO {
+            return Err(BillingError::AmountNotPositive);
+        }
+        if let Some(i) = state.invoice(invoice) {
+            let same = i.reference == reference
+                && i.customer == customer
+                && i.amount == amount
+                && i.due == due;
+            return if same {
+                Ok(true)
+            } else {
+                Err(BillingError::InvoiceExists { invoice })
+            };
+        }
+        if let Some((other, _)) = state.invoice_for(reference) {
+            return Err(BillingError::InvoiceExists { invoice: other });
+        }
+        Ok(false)
     }
 }
 
@@ -696,6 +936,54 @@ impl Aggregate for Billing {
                     stripe_event: None,
                 }])
             }
+            BillingCommand::CreateInvoice {
+                invoice,
+                customer,
+                reference,
+                amount,
+                due,
+            } => {
+                Billing::check_invoice(state, *invoice, *customer, *reference, *amount, *due)?;
+                Ok(Vec::new())
+            }
+            BillingCommand::RecordInvoice {
+                invoice,
+                customer,
+                reference,
+                amount,
+                due,
+                stripe_id,
+                stripe_customer,
+            } => {
+                if !is_stripe_id(stripe_id, "in_") {
+                    return Err(BillingError::BadInvoiceId);
+                }
+                if !is_stripe_id(stripe_customer, "cus_") {
+                    return Err(BillingError::BadCustomerId);
+                }
+                if Billing::check_invoice(state, *invoice, *customer, *reference, *amount, *due)? {
+                    let i = state
+                        .invoice(*invoice)
+                        .ok_or(BillingError::UnknownInvoice)?;
+                    return if i.stripe_invoice == *stripe_id {
+                        Ok(Vec::new())
+                    } else {
+                        Err(BillingError::InvoiceExists { invoice: *invoice })
+                    };
+                }
+                if state.invoice_for_stripe(stripe_id).is_some() {
+                    return Err(BillingError::InvoiceExists { invoice: *invoice });
+                }
+                Ok(vec![BillingEvent::InvoiceIssued {
+                    invoice: *invoice,
+                    reference: *reference,
+                    amount_cents: *amount,
+                    due: *due,
+                    customer: *customer,
+                    stripe_invoice: stripe_id.clone(),
+                    stripe_customer: stripe_customer.clone(),
+                }])
+            }
             BillingCommand::CancelForExpiry { reference } => Ok(state
                 .payments()
                 .filter(|(_, p)| {
@@ -754,6 +1042,8 @@ impl Aggregate for Billing {
                 if let Some(p) = state.payments.get_mut(payment) {
                     p.status = PaymentStatus::Succeeded;
                     p.failure = None;
+                } else if let Some(i) = state.invoices.get_mut(payment) {
+                    i.status = InvoiceStatus::Paid;
                 }
             }
             BillingEvent::PaymentFailed { payment, code, .. } => {
@@ -765,7 +1055,31 @@ impl Aggregate for Billing {
             BillingEvent::PaymentCanceled { payment, .. } => {
                 if let Some(p) = state.payments.get_mut(payment) {
                     p.status = PaymentStatus::Canceled;
+                } else if let Some(i) = state.invoices.get_mut(payment) {
+                    i.status = InvoiceStatus::Void;
                 }
+            }
+            BillingEvent::InvoiceIssued {
+                invoice,
+                reference,
+                amount_cents,
+                due,
+                customer,
+                stripe_invoice,
+                stripe_customer,
+            } => {
+                state
+                    .invoices
+                    .entry(*invoice)
+                    .or_insert_with(|| InvoiceRecord {
+                        reference: *reference,
+                        customer: *customer,
+                        amount: *amount_cents,
+                        due: *due,
+                        stripe_invoice: stripe_invoice.clone(),
+                        stripe_customer: stripe_customer.clone(),
+                        status: InvoiceStatus::Open,
+                    });
             }
             BillingEvent::RefundRequested {
                 refund,
@@ -1668,6 +1982,7 @@ mod tests {
             stripe_refund: "re_fake_1".into(),
             stripe_event: None,
         });
+        log.extend(invoiced().1);
         let names: BTreeSet<&str> = log.iter().map(DomainEvent::name).collect();
         assert_eq!(names.len(), BillingEvent::NAMES.len());
         for e in &log {
@@ -1676,6 +1991,243 @@ mod tests {
                 e
             );
         }
+    }
+
+    const JOB: u128 = 5;
+    const INVOICE: u128 = 60;
+    const PERSONA: u128 = 6;
+    const STRIPE_INVOICE: &str = "in_fake_1";
+    const STRIPE_CUSTOMER: &str = "cus_fake_1";
+
+    fn due() -> BakeryDate {
+        "2026-11-28".parse().unwrap()
+    }
+
+    fn create_invoice(invoice: u128, amount: i64) -> BillingCommand {
+        BillingCommand::CreateInvoice {
+            invoice: id(invoice),
+            customer: id(PERSONA),
+            reference: id(JOB),
+            amount: Cents(amount),
+            due: due(),
+        }
+    }
+
+    fn record_invoice(invoice: u128, stripe_id: &str) -> BillingCommand {
+        BillingCommand::RecordInvoice {
+            invoice: id(invoice),
+            customer: id(PERSONA),
+            reference: id(JOB),
+            amount: Cents(43_500),
+            due: due(),
+            stripe_id: stripe_id.into(),
+            stripe_customer: STRIPE_CUSTOMER.into(),
+        }
+    }
+
+    /// A $435.00 balance invoice for job 5, made at Stripe, and the log that made it.
+    fn invoiced() -> (BillingState, Vec<BillingEvent>) {
+        let (s, none) = run(BillingState::default(), create_invoice(INVOICE, 43_500), 90);
+        assert!(
+            none.is_empty(),
+            "creating an invoice is a check, with no event"
+        );
+        run(s, record_invoice(INVOICE, STRIPE_INVOICE), 91)
+    }
+
+    #[test]
+    fn a_balance_invoice_is_issued_paid_and_in_the_ledger() {
+        let (state, log) = invoiced();
+        assert_eq!(
+            log,
+            [BillingEvent::InvoiceIssued {
+                invoice: id(INVOICE),
+                reference: id(JOB),
+                amount_cents: Cents(43_500),
+                due: due(),
+                customer: id(PERSONA),
+                stripe_invoice: STRIPE_INVOICE.into(),
+                stripe_customer: STRIPE_CUSTOMER.into(),
+            }]
+        );
+        assert_eq!(
+            serde_json::to_value(&log[0]).unwrap()["data"],
+            serde_json::json!({
+                "invoice": id(INVOICE).to_string(),
+                "ref": id(JOB).to_string(),
+                "amount_cents": 43_500,
+                "due": "2026-11-28",
+                "customer": id(PERSONA).to_string(),
+                "stripe_invoice": STRIPE_INVOICE,
+                "stripe_customer": STRIPE_CUSTOMER,
+            })
+        );
+        assert_eq!(
+            state.stripe_customer_for(id(PERSONA)),
+            Some(STRIPE_CUSTOMER)
+        );
+        assert_eq!(state.stripe_customer_for(id(PERSONA + 1)), None);
+        assert_eq!(state.open_invoices(), [STRIPE_INVOICE]);
+        assert_eq!(state.stripe_customers(), [STRIPE_CUSTOMER]);
+        // The gateway's answer again: nothing. The same job again: refused.
+        assert_eq!(
+            run(state.clone(), record_invoice(INVOICE, STRIPE_INVOICE), 92).1,
+            []
+        );
+        assert_eq!(
+            Billing::decide(&state, &create_invoice(INVOICE + 1, 43_500), &ctx(93)),
+            Err(BillingError::InvoiceExists {
+                invoice: id(INVOICE)
+            })
+        );
+        // Paid at Stripe: the balance's PaymentSucceeded, keyed by the invoice.
+        let paid = webhook(
+            "evt_fake_invoice_paid",
+            WebhookKind::InvoicePaid {
+                invoice: STRIPE_INVOICE.into(),
+                amount: Cents(43_500),
+            },
+        );
+        let (state, events) = run(state, paid.clone(), 94);
+        assert_eq!(
+            events,
+            [BillingEvent::PaymentSucceeded {
+                payment: id(INVOICE),
+                purpose: Purpose::Balance,
+                reference: id(JOB),
+                amount_cents: Cents(43_500),
+                stripe_event: "evt_fake_invoice_paid".into(),
+                intent: STRIPE_INVOICE.into(),
+            }]
+        );
+        assert_eq!(
+            state.invoice(id(INVOICE)).unwrap().status,
+            InvoiceStatus::Paid
+        );
+        assert!(state.open_invoices().is_empty());
+        // Delivered again: a replay. Another event id for the same payment: no effect.
+        assert_eq!(Billing::decide(&state, &paid, &ctx(95)), Ok(vec![]));
+        assert_eq!(
+            Billing::apply_webhook(
+                &state,
+                "evt_fake_invoice_paid_again",
+                &WebhookKind::InvoicePaid {
+                    invoice: STRIPE_INVOICE.into(),
+                    amount: Cents(43_500)
+                },
+                &ctx(96)
+            ),
+            Ok(WebhookOutcome::NoEffect)
+        );
+        let mut all = invoiced().1;
+        all.extend(events);
+        let ledger = ledger_of(&all);
+        assert_eq!(ledger.paid(id(JOB)), Cents(43_500));
+        assert_eq!(ledger.entries()[0].purpose, Purpose::Balance);
+        assert_eq!(ledger.entries()[0].stripe_id, STRIPE_INVOICE);
+    }
+
+    #[test]
+    fn invoice_rules_and_the_void() {
+        let s = BillingState::default();
+        assert_eq!(
+            Billing::decide(&s, &create_invoice(INVOICE, 0), &ctx(90)),
+            Err(BillingError::AmountNotPositive)
+        );
+        assert_eq!(
+            Billing::decide(&s, &record_invoice(INVOICE, "pi_fake_1"), &ctx(90)),
+            Err(BillingError::BadInvoiceId)
+        );
+        let mut bad_customer = record_invoice(INVOICE, STRIPE_INVOICE);
+        if let BillingCommand::RecordInvoice {
+            stripe_customer, ..
+        } = &mut bad_customer
+        {
+            *stripe_customer = "cus_../x".into();
+        }
+        assert_eq!(
+            Billing::decide(&s, &bad_customer, &ctx(90))
+                .unwrap_err()
+                .rule(),
+            "customer-id"
+        );
+        let (state, _) = invoiced();
+        // Another Stripe id for the recorded invoice is refused.
+        assert_eq!(
+            Billing::decide(&state, &record_invoice(INVOICE, "in_fake_2"), &ctx(92))
+                .unwrap_err()
+                .rule(),
+            "invoice-exists"
+        );
+        // A paid webhook for an invoice Billing has not recorded: refused, so Stripe retries.
+        assert_eq!(
+            Billing::decide(
+                &s,
+                &webhook(
+                    "evt_fake_early",
+                    WebhookKind::InvoicePaid {
+                        invoice: STRIPE_INVOICE.into(),
+                        amount: Cents(43_500)
+                    }
+                ),
+                &ctx(90)
+            ),
+            Err(BillingError::UnknownInvoice)
+        );
+        assert_eq!(
+            Billing::decide(
+                &state,
+                &webhook(
+                    "evt_fake_short",
+                    WebhookKind::InvoicePaid {
+                        invoice: STRIPE_INVOICE.into(),
+                        amount: Cents(43_499)
+                    }
+                ),
+                &ctx(90)
+            ),
+            Err(BillingError::AmountMismatch {
+                expected: Cents(43_500)
+            })
+        );
+        // The wipe voids it: the balance's payment is canceled, and the job may be invoiced again.
+        let voided = webhook(
+            "evt_fake_voided",
+            WebhookKind::InvoiceVoided {
+                invoice: STRIPE_INVOICE.into(),
+            },
+        );
+        let (state, events) = run(state, voided.clone(), 97);
+        assert_eq!(
+            events,
+            [BillingEvent::PaymentCanceled {
+                payment: id(INVOICE),
+                purpose: Purpose::Balance,
+                reference: id(JOB),
+                stripe_event: Some("evt_fake_voided".into()),
+            }]
+        );
+        assert_eq!(
+            state.invoice(id(INVOICE)).unwrap().status,
+            InvoiceStatus::Void
+        );
+        assert!(state.open_invoices().is_empty());
+        assert_eq!(state.stripe_customers(), [STRIPE_CUSTOMER]);
+        assert_eq!(run(state.clone(), voided, 98).1, []);
+        // Stripe never pays a void invoice; a paid event for one changes nothing.
+        assert_eq!(
+            Billing::apply_webhook(
+                &state,
+                "evt_fake_paid_after_void",
+                &WebhookKind::InvoicePaid {
+                    invoice: STRIPE_INVOICE.into(),
+                    amount: Cents(43_500)
+                },
+                &ctx(98)
+            ),
+            Ok(WebhookOutcome::NoEffect)
+        );
+        assert!(Billing::decide(&state, &create_invoice(INVOICE + 1, 43_500), &ctx(99)).is_ok());
     }
 
     #[test]
@@ -1695,6 +2247,10 @@ mod tests {
 
     const INTENTS: [&str; 2] = ["pi_fake_a", "pi_fake_b"];
 
+    fn stripe_invoice() -> impl Strategy<Value = String> {
+        prop::sample::select(vec!["in_fake_a", "in_fake_b"]).prop_map(str::to_owned)
+    }
+
     fn command() -> impl Strategy<Value = (u128, BillingCommand)> {
         let payment = || prop::sample::select(vec![10u128, 11, 12]).prop_map(id);
         let reference = || prop::sample::select(vec![1u128, 2]).prop_map(id);
@@ -1709,6 +2265,7 @@ mod tests {
                 .prop_map(str::to_owned)
         };
         let refund = || prop::sample::select(vec![40u128, 41, 42]).prop_map(id);
+        let invoice = || prop::sample::select(vec![60u128, 61]).prop_map(id);
         let kind = prop_oneof![
             (intent(), amount())
                 .prop_map(|(intent, amount)| WebhookKind::Succeeded { intent, amount }),
@@ -1729,6 +2286,9 @@ mod tests {
                     amount,
                     request
                 }),
+            (stripe_invoice(), amount())
+                .prop_map(|(invoice, amount)| WebhookKind::InvoicePaid { invoice, amount }),
+            stripe_invoice().prop_map(|invoice| WebhookKind::InvoiceVoided { invoice }),
         ];
         let cmd = prop_oneof![
             2 => (payment(), reference(), amount()).prop_map(|(payment, reference, amount)| BillingCommand::CreateIntent {
@@ -1745,6 +2305,10 @@ mod tests {
                 payment, refund, stripe_refund, amount
             }),
             1 => reference().prop_map(|reference| BillingCommand::CancelForExpiry { reference }),
+            2 => (invoice(), reference(), amount(), stripe_invoice()).prop_map(|(invoice, reference, amount, stripe_id)| BillingCommand::RecordInvoice {
+                invoice, customer: id(6), reference, amount, due: "2026-11-28".parse().unwrap(),
+                stripe_id, stripe_customer: "cus_fake_1".into(),
+            }),
         ];
         (prop::sample::select(vec![40u128, 41, 42, 50, 51]), cmd)
     }
@@ -1809,6 +2373,13 @@ mod tests {
                     }
                     refunded += p.refunded.0;
                 }
+                for (_, i) in state.invoices().filter(|(_, i)| i.reference == reference) {
+                    if i.status == InvoiceStatus::Paid {
+                        paid += i.amount.0;
+                    }
+                }
+                // One live invoice per job.
+                prop_assert!(state.invoices().filter(|(_, i)| i.reference == reference && i.status != InvoiceStatus::Void).count() <= 1);
                 prop_assert_eq!(ledger.refunded(reference), Cents(refunded));
                 prop_assert_eq!(ledger.paid(reference), Cents(paid));
                 prop_assert_eq!(ledger.net(reference), Cents(ledger.paid(reference).0 - refunded));

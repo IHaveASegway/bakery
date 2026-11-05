@@ -12,7 +12,7 @@ use std::fmt;
 
 use serde::Deserialize;
 
-use crate::ports::IntentStatus;
+use crate::ports::{IntentStatus, InvoiceStatus};
 
 /// An object's `metadata`: the bakery's random ids, nothing personal.
 pub type Metadata = BTreeMap<String, String>;
@@ -153,6 +153,88 @@ pub struct Charge {
     pub metadata: Metadata,
 }
 
+/// A Customer (https://docs.stripe.com/api/customers/object). The bakery's carry metadata and
+/// nothing else; `email` is read only so a test can see it is absent.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Customer {
+    /// `cus_...`.
+    pub id: String,
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub metadata: Metadata,
+    #[serde(default)]
+    pub livemode: bool,
+}
+
+/// What a `DELETE` answers: `{ "id", "object", "deleted": true }`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Deleted {
+    pub id: String,
+    #[serde(default)]
+    pub deleted: bool,
+}
+
+/// `status` on an Invoice (https://docs.stripe.com/invoicing/overview#invoice-statuses).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StripeInvoiceStatus {
+    Draft,
+    Open,
+    Paid,
+    Void,
+    Uncollectible,
+    #[serde(other)]
+    Unknown,
+}
+
+impl StripeInvoiceStatus {
+    /// The port's five; an unknown status reads as open, still owed.
+    pub fn to_port(self) -> InvoiceStatus {
+        match self {
+            StripeInvoiceStatus::Draft => InvoiceStatus::Draft,
+            StripeInvoiceStatus::Open | StripeInvoiceStatus::Unknown => InvoiceStatus::Open,
+            StripeInvoiceStatus::Paid => InvoiceStatus::Paid,
+            StripeInvoiceStatus::Void => InvoiceStatus::Void,
+            StripeInvoiceStatus::Uncollectible => InvoiceStatus::Uncollectible,
+        }
+    }
+}
+
+/// An Invoice (https://docs.stripe.com/api/invoices/object). `status` is null on a deleted
+/// draft, which the bakery never reads, so it is required here.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Invoice {
+    /// `in_...`.
+    pub id: String,
+    pub status: StripeInvoiceStatus,
+    /// Cents, for `usd`.
+    #[serde(default)]
+    pub amount_due: i64,
+    #[serde(default)]
+    pub amount_paid: i64,
+    #[serde(default)]
+    pub customer: Option<String>,
+    #[serde(default)]
+    pub collection_method: Option<String>,
+    #[serde(default)]
+    pub metadata: Metadata,
+    #[serde(default)]
+    pub livemode: bool,
+}
+
+/// An InvoiceItem (https://docs.stripe.com/api/invoiceitems/object).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct InvoiceItem {
+    /// `ii_...`.
+    pub id: String,
+    pub amount: i64,
+    #[serde(default)]
+    pub invoice: Option<String>,
+    #[serde(default)]
+    pub livemode: bool,
+}
+
 /// An error response's body, `{ "error": { "type", "code", ... } }` with a 4xx or 5xx.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct StripeError {
@@ -184,6 +266,8 @@ pub enum EventObject {
     Refund(Refund),
     #[serde(rename = "charge")]
     Charge(Charge),
+    #[serde(rename = "invoice")]
+    Invoice(Invoice),
     /// Any other object: the event is acknowledged and ignored.
     #[serde(other)]
     Other,
@@ -195,6 +279,7 @@ impl EventObject {
             EventObject::PaymentIntent(o) => Some(&o.metadata),
             EventObject::Refund(o) => Some(&o.metadata),
             EventObject::Charge(o) => Some(&o.metadata),
+            EventObject::Invoice(o) => Some(&o.metadata),
             EventObject::Other => None,
         }
     }
@@ -267,6 +352,44 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn invoices_customers_and_items_parse() {
+        let inv: Invoice = serde_json::from_str(
+            r#"{"id":"in_fake_1","object":"invoice","status":"open","amount_due":43500,
+                "amount_paid":0,"customer":"cus_fake_1","collection_method":"send_invoice",
+                "auto_advance":false,"metadata":{"sandbox":"s","invoice":"i"},"livemode":false}"#,
+        )
+        .unwrap();
+        assert_eq!(inv.status.to_port(), InvoiceStatus::Open);
+        assert_eq!(inv.amount_due, 43_500);
+        assert_eq!(inv.collection_method.as_deref(), Some("send_invoice"));
+        let later: StripeInvoiceStatus = serde_json::from_str(r#""in_review""#).unwrap();
+        assert_eq!(later.to_port(), InvoiceStatus::Open);
+        let event: StripeEvent = serde_json::from_str(
+            r#"{"id":"evt_fake_1","type":"invoice.paid","livemode":false,"created":1,
+                "data":{"object":{"id":"in_fake_1","object":"invoice","status":"paid",
+                "amount_due":43500,"amount_paid":43500,"metadata":{"sandbox":"s"}}}}"#,
+        )
+        .unwrap();
+        assert!(matches!(&event.data.object, EventObject::Invoice(i) if i.amount_paid == 43_500));
+        assert_eq!(event.data.object.metadata().unwrap()["sandbox"], "s");
+        let customer: Customer = serde_json::from_str(
+            r#"{"id":"cus_fake_1","object":"customer","email":null,"name":null,
+                "metadata":{"sandbox":"s","persona":"p"},"livemode":false}"#,
+        )
+        .unwrap();
+        assert_eq!(customer.email, None);
+        let deleted: Deleted =
+            serde_json::from_str(r#"{"id":"cus_fake_1","object":"customer","deleted":true}"#)
+                .unwrap();
+        assert!(deleted.deleted);
+        let item: InvoiceItem = serde_json::from_str(
+            r#"{"id":"ii_fake_1","object":"invoiceitem","amount":43500,"invoice":"in_fake_1"}"#,
+        )
+        .unwrap();
+        assert_eq!(item.invoice.as_deref(), Some("in_fake_1"));
     }
 
     #[test]

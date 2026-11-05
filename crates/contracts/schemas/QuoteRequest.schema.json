@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "QuoteRequest",
+  "description": "`POST /v1/sandboxes/{id}/catering/{cid}/quote`, staff only. `200` with the\n`CateringResponse`, now `quoted`; `409` problem of type `catering` naming the rule\n(`out-of-order`) once the inquiry is past `inquiry`; `422` `quote-total` for a total under 1\ncent.",
+  "type": "object",
+  "properties": {
+    "total_cents": {
+      "description": "A staff override of the total, in cents, at least 1. Absent: the package's price per\nhead times the headcount. The deposit is 25% of the total, rounded half-up.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "int64"
+    }
+  },
+  "additionalProperties": false
+}
