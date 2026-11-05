@@ -50,7 +50,7 @@ mod flow_tests {
     };
     use crate::test_support::{FakeGateway, block_on};
 
-    const SECRET: &str = "whsec_fake0000000000000000000000000000";
+    const SECRET: &str = "whsec_not_a_secret";
     const NOW_S: i64 = 1_793_900_000;
 
     fn ulid(n: u128) -> Ulid {
