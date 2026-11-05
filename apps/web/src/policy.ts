@@ -9,7 +9,7 @@
   reading the privacy page loads nothing from Cloudflare. Pages that create a sandbox or an account
   (/signin/ now, /app/ because it can create a sandbox too) are the challenge class: they add
   Turnstile's origin to script-src and frame-src, and nothing else. Pages with an island but no
-  third party (/menu/) are the island class: the strict policy plus the hashes below. The checkout
+  third party (/menu/ and /inbox/) are the island class: the strict policy plus the hashes below. The checkout
   (/checkout/) and the catering page (/catering/) are the payment class, the island class plus the
   three Stripe origins the Payment Element needs: its script, its frames (3-D Secure included) and
   its API. No other page names a Stripe origin, and these two load Stripe.js only once an order has
@@ -104,8 +104,8 @@ export const OTHER_HEADERS: Record<string, string> = {
 /** Pages that load Turnstile. Cloudflare serves a trailing-slash path with the splat matching empty. */
 export const CHALLENGE_PATHS = ['/signin/*', '/app/*'];
 
-/** Pages with a hydrated island and no third party: the menu. */
-export const ISLAND_PATHS = ['/menu/*'];
+/** Pages with a hydrated island and no third party: the menu and the inbox. */
+export const ISLAND_PATHS = ['/menu/*', '/inbox/*'];
 
 /** Pages that load Stripe: the checkout's payment step and the catering page's deposit step. */
 export const PAYMENT_PATHS = ['/checkout/*', '/catering/*'];
@@ -139,7 +139,7 @@ export function headersFile(apiOrigin: string, hashes: Record<string, Hashes> = 
   }
   for (const path of ISLAND_PATHS) {
     lines.push(
-      '# The menu holds an island and loads nothing from a third party.',
+      '# The menu and the inbox hold an island and load nothing from a third party.',
       path,
       '  ! Content-Security-Policy',
       `  Content-Security-Policy: ${csp('island', apiOrigin, of(path))}`,

@@ -37,6 +37,7 @@ describe('dist', () => {
     ['signin/index.html', '/signin/*'],
     ['app/index.html', '/app/*'],
     ['menu/index.html', '/menu/*'],
+    ['inbox/index.html', '/inbox/*'],
     ['checkout/index.html', '/checkout/*'],
     ['catering/index.html', '/catering/*'],
   ])('%s: every inline script and style has its hash in %s', (file, path) => {
@@ -51,7 +52,7 @@ describe('dist', () => {
     const files = readdirSync(dist, { recursive: true }).filter(
       (f): f is string => typeof f === 'string' && f.endsWith('.html'),
     );
-    expect(files.length).toBeGreaterThanOrEqual(5);
+    expect(files.length).toBeGreaterThanOrEqual(6);
     for (const file of files) {
       const html = page(file);
       expect(html, file).not.toMatch(/\sstyle="/);
