@@ -4706,7 +4706,7 @@
                 }
               }
             },
-            "description": "the draft"
+            "description": "the draft; the same optional `Idempotency-Key` again replays it"
           },
           "400": {
             "content": {
@@ -5026,7 +5026,7 @@
                 }
               }
             },
-            "description": "`scheduled`",
+            "description": "`scheduled`; the same key again replays it",
             "headers": {
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
@@ -7446,7 +7446,7 @@
                 }
               }
             },
-            "description": "the customer; the same value again changes nothing",
+            "description": "the customer; the same `Idempotency-Key` again replays it, with `Idempotent-Replayed`",
             "headers": {
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
@@ -9043,7 +9043,7 @@
                 }
               }
             },
-            "description": "the messages and their total"
+            "description": "the messages and the filters' total"
           },
           "400": {
             "content": {
@@ -9053,8 +9053,9 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`filter`: a filter the inbox refuses; `token`: a cookie and a token both, or a token in the query string",
             "x-problems": [
+              "filter",
               "token"
             ]
           },
