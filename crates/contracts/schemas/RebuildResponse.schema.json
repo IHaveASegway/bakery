@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RebuildResponse",
+  "description": "`GET /v1/sandboxes/{id}/crm/rebuild`, and `202` from `POST` to it, staff only (a guest gets\n`403` `guest-scope`): \"Rebuild projections\" drops Crm's projections and replays its log, 200\nevents per alarm. A `POST` while one runs answers `202` with its progress and starts nothing.",
+  "type": "object",
+  "properties": {
+    "applied": {
+      "description": "Log entries replayed so far.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "ms": {
+      "description": "Once finished: the wall-clock milliseconds the rebuild took.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 0
+    },
+    "state": {
+      "$ref": "#/$defs/RebuildState"
+    },
+    "total": {
+      "description": "The log's length.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "state",
+    "applied",
+    "total"
+  ],
+  "$defs": {
+    "RebuildState": {
+      "type": "string",
+      "enum": [
+        "idle",
+        "rebuilding",
+        "finished"
+      ]
+    }
+  }
+}

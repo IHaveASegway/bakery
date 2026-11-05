@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CampaignResponse",
+  "description": "`GET /v1/sandboxes/{id}/campaigns/{cid}`, and the answer to every campaign command.",
+  "type": "object",
+  "properties": {
+    "body": {
+      "$ref": "#/$defs/BodyTemplate"
+    },
+    "campaign": {
+      "description": "The campaign's ULID.",
+      "type": "string"
+    },
+    "clicked": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "delivered": {
+      "description": "Messages the Inbox delivered, opened and clicked, from its events.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "opened": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "recipients": {
+      "description": "The frozen recipients' count: the segment's members with marketing consent at the send.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "segment": {
+      "$ref": "#/$defs/Segment"
+    },
+    "send_at": {
+      "description": "While scheduled, and after the send: the business time it is due or was sent.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "state": {
+      "$ref": "#/$defs/CampaignState"
+    },
+    "subject": {
+      "$ref": "#/$defs/SubjectTemplate"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "campaign",
+    "state",
+    "subject",
+    "body",
+    "segment",
+    "recipients",
+    "delivered",
+    "opened",
+    "clicked"
+  ],
+  "$defs": {
+    "BodyTemplate": {
+      "description": "A campaign's body, chosen from a fixed list.",
+      "type": "string",
+      "enum": [
+        "announcement",
+        "fresh-bread",
+        "cake-orders",
+        "seasonal-menu",
+        "come-back",
+        "catering-invite"
+      ]
+    },
+    "CampaignState": {
+      "description": "Where a campaign is (docs/domain.md, \"Campaign\", the diagram).",
+      "type": "string",
+      "enum": [
+        "draft",
+        "scheduled",
+        "sent",
+        "cancelled"
+      ]
+    },
+    "Segment": {
+      "description": "A segment: a fixed rule over Crm's projection, evaluated at the business time asked.",
+      "oneOf": [
+        {
+          "description": "Every persona.",
+          "type": "string",
+          "const": "everyone"
+        },
+        {
+          "description": "An order with a cake line in the last 30 days of business time.",
+          "type": "string",
+          "const": "cake-last-30-days"
+        },
+        {
+          "description": "Any delivery order.",
+          "type": "string",
+          "const": "delivery-customers"
+        },
+        {
+          "description": "No order in the last 60 days of business time.",
+          "type": "string",
+          "const": "lapsed-60-days"
+        },
+        {
+          "description": "A catering inquiry still open: an inquiry, a quote or an accepted quote.",
+          "type": "string",
+          "const": "catering-leads"
+        }
+      ]
+    },
+    "SubjectTemplate": {
+      "description": "A campaign's subject, chosen from a fixed list; staff never type one (Q14).",
+      "type": "string",
+      "enum": [
+        "weekend-bake",
+        "cake-week",
+        "new-season",
+        "we-miss-you",
+        "catering-season",
+        "thank-you"
+      ]
+    }
+  }
+}

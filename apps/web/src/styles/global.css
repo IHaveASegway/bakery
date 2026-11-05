@@ -218,6 +218,7 @@ td {
 
 select,
 textarea,
+input[type='datetime-local'],
 input[type='number'] {
   box-sizing: border-box;
   max-width: 100%;
@@ -443,4 +444,11 @@ button.link:disabled {
       opacity: 0;
     }
   }
+}
+
+progress {
+  width: min(24rem, 100%);
+  height: 1rem;
+  vertical-align: middle;
+  accent-color: var(--primary);
 }

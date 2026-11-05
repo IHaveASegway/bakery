@@ -12,15 +12,21 @@ import {
 } from '../lib/api';
 import { formatCountdown, utcClock, utcStamp } from '../lib/countdown';
 import { describeError, type Message as Text } from '../lib/messages';
+import Activity from './Activity';
+import Campaigns from './Campaigns';
 import CapacityEditor from './CapacityEditor';
 import CateringQueue from './CateringQueue';
 import ClockControl from './ClockControl';
+import Customers from './Customers';
 import DeadLetters from './DeadLetters';
 import GuestNote from './GuestNote';
 import KitchenBoard from './KitchenBoard';
+import LeadPipeline from './LeadPipeline';
 import Ledger from './Ledger';
 import MenuEditor from './MenuEditor';
 import Message from './Message';
+import Rebuild from './Rebuild';
+import Segments from './Segments';
 import Traffic from './Traffic';
 
 // Nothing here is stored in the browser: the session is the cookie, and every load asks the API.
@@ -46,6 +52,8 @@ export default function Console() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Text | null>(null);
   const [ledgerTick, setLedgerTick] = useState(0);
+  // Bumped when something the CRM screens derive from changes: a consent flag, a finished rebuild.
+  const [crmTick, setCrmTick] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -277,6 +285,29 @@ export default function Console() {
             clockOffsetS={sandbox.clock_offset_s}
           />
           <CateringQueue sandboxId={sandbox.id} isGuest={isGuest} />
+          <Customers
+            sandboxId={sandbox.id}
+            isGuest={isGuest}
+            personaId={sandbox.persona}
+            refresh={crmTick}
+            onConsent={() => setCrmTick((n) => n + 1)}
+          />
+          <Segments sandboxId={sandbox.id} refresh={crmTick} />
+          <Campaigns
+            sandboxId={sandbox.id}
+            isGuest={isGuest}
+            clockOffsetS={sandbox.clock_offset_s}
+          />
+          <LeadPipeline sandboxId={sandbox.id} refresh={crmTick} />
+          <Activity sandboxId={sandbox.id} refresh={crmTick} />
+          <Rebuild
+            sandboxId={sandbox.id}
+            isGuest={isGuest}
+            onFinished={() => setCrmTick((n) => n + 1)}
+          />
+          <p>
+            <a href="/inbox/">Open the inbox</a>: every message the bakery sends lands there.
+          </p>
 
           <h3>Faults</h3>
           <p>
@@ -310,7 +341,7 @@ export default function Console() {
                   })
                 }
               />{' '}
-              Inbox refuses deliveries (PR 8)
+              Inbox refuses deliveries
             </label>
           </p>
           {isGuest && <GuestNote />}

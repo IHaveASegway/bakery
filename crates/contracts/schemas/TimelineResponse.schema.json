@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TimelineResponse",
+  "description": "`GET /v1/sandboxes/{id}/customers/{cid}/timeline`: the customer's events in business-time\norder. While a rebuild runs the timeline is partial; `GET .../crm/rebuild` says so.",
+  "type": "object",
+  "properties": {
+    "customer": {
+      "type": "string"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/TimelineEntry"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "customer",
+    "entries"
+  ],
+  "$defs": {
+    "TimelineEntry": {
+      "description": "One line of a timeline.",
+      "type": "object",
+      "properties": {
+        "at": {
+          "description": "The event's business time.",
+          "type": "string"
+        },
+        "label": {
+          "description": "A short fixed sentence with the event's own figures, such as `Paid $22.00`.",
+          "type": "string"
+        },
+        "ref": {
+          "description": "The ULID of the order, catering event, message or customer the line is about.",
+          "type": "string"
+        },
+        "type": {
+          "description": "The event's catalog name, such as `OrderPaid`.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "at",
+        "type",
+        "ref",
+        "label"
+      ]
+    }
+  }
+}

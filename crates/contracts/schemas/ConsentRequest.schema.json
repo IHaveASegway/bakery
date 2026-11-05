@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ConsentRequest",
+  "description": "`POST /v1/sandboxes/{id}/customers/{cid}/consent`, by that customer's persona or by staff:\n`200` with the `CustomerResponse`; the same value again changes nothing and answers `200`.",
+  "type": "object",
+  "properties": {
+    "marketing": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "marketing"
+  ]
+}

@@ -11,7 +11,7 @@ use bakery_domain::{BusinessTime, Cents, Ulid, WallTime};
 use crate::ports::{
     CancelRequest, ConfirmRequest, CustomerCreated, CustomerRequest, IntentCreated, IntentRequest,
     IntentSnapshot, IntentStatus, InvoiceCreated, InvoiceRequest, InvoiceSnapshot, InvoiceStatus,
-    PaymentGateway, PortError, RefundCreated, RefundIntentRequest, TestCard,
+    Mailbox, Note, PaymentGateway, PortError, RefundCreated, RefundIntentRequest, TestCard,
 };
 use crate::{Clock, IdGen};
 
@@ -488,6 +488,41 @@ impl PaymentGateway for FakeGateway {
     }
 }
 
+/// A mailbox for one sandbox that keeps what it delivers. Like every implementation, it refuses
+/// a recipient outside its sandbox before delivering anything.
+#[derive(Debug)]
+pub struct FakeMailbox {
+    sandbox: Ulid,
+    delivered: RefCell<Vec<Note>>,
+}
+
+impl FakeMailbox {
+    pub fn for_sandbox(sandbox: Ulid) -> FakeMailbox {
+        FakeMailbox {
+            sandbox,
+            delivered: RefCell::new(Vec::new()),
+        }
+    }
+
+    pub fn delivered(&self) -> Vec<Note> {
+        self.delivered.borrow().clone()
+    }
+}
+
+impl Mailbox for FakeMailbox {
+    fn sandbox(&self) -> Ulid {
+        self.sandbox
+    }
+
+    async fn send(&self, note: Note) -> Result<(), PortError> {
+        if !self.admits(note.to) {
+            return Err(PortError::Rejected("recipient-outside-sandbox".into()));
+        }
+        self.delivered.borrow_mut().push(note);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -695,5 +730,37 @@ mod tests {
         block_on(g.delete_customer("cus_fake_1")).unwrap();
         block_on(g.delete_customer("cus_fake_1")).unwrap();
         assert!(g.customers().is_empty());
+    }
+
+    #[test]
+    fn no_mailbox_can_address_a_recipient_outside_its_sandbox() {
+        use crate::ports::Recipient;
+        let ours = Ulid::from_parts(1_793_000_000_000, 7);
+        let theirs = Ulid::from_parts(1_793_000_000_000, 8);
+        let customer = Ulid::from_parts(1_793_000_000_000, 1);
+        let mailbox = FakeMailbox::for_sandbox(ours);
+        let note = |to| Note {
+            to,
+            subject: "Your order is ready".into(),
+            body: "Your order of 2 items is ready at the counter.".into(),
+        };
+        // Another sandbox's customer, even one with the same customer id: refused, and nothing
+        // delivered.
+        let foreign = Recipient::new(theirs, customer);
+        assert!(!mailbox.admits(foreign));
+        assert_eq!(
+            block_on(mailbox.send(note(foreign))),
+            Err(PortError::Rejected("recipient-outside-sandbox".into()))
+        );
+        assert!(mailbox.delivered().is_empty());
+        // Its own customer: delivered.
+        let own = Recipient::new(ours, customer);
+        block_on(mailbox.send(note(own))).unwrap();
+        assert_eq!(mailbox.delivered(), [note(own)]);
+        assert_eq!(own.customer(), customer);
+        // The shape: a note's recipient is a `Recipient`, two ids, never a string; the
+        // compile-fail examples on `Recipient` prove it cannot be built from text.
+        let to: Recipient = note(own).to;
+        let _: (Ulid, Ulid) = (to.sandbox(), to.customer());
     }
 }

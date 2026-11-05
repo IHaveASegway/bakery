@@ -72,6 +72,24 @@ pub enum RouteId {
     StartCateringProduction,
     MarkCateringDelivered,
     StaffCancelCatering,
+    ListCustomers,
+    GetCustomer,
+    GetTimeline,
+    SetConsent,
+    ListSegments,
+    GetSegment,
+    ListCampaigns,
+    CreateCampaign,
+    GetCampaign,
+    EditCampaign,
+    ScheduleCampaign,
+    CancelCampaign,
+    ListInbox,
+    GetMessage,
+    GetLeads,
+    GetActivity,
+    StartRebuild,
+    GetRebuild,
 }
 
 #[derive(Debug)]
@@ -436,6 +454,135 @@ pub const ROUTES: &[Route] = &[
         Scope::SignedIn,
         Limit::Command,
     ),
+    // PR 8: CRM, campaigns and the inbox. Every read is any session's (a guest reads
+    // everything); a consent change is the session's, the route allowing a guest its own persona
+    // only; the campaigns' writes and the rebuild are a signed-in session's.
+    route(
+        RouteId::ListCustomers,
+        "GET",
+        "/v1/sandboxes/{id}/customers",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::GetCustomer,
+        "GET",
+        "/v1/sandboxes/{id}/customers/{sub}",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::GetTimeline,
+        "GET",
+        "/v1/sandboxes/{id}/customers/{sub}/timeline",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::SetConsent,
+        "POST",
+        "/v1/sandboxes/{id}/customers/{sub}/consent",
+        Scope::Session,
+        Limit::Command,
+    ),
+    route(
+        RouteId::ListSegments,
+        "GET",
+        "/v1/sandboxes/{id}/segments",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::GetSegment,
+        "GET",
+        "/v1/sandboxes/{id}/segments/{sub}",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::ListCampaigns,
+        "GET",
+        "/v1/sandboxes/{id}/campaigns",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::CreateCampaign,
+        "POST",
+        "/v1/sandboxes/{id}/campaigns",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
+    route(
+        RouteId::GetCampaign,
+        "GET",
+        "/v1/sandboxes/{id}/campaigns/{sub}",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::EditCampaign,
+        "PATCH",
+        "/v1/sandboxes/{id}/campaigns/{sub}",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
+    route(
+        RouteId::ScheduleCampaign,
+        "POST",
+        "/v1/sandboxes/{id}/campaigns/{sub}/schedule",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
+    route(
+        RouteId::CancelCampaign,
+        "POST",
+        "/v1/sandboxes/{id}/campaigns/{sub}/cancel",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
+    route(
+        RouteId::ListInbox,
+        "GET",
+        "/v1/sandboxes/{id}/inbox",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::GetMessage,
+        "GET",
+        "/v1/sandboxes/{id}/inbox/{sub}",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::GetLeads,
+        "GET",
+        "/v1/sandboxes/{id}/leads",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::GetActivity,
+        "GET",
+        "/v1/sandboxes/{id}/activity",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::StartRebuild,
+        "POST",
+        "/v1/sandboxes/{id}/rebuild",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
+    route(
+        RouteId::GetRebuild,
+        "GET",
+        "/v1/sandboxes/{id}/rebuild",
+        Scope::Session,
+        Limit::None,
+    ),
 ];
 
 /// Routes a browser never calls: no CORS headers, no preflight, no Origin check, no session
@@ -783,6 +930,157 @@ mod tests {
         assert_eq!(
             match_route("GET", &format!("/v1/sandboxes/{s}/catering/{c}/accept")),
             Matched::MethodNotAllowed("POST, OPTIONS".into())
+        );
+    }
+
+    #[test]
+    fn crm_routes() {
+        let s = "01JC8Z6K3W9QF2N4T7XRB5M0HD";
+        let c = "01JC8Z5R0T2B6Y8C4V1N3K7QXE";
+        let some = |v: &str| Some(v.to_owned());
+        let scope = |id| ROUTES.iter().find(|r| r.id == id).unwrap().scope;
+        for (method, path, id, sub, want) in [
+            (
+                "GET",
+                "customers".to_owned(),
+                RouteId::ListCustomers,
+                None,
+                Scope::Session,
+            ),
+            (
+                "GET",
+                format!("customers/{c}"),
+                RouteId::GetCustomer,
+                some(c),
+                Scope::Session,
+            ),
+            (
+                "GET",
+                format!("customers/{c}/timeline"),
+                RouteId::GetTimeline,
+                some(c),
+                Scope::Session,
+            ),
+            (
+                "POST",
+                format!("customers/{c}/consent"),
+                RouteId::SetConsent,
+                some(c),
+                Scope::Session,
+            ),
+            (
+                "GET",
+                "segments".to_owned(),
+                RouteId::ListSegments,
+                None,
+                Scope::Session,
+            ),
+            (
+                "GET",
+                "segments/cake-last-30-days".to_owned(),
+                RouteId::GetSegment,
+                some("cake-last-30-days"),
+                Scope::Session,
+            ),
+            (
+                "GET",
+                "campaigns".to_owned(),
+                RouteId::ListCampaigns,
+                None,
+                Scope::Session,
+            ),
+            (
+                "POST",
+                "campaigns".to_owned(),
+                RouteId::CreateCampaign,
+                None,
+                Scope::SignedIn,
+            ),
+            (
+                "GET",
+                format!("campaigns/{c}"),
+                RouteId::GetCampaign,
+                some(c),
+                Scope::Session,
+            ),
+            (
+                "PATCH",
+                format!("campaigns/{c}"),
+                RouteId::EditCampaign,
+                some(c),
+                Scope::SignedIn,
+            ),
+            (
+                "POST",
+                format!("campaigns/{c}/schedule"),
+                RouteId::ScheduleCampaign,
+                some(c),
+                Scope::SignedIn,
+            ),
+            (
+                "POST",
+                format!("campaigns/{c}/cancel"),
+                RouteId::CancelCampaign,
+                some(c),
+                Scope::SignedIn,
+            ),
+            (
+                "GET",
+                "inbox".to_owned(),
+                RouteId::ListInbox,
+                None,
+                Scope::Session,
+            ),
+            (
+                "GET",
+                format!("inbox/{c}"),
+                RouteId::GetMessage,
+                some(c),
+                Scope::Session,
+            ),
+            (
+                "GET",
+                "leads".to_owned(),
+                RouteId::GetLeads,
+                None,
+                Scope::Session,
+            ),
+            (
+                "GET",
+                "activity".to_owned(),
+                RouteId::GetActivity,
+                None,
+                Scope::Session,
+            ),
+            (
+                "POST",
+                "rebuild".to_owned(),
+                RouteId::StartRebuild,
+                None,
+                Scope::SignedIn,
+            ),
+            (
+                "GET",
+                "rebuild".to_owned(),
+                RouteId::GetRebuild,
+                None,
+                Scope::Session,
+            ),
+        ] {
+            assert_eq!(
+                sub_of(match_route(method, &format!("/v1/sandboxes/{s}/{path}"))),
+                Some((id, some(s), sub)),
+                "{method} {path}"
+            );
+            assert_eq!(scope(id), want, "{method} {path}");
+        }
+        assert_eq!(
+            allow(&format!("/v1/sandboxes/{s}/campaigns/{c}")),
+            "GET, PATCH, OPTIONS"
+        );
+        assert_eq!(
+            allow(&format!("/v1/sandboxes/{s}/rebuild")),
+            "POST, GET, OPTIONS"
         );
     }
 

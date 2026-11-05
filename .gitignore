@@ -28,3 +28,6 @@ coverage/
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+# Vitest reporter output
+**/.vitest/

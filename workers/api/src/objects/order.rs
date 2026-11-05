@@ -11,6 +11,8 @@
 //!   "order", rule, class?}` for a broken rule, `class` naming the note's free-text class. The
 //!   order's first write, so it is also its create path: a rejection writes nothing at all.
 //! - `GET /_order` → 200 `OrderResponse`; 404 before an order is placed.
+//! - `GET /_customer` → 200 `{customer}`: whose order it is, for the consumer's `all(Customer)`
+//!   on `OrderPaid` and `OrderRefunded`, whose data name no customer; 404 before placement.
 //! - `POST /_command {key, action, cause?}` with `action` one of `cancel`, `start_production`,
 //!   `mark_ready`, `mark_picked_up` → 200 `OrderResponse`; the same 422s; a replay as above.
 //!   The Kitchen's socket commands arrive here with the frame's id as the key (W2).
@@ -197,6 +199,19 @@ impl DurableObject for Order {
                         Some(r) => json(&r, 200),
                         None => refuse(404, "not-found"),
                     },
+                    (Method::Get, "/_customer") => {
+                        let customer = if sql::has_table(&self.sql(), "events")? {
+                            Self::state_of(&self.stream(&meta)?)?
+                                .record()
+                                .map(|r| r.customer)
+                        } else {
+                            None
+                        };
+                        match customer {
+                            Some(c) => json(&serde_json::json!({ "customer": c }), 200),
+                            None => refuse(404, "not-found"),
+                        }
+                    }
                     (Method::Post, "/_command") => {
                         let body: Command = sql::body(&mut req).await?;
                         self.command(&meta, body, now).await

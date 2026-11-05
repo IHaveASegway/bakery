@@ -229,11 +229,19 @@ mod tests {
                 total_cents: Cents(2_090),
                 refunded_cents: Cents(500),
                 lines: None,
+                customer: None,
+                kind: None,
+                slot: None,
+                zone: None,
             },
             OrderEvent::OrderClosed {
                 total_cents: Cents(2_090),
                 refunded_cents: Cents::ZERO,
                 lines: Some(vec![line]),
+                customer: None,
+                kind: None,
+                slot: None,
+                zone: None,
             },
         ]
     }

@@ -2,7 +2,7 @@
 
 The made-up bakery's language and rules: the terms every doc, screen and type uses, the aggregates and the Durable Object (DO) that hosts each, their commands, events, invariants and state machines, the event catalog and its envelope, how money, time and identifiers are represented, how idempotency works at every boundary, what a sandbox is born with, and which of the site's Lab principles runs where. The code that implements it is `crates/domain` (aggregates as `decide` and `evolve`, events, value objects) and `crates/seed`; how objects, the Queue and the Workers fit together is [architecture.md](architecture.md). Why the bakery exists is [product.md](product.md).
 
-Status: Updated in PR 7 · 2026-11-05
+Status: Updated in PR 8 · 2026-11-05
 
 Prices, limits and versions are as of 2026-11-04, with sources. Every menu price, package price and tax rate on this page is the made-up bakery's demo data, not a platform price.
 
@@ -189,7 +189,7 @@ Notes from building `CateringEvent` and the balance invoices in PR 7 (2026-11-05
 
 Hosted by `Crm`, one object per sandbox (`crm:<sandbox>`), as a table of campaigns. This bends "one object per aggregate" on purpose: a send must read Crm's segment projection at the moment it fires, a sandbox holds a handful of campaigns, and a class of its own would add a hop and a class per preview. Crm stays the only writer of campaigns, so the single-writer rule holds.
 
-Commands: `DraftCampaign`, `EditCampaign`, `ScheduleCampaign` (a business time at least 15 minutes ahead), `CancelCampaign`, `SendCampaign` (the timer). Events: `CampaignScheduled`, `CampaignCancelled`, `CampaignSent`. Invariants: recipients are customers whose `marketing` consent is true at send time; the recipient list is frozen and stored with `CampaignSent`, so a rebuild reproduces the stats; one message per recipient per campaign, keyed by campaign and customer.
+Commands: `DraftCampaign`, `EditCampaign`, `ScheduleCampaign` (a business time at least 15 minutes ahead), `CancelCampaign`, `SendCampaign` (the timer). Events: `CampaignDrafted` and `CampaignEdited` (added by PR 8, Crm's own record, routed nowhere), `CampaignScheduled`, `CampaignCancelled`, `CampaignSent`. Subjects and bodies are chosen from fixed templates, never typed; segments are a fixed list (`everyone`, `cake-last-30-days`, `delivery-customers`, `lapsed-60-days`, `catering-leads`) evaluated over Crm's projection at the send's business time. Invariants: recipients are customers whose `marketing` consent is true at send time; the recipient list is frozen and stored with `CampaignSent`, so a rebuild reproduces the stats; one message per recipient per campaign, keyed by campaign and customer.
 
 ```mermaid
 stateDiagram-v2
@@ -202,6 +202,15 @@ stateDiagram-v2
   sent --> [*]
   cancelled --> [*]
 ```
+
+**As built in PR 8 (2026-11-05, `crates/domain/src/crm.rs`).** The aggregate is `Campaigns` over a table of `Campaign {subject, body, segment, state, send_at, recipients}`. Its rules, each with a test in `crates/domain/src/crm/tests.rs` or in `workers/api/src/objects/crm.rs`:
+
+- **Draft and edit.** `DraftCampaign` with the same content under the same id again is a no-op; other content under that id is refused as `campaign-exists`. `EditCampaign` works on a draft only. Both events, `CampaignDrafted` and `CampaignEdited`, carry the subject, body and segment and are routed nowhere: they are Crm's own record, as `PaymentIntentRecorded` is Billing's.
+- **Schedule and cancel.** `ScheduleCampaign` needs a `send_at` at least 15 minutes after now, else `schedule-too-soon`, which names the earliest time allowed (the Worker rounds it up to a whole minute). `CancelCampaign` takes a scheduled campaign back to draft, makes a draft cancelled, does nothing to a cancelled one and is refused on a sent one as `out-of-order`.
+- **Send.** `SendCampaign` takes an `Audience`, and `Audience::of(projection, segment, now)` is the only way to build one: the segment's members whose `marketing` is true at that moment, in a type whose fields are private, so a send cannot skip consent. Sent when the campaign is not scheduled, a second firing included, it emits nothing; before `send_at` it is `not-due`, which the Worker re-arms on; with the wrong segment it is `audience`. `CampaignSent` freezes the recipients and carries the subject and the body, since the Inbox has no other way to learn the body. The refusal slugs are `unknown-campaign`, `campaign-exists`, `out-of-order`, `schedule-too-soon`, `not-due`, `audience` and `overflow`.
+- **Templates, never typed.** Six subjects (`weekend-bake`, `cake-week`, `new-season`, `we-miss-you`, `catering-season`, `thank-you`) and six bodies (`announcement`, `fresh-bread`, `cake-orders`, `seasonal-menu`, `come-back`, `catering-invite`) are enums in the domain, with their text in the domain. Every body starts "Hello from Proof of Concept." and none uses a customer's name, an address or a link; a test renders every template and passes the free-text check on each. A request names a template by its slug, so a campaign carries no free text at all.
+- **Segments**, as rules over Crm's projection at the send's business time, none applying consent (the campaign does): `everyone`; `cake-last-30-days`, a counted order with a cake line whose slot is on or after now minus 30 days, with no upper bound, so a future cake order counts; `delivery-customers`, any counted delivery order; `lapsed-60-days`, no counted order with a slot on or after now minus 60 days, those who never ordered included; and `catering-leads`, a lead at inquiry, quoted or accepted. A counted order is a paid one, or one closed in the seed's history, and not cancelled, and its date is its slot's.
+- **Stats** are sets of message ids (delivered, opened, clicked) learned from the Inbox's events, so a rebuild reproduces them from the log.
 
 ### Sandbox
 
@@ -301,7 +310,7 @@ Every event, past tense, by producer. Types: `id` is a ULID string, `cents` an `
 | `SandboxWiped` | Sandbox | `objects: u16, rows_deleted: u32` | Control | adds to the daily ledger |
 | `MenuItemChanged` | Catalog | `item: string, fields: object` | Crm | logs it |
 | `MenuPublished` | Catalog | `version: u32, items: u16, item: string?` | Schedule (today on) | refreshes daily caps from the version |
-| `OrderPlaced` | Order | `order: id, customer: id, kind: pickup or delivery, slot: time, zone: string?, lines: [{item, variant, qty: u16, unit_cents}], subtotal_cents, tax_cents, total_cents, note: string?, menu_version: u32?, held_until: time?` | Kitchen; Crm; Dispatch (delivery) | adds a pending card with the note; timeline row; adds a provisional stop |
+| `OrderPlaced` | Order | `order: id, customer: id, kind: pickup or delivery, slot: time, zone: string?, lines: [{item, variant, qty: u16, unit_cents}], subtotal_cents, tax_cents, total_cents, note: string?, menu_version: u32?, held_until: time?` | Kitchen; Crm; Dispatch (delivery); Inbox | adds a pending card with the note; timeline row; adds a provisional stop; remembers the order's customer, kind and item count for its messages |
 | `OrderPaid` | Order | `payment: id, amount_cents` | Schedule; Kitchen; Crm; Customer; Inbox | confirms the hold; card to the board; timeline; loyalty; receipt |
 | `OrderPaymentLate` | Order | `payment: id, amount_cents: cents?` | Crm | logs the compensation |
 | `OrderRefundRequested` | Order | `payment: id, amount_cents, reason: string` | Billing | refunds at Stripe |
@@ -312,7 +321,7 @@ Every event, past tense, by producer. Types: `id` is a ULID string, `cents` an `
 | `OrderOutForDelivery` | Order | `route: string, stop: u16` | Kitchen; Inbox | moves the card; "on its way" message |
 | `OrderPickedUp`, `OrderDelivered` | Order | `at_stop: u16?` | Kitchen; Crm | clears the card; timeline |
 | `OrderRefunded` | Order | `refund: id, amount_cents, full: bool` | Crm; Customer; Inbox | timeline; reverses loyalty; refund notice |
-| `OrderClosed` | Order; the seed for history | `total_cents, refunded_cents, lines (history only)` | Schedule; Crm | fulfils the reservation; customer stats |
+| `OrderClosed` | Order; the seed for history | `total_cents, refunded_cents`; history only: `lines, customer: id, kind, slot: time, zone: string?` | Schedule; Crm | fulfils the reservation; customer stats |
 | `SlotHeld` | Schedule | `kind: slot, window or catering, date, start: time, ref: id, zone: string?, lines: [{item, qty: u32}], expires_at: time` | none | the hold, in the Schedule's own log; its timer is armed for `expires_at` |
 | `SlotReserved` | Schedule | `kind: slot, window or catering, date, start: time, ref: id, revived: bool?` | Kitchen | bake list totals |
 | `SlotReleased` | Schedule | `kind, date, start: time, ref: id, reason: string` | Kitchen | bake list totals |
@@ -344,10 +353,12 @@ Every event, past tense, by producer. Types: `id` is a ULID string, `cents` an `
 | `RouteProposed` | Dispatch | `date, plan_v: u16, vans: u8, minutes: u32` | Crm | logs it |
 | `RoutePublished` | Dispatch | `date, plan_v: u16, source: server or browser, vans: [{van: u8, stops: [order id]}], minutes: u32` | Order (each stop); Kitchen | out for delivery; van labels |
 | `StopCompleted` | Dispatch | `date, stop: u16, order: id` | Order | delivered |
+| `CustomerRegistered` | Customer | `customer: id, profile: {display_name, preferences: [item], home_zone, place, billing_line}, marketing: bool, opening_points: u32` | none | the Customer's own record of its first touch, from the seed's persona |
 | `ConsentChanged` | Customer | `marketing: bool` | Crm | segment input |
-| `LoyaltyPointsEarned` | Customer | `order: id, points: i32` | Crm | timeline, balance column |
+| `LoyaltyPointsEarned` | Customer | `order: id, points: i32, refund: id?` | Crm | timeline, balance column |
+| `CampaignDrafted`, `CampaignEdited` | Crm | `campaign: id, subject: string, body: string, segment: string` | none | Crm's own record of a draft and its edits |
 | `CampaignScheduled`, `CampaignCancelled` | Crm | `campaign: id, segment: string, send_at: time?` | Crm | campaign list |
-| `CampaignSent` | Crm | `campaign: id, recipients: [customer id], subject: string` | Inbox | one message per recipient |
+| `CampaignSent` | Crm | `campaign: id, recipients: [customer id], subject: string, body: string?` | Inbox | one message per recipient |
 | `ProjectionRebuildFinished` | Crm | `events: u32, ms: u32` | none | the rebuild's result on screen |
 | `MessageDelivered` | Inbox | `message: id, to: customer id, kind: string, ref: id` | Crm | timeline |
 | `MessageOpened`, `MessageClicked` | Inbox | `message: id, campaign: id?` | Crm | campaign stats |
@@ -358,7 +369,7 @@ The order note and the catering brief ride in their events but are stored only b
 
 ## The envelope
 
-Every event has one shape, in each object's `events` and `outbox` tables and on the Queue. It is `v` 1; adding an optional field stays `v` 1 (PR 4 added four: `OrderPlaced.menu_version`, `OrderPlaced.held_until`, `OrderPaymentLate.amount_cents` and `MenuPublished.item`), and renaming or redefining anything is `v` 2 (tolerant reader, as in the site's protocol v1).
+Every event has one shape, in each object's `events` and `outbox` tables and on the Queue. It is `v` 1; adding an optional field stays `v` 1 (PR 4 added four: `OrderPlaced.menu_version`, `OrderPlaced.held_until`, `OrderPaymentLate.amount_cents` and `MenuPublished.item`; PR 8 added six: `OrderClosed.customer`, `OrderClosed.kind`, `OrderClosed.slot` and `OrderClosed.zone`, for the seed's history only, `LoyaltyPointsEarned.refund` and `CampaignSent.body`), and renaming or redefining anything is `v` 2 (tolerant reader, as in the site's protocol v1).
 
 ```json
 {
@@ -405,6 +416,8 @@ Object names are derived by the server only ([architecture.md](architecture.md#o
 | Catalog, Kitchen, Billing, Crm, Inbox, Simulator | `catalog:<sandbox>`, `kitchen:<sandbox>`, `billing:<sandbox>`, `crm:<sandbox>`, `inbox:<sandbox>`, `simulator:<sandbox>` |
 | Order, CateringEvent, Customer | `order:<sandbox>:<ulid>`, `catering:<sandbox>:<ulid>`, `customer:<sandbox>:<ulid>` |
 | Schedule, Dispatch | `schedule:<sandbox>:<date>`, `dispatch:<sandbox>:<date>` |
+
+**Message ids (PR 8, 2026-11-05).** An Inbox message's id is a function of its cause and its recipient, so a redelivered event makes the same message and not a second one: it keeps the time part of the cause's ULID, which is the event's id (a campaign's id for a campaign message), and takes 80 bits mixed from both ids and the recipient's. A campaign message is keyed by (campaign, customer); every other message by (event id, customer). The function is `message_id` in `crates/domain/src/inbox.rs`, and the seed uses the same one over the history event's id.
 
 **Why a client never names an object.** A name is an object: any string the client could choose would create one, with its own storage and its own bill, and nothing would list it for the wipe. The sandbox id in every name comes from the signed session, so one visitor cannot address another's bakery. An aggregate's ULID is accepted only if the Sandbox's registry holds it. And because the registry is the one list of children, the wipe can delete everything a sandbox made. The site's lab wrote the same rule for the same reasons ([lab.md](https://github.com/IHaveASegway/website/blob/main/docs/lab.md#durable-object-rules), rule 8).
 
@@ -453,6 +466,8 @@ All of them live and die with the sandbox, so none needs pruning. A command and 
 
 **The seven `Schedule` days** are the seven open days from the birth date, skipping Mondays (the standard birth date, a Saturday, gives 2026-11-07, 11-08, then Tuesday 11-10 to Saturday 11-14, eight calendar days; born on a Monday or Tuesday the week starts on Tuesday). Each has the default capacities (6, 20 and 2), all 24 items' daily caps (30 to 200 a day, 1,720 across the menu) and the open orders whose slot falls on it as places: a pickup is a `slot` hold and a delivery a `window` hold, `held` for an order only placed and `reserved` for every other open state, with its lines summed per item. For seed 42 and birth date 2026-11-07 all 12 open orders land on the birth day (10 slots and 2 windows, 2 held and 10 reserved) and the other six days are empty (run on 2026-11-05). A test pins that every open order is on exactly one day and no day is over capacity for twelve pairs of seed and birth date. The seed gives a place no `expires_at`: the Worker sets the hold's expiry to the Order's `held_until`, 15 minutes after the later of the placement and the birth, in business time.
 
+**Resolved in PR 8 (2026-11-05).** `bakery_seed::history_envelopes` writes each history record as an `OrderClosed` envelope in the catalog's shape: `total_cents`, `refunded_cents: 0`, `lines` with `item` and `qty: u16`, and, because no `OrderPlaced` reaches Crm for a history order, the history-only `customer`, `kind`, `slot` (the record's `slot_start`) and `zone`. Its stream is `order:<sandbox>:<id>` at `seq` 1, its `at` and `recorded_at` are the slot's end (the pickup slot's 15 minutes, the delivery window's 2 hours), since an order closes after it is fulfilled and never before, and its `cause` is `seed:<seed>`. The event id is derived from the order id, so no draw is added and no pinned value moved. `bakery_seed::seed_messages` writes the Inbox's 240 messages: the receipts of the 240 most recent history orders, delivered at placement, with ids from the Inbox's own rule and opens and clicks from the seed.
+
 **Simulated traffic starts stopped.** No `Simulator` exists at seed; a signed-in visitor's first "Start traffic" registers one (Q40 · Q-traffic).
 
 **Approximate rows written at seed**, for [cost.md](cost.md), which prices the same table:
@@ -489,6 +504,17 @@ A sandbox now seeds 33 children in five batches of 7 (`workers/api/src/objects/s
 - **A reminder already due at birth fires on the first alarm.** The quoted event's follow-up, or an old invoice's due reminder, may be due when the sandbox is born.
 
 The row estimates above were not measured again: the Schedule is now 10 objects, not 7, and a CateringEvent's rows depend on the commands replayed. Spike S5 measures the real figure.
+
+**As built in PR 8 (2026-11-05).** The tables above were written before the code, and these are the differences it showed (`bakery_seed` and `workers/api/src/objects/sandbox.rs`):
+
+- **35 children in five batches of 7,** where the diagram and the table say 34 objects: the Catalog, the Kitchen, `Billing`, `Crm` and the `Inbox`, then the 7 `Schedule` days, the 12 open orders, the 8 catering events and the 3 catering days. Crm and the Inbox are seeded before the orders, not last, because a seeded paid order's `LoyaltyPointsEarned` would otherwise reach a Crm that does not exist yet and be lost. The `Customer` objects are still created on first touch, and seeding touches some (a seeded paid order's `OrderPaid` reaches its customer), so `children` ends above 35; the smoke scripts assert `>= 35` where they asserted 33, and the count at the end is not a constant of the seed.
+- **The history is 722 `OrderClosed` events for seed 42** (714 for seed 8), as the pin `PINNED_HISTORY_LEN` says, where the text above says about 720. `history_envelopes` writes them with the event at the slot's end, as the paragraph above says. The 240 messages are the receipts of the 240 most recent history orders by slot, delivered at the payment's time and not at placement as that paragraph says; their ids come from the Inbox's rule ([identifiers](#identifiers)).
+- **What is kept in Crm:** the roster, which is the 60 personas' display names, home zones, consent flags and opening points, as reference data no event carries, so that a rebuild keeps it; the log of applied events; and the projection. A persona's loyalty balance is its opening points plus every `LoyaltyPointsEarned`, and Crm does not recount the history.
+- **Seeded engagement:** an open or a click of a seeded message that falls before the sandbox's birth is written into the message; one still ahead would get a timer in the Inbox. For seeds 42 and 8 none is ahead, so the Inbox's seeding armed no timer, and `scripts/smoke-crm.sh` counted 111 of 240 opened and 38 clicked for seed 8, the same in two sandboxes. The Rows column above for Crm (942) and the Inbox (241) is the estimate; the real counts were not measured in this pull request (spike S5 measures them).
+- **A catering event's events** are not relayed by an outbox in the seed, so each seeded event's log is read right after it is seeded and handed to Crm and, for its facts only, to the Inbox. The seed's 240 messages are its history, so the seeded catering events make no new messages.
+
+
+## The principle map
 
 Where each Lab principle runs in Proof of Concept (Q33 · Q-principles). Every screen's tour links its lab page and its ADR, in the step that was the "How this works" drawer, and each lab page links back (Q32 · Q-links, Q41 · Q-tour).
 

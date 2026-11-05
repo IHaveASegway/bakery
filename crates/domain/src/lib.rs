@@ -16,6 +16,10 @@
 //!   reservation"), and its production plan.
 //! - [`clock`]: how far each `AdvanceClock` step moves the business clock.
 //! - [`outbox`]: envelopes, outbox rows and the `commands_seen` rule.
+//! - [`customer`]: the Customer, hosted by `Customer` per persona: consent and loyalty.
+//! - [`crm`]: Crm's projection (customers, timelines, activity, leads, campaign stats, the
+//!   rebuild), its segments, and the campaigns it hosts (docs/domain.md, "Campaign").
+//! - [`inbox`]: the Inbox projection, its message templates and the simulated engagement.
 
 pub mod aggregate;
 pub mod calendar;
@@ -24,10 +28,13 @@ pub mod billing;
 pub mod catalog;
 pub mod catering;
 pub mod clock;
+pub mod crm;
+pub mod customer;
 mod envelope;
 mod error;
 mod free_text;
 mod id;
+pub mod inbox;
 pub mod kitchen;
 mod money;
 pub mod order;

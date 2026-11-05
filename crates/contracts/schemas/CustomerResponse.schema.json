@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CustomerResponse",
+  "description": "`GET /v1/sandboxes/{id}/customers/{cid}`, and the answer to a consent change: one persona as\nCrm's projection holds it. Every field is synthetic; there is no contact of any kind.",
+  "type": "object",
+  "properties": {
+    "catering": {
+      "description": "Catering inquiries.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "customer": {
+      "description": "The customer's ULID.",
+      "type": "string"
+    },
+    "display_name": {
+      "description": "Two generic words, such as `Drizzle Trowel`.",
+      "type": "string"
+    },
+    "home_zone": {
+      "description": "`z1` to `z3`.",
+      "type": "string"
+    },
+    "last_order_at": {
+      "description": "The latest such order's slot, a business time.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "loyalty_points": {
+      "description": "Loyalty points: one per whole dollar paid, less refunds; never below zero.",
+      "type": "integer",
+      "format": "int64"
+    },
+    "marketing": {
+      "description": "Consent to marketing: a campaign goes only to customers for whom it is true at the send.",
+      "type": "boolean"
+    },
+    "orders": {
+      "description": "Orders paid, or closed in the seed's history, and not cancelled.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "place": {
+      "description": "`p1` to `p64`, a map label: the only address there is.",
+      "type": "string"
+    },
+    "preferences": {
+      "description": "One to three item slugs.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "customer",
+    "display_name",
+    "preferences",
+    "home_zone",
+    "place",
+    "marketing",
+    "loyalty_points",
+    "orders",
+    "catering"
+  ]
+}
