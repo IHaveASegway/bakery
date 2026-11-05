@@ -37,6 +37,8 @@ const RULES = [
   'over-capacity',
   'stop-missing',
   'no-plan',
+  'published',
+  'idempotency-key',
 ] as const;
 
 describe('the rule in a dispatch problem', () => {
@@ -59,6 +61,52 @@ describe('the rule in a dispatch problem', () => {
   test('a slug inside another word is not a rule', () => {
     expect(ruleOf('canvassing')).toBeNull();
     expect(ruleOf(null)).toBeNull();
+  });
+});
+
+describe('the refusals a publish and a completion can meet', () => {
+  test('published says a van has left, and a 409 shows that sentence', () => {
+    const sentence = 'A van has already left with this plan, so today’s plan cannot be replaced.';
+    expect(sentenceFor('published')).toBe(sentence);
+    expect(describeDispatchError(error(409, 'dispatch', 'The rule is published.'))).toEqual({
+      title: 'Refused',
+      detail: sentence,
+    });
+  });
+
+  test.each([
+    ['no-plan', 'The rule is no-plan.'],
+    ['stop-missing', 'The rule is stop-missing.'],
+    ['place-unknown', 'The rule is place-unknown.'],
+    ['stop-unknown', 'The rule is stop-unknown.'],
+  ])('%s has its own sentence for a 409 or 422 with the Worker’s detail', (rule, detail) => {
+    const sentence = sentenceFor(rule);
+    expect(sentence).toEqual(expect.any(String));
+    for (const status of [409, 422]) {
+      expect(describeDispatchError(error(status, 'dispatch', detail)).detail).toBe(sentence);
+    }
+  });
+
+  test('a completion with no published plan is a 409 no-plan that says to publish first', () => {
+    expect(describeDispatchError(error(409, 'dispatch', 'The rule is no-plan.')).detail).toContain(
+      'publish a plan before completing a stop',
+    );
+  });
+
+  test('a reused key is the router’s 422 idempotency-key, found by its slug or its detail', () => {
+    const sentence = sentenceFor('idempotency-key');
+    expect(sentence).toContain('different details');
+    expect(
+      describeDispatchError(
+        error(
+          422,
+          'idempotency-key',
+          'This Idempotency-Key was used for a different request. Send a new key with each new request.',
+          'This Idempotency-Key was already used',
+        ),
+      ),
+    ).toEqual({ title: 'This Idempotency-Key was already used', detail: sentence });
+    expect(ruleOfError(error(422, 'idempotency-key'))).toBe('idempotency-key');
   });
 });
 

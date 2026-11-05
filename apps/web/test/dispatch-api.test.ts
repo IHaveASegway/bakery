@@ -10,6 +10,7 @@ import {
 } from '../src/lib/api';
 import { KeyedAction } from '../src/lib/crm';
 import { fakeFetch, json, problem } from './support';
+import { describeDispatchError, sentenceFor } from '../src/lib/dispatch-errors';
 import { day, orderId, plan, stop } from './dispatch-support';
 
 const SANDBOX = '01JC8YV2D4QK7S1M9E3PZ6W8AN';
@@ -99,6 +100,44 @@ describe('what the API refuses with', () => {
       [409, 'dispatch', 'no-plan'],
       [422, 'dispatch', 'stop-unknown'],
     ]);
+  });
+});
+
+describe('what the page shows for a publish or a completion the Worker refuses', () => {
+  // The page's `act` leaves the day it holds as it was when a call throws, and shows the message
+  // below; these are the throws the Worker sends (workers/api/src/http/dispatch.rs).
+  test('a 409 published on publish is the sentence about the van that has left', async () => {
+    fake = fakeFetch([
+      problem(409, 'dispatch', 'Dispatch refused', { detail: 'The rule is published.' }),
+    ]);
+    const error = await publishDispatch(SANDBOX, DATE, { plan: 'submitted' }, KEY).catch(
+      (e: unknown) => e,
+    );
+    expect((error as ApiError).status).toBe(409);
+    expect(describeDispatchError(error)).toEqual({
+      title: 'Dispatch refused',
+      detail: 'A van has already left with this plan, so today’s plan cannot be replaced.',
+    });
+  });
+
+  test('a 409 no-plan on complete says to publish first', async () => {
+    fake = fakeFetch([
+      problem(409, 'dispatch', 'Dispatch refused', { detail: 'The rule is no-plan.' }),
+    ]);
+    const error = await completeStop(SANDBOX, DATE, { stop: 1 }, KEY).catch((e: unknown) => e);
+    expect(describeDispatchError(error).detail).toBe(sentenceFor('no-plan'));
+    expect(describeDispatchError(error).detail).toContain('publish a plan');
+  });
+
+  test('a key reused with another body is a 422 idempotency-key with its sentence', async () => {
+    fake = fakeFetch([
+      problem(422, 'idempotency-key', 'This Idempotency-Key was already used', {
+        detail:
+          'This Idempotency-Key was used for a different request. Send a new key with each new request.',
+      }),
+    ]);
+    const error = await submitPlan(SANDBOX, DATE, { vans: [] }, KEY).catch((e: unknown) => e);
+    expect(describeDispatchError(error).detail).toBe(sentenceFor('idempotency-key'));
   });
 });
 

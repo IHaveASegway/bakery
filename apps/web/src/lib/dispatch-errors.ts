@@ -1,9 +1,11 @@
 // Words for what the dispatch routes refuse with. A refused dispatch step is a 409 or 422 problem
 // `dispatch` whose `detail` names the rule as a whole word: for a proposal `vans`, `capacity`,
 // `no-stops` or `place-unknown`; for the browser's plan `route-ends`, `vans`, `stop-unknown`,
-// `stop-twice`, `over-capacity` or `stop-missing`; for a publish `no-plan` or `stop-missing`; for a
-// completion `no-plan` or `stop-unknown`. A day outside the sandbox's days is a 404 `no-such-day`,
-// and a staff action as a guest is a 403 `guest-scope`. The sentences name the rule and nothing a
+// `stop-twice`, `over-capacity` or `stop-missing`; for a publish, always a 409, `no-plan`,
+// `stop-missing` or `published` (a van has left); for a completion `no-plan` or `stop-unknown`.
+// A day outside the sandbox's days is a 404 `no-such-day`, a staff action as a guest is a 403
+// `guest-scope`, and a key reused with another body is a 422 `idempotency-key` (the router's, whose
+// detail says "Idempotency-Key", so the slug is found in it as a whole word too). The sentences name the rule and nothing a
 // visitor typed: every value here is chosen from a list or is a number the page checks.
 import { ApiError } from './api';
 import { describeError, type Message } from './messages';
@@ -21,7 +23,11 @@ const SENTENCES: Record<string, string> = {
   'over-capacity': 'A van in that plan carries more than its capacity, so it was refused.',
   'stop-missing':
     'That plan leaves a confirmed stop out, so it cannot be used. Raise the vans or the capacity and plan again.',
-  'no-plan': 'There is no plan of that kind to use yet. Propose or plan first.',
+  'no-plan':
+    'There is no plan of that kind to use yet. Propose or plan first, and publish a plan before completing a stop.',
+  published: 'A van has already left with this plan, so today’s plan cannot be replaced.',
+  'idempotency-key':
+    'That request reused an earlier request’s key with different details, so it was refused. Try the action again.',
   'no-such-day': 'The sandbox has no dispatch for that day. Choose one of the days listed.',
   'guest-scope':
     'Guests can look at dispatch. Sign in to propose, plan, publish or complete a stop.',

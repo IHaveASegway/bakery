@@ -88,7 +88,8 @@ function reduce(state: KitchenState, event: Event): KitchenState {
               cards[order] = { ...card, cause: before.cause, last: before.last };
             }
           }
-          return { ...state, board: { ...frame.board, cards } };
+          // The Kitchen keeps its published-plan versions across a snapshot, and so does the page.
+          return { ...state, board: { ...frame.board, cards, routes: state.board.routes } };
         }
         case 'evt':
           return {

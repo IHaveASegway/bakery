@@ -1,4 +1,11 @@
-import { actionFor, bakeListsByDate, groupByState, isSimulated, type Card } from '../lib/kitchen';
+import {
+  actionFor,
+  bakeListsByDate,
+  groupByState,
+  isSimulated,
+  routeWords,
+  type Card,
+} from '../lib/kitchen';
 import { dateOf, mountainLocal } from '../lib/slots';
 import { useKitchen, type Command } from '../lib/use-kitchen';
 import BakeList from './BakeList';
@@ -36,7 +43,7 @@ function commandText(c: Command): string {
   }
 }
 
-function CardView({
+export function CardView({
   card,
   sandboxId,
   canAct,
@@ -52,6 +59,7 @@ function CardView({
   onRefunded: () => void;
 }) {
   const action = actionFor(card);
+  const route = routeWords(card);
   return (
     <li className="card">
       <p>
@@ -65,6 +73,7 @@ function CardView({
           </li>
         ))}
       </ul>
+      {route !== null && <p>{route}</p>}
       {card.note && <p>Note: {card.note}</p>}
       {(card.last || card.cause) && (
         <p className="hint">
