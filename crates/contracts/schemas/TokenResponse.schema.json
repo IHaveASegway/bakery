@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TokenResponse",
+  "description": "`POST /v1/sandboxes/{id}/token` (issue, or issue again at the same version) and\n`POST /v1/sandboxes/{id}/token/rotate` (the Sandbox's token version goes up, `ApiTokenRotated`\nis appended, and every token naming an older version stops at once): the token, shown this\nonce. It is never stored, logged, put in an event or printed by this type's `Debug`; the\nconsole holds it in memory to copy it.",
+  "type": "object",
+  "properties": {
+    "expires_at": {
+      "description": "24 h after `issued_at`, a wall time; the sandbox's wipe ends it sooner.",
+      "type": "string"
+    },
+    "issued_at": {
+      "description": "A wall time, such as `2026-11-05T12:00:00.000Z`.",
+      "type": "string"
+    },
+    "token": {
+      "description": "For `Authorization: Bearer <token>`: `<payload>.<mac>`, both base64url, signed like the\nsession cookie. Never in a URL: a token in a query string is refused with 400.",
+      "type": "string"
+    },
+    "token_v": {
+      "description": "The Sandbox's token version the token names.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "token",
+    "token_v",
+    "issued_at",
+    "expires_at"
+  ]
+}

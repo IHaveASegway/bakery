@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "InboxResponse",
-  "description": "`GET /v1/sandboxes/{id}/inbox`: the newest messages first, and how many there are in all.\nThe customer persona sees its own; staff see every customer's.",
+  "description": "`GET /v1/sandboxes/{id}/inbox`: the newest messages first, and how many there are in all.\n`?kind=` keeps one kind, `?to=` one customer's, `?limit=` the newest that many (50 when left\nout).\nThe customer persona sees its own; staff see every customer's.",
   "type": "object",
   "properties": {
     "messages": {
@@ -40,7 +40,7 @@
       ]
     },
     "MessageResponse": {
-      "description": "One message in the sandbox's inbox.",
+      "description": "One message in the sandbox's inbox, and `GET /v1/sandboxes/{id}/inbox/{mid}`.",
       "type": "object",
       "properties": {
         "body": {

@@ -10,7 +10,7 @@
 export type LeadStage = ('inquiry' | 'quoted' | 'accepted' | 'closed') | 'won' | 'lost';
 
 /**
- * `GET /v1/sandboxes/{id}/crm/leads`: every stage, in order, with its catering events.
+ * `GET /v1/sandboxes/{id}/leads`: every stage, in order, with its catering events.
  */
 export interface LeadPipelineResponse {
   stages: LeadStageView[];

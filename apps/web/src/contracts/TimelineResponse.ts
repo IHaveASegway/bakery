@@ -6,7 +6,7 @@
 
 /**
  * `GET /v1/sandboxes/{id}/customers/{cid}/timeline`: the customer's events in business-time
- * order. While a rebuild runs the timeline is partial; `GET .../crm/rebuild` says so.
+ * order. While a rebuild runs the timeline is partial; `GET .../rebuild` says so.
  */
 export interface TimelineResponse {
   customer: string;

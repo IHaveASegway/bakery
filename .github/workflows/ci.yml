@@ -84,6 +84,8 @@ jobs:
       - run: cargo test --workspace --locked
       - name: Licenses, advisories, bans and sources (cargo deny)
         run: cargo deny check
+      - name: The OpenAPI document is the route table's and the schemas' (apps/web/public/docs/api/openapi.json)
+        run: cargo run -q --locked -p bakery-contracts --bin openapi -- --check
       # The API's bundle: built once here from scanned source, scanned by firewall, never committed
       - name: Build the API's WebAssembly (worker-build)
         working-directory: workers/api

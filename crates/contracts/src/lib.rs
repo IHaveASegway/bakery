@@ -3,9 +3,15 @@
 //! Each type derives `serde` for the wire and `schemars::JsonSchema` for the web app: the
 //! `export-schemas` binary writes one JSON Schema per type into `schemas/`, the web build turns
 //! those into TypeScript, and a test fails when the committed schemas are stale.
+//!
+//! [`routes::ROUTES`] is the route table as data, and [`openapi`] builds the OpenAPI document
+//! from it and the schemas (crates/contracts/README.md has the commands).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+
+pub mod openapi;
+pub mod routes;
 
 /// `GET /v1/health`: the Worker answers, and which build it is. Touches no object.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1097,7 +1103,7 @@ pub struct TimelineEntry {
 }
 
 /// `GET /v1/sandboxes/{id}/customers/{cid}/timeline`: the customer's events in business-time
-/// order. While a rebuild runs the timeline is partial; `GET .../crm/rebuild` says so.
+/// order. While a rebuild runs the timeline is partial; `GET .../rebuild` says so.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TimelineResponse {
@@ -1257,7 +1263,7 @@ pub enum MessageKind {
     Campaign,
 }
 
-/// One message in the sandbox's inbox.
+/// One message in the sandbox's inbox, and `GET /v1/sandboxes/{id}/inbox/{mid}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MessageResponse {
@@ -1281,6 +1287,8 @@ pub struct MessageResponse {
 }
 
 /// `GET /v1/sandboxes/{id}/inbox`: the newest messages first, and how many there are in all.
+/// `?kind=` keeps one kind, `?to=` one customer's, `?limit=` the newest that many (50 when left
+/// out).
 /// The customer persona sees its own; staff see every customer's.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1312,7 +1320,7 @@ pub struct LeadStageView {
     pub events: Vec<String>,
 }
 
-/// `GET /v1/sandboxes/{id}/crm/leads`: every stage, in order, with its catering events.
+/// `GET /v1/sandboxes/{id}/leads`: every stage, in order, with its catering events.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LeadPipelineResponse {
@@ -1330,8 +1338,9 @@ pub struct ActivityEntry {
     pub summary: String,
 }
 
-/// `GET /v1/sandboxes/{id}/crm/activity`: the sandbox's logged events (clock moves, faults,
-/// menu and capacity changes, payment intents, routes, traffic), in business-time order.
+/// `GET /v1/sandboxes/{id}/activity`: the sandbox's logged events (clock moves, faults,
+/// menu and capacity changes, payment intents, routes, traffic, token rotations), newest first;
+/// `?limit=` keeps the newest that many.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ActivityResponse {
@@ -1346,9 +1355,10 @@ pub enum RebuildState {
     Finished,
 }
 
-/// `GET /v1/sandboxes/{id}/crm/rebuild`, and `202` from `POST` to it, staff only (a guest gets
-/// `403` `guest-scope`): "Rebuild projections" drops Crm's projections and replays its log, 200
-/// events per alarm. A `POST` while one runs answers `202` with its progress and starts nothing.
+/// `GET /v1/sandboxes/{id}/rebuild`, which any session of the sandbox reads, and `202` from
+/// `POST` to it, staff only (a guest gets `403` `guest-scope`): "Rebuild projections" drops
+/// Crm's projections and replays its log, 200 events per alarm. A `POST` while one runs is `409`
+/// problem of type `rebuild` and starts nothing; `GET` says how far the running one is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RebuildResponse {
@@ -1455,8 +1465,8 @@ pub struct ComparisonView {
     pub gap_percent: Option<f64>,
 }
 
-/// `GET /v1/sandboxes/{id}/dispatch/{date}`, staff only, and the answer to every dispatch
-/// command: one bakery day's stops and plans. It mirrors the Dispatch aggregate's state.
+/// `GET /v1/sandboxes/{id}/dispatch/{date}`, which any session of the sandbox reads, and the
+/// answer to every dispatch command, which are staff only: one bakery day's stops and plans. It mirrors the Dispatch aggregate's state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DispatchResponse {
@@ -1578,6 +1588,59 @@ pub struct MatrixResponse {
     pub minutes: Vec<Vec<u32>>,
 }
 
+// ---------------------------------------------------------------------------------------------
+// The sandbox's API token (PR 10; docs/security.md, "The API token"). Signed-in sessions only: a
+// guest gets 403 `guest-scope`. Issuing and rotating take the cookie, never a token.
+// ---------------------------------------------------------------------------------------------
+
+/// `POST /v1/sandboxes/{id}/token` (issue, or issue again at the same version) and
+/// `POST /v1/sandboxes/{id}/token/rotate` (the Sandbox's token version goes up, `ApiTokenRotated`
+/// is appended, and every token naming an older version stops at once): the token, shown this
+/// once. It is never stored, logged, put in an event or printed by this type's `Debug`; the
+/// console holds it in memory to copy it.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TokenResponse {
+    /// For `Authorization: Bearer <token>`: `<payload>.<mac>`, both base64url, signed like the
+    /// session cookie. Never in a URL: a token in a query string is refused with 400.
+    pub token: String,
+    /// The Sandbox's token version the token names.
+    pub token_v: u32,
+    /// A wall time, such as `2026-11-05T12:00:00.000Z`.
+    pub issued_at: String,
+    /// 24 h after `issued_at`, a wall time; the sandbox's wipe ends it sooner.
+    pub expires_at: String,
+}
+
+impl std::fmt::Debug for TokenResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenResponse")
+            .field("token_v", &self.token_v)
+            .field("issued_at", &self.issued_at)
+            .field("expires_at", &self.expires_at)
+            .finish_non_exhaustive()
+    }
+}
+
+/// `GET /v1/sandboxes/{id}/token`: what the console shows about the token without the token.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TokenInfoResponse {
+    /// The Sandbox's token version: a token naming an older one is refused.
+    pub token_v: u32,
+    /// When the last token at this version was issued, a wall time; absent before the first
+    /// issue and after a rotation until the next.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issued_at: Option<String>,
+    /// When that token stops being accepted, a wall time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    /// That token's first 6 and last 4 characters around `…`, such as `eyJ2Ij…x7Qk`: enough
+    /// to tell two tokens apart, never enough to use one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub masked: Option<String>,
+}
+
 /// Every exported schema as `(file name, pretty JSON with a trailing newline)`, in a fixed
 /// order. The binary writes these bytes and the test compares them.
 pub fn schemas() -> Vec<(&'static str, String)> {
@@ -1682,6 +1745,12 @@ pub fn schemas() -> Vec<(&'static str, String)> {
             render::<CompleteStopRequest>(),
         ),
         ("MatrixResponse.schema.json", render::<MatrixResponse>()),
+        ("MessageResponse.schema.json", render::<MessageResponse>()),
+        ("TokenResponse.schema.json", render::<TokenResponse>()),
+        (
+            "TokenInfoResponse.schema.json",
+            render::<TokenInfoResponse>(),
+        ),
     ]
 }
 

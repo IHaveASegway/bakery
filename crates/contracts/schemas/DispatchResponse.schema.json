@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "DispatchResponse",
-  "description": "`GET /v1/sandboxes/{id}/dispatch/{date}`, staff only, and the answer to every dispatch\ncommand: one bakery day's stops and plans. It mirrors the Dispatch aggregate's state.",
+  "description": "`GET /v1/sandboxes/{id}/dispatch/{date}`, which any session of the sandbox reads, and the\nanswer to every dispatch command, which are staff only: one bakery day's stops and plans. It mirrors the Dispatch aggregate's state.",
   "type": "object",
   "properties": {
     "capacity": {
