@@ -6,6 +6,7 @@ import { describeCrmError } from '../lib/crm-errors';
 import { type Message as Text } from '../lib/messages';
 import GuestNote from './GuestNote';
 import Message from './Message';
+import { HOW } from '../tour/how';
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -87,7 +88,7 @@ export default function Rebuild({
   const percent = state === null ? 0 : rebuildPercent(state);
 
   return (
-    <section aria-labelledby="rebuild-heading">
+    <section aria-labelledby="rebuild-heading" data-tour="crm-rebuild">
       <h3 id="rebuild-heading">Rebuild projections</h3>
       <p>
         <button
@@ -108,13 +109,7 @@ export default function Rebuild({
           {percent}%. {rebuildSays(state)}
         </p>
       )}
-      <p className="hint">
-        How this works: the customer list, the timelines, the segments and the campaign stats are
-        projections of the event log, so they are disposable and the log is not. A rebuild empties
-        them, sets a cursor at the start of the log and replays 200 events at a time. Commands keep
-        working while it runs, and the result is the same bytes it was before. This is the Backfill
-        Lab’s principle in production code.
-      </p>
+      <p className="hint">How this works: {HOW.rebuild}</p>
     </section>
   );
 }

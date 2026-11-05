@@ -12,6 +12,7 @@ import {
 import { describeError, type Message as Text } from '../lib/messages';
 import GuestNote from './GuestNote';
 import Message from './Message';
+import { HOW } from '../tour/how';
 
 /**
  * Time travel: the business clock shown live, and four steps that move it forward. Business time
@@ -70,7 +71,7 @@ export default function ClockControl({
 
   return (
     <>
-      <h3>Clock</h3>
+      <h3 data-tour="controls-clock">Clock</h3>
       <p>
         Business time is{' '}
         <strong>
@@ -95,18 +96,7 @@ export default function ClockControl({
       </p>
       {isGuest && <GuestNote />}
       <Message error={error}>{said && <p className="hint">{said}</p>}</Message>
-      <p className="hint">
-        How this works: business time is the wall clock plus an offset that the Sandbox keeps and
-        hands to every object, and each object re-works its timers from it. A step grows the offset;
-        each click carries its own Idempotency-Key, so a repeated request moves the clock once. It
-        moves: order expiries (an unpaid order lasts 15 minutes of business time), slot dates, the
-        bake list’s day, and as they arrive catering lead times and reminders, invoice due dates,
-        campaign schedules and simulated opens, and the time written on new events. It does not
-        move: the platform’s alarms (they run on the wall clock and are set again when the clock
-        moves), the nightly wipe and its 36-hour backstop, cookies, Turnstile tokens, Stripe’s
-        timestamps and webhook tolerance, the daily traffic ledger, the recording time on events,
-        and logs.
-      </p>
+      <p className="hint">How this works: {HOW.clock}</p>
     </>
   );
 }

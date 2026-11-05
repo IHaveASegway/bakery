@@ -2,12 +2,16 @@
 import '../styles/global.css';
 import tokensCss from '../styles/tokens.css?raw';
 import { chromeColor } from '../lib/tokens';
+import Tour from '../components/Tour';
+import type { ScreenId } from '../lib/tour';
 
 interface Props {
   title: string;
   description: string;
+  /** The screen whose guided tour the page carries; a page with none (the 404) has no tour. */
+  screen?: ScreenId;
 }
-const { title, description } = Astro.props;
+const { title, description, screen } = Astro.props;
 
 // The browser chrome takes the page's background: one theme-color meta per OS scheme, read from
 // tokens.css at build so no second copy of a color exists. There is no inline script, so the
@@ -35,5 +39,6 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
     <main>
       <slot />
     </main>
+    {screen && <Tour screen={screen} client:idle />}
   </body>
 </html>

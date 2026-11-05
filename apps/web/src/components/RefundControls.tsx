@@ -74,7 +74,7 @@ export default function RefundControls({
     });
 
   return (
-    <div className="refunds">
+    <div className="refunds" data-tour="kitchen-refund">
       <p className="actions">
         <button
           type="button"

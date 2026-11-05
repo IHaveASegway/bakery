@@ -17,6 +17,7 @@ import { useCustomers } from '../lib/use-customers';
 import { useSandboxPhase } from '../lib/use-session';
 import Message from './Message';
 import StatusLine from './StatusLine';
+import { HOW } from '../tour/how';
 
 /** The default the API applies, asked for by name so the page and the count agree. */
 const LIMIT = 50;
@@ -87,7 +88,7 @@ export default function Inbox() {
       <StatusLine phase={phase} />
       {sandboxId !== null && (
         <>
-          <p>
+          <p data-tour="inbox-list">
             <label htmlFor="inbox-kind">Show</label>
             <select id="inbox-kind" value={kind} onChange={(e) => setKind(e.target.value)}>
               <option value={ALL_KINDS}>All messages</option>
@@ -149,7 +150,7 @@ export default function Inbox() {
             </>
           )}
           {open && (
-            <section aria-labelledby="message-heading">
+            <section aria-labelledby="message-heading" data-tour="inbox-message">
               <h2 id="message-heading">{open.subject}</h2>
               <p className="hint">
                 {kindLabel(open.kind)} to {recipientName(names, open.to)}, delivered{' '}
@@ -160,13 +161,7 @@ export default function Inbox() {
           )}
         </>
       )}
-      <p className="hint">
-        How this works: every message the bakery sends lands here, because the system holds no email
-        address for anyone and so cannot send one anywhere else. A message is addressed to a
-        customer, and the name shown is that persona’s made-up display name. Opens and clicks are
-        simulated by the inbox’s own alarms from the seed, a little under half opened and a third of
-        those clicked; nobody opens anything, and this page never makes one happen.
-      </p>
+      <p className="hint">How this works: {HOW.inbox}</p>
     </>
   );
 }

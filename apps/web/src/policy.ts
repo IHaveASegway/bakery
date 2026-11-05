@@ -9,7 +9,8 @@
   reading the privacy page loads nothing from Cloudflare. Pages that create a sandbox or an account
   (/signin/ now, /app/ because it can create a sandbox too) are the challenge class: they add
   Turnstile's origin to script-src and frame-src, and nothing else. Pages with an island but no
-  third party (/menu/ and /inbox/) are the island class: the strict policy plus the hashes below. The checkout
+  third party (/menu/ and /inbox/, and since the tour the start page, /privacy/ and /docs/api/) are
+  the island class: the strict policy plus the hashes below. The checkout
   (/checkout/) and the catering page (/catering/) are the payment class, the island class plus the
   three Stripe origins the Payment Element needs: its script, its frames (3-D Secure included) and
   its API. No other page names a Stripe origin, and these two load Stripe.js only once an order has
@@ -20,7 +21,7 @@
   page with a hydrated island: the <astro-island> definition script and a one-rule style. So every
   page of the challenge and island classes allows those by SHA-256 hash, read from the built HTML
   by scripts/inline-hashes.mjs, and never by 'unsafe-inline' or 'unsafe-eval'. Pages with no
-  island, which are all the others, get no hash.
+  island, which is the 404 alone since the tour, get no hash.
 
   The dispatch screen (/app/dispatch/) is a fifth class, the challenge class plus worker-src 'self'
   so its module Web Worker can load. The solver that worker runs sits in /app/dispatch/solver/,
@@ -129,8 +130,13 @@ export const SOLVER_PATH = '/app/dispatch/solver/*';
 export const SOLVER_CSP =
   "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
-/** Pages with a hydrated island and no third party: the menu and the inbox. */
-export const ISLAND_PATHS = ['/menu/*', '/inbox/*'];
+/**
+ * Pages with a hydrated island and no third party: the menu and the inbox, and since PR 10 the
+ * start page, the privacy page and the API reference, which carry the guided tour (components/Tour.tsx)
+ * and nothing else. `/` is the start page alone: Cloudflare's rule for a path with no splat matches
+ * that path only.
+ */
+export const ISLAND_PATHS = ['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/'];
 
 /** Pages that load Stripe: the checkout's payment step and the catering page's deposit step. */
 export const PAYMENT_PATHS = ['/checkout/*', '/catering/*'];
@@ -190,7 +196,7 @@ export function headersFile(apiOrigin: string, hashes: Record<string, Hashes> = 
   );
   for (const path of ISLAND_PATHS) {
     lines.push(
-      '# The menu and the inbox hold an island and load nothing from a third party.',
+      '# These pages hold an island (the menu, the inbox, the tour) and load nothing from a third party.',
       path,
       '  ! Content-Security-Policy',
       `  Content-Security-Policy: ${csp('island', apiOrigin, of(path))}`,

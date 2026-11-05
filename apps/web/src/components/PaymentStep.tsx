@@ -57,7 +57,7 @@ export default function PaymentStep({
   }
 
   return (
-    <section aria-labelledby="pay-heading">
+    <section aria-labelledby="pay-heading" data-tour="checkout-pay">
       <h2 id="pay-heading">Pay for your order</h2>
       <dl className="totals">
         <dt>Order</dt>

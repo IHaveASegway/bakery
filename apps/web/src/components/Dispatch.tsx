@@ -333,7 +333,7 @@ export default function Dispatch() {
   const picked = day?.[publish] ?? null;
 
   return (
-    <section>
+    <section data-tour="dispatch-root">
       <p>
         <label htmlFor="dispatch-day">Day</label>
         <select
@@ -426,6 +426,7 @@ export default function Dispatch() {
           </p>
           <form
             aria-label="Propose a plan"
+            data-tour="dispatch-propose"
             onSubmit={(e) => {
               e.preventDefault();
               propose();
@@ -470,7 +471,7 @@ export default function Dispatch() {
             <p className="hint">No proposal yet for this day.</p>
           )}
 
-          <h2>Browser’s plan</h2>
+          <h2 data-tour="dispatch-plan">Browser’s plan</h2>
           <p>
             VROOM, a vehicle routing solver, can plan the same stops in this browser. It loads when
             you first press the button, runs in a Web Worker, and sends the stops of each van to the
@@ -520,6 +521,7 @@ export default function Dispatch() {
           </p>
           <form
             aria-label="Publish a plan"
+            data-tour="dispatch-publish"
             onSubmit={(e) => {
               e.preventDefault();
               publishPlan();
@@ -560,7 +562,7 @@ export default function Dispatch() {
                 plan={published}
                 title={`Published plan, version ${published.plan_v}, made by the ${published.source}`}
               />
-              <h3>Stop completion</h3>
+              <h3 data-tour="dispatch-complete">Stop completion</h3>
               {todo.length === 0 ? (
                 <p className="hint">Every stop of the published plan is delivered.</p>
               ) : (

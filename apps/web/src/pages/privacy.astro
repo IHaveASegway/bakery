@@ -5,13 +5,14 @@ import Base from '../layouts/Base.astro';
 <Base
   title="Privacy | Proof of Concept Bakery"
   description="What Proof of Concept Bakery receives, keeps and deletes, and when."
+  screen="privacy"
 >
   <h1>Privacy</h1>
   <p class="draft">
     <strong>Draft:</strong> this page is published with the launch pull request.
   </p>
 
-  <p class="lead">
+  <p class="lead" data-tour="privacy-lead">
     Every sandbox is deleted every night at 10:00 UTC, and Proof of Concept Bakery never asks for or
     stores your name, email, address or card.
   </p>
@@ -44,7 +45,13 @@ import Base from '../layouts/Base.astro';
   </ul>
 
   <h2>What is kept, and for how long</h2>
-  <div class="table-scroll" role="region" aria-label="Data the bakery keeps" tabindex="0">
+  <div
+    class="table-scroll"
+    role="region"
+    aria-label="Data the bakery keeps"
+    tabindex="0"
+    data-tour="privacy-table"
+  >
     <table>
       <thead>
         <tr>
@@ -100,7 +107,7 @@ import Base from '../layouts/Base.astro';
     </table>
   </div>
 
-  <h2>What “Wipe now” does</h2>
+  <h2 data-tour="privacy-wipe">What “Wipe now” does</h2>
   <p>
     It runs the night’s wipe for your sandbox alone, right away: the sandbox and everything it holds
     are deleted, and the bakery reports that to its own counter. The same 30 days of Cloudflare’s

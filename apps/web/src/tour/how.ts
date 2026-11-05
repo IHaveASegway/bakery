@@ -1,0 +1,20 @@
+// The "How this works" lines each screen carries, kept in one place so the screen and the first
+// step of its tour say the same words (docs/architecture.md, "The tour": the drawer is one of the
+// tour's steps). A component renders `How this works: ${HOW.x}`; a tour step's `what` is HOW.x.
+export const HOW = {
+  menuSeed:
+    'This is the demo’s seed menu, the one every new sandbox starts with. With a sandbox, the menu comes from its own Catalog through the API.',
+  bake: 'A bake list is a projection from events. The Schedule works out each day’s plan from the places that are paid for and sends it as BakeListChanged with a version; the board keeps the highest version it has seen for a day, so a late or repeated message changes nothing. The plan changes when a paid order lands, when a place is released, or when the clock moves to a new day.',
+  clock:
+    'Business time is the wall clock plus an offset that the Sandbox keeps and hands to every object, and each object re-works its timers from it. A step grows the offset; each click carries its own Idempotency-Key, so a repeated request moves the clock once. It moves: order expiries (an unpaid order lasts 15 minutes of business time), slot dates, the bake list’s day, and as they arrive catering lead times and reminders, invoice due dates, campaign schedules and simulated opens, and the time written on new events. It does not move: the platform’s alarms (they run on the wall clock and are set again when the clock moves), the nightly wipe and its 36-hour backstop, cookies, Turnstile tokens, Stripe’s timestamps and webhook tolerance, the daily traffic ledger, the recording time on events, and logs.',
+  campaigns:
+    'Scheduling puts a timer on the CRM object. When business time passes the send time, the timer fires and the CRM reads the segment as it is at that moment, keeps the customers whose marketing consent is true, freezes that list as the recipients and sends one message each to the inbox, keyed by campaign and customer. Recipients are frozen at send time: someone who opts out afterwards is still counted, and someone who opts in is not added. Consent is data the send reads, not a rule this page applies. The campaign sends once, however often the alarm fires: the second firing finds it already sent and does nothing. Opens and clicks are simulated from the seed; nobody clicks anything.',
+  dispatch:
+    'The server’s plan is a savings heuristic (Clarke and Wright, 1964), fast and good but not exact. The browser’s plan is VROOM, a modern solver that looks harder for a shorter plan. Neither is the record. The Dispatch object checks whichever plan is sent, works out its minutes from its own matrix, and decides what may be published. The Route Lab is where the solver is explained.',
+  catering:
+    'A catering event is a saga by alarm. Each step is one object’s transaction: the inquiry, the staff’s quote, your acceptance, the deposit’s webhook, the kitchen, the delivery and the balance invoice. Reminders are timers that fire when the sandbox’s clock passes them, so advance the clock in the console to see one. The deposit confirms the day’s place: until it is paid the place is only held, for 15 minutes of bakery time.',
+  inbox:
+    'Every message the bakery sends lands here, because the system holds no email address for anyone and so cannot send one anywhere else. A message is addressed to a customer, and the name shown is that persona’s made-up display name. Opens and clicks are simulated by the inbox’s own alarms from the seed, a little under half opened and a third of those clicked; nobody opens anything, and this page never makes one happen.',
+  rebuild:
+    'The customer list, the timelines, the segments and the campaign stats are projections of the event log, so they are disposable and the log is not. A rebuild empties them, sets a cursor at the start of the log and replays 200 events at a time. Commands keep working while it runs, and the result is the same bytes it was before. This is the Backfill Lab’s principle in production code.',
+} as const;

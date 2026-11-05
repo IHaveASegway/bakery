@@ -70,7 +70,7 @@ export default function MenuEditor({
 
   return (
     <>
-      <h3>Menu</h3>
+      <h3 data-tour="controls-menu">Menu</h3>
       <p>
         Version {menu?.version ?? '…'} is published. Changes wait as drafts until you publish; one
         publish makes a new version, and the next read of the menu misses the cache once.

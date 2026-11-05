@@ -13,6 +13,7 @@ import {
 import { formatCountdown, utcClock, utcStamp } from '../lib/countdown';
 import { describeError, type Message as Text } from '../lib/messages';
 import Activity from './Activity';
+import ApiToken from './ApiToken';
 import Campaigns from './Campaigns';
 import CapacityEditor from './CapacityEditor';
 import CateringQueue from './CateringQueue';
@@ -245,7 +246,7 @@ export default function Console() {
     <section>
       {header}
       <h3>Your sandbox</h3>
-      <dl>
+      <dl data-tour="console-sandbox">
         <dt>Sandbox</dt>
         <dd>
           <code>{sandbox.id}</code>
@@ -269,6 +270,7 @@ export default function Console() {
         </p>
       ) : (
         <>
+          <ApiToken sandboxId={sandbox.id} isGuest={isGuest} />
           <KitchenBoard
             sandboxId={sandbox.id}
             isGuest={isGuest}
@@ -313,7 +315,7 @@ export default function Console() {
             plan and VROOM’s side by side.
           </p>
 
-          <h3>Faults</h3>
+          <h3 data-tour="controls-faults">Faults</h3>
           <p>
             <label className="check">
               <input
@@ -361,7 +363,7 @@ export default function Console() {
       )}
 
       <h3>Sandbox actions</h3>
-      <p className="actions">
+      <p className="actions" data-tour="controls-actions">
         <button
           type="button"
           disabled={busy}

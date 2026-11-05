@@ -135,7 +135,7 @@ export default function KitchenBoard({
 
   return (
     <>
-      <h3>Kitchen board</h3>
+      <h3 data-tour="kitchen-board">Kitchen board</h3>
       <p aria-live="polite">{status}</p>
       <p className="hint">
         {kitchen.sockets === null

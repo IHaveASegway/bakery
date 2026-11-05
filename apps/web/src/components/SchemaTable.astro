@@ -1,0 +1,54 @@
+---
+// One schema as a table of its properties, or as the list of values it allows. Built from the
+// view model of lib/openapi.ts; a type that names a component links to that component's section.
+import type { SchemaView } from '../lib/openapi';
+import Spans from './Spans.astro';
+interface Props {
+  view: SchemaView;
+  /** Names the table for assistive technology. */
+  label: string;
+}
+const { view, label } = Astro.props;
+---
+
+{view.rows.length > 0 ? (
+  <div class="table-scroll" role="region" aria-label={label} tabindex="0">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Name</th>
+          <th scope="col">Type</th>
+          <th scope="col">Required</th>
+          <th scope="col">Limits</th>
+          <th scope="col">Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        {view.rows.map((row) => (
+          <tr>
+            <th scope="row">
+              <code>{row.name}</code>
+            </th>
+            <td>{row.ref ? <a href={`#schema-${row.ref}`}>{row.type}</a> : row.type}</td>
+            <td>{row.required ? 'yes' : 'no'}</td>
+            <td>{row.limits}</td>
+            <td>
+              <Spans spans={row.description} />
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+) : view.values.length > 0 ? (
+  <p>
+    One of:{' '}
+    {view.values.map((value, i) => (
+      <>
+        {i > 0 && ', '}
+        <code>{value}</code>
+      </>
+    ))}
+    .
+  </p>
+) : null}
