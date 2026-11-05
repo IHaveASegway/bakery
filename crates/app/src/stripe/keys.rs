@@ -122,27 +122,16 @@ mod tests {
 
     #[test]
     fn the_secret_key_guard_takes_sandbox_secret_and_restricted_keys_only() {
-        assert!(is_sandbox_secret_key(
-            "sk_test_not_a_key"
-        ));
-        assert!(is_sandbox_secret_key(
-            "rk_test_not_a_key"
-        ));
-        assert!(!is_sandbox_secret_key(
-            "pk_test_not_a_key"
-        ));
-        assert!(!is_sandbox_secret_key(
-            "whsec_not_a_secret"
-        ));
+        assert!(is_sandbox_secret_key("sk_test_not_a_key"));
+        assert!(is_sandbox_secret_key("rk_test_not_a_key"));
+        assert!(!is_sandbox_secret_key("pk_test_not_a_key"));
+        assert!(!is_sandbox_secret_key("whsec_not_a_secret"));
         assert!(!is_sandbox_secret_key(&other_mode("sk")));
         assert!(!is_sandbox_secret_key(&other_mode("rk")));
         assert!(!is_sandbox_secret_key(""));
         assert!(is_webhook_secret("whsec_not_a_secret"));
         assert!(!is_webhook_secret("sk_test_not_a_key"));
-        assert_eq!(
-            key_role("rk_test_not_a_key"),
-            Some(KeyRole::Restricted)
-        );
+        assert_eq!(key_role("rk_test_not_a_key"), Some(KeyRole::Restricted));
         assert_eq!(key_role("pk_test_not_a_key"), Some(KeyRole::Publishable));
         assert_eq!(key_role("nope"), None);
     }

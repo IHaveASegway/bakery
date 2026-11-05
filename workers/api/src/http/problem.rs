@@ -561,6 +561,70 @@ pub fn schedule(
     }
 }
 
+/// A refused catering inquiry (422) or step (409), by its slug (`CateringError::rule()`). The
+/// detail names the rule as a whole word, `The rule is <slug>.`, and never a value the visitor
+/// sent: a brief's refusal names the class it matched, never the text; `catering-lead` carries
+/// the domain's sentence, which names the 7-business-day rule and the earliest date.
+pub fn catering(status: u16, rule: &str, message: Option<&str>) -> Failure {
+    let sentence = match rule {
+        "headcount" => "A catering event is for 10 to 200 people.".to_owned(),
+        "unknown-package" => "The package is not one of pastry-platter, breakfast-spread, lunch-boxes or celebration-cake-and-coffee.".to_owned(),
+        "unknown-venue" => "The venue is not one of v1 to v6.".to_owned(),
+        "closed-day" => "The bakery is closed that day: it opens Tuesday to Sunday.".to_owned(),
+        "catering-lead" => match message {
+            Some(m) => {
+                let mut chars = m.chars();
+                let first = chars.next().map(|c| c.to_uppercase().collect::<String>());
+                format!("{}{}.", first.unwrap_or_default(), chars.as_str())
+            }
+            None => "A catering event needs 7 business days' notice (Tuesday to Sunday).".to_owned(),
+        },
+        "brief-too-long" => "The brief is longer than 500 characters.".to_owned(),
+        "brief-email" => brief_sentence("an email address"),
+        "brief-phone" => brief_sentence("a phone number"),
+        "brief-card-number" => brief_sentence("a card number"),
+        "brief-url" => brief_sentence("a web address"),
+        "quote-total" => "A quote's total is at least 1 cent.".to_owned(),
+        "date" => "The date is not a day such as 2026-11-21.".to_owned(),
+        "quote-expired" => "The quote expired: its 14 business days have passed. Ask for a new inquiry.".to_owned(),
+        "out-of-order" => "The catering event is not in a state that takes this step.".to_owned(),
+        "amount-mismatch" => "The payment is not the amount the quote asks for.".to_owned(),
+        _ => "The catering request does not fit the bakery's rules.".to_owned(),
+    };
+    let title = if status == 422 {
+        "The catering inquiry was refused"
+    } else {
+        "The catering event cannot do that now"
+    };
+    Failure {
+        problem: Box::new(Problem::typed(
+            "catering",
+            status,
+            title,
+            format!("{sentence} The rule is {rule}."),
+        )),
+        retry_after: None,
+        reason: "catering",
+    }
+}
+
+fn brief_sentence(what: &str) -> String {
+    format!(
+        "The brief looks like it holds {what}, which the bakery does not keep: describe the event without it."
+    )
+}
+
+/// An acceptance on a day whose two catering places are taken: 409 `slot-full`, nothing
+/// recorded.
+pub fn catering_full() -> Failure {
+    Failure::typed(
+        "slot-full",
+        409,
+        "That day is fully booked for catering",
+        "That day's two catering places are taken, so the quote cannot be accepted for it. The rule is slot-full.",
+    )
+}
+
 /// A day with no `Schedule`: before the sandbox's birth day, more than 30 days after business
 /// today, or not a date.
 pub fn no_such_day() -> Failure {
@@ -726,6 +790,51 @@ mod tests {
     }
 
     #[test]
+    fn catering_refusals_name_their_rule_as_a_word_and_never_the_brief() {
+        for rule in [
+            "headcount",
+            "unknown-package",
+            "unknown-venue",
+            "closed-day",
+            "catering-lead",
+            "brief-too-long",
+            "brief-email",
+            "brief-phone",
+            "brief-card-number",
+            "brief-url",
+            "quote-total",
+        ] {
+            let f = catering(422, rule, None);
+            assert_eq!(f.problem.status, 422);
+            assert!(f.problem.problem_type.ends_with("/catering"));
+            assert!(
+                f.problem
+                    .detail
+                    .unwrap()
+                    .ends_with(&format!(" The rule is {rule}.")),
+                "{rule}"
+            );
+        }
+        let lead = catering(
+            422,
+            "catering-lead",
+            Some(
+                "a catering event needs 7 business days' notice (Tuesday to Sunday); the earliest date is 2026-11-17",
+            ),
+        );
+        let detail = lead.problem.detail.unwrap();
+        assert!(detail.starts_with("A catering event needs 7 business days"));
+        assert!(detail.contains("2026-11-17") && detail.contains("catering-lead"));
+        let step = catering(409, "quote-expired", None);
+        assert_eq!(step.problem.status, 409);
+        assert!(step.problem.detail.unwrap().contains("quote-expired"));
+        let full = catering_full();
+        assert_eq!(full.problem.status, 409);
+        assert!(full.problem.problem_type.ends_with("/slot-full"));
+        assert!(full.problem.detail.unwrap().contains("two catering places"));
+    }
+
+    #[test]
     fn the_guest_rule_is_named() {
         let f = guest_scope();
         assert_eq!(f.problem.status, 403);
@@ -773,6 +882,17 @@ mod tests {
             stripe(false),
             order_conflict("not-payable"),
             order_conflict("no-stripe-payment"),
+            catering(422, "brief-email", None),
+            catering(
+                422,
+                "catering-lead",
+                Some(
+                    "a catering event needs 7 business days' notice (Tuesday to Sunday); the earliest date is 2026-11-17",
+                ),
+            ),
+            catering(409, "out-of-order", None),
+            catering(409, "something-new", None),
+            catering_full(),
             order("refund-exceeds-paid", None),
             webhook("signature"),
             webhook("timestamp"),

@@ -104,24 +104,35 @@ pub enum Call {
     Pay,
 }
 
-/// Stripe idempotency keys, `<ref>:<purpose>:<attempt>` (docs/domain.md, "Idempotency"). The
-/// create call uses the purpose as it is; the other calls suffix it with the call, so no two
-/// calls share a key, since Stripe refuses one key on two different requests. `attempt` is the
+/// Stripe idempotency keys, `<sandbox>:<ref>:<purpose>:<attempt>` (docs/domain.md,
+/// "Idempotency"). The sandbox comes first because two sandboxes born from the same seed share
+/// their seeded refs, and Stripe keeps a key for 24 hours
+/// (https://docs.stripe.com/api/idempotent_requests, as of 2026-11-05): without it the second
+/// sandbox's call would get the first one's answer, or a 400 for a different body. The create
+/// call uses the purpose as it is; the other calls suffix it with the call, so no two calls
+/// share a key, since Stripe refuses one key on two different requests. `attempt` is the
 /// payment's [`attempt`](bakery_domain::billing::PaymentRecord::attempt) for the three intent
 /// calls and the refund's [`ordinal`](bakery_domain::billing::RefundRecord::ordinal) for a
 /// refund. A confirm is made once per intent: a second confirm with another card needs another
 /// attempt number.
-pub fn idempotency_key(call: Call, reference: Ulid, purpose: Purpose, attempt: u32) -> String {
+pub fn idempotency_key(
+    call: Call,
+    sandbox: Ulid,
+    reference: Ulid,
+    purpose: Purpose,
+    attempt: u32,
+) -> String {
     let purpose = purpose.as_str();
-    match call {
-        Call::Create => format!("{reference}:{purpose}:{attempt}"),
-        Call::Confirm => format!("{reference}:{purpose}-confirm:{attempt}"),
-        Call::Cancel => format!("{reference}:{purpose}-cancel:{attempt}"),
-        Call::Refund => format!("{reference}:{purpose}-refund:{attempt}"),
-        Call::Invoice => format!("{reference}:{purpose}-invoice:{attempt}"),
-        Call::Void => format!("{reference}:{purpose}-void:{attempt}"),
-        Call::Pay => format!("{reference}:{purpose}-pay:{attempt}"),
-    }
+    let suffix = match call {
+        Call::Create => "",
+        Call::Confirm => "-confirm",
+        Call::Cancel => "-cancel",
+        Call::Refund => "-refund",
+        Call::Invoice => "-invoice",
+        Call::Void => "-void",
+        Call::Pay => "-pay",
+    };
+    format!("{sandbox}:{reference}:{purpose}{suffix}:{attempt}")
 }
 
 /// The key of a persona's Stripe customer, `<sandbox>:<persona>:customer`. The sandbox is in it
@@ -565,22 +576,27 @@ mod tests {
 
     #[test]
     fn idempotency_keys_follow_the_domain_doc() {
-        let r = ulid(2);
+        let (s, r) = (ulid(1), ulid(2));
         assert_eq!(
-            idempotency_key(Call::Create, r, Purpose::Order, 1),
-            format!("{r}:order:1")
+            idempotency_key(Call::Create, s, r, Purpose::Order, 1),
+            format!("{s}:{r}:order:1")
         );
         assert_eq!(
-            idempotency_key(Call::Confirm, r, Purpose::Order, 1),
-            format!("{r}:order-confirm:1")
+            idempotency_key(Call::Confirm, s, r, Purpose::Order, 1),
+            format!("{s}:{r}:order-confirm:1")
         );
         assert_eq!(
-            idempotency_key(Call::Cancel, r, Purpose::Deposit, 2),
-            format!("{r}:deposit-cancel:2")
+            idempotency_key(Call::Cancel, s, r, Purpose::Deposit, 2),
+            format!("{s}:{r}:deposit-cancel:2")
         );
         assert_eq!(
-            idempotency_key(Call::Refund, r, Purpose::Balance, 3),
-            format!("{r}:balance-refund:3")
+            idempotency_key(Call::Refund, s, r, Purpose::Balance, 3),
+            format!("{s}:{r}:balance-refund:3")
+        );
+        // Two sandboxes born from one seed share a ref, never a key.
+        assert_ne!(
+            idempotency_key(Call::Create, s, r, Purpose::Order, 1),
+            idempotency_key(Call::Create, ulid(9), r, Purpose::Order, 1)
         );
     }
 
@@ -766,7 +782,7 @@ mod tests {
             amount: Cents(43_500),
             due: "2026-11-28".parse().unwrap(),
             today: "2026-11-21".parse().unwrap(),
-            idempotency_key: idempotency_key(Call::Invoice, ulid(5), Purpose::Balance, 1),
+            idempotency_key: idempotency_key(Call::Invoice, ulid(1), ulid(5), Purpose::Balance, 1),
         }
     }
 
@@ -806,8 +822,7 @@ mod tests {
         );
         assert_eq!(Method::Delete.as_str(), "DELETE");
         assert_eq!(
-            del.headers("sk_test_not_a_key", None)
-                .len(),
+            del.headers("sk_test_not_a_key", None).len(),
             1,
             "no content type and no key on a delete"
         );
@@ -847,10 +862,11 @@ mod tests {
     #[test]
     fn an_invoice_is_drafted_given_its_item_and_finalized() {
         let r = invoice_request();
-        let keys = |call| idempotency_key(call, ulid(5), Purpose::Balance, 1);
-        assert_eq!(r.idempotency_key, format!("{}:balance-invoice:1", ulid(5)));
-        assert_eq!(keys(Call::Void), format!("{}:balance-void:1", ulid(5)));
-        assert_eq!(keys(Call::Pay), format!("{}:balance-pay:1", ulid(5)));
+        let keys = |call| idempotency_key(call, ulid(1), ulid(5), Purpose::Balance, 1);
+        let (s, j) = (ulid(1), ulid(5));
+        assert_eq!(r.idempotency_key, format!("{s}:{j}:balance-invoice:1"));
+        assert_eq!(keys(Call::Void), format!("{s}:{j}:balance-void:1"));
+        assert_eq!(keys(Call::Pay), format!("{s}:{j}:balance-pay:1"));
         assert_eq!(days_until_due(&r), 7);
         let draft = create_invoice_draft(&r).unwrap();
         assert_eq!(
@@ -881,14 +897,18 @@ mod tests {
         );
         assert_eq!(
             item.idempotency_key,
-            Some(format!("{}:balance-invoice:1:item", ulid(5)))
+            Some(format!("{}:{}:balance-invoice:1:item", ulid(1), ulid(5)))
         );
         let fin = finalize_invoice(&r, "in_fake_2").unwrap();
         assert_eq!(fin.path, "/v1/invoices/in_fake_2/finalize");
         assert_eq!(fin.body.as_deref(), Some("auto_advance=false"));
         assert_eq!(
             fin.idempotency_key,
-            Some(format!("{}:balance-invoice:1:finalize", ulid(5)))
+            Some(format!(
+                "{}:{}:balance-invoice:1:finalize",
+                ulid(1),
+                ulid(5)
+            ))
         );
         let void = void_invoice("in_fake_2", "kv").unwrap();
         assert_eq!(

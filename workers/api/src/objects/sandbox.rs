@@ -17,9 +17,14 @@
 //!   schedule?}`: the client's `Idempotency-Key` mapped to one order ULID, registered with class
 //!   `Order`, and the slot's `Schedule` day registered beside it when `date` is one a day may be
 //!   created for; `schedule` is its name, absent when the date is out of range.
-//! - `POST /_register-day {date}` → `{name, clock_offset_s, clock_v}`: a `Schedule` day, born on
-//!   first touch, for a date from the birth day to 30 days after business today; 404 `{error:
-//!   "no-such-day"}` for any other.
+//! - `POST /_register-catering {key}` → `{catering, persona, clock_offset_s, clock_v,
+//!   replayed}`: the inquiry's `Idempotency-Key` mapped to one catering ULID (kept beside the
+//!   orders' keys, as `catering:<key>`), registered with class `CateringEvent`.
+//! - `POST /_register-day {date, catering?}` → `{name, clock_offset_s, clock_v}`: a `Schedule`
+//!   day, born on first touch, for a date from the birth day to 30 days after business today, or
+//!   any later one with `catering: true` (an accepted quote's event day, which the domain's
+//!   rules already bound); 404 `{error: "no-such-day"}` for any other.
+//! - `GET /_children/<class>` → `[name]`: the registered children of a class, by name.
 //! - `GET /_days` → `[name]`: the registered `Schedule` days from business today on.
 //! - `GET /_child/<name>` → 200 `{class}` for a registered child, else 404.
 //! - `POST /_faults {key, fault, on}` → `FaultsResponse`, and the Kitchen told of `kitchen`.
@@ -64,7 +69,7 @@ use super::sql::{
     self, exec, first, gone, has_table, json, refuse, replayed, rows, transaction_sync, user_rows,
 };
 use super::stream::{self, OUTBOX};
-use super::{billing, catalog, kitchen, order, simulator};
+use super::{billing, catalog, catering, kitchen, order, simulator};
 use crate::clock::{SystemClock, alarm_time, business, business_at};
 use crate::random;
 
@@ -80,6 +85,7 @@ const DISPATCH: &[(&str, &str)] = &[
     (order::CLASS, order::BINDING),
     (simulator::CLASS, simulator::BINDING),
     (schedule::CLASS, schedule::BINDING),
+    (catering::CLASS, catering::BINDING),
 ];
 
 const WIPE: &str = "wipe";
@@ -87,8 +93,9 @@ const BACKSTOP: &str = "backstop";
 const SEED: &str = "seed";
 const CLOCK: &str = "clock";
 
-/// Children seeded per alarm run: the Catalog, the Kitchen, Billing, the 7 Schedule days and the
-/// 12 open orders take four runs, each far inside the 1,000 subrequests a Free invocation may make (Workers limits,
+/// Children seeded per alarm run: the Catalog, the Kitchen, Billing, the 7 Schedule days, the
+/// 12 open orders, the 8 catering events and their 3 days take five runs, each far inside the
+/// 1,000 subrequests a Free invocation may make (Workers limits,
 /// https://developers.cloudflare.com/workers/platform/limits/, as of 2026-11-05).
 const SEED_BATCH: usize = 7;
 /// The pause between seeding runs, so a run's subrequests have finished.
@@ -183,6 +190,24 @@ pub struct RegisterOrder {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegisterDay {
     pub date: BakeryDate,
+    /// A catering event's day: no upper bound.
+    #[serde(default)]
+    pub catering: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegisterCatering {
+    pub key: String,
+}
+
+/// `/_register-catering`'s answer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CateringSlot {
+    pub catering: Ulid,
+    pub persona: Ulid,
+    pub clock_offset_s: i64,
+    pub clock_v: u32,
+    pub replayed: bool,
 }
 
 /// `/_register-day`'s answer: what the day is born with.
@@ -380,7 +405,14 @@ impl DurableObject for Sandbox {
                     }
                     (Method::Post, "/_register-day") => {
                         let body: RegisterDay = sql::body(&mut req).await?;
-                        self.register_day(&meta, body.date, now)
+                        self.register_day(&meta, body.date, body.catering, now)
+                    }
+                    (Method::Post, "/_register-catering") => {
+                        let body: RegisterCatering = sql::body(&mut req).await?;
+                        self.register_catering(&meta, body, now)
+                    }
+                    (Method::Get, p) if p.starts_with("/_children/") => {
+                        self.children_of(&p["/_children/".len()..])
                     }
                     (Method::Get, "/_days") => self.days(&meta, now),
                     (Method::Get, p) if p.starts_with("/_child/") => {
@@ -837,6 +869,94 @@ impl Sandbox {
         )
     }
 
+    /// The inquiry's creation step, as `register_order` is the order's: the client's key maps to
+    /// one catering ULID, registered with its name in the same transaction, so a retried
+    /// inquiry finds the same event and the wipe knows it. The keys share the orders' table,
+    /// prefixed, so a sandbox born before PR 7 needs no new table.
+    fn register_catering(
+        &self,
+        meta: &MetaRow,
+        body: RegisterCatering,
+        now: WallTime,
+    ) -> Result<Response> {
+        match meta.state.as_str() {
+            "live" => {}
+            "seeding" => return refuse(409, "seeding"),
+            _ => return gone(),
+        }
+        #[derive(Deserialize)]
+        struct KeyRow {
+            order_id: String,
+        }
+        let sql = self.sql();
+        let persona: Ulid = meta
+            .persona
+            .parse()
+            .map_err(|_| Error::RustError("meta persona".into()))?;
+        let key = format!("catering:{}", body.key);
+        let known: Option<KeyRow> = first(
+            &sql,
+            "SELECT order_id FROM order_keys WHERE key = ?",
+            vec![key.as_str().into()],
+        )?;
+        let (id, replayed) = match known {
+            Some(k) => (
+                k.order_id
+                    .parse()
+                    .map_err(|_| Error::RustError("stored catering id".into()))?,
+                true,
+            ),
+            None => {
+                let id = random::ulid(now)?;
+                let name = catering::name(meta.sandbox()?, id);
+                let clock_v = meta.clock_v;
+                transaction_sync(&self.state.storage(), move || {
+                    exec(
+                        &sql,
+                        "INSERT INTO order_keys (key, order_id) VALUES (?, ?)",
+                        vec![key.into(), id.to_string().into()],
+                    )?;
+                    exec(
+                        &sql,
+                        "INSERT INTO registry (name, class, registered_at, clock_v) VALUES (?, ?, ?, ?)",
+                        vec![
+                            name.into(),
+                            catering::CLASS.into(),
+                            now.to_string().into(),
+                            clock_v.into(),
+                        ],
+                    )?;
+                    Ok(())
+                })?;
+                (id, false)
+            }
+        };
+        json(
+            &CateringSlot {
+                catering: id,
+                persona,
+                clock_offset_s: meta.clock_offset_s,
+                clock_v: u32::try_from(meta.clock_v).unwrap_or(0),
+                replayed,
+            },
+            200,
+        )
+    }
+
+    /// The registered children of one class, by name: the catering list's source.
+    fn children_of(&self, class: &str) -> Result<Response> {
+        #[derive(Deserialize)]
+        struct NameRow {
+            name: String,
+        }
+        let found: Vec<NameRow> = rows(
+            &self.sql(),
+            "SELECT name FROM registry WHERE class = ? AND wiped_at IS NULL ORDER BY name",
+            vec![class.into()],
+        )?;
+        json(&found.into_iter().map(|r| r.name).collect::<Vec<_>>(), 200)
+    }
+
     /// A `Schedule` day's name in the registry, before its first write.
     fn register_schedule(&self, meta: &MetaRow, date: BakeryDate, now: WallTime) -> Result<String> {
         let name = schedule::name(meta.sandbox()?, date);
@@ -853,14 +973,26 @@ impl Sandbox {
         Ok(name)
     }
 
-    /// A `Schedule` day for the router's read or a capacity change, born on first touch.
-    fn register_day(&self, meta: &MetaRow, date: BakeryDate, now: WallTime) -> Result<Response> {
+    /// A `Schedule` day for the router's read, a capacity change or a catering hold, born on
+    /// first touch.
+    fn register_day(
+        &self,
+        meta: &MetaRow,
+        date: BakeryDate,
+        catering: bool,
+        now: WallTime,
+    ) -> Result<Response> {
         match meta.state.as_str() {
             "live" => {}
             "seeding" => return refuse(409, "seeding"),
             _ => return gone(),
         }
-        if !meta.day_in_range(date, now)? {
+        let in_range = if catering {
+            date >= BakeryDate::of(meta.born_business()?)
+        } else {
+            meta.day_in_range(date, now)?
+        };
+        if !in_range {
             return refuse(404, "no-such-day");
         }
         let name = self.register_schedule(meta, date, now)?;
@@ -1376,9 +1508,14 @@ struct SeedChild {
     open: Option<usize>,
     /// Index into the seed's schedule days, for a `Schedule`.
     day: Option<usize>,
+    /// Index into the seed's catering events, for a `CateringEvent`.
+    catering: Option<usize>,
+    /// Index into the seed's catering events, for the `Schedule` day that holds its place.
+    catering_day: Option<usize>,
 }
 
-/// The Catalog, the Kitchen, Billing, the seed's 7 Schedule days, then its 12 open orders: 22
+/// The Catalog, the Kitchen, Billing, the seed's 7 Schedule days, its 12 open orders, its 8
+/// catering events and the 3 days that hold the accepted and confirmed events' places: 33
 /// children. The days go before the orders, so an order's events find its day.
 fn seed_plan(g: &Generated, sandbox: Ulid) -> Vec<SeedChild> {
     let mut plan = vec![
@@ -1388,6 +1525,8 @@ fn seed_plan(g: &Generated, sandbox: Ulid) -> Vec<SeedChild> {
             name: catalog::name(sandbox),
             open: None,
             day: None,
+            catering: None,
+            catering_day: None,
         },
         SeedChild {
             class: kitchen::CLASS,
@@ -1395,6 +1534,8 @@ fn seed_plan(g: &Generated, sandbox: Ulid) -> Vec<SeedChild> {
             name: kitchen::name(sandbox),
             open: None,
             day: None,
+            catering: None,
+            catering_day: None,
         },
         SeedChild {
             class: billing::CLASS,
@@ -1402,6 +1543,8 @@ fn seed_plan(g: &Generated, sandbox: Ulid) -> Vec<SeedChild> {
             name: billing::name(sandbox),
             open: None,
             day: None,
+            catering: None,
+            catering_day: None,
         },
     ];
     plan.extend(g.schedule.iter().enumerate().map(|(i, d)| SeedChild {
@@ -1410,6 +1553,8 @@ fn seed_plan(g: &Generated, sandbox: Ulid) -> Vec<SeedChild> {
         name: schedule::name(sandbox, d.date),
         open: None,
         day: Some(i),
+        catering: None,
+        catering_day: None,
     }));
     plan.extend(g.open_orders.iter().enumerate().map(|(i, o)| SeedChild {
         class: order::CLASS,
@@ -1417,8 +1562,104 @@ fn seed_plan(g: &Generated, sandbox: Ulid) -> Vec<SeedChild> {
         name: order::name(sandbox, o.id),
         open: Some(i),
         day: None,
+        catering: None,
+        catering_day: None,
     }));
+    plan.extend(g.catering.iter().enumerate().map(|(i, e)| SeedChild {
+        class: catering::CLASS,
+        binding: catering::BINDING,
+        name: catering::name(sandbox, e.id),
+        open: None,
+        day: None,
+        catering: Some(i),
+        catering_day: None,
+    }));
+    plan.extend(
+        g.catering
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| holds_a_place(e))
+            .filter_map(|(i, e)| {
+                let date: BakeryDate = e.date.parse().ok()?;
+                Some(SeedChild {
+                    class: schedule::CLASS,
+                    binding: schedule::BINDING,
+                    name: schedule::name(sandbox, date),
+                    open: None,
+                    day: None,
+                    catering: None,
+                    catering_day: Some(i),
+                })
+            }),
+    );
     plan
+}
+
+/// Whether a seeded catering event holds its day's place at birth: an accepted one (held while
+/// its deposit hold runs) and a confirmed one (reserved). The invoiced and closed ones are in the
+/// past, before the sandbox's first day, and the rest hold nothing.
+fn holds_a_place(e: &bakery_seed::CateringEvent) -> bool {
+    matches!(
+        e.state,
+        bakery_seed::CateringState::Accepted | bakery_seed::CateringState::Confirmed
+    )
+}
+
+/// The seeded event as the Sandbox replays it (decision 1 of PR 7): an `accepted` event is
+/// accepted at the sandbox's birth, so it is born with a live deposit hold that lapses 15
+/// business minutes later, as a seeded open order's hold does. Every other event is the seed's.
+fn rebased(e: &bakery_seed::CateringEvent, born: BusinessTime) -> bakery_seed::CateringEvent {
+    let mut e = e.clone();
+    if e.state == bakery_seed::CateringState::Accepted {
+        e.accepted_at = Some(born);
+    }
+    e
+}
+
+/// The seeded event's commands, as `bakery_seed::seed_commands` gives them for the re-based
+/// event, in the wire form the CateringEvent's `/_seed` reads.
+fn catering_seed_steps(
+    e: &bakery_seed::CateringEvent,
+    born: BusinessTime,
+) -> Vec<catering::SeedStep> {
+    bakery_seed::seed_commands(&rebased(e, born))
+        .iter()
+        .map(|(at, cmd)| catering::SeedStep {
+            at: *at,
+            cmd: catering::Cmd::of(cmd),
+        })
+        .collect()
+}
+
+/// The `Schedule` day of a seeded accepted or confirmed event: its place held until the deposit
+/// hold lapses (15 business minutes after birth for the re-based accepted event), and reserved
+/// for a confirmed one. Built as `catering::hold_request` builds an acceptance's.
+fn catering_day_cmds(e: &bakery_seed::CateringEvent, born: BusinessTime) -> Result<Vec<Cmd>> {
+    let date: BakeryDate = e
+        .date
+        .parse()
+        .map_err(|_| Error::RustError("a seeded catering date".into()))?;
+    let accepted = rebased(e, born).accepted_at.unwrap_or(born);
+    let expires_at = bakery_domain::calendar::plus_elapsed_minutes(
+        accepted,
+        bakery_domain::catering::DEPOSIT_HOLD_MINUTES,
+    )
+    .map_err(|e| Error::RustError(e.to_string()))?;
+    let mut cmds = vec![Cmd::Hold(HoldRequest {
+        reference: e.id,
+        kind: bakery_domain::schedule::HoldKind::Catering,
+        start: date.opening(),
+        zone: None,
+        lines: vec![bakery_domain::schedule::ItemQty {
+            item: e.package.to_owned(),
+            qty: e.headcount,
+        }],
+        expires_at,
+    })];
+    if e.state == bakery_seed::CateringState::Confirmed {
+        cmds.push(Cmd::Confirm { reference: e.id });
+    }
+    Ok(cmds)
 }
 
 /// The seed's records cross into the domain's types as JSON, as the alignment test in
@@ -1435,6 +1676,18 @@ impl SeedChild {
             return Ok(serde_json::to_value(SeedSchedule {
                 birth,
                 cmds: schedule_seed_cmds(g, i, born)?,
+            })?);
+        }
+        if let Some(i) = self.catering {
+            return Ok(serde_json::to_value(catering::SeedCatering {
+                birth,
+                steps: catering_seed_steps(&g.catering[i], born),
+            })?);
+        }
+        if let Some(i) = self.catering_day {
+            return Ok(serde_json::to_value(SeedSchedule {
+                birth,
+                cmds: catering_day_cmds(&g.catering[i], born)?,
             })?);
         }
         let value = match self.open {
@@ -1621,11 +1874,11 @@ mod tests {
     }
 
     #[test]
-    fn the_plan_is_twenty_two_children_catalog_kitchen_billing_and_the_days_first() {
+    fn the_plan_is_thirty_three_children_catalog_kitchen_billing_and_the_days_first() {
         let g = generated();
         let sandbox = Ulid::from_parts(1, 1);
         let plan = seed_plan(&g, sandbox);
-        assert_eq!(plan.len(), 22);
+        assert_eq!(plan.len(), 33);
         assert_eq!(plan[0].name, format!("catalog:{sandbox}"));
         assert_eq!(plan[1].name, format!("kitchen:{sandbox}"));
         assert_eq!(plan[2].name, format!("billing:{sandbox}"));
@@ -1633,11 +1886,20 @@ mod tests {
             && c.name.starts_with(&format!("schedule:{sandbox}:"))
             && schedule::date_of(&c.name).is_some()));
         assert!(
-            plan[10..]
+            plan[10..22]
                 .iter()
                 .all(|c| c.class == "Order" && c.name.starts_with(&format!("order:{sandbox}:")))
         );
-        assert_eq!(plan.len().div_ceil(SEED_BATCH), 4, "four seeding runs");
+        assert!(
+            plan[22..30].iter().all(|c| c.class == "CateringEvent"
+                && c.name.starts_with(&format!("catering:{sandbox}:")))
+        );
+        // The accepted and the two confirmed events' days, none of them a seeded week day.
+        assert!(plan[30..].iter().all(|c| c.class == "Schedule"));
+        let names: std::collections::BTreeSet<&str> =
+            plan.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names.len(), plan.len(), "no child twice");
+        assert_eq!(plan.len().div_ceil(SEED_BATCH), 5, "five seeding runs");
         // Every class but the Simulator, which is born on the first "Start traffic".
         for (class, _) in DISPATCH.iter().filter(|(c, _)| *c != simulator::CLASS) {
             assert!(plan.iter().any(|c| c.class == *class), "{class}");
@@ -1718,6 +1980,66 @@ mod tests {
             places,
             g.open_orders.len(),
             "every open order has its place"
+        );
+    }
+
+    #[test]
+    fn seeded_catering_events_replay_to_their_states_and_an_accepted_one_holds_from_birth() {
+        use bakery_domain::catering::{Catering, CateringState as Saga, CateringStatus, timers};
+        use bakery_domain::schedule::{Schedule as ScheduleAggregate, ScheduleState};
+        use bakery_domain::{DecideContext, execute};
+        let g = generated();
+        let born: BusinessTime = "2026-11-07T08:00:00-07:00".parse().unwrap();
+        let mut held = 0;
+        for e in &g.catering {
+            let mut state = Saga::default();
+            for step in catering_seed_steps(e, born) {
+                // Through the wire form, as the object reads it.
+                let cmd: catering::Cmd =
+                    serde_json::from_str(&serde_json::to_string(&step.cmd).unwrap()).unwrap();
+                let ctx = DecideContext {
+                    now: step.at,
+                    id: Ulid::from_parts(1, 1),
+                };
+                state = execute::<Catering>(state, &cmd.domain(), &ctx)
+                    .unwrap_or_else(|err| panic!("{}: {}", e.id, err.rule()))
+                    .0;
+            }
+            assert_eq!(state.status(), Some(e.state.status()), "{}", e.id);
+            if e.state == bakery_seed::CateringState::Accepted {
+                let r = state.record().unwrap();
+                let lapse = r.lapses_at.unwrap();
+                assert_eq!(
+                    lapse,
+                    bakery_domain::calendar::plus_elapsed_minutes(born, 15).unwrap()
+                );
+                assert!(timers(&state).iter().any(|t| t.at == lapse));
+            }
+            if holds_a_place(e) {
+                let date: BakeryDate = e.date.parse().unwrap();
+                let mut day = ScheduleState::new(date);
+                for cmd in catering_day_cmds(e, born).unwrap() {
+                    let ctx = DecideContext {
+                        now: born,
+                        id: Ulid::from_parts(1, 2),
+                    };
+                    day = execute::<ScheduleAggregate>(day, &cmd.domain(), &ctx)
+                        .unwrap_or_else(|err| panic!("{date}: {}", err.rule()))
+                        .0;
+                }
+                let want = if state.status() == Some(CateringStatus::Accepted) {
+                    HoldStatus::Held
+                } else {
+                    HoldStatus::Reserved
+                };
+                assert_eq!(day.hold(e.id).map(|h| h.status), Some(want));
+                assert_eq!(day.catering_taken(), 1);
+                held += 1;
+            }
+        }
+        assert_eq!(
+            held, 3,
+            "one accepted and two confirmed events hold a place"
         );
     }
 

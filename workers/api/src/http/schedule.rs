@@ -36,7 +36,10 @@ async fn day(cx: &Cx, id: bakery_domain::Ulid, date: Option<&str>) -> Result<Bir
         &sandbox_object_name(id),
         Method::Post,
         "/_register-day",
-        Some(&RegisterDay { date }),
+        Some(&RegisterDay {
+            date,
+            catering: false,
+        }),
     )
     .await?;
     let day: DayBirth = match res.status_code() {

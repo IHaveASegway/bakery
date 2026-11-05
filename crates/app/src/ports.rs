@@ -73,7 +73,7 @@ pub struct IntentRequest {
     pub reference: Ulid,
     pub amount: Cents,
     /// Sent as the provider's idempotency key, so a retry returns the first intent:
-    /// `<ref>:<purpose>:<attempt>` (`stripe::IdempotencyKey::create`).
+    /// `<sandbox>:<ref>:<purpose>:<attempt>` (`stripe::idempotency_key`).
     pub idempotency_key: String,
 }
 
@@ -144,7 +144,7 @@ pub struct ConfirmRequest {
     /// The provider's `pi_...` id.
     pub intent: String,
     pub card: TestCard,
-    /// `stripe::IdempotencyKey::confirm`.
+    /// `stripe::idempotency_key` with `Call::Confirm`.
     pub idempotency_key: String,
 }
 
@@ -152,7 +152,7 @@ pub struct ConfirmRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CancelRequest {
     pub intent: String,
-    /// `stripe::IdempotencyKey::cancel`.
+    /// `stripe::idempotency_key` with `Call::Cancel`.
     pub idempotency_key: String,
 }
 
@@ -170,7 +170,7 @@ pub struct RefundIntentRequest {
     pub intent: String,
     pub amount: Cents,
     pub reason: RefundReason,
-    /// `stripe::IdempotencyKey::refund`.
+    /// `stripe::idempotency_key` with `Call::Refund`.
     pub idempotency_key: String,
 }
 
@@ -222,7 +222,7 @@ pub struct InvoiceRequest {
     pub due: BakeryDate,
     /// Today's bakery date, so `days_until_due` is `due - today` (at least 1).
     pub today: BakeryDate,
-    /// `stripe::IdempotencyKey::invoice`, `<ref>:balance-invoice:<n>`; the item and the
+    /// `stripe::idempotency_key`, `<sandbox>:<ref>:balance-invoice:<n>`; the item and the
     /// finalize suffix it with `:item` and `:finalize`.
     pub idempotency_key: String,
 }
