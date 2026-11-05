@@ -303,8 +303,8 @@ test(
   'a place the road network cannot reach within the snap radius is not chosen',
   opts,
   async () => {
-    // Fixture Park A (way 101) centroid is -111.919, 40.761.
-    const fake = await startFakeOrs({ unsnappable: [[-111.919, 40.761]] });
+    // Fixture Park A (way 101) centroid is -139.919, -40.761.
+    const fake = await startFakeOrs({ unsnappable: [[-139.919, -40.761]] });
     try {
       const root = path.join(tmp, 'e');
       await build(envFor(root, { ORS_URL: fake.url }), quiet);
@@ -321,8 +321,8 @@ test(
 test('an unreachable pair stops the whole build and names it', opts, async () => {
   const fake = await startFakeOrs({
     nullPair: [
-      [-111.8999, 40.7651],
-      [-111.9189, 40.7611],
+      [-139.8999, -40.7651],
+      [-139.9189, -40.7611],
     ],
   });
   try {

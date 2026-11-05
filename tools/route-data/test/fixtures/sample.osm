@@ -1,70 +1,70 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <osm version="0.6" generator="hand-written">
-<node id="1001" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.76" lon="-111.92"></node>
-<node id="1002" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.76" lon="-111.918"></node>
-<node id="1003" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.762" lon="-111.918"></node>
-<node id="1004" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.762" lon="-111.92"></node>
-<node id="1005" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.78" lon="-111.9"></node>
-<node id="1006" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.78" lon="-111.89800000000001"></node>
-<node id="1007" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.782000000000004" lon="-111.89800000000001"></node>
-<node id="1008" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.782000000000004" lon="-111.9"></node>
-<node id="1009" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.75" lon="-111.88"></node>
-<node id="1010" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.75" lon="-111.878"></node>
-<node id="1011" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.752" lon="-111.878"></node>
-<node id="1012" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.752" lon="-111.88"></node>
-<node id="1013" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.79" lon="-111.93"></node>
-<node id="1014" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.79" lon="-111.92800000000001"></node>
-<node id="1015" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.792" lon="-111.92800000000001"></node>
-<node id="1016" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.792" lon="-111.93"></node>
-<node id="1017" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.8" lon="-111.87"></node>
-<node id="1018" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.8" lon="-111.86800000000001"></node>
-<node id="1019" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.802" lon="-111.86800000000001"></node>
-<node id="1020" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.802" lon="-111.87"></node>
-<node id="1021" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.745" lon="-111.945"></node>
-<node id="1022" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.745" lon="-111.943"></node>
-<node id="1023" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.747" lon="-111.943"></node>
-<node id="1024" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.747" lon="-111.945"></node>
-<node id="1025" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.745" lon="-111.905"></node>
-<node id="1026" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.745" lon="-111.903"></node>
-<node id="1027" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.747" lon="-111.903"></node>
-<node id="1028" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.747" lon="-111.905"></node>
-<node id="1029" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.77" lon="-111.7"></node>
-<node id="1030" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.77" lon="-111.69800000000001"></node>
-<node id="1031" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.772000000000006" lon="-111.69800000000001"></node>
-<node id="1032" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.772000000000006" lon="-111.7"></node>
-<node id="1033" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.7605" lon="-111.9195"></node>
-<node id="1034" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.7605" lon="-111.919"></node>
-<node id="1035" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.761" lon="-111.919"></node>
-<node id="1036" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.761" lon="-111.9195"></node>
-<node id="1037" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.77" lon="-111.94"></node>
-<node id="1038" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.77" lon="-111.938"></node>
-<node id="1039" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.772000000000006" lon="-111.938"></node>
-<node id="1040" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.772000000000006" lon="-111.94"></node>
-<node id="201" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.77" lon="-111.91">
+<node id="1001" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.76" lon="-139.92"></node>
+<node id="1002" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.76" lon="-139.918"></node>
+<node id="1003" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.762" lon="-139.918"></node>
+<node id="1004" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.762" lon="-139.92"></node>
+<node id="1005" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.78" lon="-139.9"></node>
+<node id="1006" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.78" lon="-139.898"></node>
+<node id="1007" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.782" lon="-139.898"></node>
+<node id="1008" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.782" lon="-139.9"></node>
+<node id="1009" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.75" lon="-139.88"></node>
+<node id="1010" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.75" lon="-139.878"></node>
+<node id="1011" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.752" lon="-139.878"></node>
+<node id="1012" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.752" lon="-139.88"></node>
+<node id="1013" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.79" lon="-139.93"></node>
+<node id="1014" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.79" lon="-139.928"></node>
+<node id="1015" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.792" lon="-139.928"></node>
+<node id="1016" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.792" lon="-139.93"></node>
+<node id="1017" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.8" lon="-139.87"></node>
+<node id="1018" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.8" lon="-139.868"></node>
+<node id="1019" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.802" lon="-139.868"></node>
+<node id="1020" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.802" lon="-139.87"></node>
+<node id="1021" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.745" lon="-139.945"></node>
+<node id="1022" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.745" lon="-139.943"></node>
+<node id="1023" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.747" lon="-139.943"></node>
+<node id="1024" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.747" lon="-139.945"></node>
+<node id="1025" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.745" lon="-139.905"></node>
+<node id="1026" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.745" lon="-139.903"></node>
+<node id="1027" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.747" lon="-139.903"></node>
+<node id="1028" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.747" lon="-139.905"></node>
+<node id="1029" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.77" lon="-139.7"></node>
+<node id="1030" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.77" lon="-139.698"></node>
+<node id="1031" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.772" lon="-139.698"></node>
+<node id="1032" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.772" lon="-139.7"></node>
+<node id="1033" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.7605" lon="-139.9195"></node>
+<node id="1034" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.7605" lon="-139.919"></node>
+<node id="1035" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.761" lon="-139.919"></node>
+<node id="1036" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.761" lon="-139.9195"></node>
+<node id="1037" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.77" lon="-139.94"></node>
+<node id="1038" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.77" lon="-139.938"></node>
+<node id="1039" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.772" lon="-139.938"></node>
+<node id="1040" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.772" lon="-139.94"></node>
+<node id="201" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.77" lon="-139.91">
   <tag k="amenity" v="library"/>
   <tag k="name" v="Fixture Library"/>
 </node>
-<node id="202" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.805" lon="-111.935">
+<node id="202" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.805" lon="-139.935">
   <tag k="amenity" v="library"/>
   <tag k="name" v="Fixture Books Inc"/>
 </node>
-<node id="301" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.75" lon="-111.93">
+<node id="301" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.75" lon="-139.93">
   <tag k="railway" v="station"/>
   <tag k="name" v="Fixture Station"/>
 </node>
-<node id="302" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.79" lon="-111.89">
+<node id="302" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.79" lon="-139.89">
   <tag k="public_transport" v="station"/>
   <tag k="name" v="Fixture Transit Centre"/>
 </node>
-<node id="401" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.765" lon="-111.9">
+<node id="401" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.765" lon="-139.9">
   <tag k="place" v="square"/>
   <tag k="name" v="Fixture Plaza"/>
 </node>
-<node id="501" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.78" lon="-111.87">
+<node id="501" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.78" lon="-139.87">
   <tag k="tourism" v="viewpoint"/>
   <tag k="name" v="Fixture Overlook"/>
 </node>
-<node id="601" version="1" timestamp="2026-01-01T00:00:00Z" lat="40.775" lon="-111.915">
+<node id="601" version="1" timestamp="2026-01-01T00:00:00Z" lat="-40.775" lon="-139.915">
   <tag k="amenity" v="cafe"/>
   <tag k="name" v="Fixture Cafe"/>
 </node>

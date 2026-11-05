@@ -120,7 +120,7 @@ function pool() {
             name: `Name ${tags.leisure ?? tags.amenity ?? tags.railway ?? tags.place ?? tags.tourism} ${i}`,
             ...tags,
           },
-          [-111.99 + i * 0.012, 40.7 + row * 0.012],
+          [-139.99 + i * 0.012, -40.7 - row * 0.012],
         ),
       );
     }
@@ -135,7 +135,7 @@ function pool() {
 }
 
 const small = withOverrides(CONFIG, {
-  displayBox: [-112.1, 40.6, -111.7, 40.9],
+  displayBox: [-140.1, -40.9, -139.7, -40.6],
   placeCount: 9,
   quotas: { park: 3, garden: 1, library: 2, station: 1, viewpoint: 1, square: 1 },
 });
@@ -186,35 +186,40 @@ test('a short kind hands its quota to the others, and too few places is an error
 
 test('names, access and businesses are dropped with a reason', () => {
   const f = [
-    feature('node', 1, { leisure: 'park' }, [-111.9, 40.7]),
-    feature('node', 2, { leisure: 'park', name: 'Test Meadow Apartments' }, [-111.9, 40.7]),
+    feature('node', 1, { leisure: 'park' }, [-139.9, -40.7]),
+    feature('node', 2, { leisure: 'park', name: 'Test Meadow Apartments' }, [-139.9, -40.7]),
     feature(
       'node',
       3,
       { leisure: 'garden', name: 'Test Garden', access: 'private' },
-      [-111.9, 40.7],
+      [-139.9, -40.7],
     ),
-    feature('node', 4, { leisure: 'park', name: 'Far Park' }, [-100, 40.7]),
-    feature('node', 5, { amenity: 'cafe', name: 'Test Cafe' }, [-111.9, 40.7]),
-    feature('node', 6, { amenity: 'library', name: 'Test Library', shop: 'books' }, [-111.9, 40.7]),
-    feature('node', 7, { leisure: 'park', name: 'Test Park' }, [-111.9, 40.7]),
+    feature('node', 4, { leisure: 'park', name: 'Far Park' }, [-128, -40.7]),
+    feature('node', 5, { amenity: 'cafe', name: 'Test Cafe' }, [-139.9, -40.7]),
+    feature(
+      'node',
+      6,
+      { amenity: 'library', name: 'Test Library', shop: 'books' },
+      [-139.9, -40.7],
+    ),
+    feature('node', 7, { leisure: 'park', name: 'Test Park' }, [-139.9, -40.7]),
     feature(
       'node',
       8,
       { amenity: 'library', name: 'Test Hall Library', 'operator:type': 'religious' },
-      [-111.9, 40.7],
+      [-139.9, -40.7],
     ),
     feature(
       'node',
       9,
       { amenity: 'library', name: 'Test Health Library', operator: 'State University' },
-      [-111.9, 40.7],
+      [-139.9, -40.7],
     ),
     feature(
       'node',
       10,
       { amenity: 'library', name: 'Test Public Library', 'operator:type': 'public' },
-      [-111.9, 40.7],
+      [-139.9, -40.7],
     ),
   ];
   const { candidates, dropped } = candidatesFromFeatures(f, small);
@@ -239,11 +244,11 @@ test('polygons become centroids', () => {
       coordinates: [
         [
           [
-            [-111.92, 40.76],
-            [-111.918, 40.76],
-            [-111.918, 40.762],
-            [-111.92, 40.762],
-            [-111.92, 40.76],
+            [-139.92, -40.76],
+            [-139.918, -40.76],
+            [-139.918, -40.762],
+            [-139.92, -40.762],
+            [-139.92, -40.76],
           ],
         ],
       ],
@@ -251,7 +256,7 @@ test('polygons become centroids', () => {
     properties: { '@type': 'way', '@id': 5, leisure: 'park', name: 'Square Test Park' },
   };
   const { candidates } = candidatesFromFeatures([f], small);
-  assert.deepEqual([candidates[0].lon, candidates[0].lat], [-111.919, 40.761]);
+  assert.deepEqual([candidates[0].lon, candidates[0].lat], [-139.919, -40.761]);
 });
 
 test('blocks cover every ordered pair exactly once and respect the caps', () => {
@@ -287,7 +292,7 @@ test('blocks cover every ordered pair exactly once and respect the caps', () => 
 });
 
 const places6 = Array.from({ length: 6 }, (_, i) => ({ index: i, label: `Place ${i}` }));
-const locs6 = places6.map((_, i) => [-111.9 + i * 0.01, 40.7]);
+const locs6 = places6.map((_, i) => [-139.9 + i * 0.01, -40.7]);
 
 // A fake post that answers a matrix request from a formula of the two place numbers.
 function formulaPost(calls, { limit = Infinity } = {}) {
@@ -296,7 +301,7 @@ function formulaPost(calls, { limit = Infinity } = {}) {
     if (body.sources.length * body.destinations.length > limit) {
       throw new OrsError('too many routes', { status: 400, code: 6004 });
     }
-    const at = (p) => Math.round((p[0] + 111.9) / 0.01);
+    const at = (p) => Math.round((p[0] + 139.9) / 0.01);
     return {
       durations: body.sources.map((s) =>
         body.destinations.map((d) => 100 * at(body.locations[+s]) + at(body.locations[+d]) + 0.4),
@@ -367,16 +372,16 @@ test('minutes round up from seconds with zero diagonals', () => {
 });
 
 test('isochrone paths are closed and nested', () => {
-  const projection = makeProjection([-112, 40, -111, 41], 2000);
+  const projection = makeProjection([-140, -41, -139, -40], 2000);
   const sq = (h) => ({
     type: 'Polygon',
     coordinates: [
       [
-        [-111.5 - h, 40.5 - h],
-        [-111.5 + h, 40.5 - h],
-        [-111.5 + h, 40.5 + h],
-        [-111.5 - h, 40.5 + h],
-        [-111.5 - h, 40.5 - h],
+        [-139.5 - h, -40.5 + h],
+        [-139.5 + h, -40.5 + h],
+        [-139.5 + h, -40.5 - h],
+        [-139.5 - h, -40.5 - h],
+        [-139.5 - h, -40.5 + h],
       ],
     ],
   });
