@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PaymentResponse",
+  "description": "`POST /v1/sandboxes/{id}/orders/{oid}/payment`: what the browser needs to mount Stripe's\nPayment Element. `client_secret` is a one-time value for the browser: it is not stored, not\nlogged, and left out of this type's `Debug`.",
+  "type": "object",
+  "properties": {
+    "amount_cents": {
+      "type": "integer",
+      "format": "int64"
+    },
+    "client_secret": {
+      "description": "Stripe's `pi_..._secret_...`, for `<Elements options={{ clientSecret }}>`.",
+      "type": "string"
+    },
+    "payment": {
+      "description": "Billing's id for the payment, a ULID.",
+      "type": "string"
+    },
+    "publishable_key": {
+      "description": "The sandbox's `pk_test_` key, when the API has one to give; the storefront's own build\nvalue otherwise.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "status": {
+      "$ref": "#/$defs/PaymentStatus"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "payment",
+    "client_secret",
+    "amount_cents",
+    "status"
+  ],
+  "$defs": {
+    "PaymentStatus": {
+      "description": "Where a payment stands (docs/domain.md, the Billing rows).",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "succeeded",
+            "canceled"
+          ]
+        },
+        {
+          "description": "Asked for; waiting for the browser.",
+          "type": "string",
+          "const": "created"
+        },
+        {
+          "description": "The last attempt was declined; the same intent can still be paid.",
+          "type": "string",
+          "const": "failed"
+        }
+      ]
+    }
+  }
+}

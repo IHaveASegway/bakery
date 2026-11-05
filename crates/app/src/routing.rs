@@ -4,8 +4,9 @@
 //! (ADR 0004, decision 2).
 //!
 //! The table names every subscriber the catalog names, including classes that do not exist
-//! yet. [`LIVE`] says which do, and [`deliver_to`] filters by it, so PR 4's consumer delivers to
-//! the Kitchen only and each later pull request turns its classes on by adding them to [`LIVE`].
+//! yet. [`LIVE`] says which do, and [`deliver_to`] filters by it, so PR 4's consumer delivered to
+//! the Kitchen only, PR 5's adds Billing and the Order, and each later pull request turns its
+//! classes on by adding them to [`LIVE`].
 //! A test reads the catalog table out of docs/domain.md and checks this one against it.
 
 use bakery_domain::Envelope;
@@ -43,9 +44,11 @@ impl Subscriber {
     }
 }
 
-/// The classes that exist, as of PR 4 (docs/roadmap.md, "PR 4": the Kitchen board). The consumer
-/// delivers to no other; Crm, Schedule and the rest join as their pull requests build them.
-pub const LIVE: &[Subscriber] = &[Subscriber::Kitchen];
+/// The classes that exist, as of PR 5 (docs/roadmap.md, "PR 5": payments): the Kitchen board,
+/// Billing (refund requests and expiries from the Order) and the Order (payments and refunds
+/// from Billing, by purpose and `ref`). The consumer delivers to no other; Crm, Schedule and the
+/// rest join as their pull requests build them.
+pub const LIVE: &[Subscriber] = &[Subscriber::Kitchen, Subscriber::Billing, Subscriber::Order];
 
 /// Which instances of a class an event goes to, where the catalog narrows it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -57,9 +60,11 @@ pub enum Scope {
     /// The aggregate the data's `purpose` names: `order` goes to `Order`, `deposit` and
     /// `balance` to `CateringEvent`.
     ByPurpose,
-    /// The aggregate the payment or refund belongs to, which the consumer resolves through
-    /// Billing or the Sandbox's registry; the event carries no purpose (`PaymentFailed`,
-    /// `RefundIssued`).
+    /// The aggregate the payment or refund belongs to, named by the data's `ref`
+    /// (`PaymentFailed`, `RefundIssued`). The catalog gives these events no purpose; Billing's
+    /// carry one all the same, and where it does [`routes_for`] narrows by it as for
+    /// [`Scope::ByPurpose`]. Without one the consumer resolves `ref` through the Sandbox's
+    /// registry.
     ByRef,
     /// One delivery per order in the plan's stops: `Order (each stop)` on `RoutePublished`.
     EachStop,
@@ -200,26 +205,36 @@ pub fn routes(event_type: &str) -> Option<&'static [Route]> {
 }
 
 /// The routes this envelope takes, narrowed by what its data says: a pickup skips `Dispatch`,
-/// and a payment goes to the aggregate its `purpose` names. `ByRef`, `EachStop` and `TodayOn`
-/// stay for the consumer, which knows the registry and the days.
+/// and a payment or refund goes to the aggregate its `purpose` names. The instance is the
+/// consumer's to find: for `ByPurpose` and `ByRef` the aggregate the data's `ref` names
+/// ([`reference`]), and for `EachStop` and `TodayOn` the registry and the days.
 pub fn routes_for(envelope: &Envelope) -> Vec<Route> {
     let Some(routes) = routes(&envelope.event_type) else {
         return Vec::new();
     };
     let field = |name: &str| envelope.data.get(name).and_then(|v| v.as_str());
+    let purpose_fits = |to: Subscriber, purpose: Option<&str>| {
+        matches!(
+            (to, purpose),
+            (Subscriber::Order, Some("order"))
+                | (Subscriber::CateringEvent, Some("deposit" | "balance"))
+        )
+    };
     routes
         .iter()
         .copied()
         .filter(|r| match r.scope {
             Scope::DeliveryOrders => field("kind") == Some("delivery"),
-            Scope::ByPurpose => matches!(
-                (r.to, field("purpose")),
-                (Subscriber::Order, Some("order"))
-                    | (Subscriber::CateringEvent, Some("deposit" | "balance"))
-            ),
-            Scope::All | Scope::ByRef | Scope::EachStop | Scope::TodayOn => true,
+            Scope::ByPurpose => purpose_fits(r.to, field("purpose")),
+            Scope::ByRef => field("purpose").is_none_or(|p| purpose_fits(r.to, Some(p))),
+            Scope::All | Scope::EachStop | Scope::TodayOn => true,
         })
         .collect()
+}
+
+/// The aggregate a `ByPurpose` or `ByRef` route delivers to: the ULID in the data's `ref`.
+pub fn reference(envelope: &Envelope) -> Option<bakery_domain::Ulid> {
+    envelope.data.get("ref")?.as_str()?.parse().ok()
 }
 
 /// The routes the consumer delivers on now: [`routes_for`], limited to the [`LIVE`] classes.
@@ -250,6 +265,7 @@ pub fn strip_for(envelope: &Envelope, to: Subscriber) -> Envelope {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bakery_domain::billing::BillingEvent;
     use bakery_domain::catalog::CatalogEvent;
     use bakery_domain::order::OrderEvent;
     use bakery_domain::{DomainEvent, Ulid, WallTime};
@@ -354,9 +370,29 @@ mod tests {
         assert_eq!(in_doc.len(), 57);
     }
 
+    /// Billing events the catalog does not list yet: they change Billing's own state and have
+    /// no subscriber, so the consumer acks them at once. When docs/domain.md gains their rows,
+    /// they move into [`ROUTES`] and out of this list.
+    const AWAITING_A_CATALOG_ROW: &[&str] = &["PaymentIntentRecorded", "RefundRequested"];
+
     #[test]
     fn every_domain_event_is_routed() {
-        for name in OrderEvent::NAMES.iter().chain(CatalogEvent::NAMES) {
+        for name in OrderEvent::NAMES
+            .iter()
+            .chain(CatalogEvent::NAMES)
+            .chain(BillingEvent::NAMES)
+        {
+            if AWAITING_A_CATALOG_ROW.contains(name) {
+                assert!(
+                    routes(name).is_none(),
+                    "{name} has a row: take it off the list"
+                );
+                assert!(
+                    !DOMAIN_MD.contains(&format!("| `{name}` |")),
+                    "docs/domain.md lists {name}: add its row to ROUTES"
+                );
+                continue;
+            }
             assert!(routes(name).is_some(), "{name} has no row");
         }
     }
@@ -410,7 +446,8 @@ mod tests {
         assert_eq!(classes(routes_for(&order_payment)), ["Order"]);
         let deposit = envelope("PaymentSucceeded", json!({ "purpose": "deposit" }));
         assert_eq!(classes(routes_for(&deposit)), ["CateringEvent"]);
-        // A failed payment names no purpose: the consumer resolves its `ref`.
+        // A failed payment with no purpose goes to both, for the consumer to resolve its `ref`;
+        // Billing's carry a purpose, which narrows it.
         let failed = envelope(
             "PaymentFailed",
             json!({ "payment": "x", "code": "card_declined" }),
@@ -419,29 +456,66 @@ mod tests {
             classes(routes_for(&failed)),
             ["Order", "CateringEvent", "Inbox"]
         );
+        let failed = envelope(
+            "PaymentFailed",
+            json!({ "payment": "x", "purpose": "order", "code": "card_declined" }),
+        );
+        assert_eq!(classes(routes_for(&failed)), ["Order", "Inbox"]);
+        let refund = envelope("RefundIssued", json!({ "purpose": "balance" }));
+        assert_eq!(classes(routes_for(&refund)), ["CateringEvent"]);
         assert!(routes_for(&envelope("NotAnEvent", json!({}))).is_empty());
         assert!(routes_for(&envelope("ProjectionRebuildFinished", json!({}))).is_empty());
     }
 
     #[test]
-    fn pr4_delivers_to_the_kitchen_alone() {
-        assert_eq!(LIVE, [Kitchen]);
+    fn pr5_delivers_to_the_kitchen_billing_and_the_order() {
+        assert_eq!(LIVE, [Kitchen, Billing, Order]);
         let paid = envelope("OrderPaid", json!({ "payment": "x", "amount_cents": 1 }));
         assert_eq!(classes(deliver_to(&paid)), ["Kitchen"]);
         // Events with no live subscriber are acked at once.
         for name in [
-            "OrderRefundRequested",
             "MenuPublished",
             "OrderClosed",
             "SandboxWiped",
+            "PaymentIntentCreated",
+            "PaymentCanceled",
+            "PaymentIntentRecorded",
+            "RefundRequested",
         ] {
             assert!(deliver_to(&envelope(name, json!({}))).is_empty(), "{name}");
         }
+        // The Order asks Billing for its refunds and its intent's cancel.
+        assert_eq!(
+            classes(deliver_to(&envelope("OrderRefundRequested", json!({})))),
+            ["Billing"]
+        );
+        assert_eq!(
+            classes(deliver_to(&envelope("OrderExpired", json!({})))),
+            ["Billing", "Kitchen"]
+        );
+        // Billing answers the Order named by `ref`, when the purpose is an order.
+        let order = Ulid::from_parts(1_793_819_530_318, 7);
+        for name in ["PaymentSucceeded", "PaymentFailed", "RefundIssued"] {
+            let to_order = envelope(
+                name,
+                json!({ "purpose": "order", "ref": order.to_string() }),
+            );
+            assert_eq!(classes(deliver_to(&to_order)), ["Order"], "{name}");
+            assert_eq!(reference(&to_order), Some(order));
+            let to_catering = envelope(
+                name,
+                json!({ "purpose": "deposit", "ref": order.to_string() }),
+            );
+            assert!(deliver_to(&to_catering).is_empty(), "{name}");
+        }
+        assert_eq!(
+            reference(&envelope("RefundIssued", json!({ "ref": "nope" }))),
+            None
+        );
         // Every order event the board draws reaches it.
         for name in [
             "OrderPlaced",
             "OrderPaid",
-            "OrderExpired",
             "OrderCancelled",
             "OrderProductionStarted",
             "OrderReady",

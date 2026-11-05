@@ -229,6 +229,11 @@ pub struct SandboxResponse {
     /// The visitor's customer persona: the seed's first customer's ULID. Orders the visitor
     /// places are this customer's.
     pub persona: String,
+    /// The persona's synthetic display name, from the seed: the Payment Element's billing name.
+    pub persona_name: String,
+    /// The persona's synthetic address, from the seed: the Payment Element's billing address,
+    /// so the visitor types none (ADR 0007, decision 6).
+    pub persona_address: PersonaAddress,
     /// Business time minus wall time, in seconds (docs/architecture.md, "Time travel").
     pub clock_offset_s: i64,
     /// Bumped by every clock advance.
@@ -239,6 +244,21 @@ pub struct SandboxResponse {
     /// Registered child objects: the Catalog, the Kitchen and the 12 seeded orders once
     /// seeding is done, then one more for each order placed.
     pub children: u32,
+}
+
+/// A made-up address, labelled synthetic in its first line, passed to Stripe's
+/// `confirmPayment` as the billing address.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PersonaAddress {
+    /// `<place label>, unit <n> (synthetic)`, such as `p17, unit 3 (synthetic)`.
+    pub line1: String,
+    pub city: String,
+    /// A two-letter state code.
+    pub state: String,
+    pub postal_code: String,
+    /// An ISO 3166-1 alpha-2 code.
+    pub country: String,
 }
 
 /// `POST /v1/auth/demo`. The password never reaches an object, a log or this type's `Debug`.
@@ -572,6 +592,126 @@ pub struct ClockResponse {
     pub business_now: String,
 }
 
+/// Where a payment stands (docs/domain.md, the Billing rows).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum PaymentStatus {
+    /// Asked for; waiting for the browser.
+    Created,
+    Succeeded,
+    /// The last attempt was declined; the same intent can still be paid.
+    Failed,
+    Canceled,
+}
+
+/// `POST /v1/sandboxes/{id}/orders/{oid}/payment`: what the browser needs to mount Stripe's
+/// Payment Element. `client_secret` is a one-time value for the browser: it is not stored, not
+/// logged, and left out of this type's `Debug`.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PaymentResponse {
+    /// Billing's id for the payment, a ULID.
+    pub payment: String,
+    /// Stripe's `pi_..._secret_...`, for `<Elements options={{ clientSecret }}>`.
+    pub client_secret: String,
+    /// The sandbox's `pk_test_` key, when the API has one to give; the storefront's own build
+    /// value otherwise.
+    #[serde(default)]
+    pub publishable_key: Option<String>,
+    pub amount_cents: i64,
+    pub status: PaymentStatus,
+}
+
+impl std::fmt::Debug for PaymentResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PaymentResponse")
+            .field("payment", &self.payment)
+            .field("publishable_key", &self.publishable_key)
+            .field("amount_cents", &self.amount_cents)
+            .field("status", &self.status)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Why staff give money back: a choice from a list, never free text (docs/domain.md, "Free
+/// text and personal data"). The other two reasons the domain knows, `cancelled` and
+/// `payment_late`, are the system's own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RefundReason {
+    MissingItem,
+    Quality,
+    Goodwill,
+}
+
+/// `POST /v1/sandboxes/{id}/orders/{oid}/refund`, staff only. No `amount_cents` refunds all
+/// that is left; refunding all that is left of an order not yet closed cancels it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RefundRequest {
+    #[serde(default)]
+    pub amount_cents: Option<i64>,
+    pub reason: RefundReason,
+}
+
+/// The answer to a refund request: accepted, and on its way to Stripe.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RefundResponse {
+    /// The refund's ULID: the id of the order's `OrderRefundRequested` event, which Billing
+    /// keeps the refund under.
+    pub refund: String,
+    pub amount_cents: i64,
+    /// The order's status after the request: unchanged for a part, `refund_pending` for the
+    /// whole of an order not yet closed.
+    pub status: OrderStatus,
+}
+
+/// What a payment pays for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum PaymentPurpose {
+    Order,
+    Deposit,
+    Balance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum LedgerKind {
+    Payment,
+    Refund,
+}
+
+/// One line of the ledger: a payment's success or a refund issued.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LedgerEntry {
+    /// The business time of the event that made it.
+    pub at: String,
+    pub kind: LedgerKind,
+    pub purpose: PaymentPurpose,
+    /// The order or catering job's ULID.
+    #[serde(rename = "ref")]
+    pub reference: String,
+    /// Signed: positive for a payment, negative for a refund.
+    pub amount_cents: i64,
+    /// Stripe's id: the intent's `pi_...` for a payment, the refund's `re_...` for a refund.
+    pub stripe_id: String,
+}
+
+/// `GET /v1/sandboxes/{id}/billing/ledger`: every entry in order, and the totals.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LedgerResponse {
+    pub entries: Vec<LedgerEntry>,
+    /// `paid_cents - refunded_cents`.
+    pub net_cents: i64,
+    pub paid_cents: i64,
+    /// A positive amount.
+    pub refunded_cents: i64,
+}
+
 /// Every exported schema as `(file name, pretty JSON with a trailing newline)`, in a fixed
 /// order. The binary writes these bytes and the test compares them.
 pub fn schemas() -> Vec<(&'static str, String)> {
@@ -620,6 +760,10 @@ pub fn schemas() -> Vec<(&'static str, String)> {
         ("DeadLetter.schema.json", render::<DeadLetter>()),
         ("ClockRequest.schema.json", render::<ClockRequest>()),
         ("ClockResponse.schema.json", render::<ClockResponse>()),
+        ("PaymentResponse.schema.json", render::<PaymentResponse>()),
+        ("RefundRequest.schema.json", render::<RefundRequest>()),
+        ("RefundResponse.schema.json", render::<RefundResponse>()),
+        ("LedgerResponse.schema.json", render::<LedgerResponse>()),
     ]
 }
 
@@ -738,6 +882,14 @@ mod tests {
             wipe_at: "2026-11-05T10:00:00.000Z".into(),
             seed: 42,
             persona: "01JC8Z6F0WQ3E5R7T9Y1V3K5P7".into(),
+            persona_name: "Drizzle Trowel".into(),
+            persona_address: PersonaAddress {
+                line1: "p17, unit 1 (synthetic)".into(),
+                city: "Salt Lake City".into(),
+                state: "UT".into(),
+                postal_code: "84101".into(),
+                country: "US".into(),
+            },
             clock_offset_s: 0,
             clock_v: 0,
             token_v: 0,
@@ -746,7 +898,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&sandbox).unwrap(),
-            r#"{"id":"01JC8Z6K3W9QF2N4T7XRB5M0HD","kind":"guest","state":"live","born":"2026-11-05T09:55:00.000Z","wipe_at":"2026-11-05T10:00:00.000Z","seed":42,"persona":"01JC8Z6F0WQ3E5R7T9Y1V3K5P7","clock_offset_s":0,"clock_v":0,"token_v":0,"faults":{"inbox":false,"kitchen":false},"children":0}"#
+            r#"{"id":"01JC8Z6K3W9QF2N4T7XRB5M0HD","kind":"guest","state":"live","born":"2026-11-05T09:55:00.000Z","wipe_at":"2026-11-05T10:00:00.000Z","seed":42,"persona":"01JC8Z6F0WQ3E5R7T9Y1V3K5P7","persona_name":"Drizzle Trowel","persona_address":{"line1":"p17, unit 1 (synthetic)","city":"Salt Lake City","state":"UT","postal_code":"84101","country":"US"},"clock_offset_s":0,"clock_v":0,"token_v":0,"faults":{"inbox":false,"kitchen":false},"children":0}"#
         );
         for (state, text) in [
             (SandboxState::Seeding, "seeding"),
@@ -877,5 +1029,75 @@ mod tests {
             at: "2026-11-05T12:00:00.000Z".into(),
         };
         assert_eq!(serde_json::to_value(&dead).unwrap()["type"], "OrderPlaced");
+    }
+
+    #[test]
+    fn payment_shapes() {
+        let payment = PaymentResponse {
+            payment: "01JC8Z6F1A5H3D7K9M2P4R6T8V".into(),
+            client_secret: "pi_fake_1_secret_fake".into(),
+            publishable_key: Some("pk_test_fake000000000000000000000000".into()),
+            amount_cents: 2_090,
+            status: PaymentStatus::Created,
+        };
+        assert_eq!(
+            serde_json::to_value(&payment).unwrap(),
+            json!({ "payment": "01JC8Z6F1A5H3D7K9M2P4R6T8V", "client_secret": "pi_fake_1_secret_fake",
+                    "publishable_key": "pk_test_fake000000000000000000000000", "amount_cents": 2090,
+                    "status": "created" })
+        );
+        let printed = format!("{payment:?}");
+        assert!(!printed.contains("secret"), "{printed}");
+
+        let full: RefundRequest = serde_json::from_str(r#"{"reason":"quality"}"#).unwrap();
+        assert_eq!(full.amount_cents, None);
+        let part: RefundRequest =
+            serde_json::from_str(r#"{"amount_cents":500,"reason":"missing_item"}"#).unwrap();
+        assert_eq!(part.amount_cents, Some(500));
+        for bad in [
+            r#"{"reason":"requested_by_customer"}"#,
+            r#"{"reason":"goodwill","note":"x"}"#,
+            r#"{"amount_cents":500}"#,
+        ] {
+            assert!(serde_json::from_str::<RefundRequest>(bad).is_err(), "{bad}");
+        }
+        assert_eq!(
+            serde_json::to_value(RefundResponse {
+                refund: "01JC8Z6F1A5H3D7K9M2P4R6T8V".into(),
+                amount_cents: 2_090,
+                status: OrderStatus::RefundPending,
+            })
+            .unwrap(),
+            json!({ "refund": "01JC8Z6F1A5H3D7K9M2P4R6T8V", "amount_cents": 2090,
+                    "status": "refund_pending" })
+        );
+        let ledger = LedgerResponse {
+            entries: vec![
+                LedgerEntry {
+                    at: "2026-11-07T09:00:00-07:00".into(),
+                    kind: LedgerKind::Payment,
+                    purpose: PaymentPurpose::Order,
+                    reference: "01JC8Z5R0T2B6Y8C4V1N3K7QXE".into(),
+                    amount_cents: 2_090,
+                    stripe_id: "pi_fake_1".into(),
+                },
+                LedgerEntry {
+                    at: "2026-11-07T09:05:00-07:00".into(),
+                    kind: LedgerKind::Refund,
+                    purpose: PaymentPurpose::Order,
+                    reference: "01JC8Z5R0T2B6Y8C4V1N3K7QXE".into(),
+                    amount_cents: -2_090,
+                    stripe_id: "re_fake_1".into(),
+                },
+            ],
+            net_cents: 0,
+            paid_cents: 2_090,
+            refunded_cents: 2_090,
+        };
+        let value = serde_json::to_value(&ledger).unwrap();
+        assert_eq!(value["entries"][1]["ref"], "01JC8Z5R0T2B6Y8C4V1N3K7QXE");
+        assert_eq!(value["entries"][1]["kind"], "refund");
+        assert_eq!(value["entries"][1]["amount_cents"], -2090);
+        assert_eq!(value["net_cents"], 0);
     }
 }

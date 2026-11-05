@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RefundResponse",
+  "description": "The answer to a refund request: accepted, and on its way to Stripe.",
+  "type": "object",
+  "properties": {
+    "amount_cents": {
+      "type": "integer",
+      "format": "int64"
+    },
+    "refund": {
+      "description": "The refund's ULID: the id of the order's `OrderRefundRequested` event, which Billing\nkeeps the refund under.",
+      "type": "string"
+    },
+    "status": {
+      "description": "The order's status after the request: unchanged for a part, `refund_pending` for the\nwhole of an order not yet closed.",
+      "$ref": "#/$defs/OrderStatus"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "refund",
+    "amount_cents",
+    "status"
+  ],
+  "$defs": {
+    "OrderStatus": {
+      "description": "An order's state (docs/domain.md, \"Order\", the diagram).",
+      "type": "string",
+      "enum": [
+        "placed",
+        "confirmed",
+        "expired",
+        "cancelled",
+        "refund_pending",
+        "in_production",
+        "ready",
+        "picked_up",
+        "out_for_delivery",
+        "delivered",
+        "closed"
+      ]
+    }
+  }
+}
