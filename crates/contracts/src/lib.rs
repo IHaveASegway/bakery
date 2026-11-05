@@ -1266,14 +1266,14 @@ mod tests {
         let payment = PaymentResponse {
             payment: "01JC8Z6F1A5H3D7K9M2P4R6T8V".into(),
             client_secret: "pi_fake_1_secret_fake".into(),
-            publishable_key: Some("pk_test_fake000000000000000000000000".into()),
+            publishable_key: Some("pk_test_not_a_key".into()),
             amount_cents: 2_090,
             status: PaymentStatus::Created,
         };
         assert_eq!(
             serde_json::to_value(&payment).unwrap(),
             json!({ "payment": "01JC8Z6F1A5H3D7K9M2P4R6T8V", "client_secret": "pi_fake_1_secret_fake",
-                    "publishable_key": "pk_test_fake000000000000000000000000", "amount_cents": 2090,
+                    "publishable_key": "pk_test_not_a_key", "amount_cents": 2090,
                     "status": "created" })
         );
         let printed = format!("{payment:?}");
