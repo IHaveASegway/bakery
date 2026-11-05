@@ -52,6 +52,7 @@ dependencies = [
  "argon2",
  "bakery-contracts",
  "bakery-domain",
+ "bakery-seed",
  "data-encoding",
  "hmac",
  "rand_chacha 0.3.1",

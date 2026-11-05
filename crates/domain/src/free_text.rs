@@ -7,9 +7,11 @@
 //! would be the largest thing in a crate that is meant to stay small.
 //!
 //! The doc says characters are counted after NFC normalization. NFC needs Unicode tables this
-//! crate does not carry, so normalization lands in a later PR together with the length caps
-//! (140 and 500 characters); [`normalize`] does the one rule that needs no tables, removing
-//! control characters other than a newline. Digits written as full-width forms are treated as
+//! crate does not carry, so it lands in a later PR; [`normalize`] does the one rule that needs no
+//! tables, removing control characters other than a newline, and the length caps of 140 and 500
+//! characters ([`check_note`], [`check_brief`]) count Unicode scalar values after it. Until NFC
+//! arrives, a decomposed accent counts as two characters, so a note can only be refused early,
+//! never let through long. Digits written as full-width forms are treated as
 //! digits here, since NFC would not fold them and a phone number in full-width digits is still a
 //! phone number.
 //!
@@ -43,6 +45,54 @@ const TLDS: &[&str] = &[
     "com", "org", "net", "io", "co", "us", "uk", "de", "fr", "app", "dev", "info", "biz", "edu",
     "gov",
 ];
+
+/// The order note's cap in characters (docs/domain.md, "Free text and personal data").
+pub const NOTE_MAX_CHARS: usize = 140;
+
+/// The catering brief's cap in characters (docs/domain.md, "Free text and personal data").
+pub const BRIEF_MAX_CHARS: usize = 500;
+
+/// Why a free-text field was refused: too long, or holding one of the four classes. Neither
+/// variant carries the text, so the error can go into a problem document and a log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FreeTextError {
+    /// Longer than `max` characters after normalization.
+    TooLong { max: usize },
+    /// Holds a value of this class.
+    Class(FreeTextClass),
+}
+
+impl FreeTextError {
+    /// The slug a problem document names the rule by.
+    pub fn slug(self) -> &'static str {
+        match self {
+            FreeTextError::TooLong { .. } => "too-long",
+            FreeTextError::Class(class) => class.slug(),
+        }
+    }
+}
+
+/// Checks an order note: at most [`NOTE_MAX_CHARS`] characters after [`normalize`], and none of
+/// the four classes. Returns the normalized text, which is what the `Order` stores.
+pub fn check_note(text: &str) -> Result<String, FreeTextError> {
+    check_capped(text, NOTE_MAX_CHARS)
+}
+
+/// Checks a catering brief: at most [`BRIEF_MAX_CHARS`] characters after [`normalize`], and none
+/// of the four classes. Returns the normalized text.
+pub fn check_brief(text: &str) -> Result<String, FreeTextError> {
+    check_capped(text, BRIEF_MAX_CHARS)
+}
+
+fn check_capped(text: &str, max: usize) -> Result<String, FreeTextError> {
+    let normalized = normalize(text);
+    // `chars` yields Unicode scalar values, the unit the doc counts in.
+    if normalized.chars().count() > max {
+        return Err(FreeTextError::TooLong { max });
+    }
+    check_free_text(&normalized).map_err(FreeTextError::Class)?;
+    Ok(normalized)
+}
 
 /// Removes control characters other than a newline. A tab or a stray escape cannot then split
 /// the digits of a number and slip past the checker.
@@ -325,6 +375,66 @@ mod tests {
         assert_eq!(FreeTextClass::Phone.slug(), "phone");
         assert_eq!(FreeTextClass::CardNumber.slug(), "card-number");
         assert_eq!(FreeTextClass::Url.slug(), "url");
+    }
+
+    #[test]
+    fn a_note_of_140_characters_passes_and_141_does_not() {
+        let at_cap = "a".repeat(NOTE_MAX_CHARS);
+        assert_eq!(check_note(&at_cap), Ok(at_cap.clone()));
+        assert_eq!(
+            check_note(&format!("{at_cap}a")),
+            Err(FreeTextError::TooLong { max: 140 })
+        );
+    }
+
+    #[test]
+    fn a_brief_of_500_characters_passes_and_501_does_not() {
+        let at_cap = "b".repeat(BRIEF_MAX_CHARS);
+        assert_eq!(check_brief(&at_cap), Ok(at_cap.clone()));
+        assert_eq!(
+            check_brief(&format!("{at_cap}b")),
+            Err(FreeTextError::TooLong { max: 500 })
+        );
+    }
+
+    #[test]
+    fn caps_count_scalar_values_not_bytes() {
+        // 140 two-byte characters are 280 bytes and still one note.
+        let accented = "\u{e9}".repeat(NOTE_MAX_CHARS);
+        assert_eq!(accented.len(), 280);
+        assert!(check_note(&accented).is_ok());
+        // Four-byte characters too.
+        assert!(check_note(&"\u{1F950}".repeat(NOTE_MAX_CHARS)).is_ok());
+        assert!(check_note(&"\u{1F950}".repeat(NOTE_MAX_CHARS + 1)).is_err());
+    }
+
+    #[test]
+    fn caps_count_after_control_characters_are_removed() {
+        let padded = format!("{}{}", "c".repeat(NOTE_MAX_CHARS), "\u{7}".repeat(10));
+        assert_eq!(check_note(&padded), Ok("c".repeat(NOTE_MAX_CHARS)));
+        assert_eq!(check_note("Slice\tit"), Ok("Sliceit".to_owned()));
+    }
+
+    #[test]
+    fn capped_checks_still_run_the_four_classes() {
+        assert_eq!(
+            check_note("call 555 0100"),
+            Err(FreeTextError::Class(FreeTextClass::Phone))
+        );
+        assert_eq!(
+            check_brief("details at fern@example.com"),
+            Err(FreeTextError::Class(FreeTextClass::Email))
+        );
+        assert_eq!(
+            check_note("Two candles, no message").unwrap(),
+            "Two candles, no message"
+        );
+    }
+
+    #[test]
+    fn free_text_errors_have_slugs() {
+        assert_eq!(FreeTextError::TooLong { max: 140 }.slug(), "too-long");
+        assert_eq!(FreeTextError::Class(FreeTextClass::Url).slug(), "url");
     }
 
     #[test]
