@@ -58,6 +58,8 @@ pub enum RouteId {
     Refund,
     Ledger,
     StripeWebhook,
+    GetSchedule,
+    SetCapacity,
 }
 
 #[derive(Debug)]
@@ -320,6 +322,22 @@ pub const ROUTES: &[Route] = &[
         Scope::Public,
         Limit::None,
     ),
+    // PR 6: a bakery day's schedule, which any session reads (the checkout's slot picker), and
+    // the staff's capacity editor.
+    route(
+        RouteId::GetSchedule,
+        "GET",
+        "/v1/sandboxes/{id}/schedule/{sub}",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::SetCapacity,
+        "PATCH",
+        "/v1/sandboxes/{id}/schedule/{sub}/capacity",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
 ];
 
 /// Routes a browser never calls: no CORS headers, no preflight, no Origin check, no session
@@ -572,6 +590,41 @@ mod tests {
         assert_eq!(
             match_route("OPTIONS", &format!("/v1/sandboxes/{s}/orders/{o}/payment")),
             Matched::Preflight
+        );
+    }
+
+    #[test]
+    fn schedule_routes() {
+        let s = "01JC8Z6K3W9QF2N4T7XRB5M0HD";
+        let some = |v: &str| Some(v.to_owned());
+        assert_eq!(
+            sub_of(match_route(
+                "GET",
+                &format!("/v1/sandboxes/{s}/schedule/2026-11-07")
+            )),
+            Some((RouteId::GetSchedule, some(s), some("2026-11-07")))
+        );
+        assert_eq!(
+            sub_of(match_route(
+                "PATCH",
+                &format!("/v1/sandboxes/{s}/schedule/2026-11-07/capacity")
+            )),
+            Some((RouteId::SetCapacity, some(s), some("2026-11-07")))
+        );
+        assert_eq!(
+            match_route("POST", &format!("/v1/sandboxes/{s}/schedule/2026-11-07")),
+            Matched::MethodNotAllowed("GET, OPTIONS".into())
+        );
+        let scope = |id| ROUTES.iter().find(|r| r.id == id).unwrap().scope;
+        assert_eq!(
+            scope(RouteId::GetSchedule),
+            Scope::Session,
+            "guests read it"
+        );
+        assert_eq!(
+            scope(RouteId::SetCapacity),
+            Scope::SignedIn,
+            "a console write"
         );
     }
 

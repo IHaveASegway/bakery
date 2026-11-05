@@ -500,6 +500,13 @@ impl ScheduleState {
         self.item_caps.get(item).copied()
     }
 
+    /// Every item cap, by slug: the menu's, or a staff member's since.
+    pub fn item_caps(&self) -> impl Iterator<Item = (&str, u32)> {
+        self.item_caps
+            .iter()
+            .map(|(item, cap)| (item.as_str(), *cap))
+    }
+
     pub fn catering_capacity(&self) -> u16 {
         self.catering_capacity
     }

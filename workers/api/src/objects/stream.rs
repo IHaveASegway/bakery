@@ -59,7 +59,7 @@ pub const SCHEMA: &[&str] = &[
        purpose TEXT NOT NULL,
        due_wall TEXT NOT NULL,
        due_business TEXT)",
-    "CREATE TABLE IF NOT EXISTS rearms (day TEXT PRIMARY KEY, n INTEGER NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS rearms (day TEXT PRIMARY KEY, n INTEGER NOT NULL, last_at INTEGER)",
 ];
 
 pub fn create_schema(sql: &SqlStorage, own: &[&str]) -> Result<()> {
@@ -260,48 +260,170 @@ pub fn due(sql: &SqlStorage, now: WallTime) -> Result<Vec<Timer>> {
         .collect())
 }
 
-/// Arms the one alarm for the earliest timer, or deletes it when there is none. A timer already
-/// due arms for now, which fires at once; the alarm handler deletes or moves every timer it
-/// runs, so this never loops (rule 4).
-pub async fn arm(storage: &Storage, now: WallTime) -> Result<()> {
-    let next = timers(&storage.sql())?
+/// What arming the one alarm comes to, decided by [`plan_arm`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Arming {
+    /// The alarm already holds the time wanted, or holds none and nothing is due: nothing is
+    /// written and nothing is counted.
+    Unchanged,
+    /// `setAlarm` for this wall time, in ms.
+    Set(i64),
+    /// No timer is left: `deleteAlarm`.
+    Delete,
+    /// An alarm-driven re-arm past the guard: nothing is armed, `alarm_guard` is logged.
+    Refused,
+}
+
+/// The day's count of alarm-driven re-arms, and the wall time the last one armed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Rearms {
+    /// The UTC day, `YYYY-MM-DD`.
+    pub day: String,
+    pub n: u32,
+    pub last_at: Option<i64>,
+}
+
+/// The loop guard and the timer wheel's idempotence, as a pure function (docs/architecture.md,
+/// "The rules, restated for Rust", rule 4; ADR 0004, decision 7). `current` is the alarm the
+/// platform holds, `next_due` the earliest timer's wall time, both in ms. A time already past
+/// arms for now. Arming the time already armed is [`Arming::Unchanged`] and is not counted.
+/// Only a re-arm from the alarm handler (`from_alarm`) is counted, once per distinct wall time,
+/// against [`REARM_GUARD`] a UTC day; the 101st is refused. A command may arm freely. Answers
+/// the ledger to store when the re-arm was counted.
+pub fn plan_arm(
+    current: Option<i64>,
+    next_due: Option<i64>,
+    now_ms: i64,
+    from_alarm: bool,
+    today: &str,
+    ledger: &Rearms,
+) -> (Arming, Option<Rearms>) {
+    let Some(due) = next_due else {
+        return match current {
+            Some(_) => (Arming::Delete, None),
+            None => (Arming::Unchanged, None),
+        };
+    };
+    let at = due.max(now_ms);
+    if current == Some(at) {
+        return (Arming::Unchanged, None);
+    }
+    if !from_alarm {
+        return (Arming::Set(at), None);
+    }
+    let mut day = if ledger.day == today {
+        ledger.clone()
+    } else {
+        Rearms {
+            day: today.to_owned(),
+            n: 0,
+            last_at: None,
+        }
+    };
+    if day.last_at == Some(at) {
+        // The same re-arm again, such as an alarm run retried by the platform: counted once.
+        return (Arming::Set(at), None);
+    }
+    if day.n >= REARM_GUARD {
+        return (Arming::Refused, None);
+    }
+    day.n += 1;
+    day.last_at = Some(at);
+    (Arming::Set(at), Some(day))
+}
+
+fn earliest(sql: &SqlStorage) -> Result<Option<i64>> {
+    Ok(timers(sql)?
         .iter()
         .filter_map(Timer::due_wall)
-        .min();
-    match next {
-        Some(at) => {
-            let at = if at < now { now } else { at };
+        .map(|t| t.unix_ms())
+        .min())
+}
+
+fn ledger(sql: &SqlStorage, today: &str) -> Result<Rearms> {
+    #[derive(Deserialize)]
+    struct Row {
+        n: i64,
+        last_at: Option<i64>,
+    }
+    let row: Option<Row> = first(
+        sql,
+        "SELECT n, last_at FROM rearms WHERE day = ?",
+        vec![today.into()],
+    )?;
+    Ok(row.map_or_else(Rearms::default, |r| Rearms {
+        day: today.to_owned(),
+        n: u32::try_from(r.n).unwrap_or(u32::MAX),
+        last_at: r.last_at,
+    }))
+}
+
+/// Whether the guard still allows an alarm-driven re-arm today, without counting one: the
+/// Simulator stops its traffic cleanly rather than be refused mid-run.
+pub fn guard_allows(sql: &SqlStorage, now: WallTime) -> Result<bool> {
+    Ok(ledger(sql, &now.utc_day())?.n < REARM_GUARD)
+}
+
+async fn arm_with(storage: &Storage, now: WallTime, from_alarm: bool, object: &str) -> Result<()> {
+    let sql = storage.sql();
+    let today = now.utc_day();
+    let current = storage.get_alarm().await?;
+    let book = if from_alarm {
+        ledger(&sql, &today)?
+    } else {
+        Rearms::default()
+    };
+    let (arming, counted) = plan_arm(
+        current,
+        earliest(&sql)?,
+        now.unix_ms(),
+        from_alarm,
+        &today,
+        &book,
+    );
+    if let Some(day) = counted {
+        exec(
+            &sql,
+            "INSERT INTO rearms (day, n, last_at) VALUES (?, ?, ?)
+             ON CONFLICT (day) DO UPDATE SET n = excluded.n, last_at = excluded.last_at",
+            vec![
+                day.day.into(),
+                i64::from(day.n).into(),
+                day.last_at
+                    .map_or(SqlStorageValue::Null, SqlStorageValue::from),
+            ],
+        )?;
+    }
+    match arming {
+        Arming::Unchanged => Ok(()),
+        Arming::Set(ms) => {
+            let at = WallTime::from_unix_ms(ms).map_err(|e| Error::RustError(e.to_string()))?;
             storage.set_alarm(alarm_time(at)).await
         }
-        None => storage.delete_alarm().await,
+        Arming::Delete => storage.delete_alarm().await,
+        Arming::Refused => {
+            // Control has no per-sandbox read-only switch (its flag is the whole demo's), so
+            // the object stops arming and waits for the nightly wipe (ADR 0004, decision 7).
+            console_log!(
+                "{{\"event\":\"alarm_guard\",\"reason\":\"rearm-cap\",\"object\":\"{object}\"}}"
+            );
+            Ok(())
+        }
     }
 }
 
-/// Counts one alarm-driven re-arm for today. `false` at the guard: the caller stops arming,
-/// and the object waits for the wipe or its backstop.
-pub fn may_rearm(sql: &SqlStorage, now: WallTime, object: &str) -> Result<bool> {
-    #[derive(Deserialize)]
-    struct N {
-        n: i64,
-    }
-    let day = now.utc_day();
-    let n: Option<N> = first(
-        sql,
-        "SELECT n FROM rearms WHERE day = ?",
-        vec![day.as_str().into()],
-    )?;
-    let n = n.map_or(0, |r| r.n);
-    if n >= i64::from(REARM_GUARD) {
-        console_log!("{{\"event\":\"alarm_guard\",\"object\":\"{object}\"}}");
-        return Ok(false);
-    }
-    exec(
-        sql,
-        "INSERT INTO rearms (day, n) VALUES (?, 1)
-         ON CONFLICT (day) DO UPDATE SET n = n + 1",
-        vec![day.into()],
-    )?;
-    Ok(true)
+/// Arms the one alarm for the earliest timer from a command or a delivery, or deletes it when
+/// there is none. Not counted by the guard: a command may arm an earlier wall time
+/// (docs/architecture.md, "Time travel"). Arming the time already armed writes nothing.
+pub async fn arm(storage: &Storage, now: WallTime) -> Result<()> {
+    arm_with(storage, now, false, "").await
+}
+
+/// The end of every alarm run: the next alarm armed for the earliest timer left, counted by the
+/// loop guard. The handler deletes or moves every timer it ran, so a timer still due arms for
+/// now, and a loop of those is what the guard stops at 100 a day.
+pub async fn rearm(storage: &Storage, now: WallTime, object: &str) -> Result<()> {
+    arm_with(storage, now, true, object).await
 }
 
 /// A wall time `ms` after `now`.
@@ -381,6 +503,13 @@ pub async fn relay_soon(
     now: WallTime,
     object: &'static str,
 ) -> Result<()> {
+    relay_after(state, env, now, object)?;
+    arm(&state.storage(), now).await
+}
+
+/// [`relay_soon`] from inside an alarm run: the outbox timer and the send, with the alarm left
+/// to the run's own [`rearm`], so the guard sees the re-arm.
+pub fn relay_after(state: &State, env: &Env, now: WallTime, object: &'static str) -> Result<()> {
     let storage = state.storage();
     set_timer(
         &storage.sql(),
@@ -389,7 +518,6 @@ pub async fn relay_soon(
         after(now, OUTBOX_RETRY_MS)?,
         None,
     )?;
-    arm(&storage, now).await?;
     let env = env.clone();
     state.wait_until(async move {
         if let Err(e) = relay(&storage, &env, object).await {
@@ -402,15 +530,109 @@ pub async fn relay_soon(
     Ok(())
 }
 
-/// The outbox timer fired: send what is left, and come back in 30 s only while rows remain and
-/// the guard allows.
+/// The outbox timer fired: send what is left, and come back in 30 s only while rows remain. The
+/// alarm's [`rearm`] counts that against the guard.
 pub async fn outbox_timer(storage: &Storage, env: &Env, now: WallTime, object: &str) -> Result<()> {
     let left = relay(storage, env, object).await?;
     let sql = storage.sql();
-    if left > 0 && may_rearm(&sql, now, object)? {
+    if left > 0 {
         set_timer(&sql, OUTBOX, OUTBOX, after(now, OUTBOX_RETRY_MS)?, None)?;
     } else {
         delete_timer(&sql, OUTBOX)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NOW: i64 = 1_794_069_730_000;
+    const DAY: &str = "2026-11-07";
+
+    /// Runs `n` alarm-driven re-arms, each to a new wall time, keeping the ledger as the
+    /// object would.
+    fn rearm_n(ledger: &mut Rearms, n: u32, from: i64) -> Vec<Arming> {
+        (0..n)
+            .map(|i| {
+                let at = from + i64::from(i + 1) * 30_000;
+                let (arming, counted) = plan_arm(None, Some(at), NOW, true, DAY, ledger);
+                if let Some(l) = counted {
+                    *ledger = l;
+                }
+                arming
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_hundred_and_first_alarm_driven_rearm_in_a_day_is_refused() {
+        let mut ledger = Rearms::default();
+        let armed = rearm_n(&mut ledger, REARM_GUARD, NOW);
+        assert!(armed.iter().all(|a| matches!(a, Arming::Set(_))));
+        assert_eq!(ledger.n, 100);
+        let (arming, counted) = plan_arm(None, Some(NOW + 999_000), NOW, true, DAY, &ledger);
+        assert_eq!((arming, counted), (Arming::Refused, None));
+        // A command still arms: the guard counts the alarm's own re-arms only.
+        let (arming, counted) = plan_arm(None, Some(NOW + 999_000), NOW, false, DAY, &ledger);
+        assert_eq!((arming, counted), (Arming::Set(NOW + 999_000), None));
+    }
+
+    #[test]
+    fn the_same_wall_time_twice_is_counted_once() {
+        let mut ledger = Rearms::default();
+        let at = NOW + 60_000;
+        let (first, counted) = plan_arm(None, Some(at), NOW, true, DAY, &ledger);
+        ledger = counted.unwrap();
+        assert_eq!((first, ledger.n), (Arming::Set(at), 1));
+        // The platform already holds it: nothing written, nothing counted.
+        assert_eq!(
+            plan_arm(Some(at), Some(at), NOW, true, DAY, &ledger),
+            (Arming::Unchanged, None)
+        );
+        assert_eq!(
+            plan_arm(Some(at), Some(at), NOW, false, DAY, &ledger),
+            (Arming::Unchanged, None)
+        );
+        // The alarm consumed, then the same time asked again (a retried run): set, not counted.
+        assert_eq!(
+            plan_arm(None, Some(at), NOW, true, DAY, &ledger),
+            (Arming::Set(at), None)
+        );
+        assert_eq!(ledger.n, 1);
+    }
+
+    #[test]
+    fn a_new_day_resets_the_count() {
+        let mut ledger = Rearms::default();
+        rearm_n(&mut ledger, REARM_GUARD, NOW);
+        assert_eq!(
+            plan_arm(None, Some(NOW + 999_000), NOW, true, DAY, &ledger).0,
+            Arming::Refused
+        );
+        let (arming, counted) =
+            plan_arm(None, Some(NOW + 999_000), NOW, true, "2026-11-08", &ledger);
+        assert_eq!(arming, Arming::Set(NOW + 999_000));
+        assert_eq!(
+            counted.map(|l| (l.day, l.n)),
+            Some(("2026-11-08".into(), 1))
+        );
+    }
+
+    #[test]
+    fn a_past_timer_arms_for_now_and_no_timer_deletes() {
+        let ledger = Rearms::default();
+        assert_eq!(
+            plan_arm(None, Some(NOW - 5_000), NOW, false, DAY, &ledger).0,
+            Arming::Set(NOW)
+        );
+        assert_eq!(
+            plan_arm(Some(NOW), None, NOW, true, DAY, &ledger),
+            (Arming::Delete, None)
+        );
+        assert_eq!(
+            plan_arm(None, None, NOW, true, DAY, &ledger),
+            (Arming::Unchanged, None)
+        );
+    }
 }

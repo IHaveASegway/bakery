@@ -13,11 +13,18 @@
 //! - `GET /_state` → `SandboxResponse`.
 //! - `POST /_register {name, class}` → `{seed, clock_offset_s, clock_v}`: a child born on first
 //!   use, the Simulator. 409 `{error: "seeding"}` before seeding is done.
-//! - `POST /_register-order {key}` → `{order, persona, clock_offset_s, clock_v, replayed}`:
-//!   the client's `Idempotency-Key` mapped to one order ULID, registered with class `Order`.
+//! - `POST /_register-order {key, date?}` → `{order, persona, clock_offset_s, clock_v, replayed,
+//!   schedule?}`: the client's `Idempotency-Key` mapped to one order ULID, registered with class
+//!   `Order`, and the slot's `Schedule` day registered beside it when `date` is one a day may be
+//!   created for; `schedule` is its name, absent when the date is out of range.
+//! - `POST /_register-day {date}` → `{name, clock_offset_s, clock_v}`: a `Schedule` day, born on
+//!   first touch, for a date from the birth day to 30 days after business today; 404 `{error:
+//!   "no-such-day"}` for any other.
+//! - `GET /_days` → `[name]`: the registered `Schedule` days from business today on.
 //! - `GET /_child/<name>` → 200 `{class}` for a registered child, else 404.
 //! - `POST /_faults {key, fault, on}` → `FaultsResponse`, and the Kitchen told of `kitchen`.
-//! - `POST /_clock {key, minutes}` → `ClockResponse`; 422 `{error: "clock", rule}`.
+//! - `POST /_clock {key, step}` → `ClockResponse` with the step applied; 422 `{error: "clock",
+//!   rule}` with the domain's `not-positive` or `offset-cap`.
 //! - `POST /_delivery-error {id, error}`: the consumer's last error for an event, kept until
 //!   the event is dead-lettered or the sandbox wiped.
 //! - `POST /_dead-letter {envelope, error?}`: from the DLQ consumer, or from the main consumer
@@ -36,8 +43,13 @@ use bakery_contracts::{
     SandboxResponse, SandboxState,
 };
 use bakery_domain::catalog::{Category, Item, Variant};
+use bakery_domain::clock::{ClockStep, advance};
 use bakery_domain::order::{Line, OrderEvent, OrderKind};
-use bakery_domain::{BusinessTime, Envelope, Ulid, WallTime};
+use bakery_domain::schedule::{
+    DEFAULT_CATERING_CAPACITY, DEFAULT_SLOT_CAPACITY, DEFAULT_ZONE_CAPACITY, HoldRequest,
+    HoldStatus, Target,
+};
+use bakery_domain::{BakeryDate, BusinessTime, Envelope, Ulid, WallTime};
 use bakery_seed::{BirthDate, Generated, Generator, OpenState, Seed};
 use serde::{Deserialize, Serialize};
 use worker::{
@@ -47,6 +59,7 @@ use worker::{
 
 use super::child::{Birth, ClockUpdate, WipeReport};
 use super::control::{self, Wiped};
+use super::schedule::{self, Cmd, SeedSchedule};
 use super::sql::{
     self, exec, first, gone, has_table, json, refuse, replayed, rows, transaction_sync, user_rows,
 };
@@ -66,6 +79,7 @@ const DISPATCH: &[(&str, &str)] = &[
     (billing::CLASS, billing::BINDING),
     (order::CLASS, order::BINDING),
     (simulator::CLASS, simulator::BINDING),
+    (schedule::CLASS, schedule::BINDING),
 ];
 
 const WIPE: &str = "wipe";
@@ -73,14 +87,15 @@ const BACKSTOP: &str = "backstop";
 const SEED: &str = "seed";
 const CLOCK: &str = "clock";
 
-/// Children seeded per alarm run: the Catalog, the Kitchen, Billing and the 12 open orders take
-/// three runs, each far inside the 1,000 subrequests a Free invocation may make (Workers limits,
+/// Children seeded per alarm run: the Catalog, the Kitchen, Billing, the 7 Schedule days and the
+/// 12 open orders take four runs, each far inside the 1,000 subrequests a Free invocation may make (Workers limits,
 /// https://developers.cloudflare.com/workers/platform/limits/, as of 2026-11-05).
 const SEED_BATCH: usize = 7;
 /// The pause between seeding runs, so a run's subrequests have finished.
 const SEED_GAP_MS: i64 = 100;
-/// The business clock moves at most 14 days in total (docs/domain.md, "Sandbox"; Q12 · Q-clock).
-const MAX_OFFSET_S: i64 = 14 * 24 * 3_600;
+/// A `Schedule` day may be created up to this many days after business today (and from the
+/// sandbox's birth day on).
+const DAYS_AHEAD: i64 = 30;
 /// A seeded order still waiting for payment is held this long after the sandbox is born, as a
 /// new order would be (docs/domain.md, "Order": 15 minutes).
 const SEED_HOLD_MINUTES: i64 = bakery_domain::order::EXPIRY_MINUTES;
@@ -160,6 +175,22 @@ pub struct RegisterRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegisterOrder {
     pub key: String,
+    /// The slot's bakery day: its `Schedule` is registered in the same call.
+    #[serde(default)]
+    pub date: Option<BakeryDate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegisterDay {
+    pub date: BakeryDate,
+}
+
+/// `/_register-day`'s answer: what the day is born with.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DayBirth {
+    pub name: String,
+    pub clock_offset_s: i64,
+    pub clock_v: u32,
 }
 
 /// `/_register-order`'s answer.
@@ -170,6 +201,10 @@ pub struct OrderSlot {
     pub clock_offset_s: i64,
     pub clock_v: u32,
     pub replayed: bool,
+    /// The slot day's `Schedule`, registered; `None` when no date was asked or it is out of
+    /// range.
+    #[serde(default)]
+    pub schedule: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -183,7 +218,8 @@ pub struct FaultCommand {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClockCommand {
     pub key: String,
-    pub minutes: u32,
+    /// `15m`, `1h`, `1d`, `next-opening`, or `<n>m` for the older `minutes` form.
+    pub step: ClockStep,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -226,6 +262,26 @@ impl MetaRow {
         self.id
             .parse()
             .map_err(|_| Error::RustError("meta id".into()))
+    }
+
+    fn born(&self) -> Result<WallTime> {
+        self.born
+            .parse()
+            .map_err(|_| Error::RustError("meta born".into()))
+    }
+
+    /// Business time at the sandbox's birth, at the offset it was born with: the base of the
+    /// seeded holds' 15 minutes, the same for every seeding run.
+    fn born_business(&self) -> Result<BusinessTime> {
+        Ok(business(self.born()?))
+    }
+
+    /// Whether a `Schedule` day may exist for `date`: from the birth day to 30 days after
+    /// business today.
+    fn day_in_range(&self, date: BakeryDate, now: WallTime) -> Result<bool> {
+        let birth_day = BakeryDate::of(self.born_business()?);
+        let today = BakeryDate::of(business_at(now, self.clock_offset_s));
+        Ok(date >= birth_day && date <= today.plus_days(DAYS_AHEAD))
     }
 
     fn birth(&self, name: String) -> Result<Birth> {
@@ -322,6 +378,11 @@ impl DurableObject for Sandbox {
                         let body: RegisterOrder = sql::body(&mut req).await?;
                         self.register_order(&meta, body, now)
                     }
+                    (Method::Post, "/_register-day") => {
+                        let body: RegisterDay = sql::body(&mut req).await?;
+                        self.register_day(&meta, body.date, now)
+                    }
+                    (Method::Get, "/_days") => self.days(&meta, now),
                     (Method::Get, p) if p.starts_with("/_child/") => {
                         self.child(&p["/_child/".len()..])
                     }
@@ -394,7 +455,7 @@ impl DurableObject for Sandbox {
             }
         }
         if self.meta()?.is_some() {
-            stream::arm(&storage, now).await?;
+            stream::rearm(&storage, now, CLASS).await?;
         }
         Response::empty()
     }
@@ -604,7 +665,7 @@ impl Sandbox {
                     meta.clock_v.into(),
                 ],
             )?;
-            let body = child.body(&g, &meta, now)?;
+            let body = child.body(&g, &meta)?;
             let res = sql::call(
                 &self.env,
                 child.binding,
@@ -634,9 +695,8 @@ impl Sandbox {
             )?;
         }
         if start + SEED_BATCH < plan.len() {
-            if stream::may_rearm(&sql, now, CLASS)? {
-                stream::set_timer(&sql, SEED, SEED, stream::after(now, SEED_GAP_MS)?, None)?;
-            }
+            // The alarm's re-arm counts this against the guard.
+            stream::set_timer(&sql, SEED, SEED, stream::after(now, SEED_GAP_MS)?, None)?;
             return Ok(());
         }
         let event = Envelope {
@@ -758,6 +818,12 @@ impl Sandbox {
                 (order, false)
             }
         };
+        let schedule = match body.date {
+            Some(date) if meta.day_in_range(date, now)? => {
+                Some(self.register_schedule(meta, date, now)?)
+            }
+            _ => None,
+        };
         json(
             &OrderSlot {
                 order,
@@ -765,9 +831,68 @@ impl Sandbox {
                 clock_offset_s: meta.clock_offset_s,
                 clock_v: u32::try_from(meta.clock_v).unwrap_or(0),
                 replayed,
+                schedule,
             },
             200,
         )
+    }
+
+    /// A `Schedule` day's name in the registry, before its first write.
+    fn register_schedule(&self, meta: &MetaRow, date: BakeryDate, now: WallTime) -> Result<String> {
+        let name = schedule::name(meta.sandbox()?, date);
+        exec(
+            &self.sql(),
+            "INSERT OR IGNORE INTO registry (name, class, registered_at, clock_v) VALUES (?, ?, ?, ?)",
+            vec![
+                name.as_str().into(),
+                schedule::CLASS.into(),
+                now.to_string().into(),
+                meta.clock_v.into(),
+            ],
+        )?;
+        Ok(name)
+    }
+
+    /// A `Schedule` day for the router's read or a capacity change, born on first touch.
+    fn register_day(&self, meta: &MetaRow, date: BakeryDate, now: WallTime) -> Result<Response> {
+        match meta.state.as_str() {
+            "live" => {}
+            "seeding" => return refuse(409, "seeding"),
+            _ => return gone(),
+        }
+        if !meta.day_in_range(date, now)? {
+            return refuse(404, "no-such-day");
+        }
+        let name = self.register_schedule(meta, date, now)?;
+        json(
+            &DayBirth {
+                name,
+                clock_offset_s: meta.clock_offset_s,
+                clock_v: u32::try_from(meta.clock_v).unwrap_or(0),
+            },
+            200,
+        )
+    }
+
+    /// The registered `Schedule` days from business today on: where `MenuPublished`'s new
+    /// caps go.
+    fn days(&self, meta: &MetaRow, now: WallTime) -> Result<Response> {
+        #[derive(Deserialize)]
+        struct NameRow {
+            name: String,
+        }
+        let today = BakeryDate::of(business_at(now, meta.clock_offset_s));
+        let found: Vec<NameRow> = rows(
+            &self.sql(),
+            "SELECT name FROM registry WHERE class = ? AND wiped_at IS NULL ORDER BY name",
+            vec![schedule::CLASS.into()],
+        )?;
+        let names: Vec<String> = found
+            .into_iter()
+            .map(|r| r.name)
+            .filter(|n| schedule::date_of(n).is_some_and(|d| d >= today))
+            .collect();
+        json(&names, 200)
     }
 
     fn child(&self, name: &str) -> Result<Response> {
@@ -909,10 +1034,11 @@ impl Sandbox {
         Ok(n.is_some_and(|r| r.n > 0))
     }
 
-    /// `AdvanceClock`, minimal (PR 6 adds the presets and "next opening"): the offset only
-    /// grows, at most 14 days in total; `ClockAdvanced` is appended with the key; then every
-    /// child is told the new offset, and one that cannot be reached is retried by the `clock`
-    /// timer (docs/architecture.md, "Time travel").
+    /// `AdvanceClock` (docs/domain.md, "Sandbox"): the step from the domain's rules (`15m`,
+    /// `1h`, `1d`, `next-opening`, or `<n>m`), so the offset only grows, at most 14 days in total;
+    /// `ClockAdvanced` is appended with the key; then every child is told the new offset, the
+    /// Kitchen with the event too, for the console's feed, and one that cannot be reached is
+    /// retried by the `clock` timer (docs/architecture.md, "Time travel").
     async fn advance_clock(
         &self,
         meta: &MetaRow,
@@ -928,27 +1054,25 @@ impl Sandbox {
         if let Some(seen) = stream::seen(&sql, &cmd.key)? {
             return replayed(&seen.result);
         }
-        if cmd.minutes == 0 {
-            return json(
-                &serde_json::json!({ "error": "clock", "rule": "not-positive" }),
-                422,
-            );
-        }
-        let offset = meta.clock_offset_s + i64::from(cmd.minutes) * 60;
-        if offset > MAX_OFFSET_S {
-            return json(
-                &serde_json::json!({ "error": "clock", "rule": "too-far" }),
-                422,
-            );
-        }
+        let from = business_at(now, meta.clock_offset_s);
+        let offset = match advance(meta.clock_offset_s, cmd.step, from) {
+            Ok(o) => o,
+            Err(e) => {
+                return json(
+                    &serde_json::json!({ "error": "clock", "rule": e.rule() }),
+                    422,
+                );
+            }
+        };
         let clock_v = meta.clock_v + 1;
         let sandbox = meta.sandbox()?;
-        let from = business_at(now, meta.clock_offset_s);
         let to = business_at(now, offset);
+        let step = cmd.step.to_string();
         let answer = serde_json::to_string(&ClockResponse {
             clock_offset_s: offset,
             clock_v: u32::try_from(clock_v).unwrap_or(0),
             business_now: to.to_string(),
+            step: Some(step.clone()),
         })?;
         let event = Envelope {
             v: bakery_domain::ENVELOPE_VERSION,
@@ -963,22 +1087,26 @@ impl Sandbox {
                 "from": from.to_string(),
                 "to": to.to_string(),
                 "clock_v": clock_v,
+                "step": step,
             }),
             cause: Some(cmd.key.clone()),
         };
         let (key, stored) = (cmd.key.clone(), answer.clone());
         let tx_sql = self.sql();
+        let tx_event = event.clone();
         transaction_sync(&self.state.storage(), move || {
             exec(
                 &tx_sql,
                 "UPDATE meta SET clock_offset_s = ?, clock_v = ?",
                 vec![offset.into(), clock_v.into()],
             )?;
-            stream::append(&tx_sql, std::slice::from_ref(&event))?;
+            stream::append(&tx_sql, std::slice::from_ref(&tx_event))?;
             stream::remember(&tx_sql, &key, "", &stored, now)?;
             Ok(())
         })?;
-        let missed = self.tell_children_of_clock(offset, clock_v).await?;
+        let missed = self
+            .tell_children_of_clock(offset, clock_v, Some(&event))
+            .await?;
         if missed > 0 {
             stream::set_timer(
                 &sql,
@@ -995,20 +1123,27 @@ impl Sandbox {
     }
 
     /// `/_clock` to every child whose `clock_v` is behind; answers how many could not be told.
-    async fn tell_children_of_clock(&self, offset: i64, clock_v: i64) -> Result<usize> {
+    /// The Kitchen also gets `event`, the `ClockAdvanced` it shows on the console's feed.
+    async fn tell_children_of_clock(
+        &self,
+        offset: i64,
+        clock_v: i64,
+        event: Option<&Envelope>,
+    ) -> Result<usize> {
         let sql = self.sql();
         let behind: Vec<ChildRow> = rows(
             &sql,
             "SELECT name, class FROM registry WHERE wiped_at IS NULL AND clock_v < ?",
             vec![clock_v.into()],
         )?;
-        let update = ClockUpdate {
-            clock_offset_s: offset,
-            clock_v: u32::try_from(clock_v).unwrap_or(0),
-        };
         let mut missed = 0;
         for child in &behind {
             let binding = Self::binding_of(&child.class)?;
+            let update = ClockUpdate {
+                clock_offset_s: offset,
+                clock_v: u32::try_from(clock_v).unwrap_or(0),
+                event: event.filter(|_| child.class == kitchen::CLASS).cloned(),
+            };
             let told = sql::call(
                 &self.env,
                 binding,
@@ -1043,9 +1178,9 @@ impl Sandbox {
             return Ok(());
         };
         let missed = self
-            .tell_children_of_clock(meta.clock_offset_s, meta.clock_v)
+            .tell_children_of_clock(meta.clock_offset_s, meta.clock_v, None)
             .await?;
-        if missed > 0 && stream::may_rearm(&sql, now, CLASS)? {
+        if missed > 0 {
             stream::set_timer(
                 &sql,
                 CLOCK,
@@ -1239,9 +1374,12 @@ struct SeedChild {
     name: String,
     /// Index into the seed's open orders, for an `Order`.
     open: Option<usize>,
+    /// Index into the seed's schedule days, for a `Schedule`.
+    day: Option<usize>,
 }
 
-/// The Catalog, the Kitchen, Billing, then the seed's 12 open orders: 15 children.
+/// The Catalog, the Kitchen, Billing, the seed's 7 Schedule days, then its 12 open orders: 22
+/// children. The days go before the orders, so an order's events find its day.
 fn seed_plan(g: &Generated, sandbox: Ulid) -> Vec<SeedChild> {
     let mut plan = vec![
         SeedChild {
@@ -1249,25 +1387,36 @@ fn seed_plan(g: &Generated, sandbox: Ulid) -> Vec<SeedChild> {
             binding: catalog::BINDING,
             name: catalog::name(sandbox),
             open: None,
+            day: None,
         },
         SeedChild {
             class: kitchen::CLASS,
             binding: kitchen::BINDING,
             name: kitchen::name(sandbox),
             open: None,
+            day: None,
         },
         SeedChild {
             class: billing::CLASS,
             binding: billing::BINDING,
             name: billing::name(sandbox),
             open: None,
+            day: None,
         },
     ];
+    plan.extend(g.schedule.iter().enumerate().map(|(i, d)| SeedChild {
+        class: schedule::CLASS,
+        binding: schedule::BINDING,
+        name: schedule::name(sandbox, d.date),
+        open: None,
+        day: Some(i),
+    }));
     plan.extend(g.open_orders.iter().enumerate().map(|(i, o)| SeedChild {
         class: order::CLASS,
         binding: order::BINDING,
         name: order::name(sandbox, o.id),
         open: Some(i),
+        day: None,
     }));
     plan
 }
@@ -1279,8 +1428,15 @@ fn via_json<T: Serialize, U: serde::de::DeserializeOwned>(value: T) -> Result<U>
 }
 
 impl SeedChild {
-    fn body(&self, g: &Generated, meta: &MetaRow, now: WallTime) -> Result<serde_json::Value> {
+    fn body(&self, g: &Generated, meta: &MetaRow) -> Result<serde_json::Value> {
         let birth = meta.birth(self.name.clone())?;
+        let born = meta.born_business()?;
+        if let Some(i) = self.day {
+            return Ok(serde_json::to_value(SeedSchedule {
+                birth,
+                cmds: schedule_seed_cmds(g, i, born)?,
+            })?);
+        }
         let value = match self.open {
             None if self.class == catalog::CLASS => {
                 let items: Vec<Item> = g
@@ -1312,7 +1468,7 @@ impl SeedChild {
                 let o = &g.open_orders[i];
                 serde_json::to_value(order::SeedOrder {
                     birth,
-                    events: open_order_events(g, o, business_at(now, meta.clock_offset_s))?,
+                    events: open_order_events(g, o, born)?,
                     at: o.placed_at,
                 })?
             }
@@ -1321,18 +1477,81 @@ impl SeedChild {
     }
 }
 
+/// When a seeded order's hold ends: 15 minutes of business time after its placement or the
+/// sandbox's birth, whichever is later, so it is on the board when the visitor arrives. The
+/// Order's `held_until` and the Schedule's `expires_at` are this one instant.
+fn seed_held_until(placed_at: BusinessTime, born: BusinessTime) -> Result<BusinessTime> {
+    let base = if placed_at > born { placed_at } else { born };
+    base.plus_minutes(SEED_HOLD_MINUTES)
+        .map_err(|e| Error::RustError(e.to_string()))
+}
+
+/// One seeded `Schedule` day's commands: the menu's caps, any capacity the seed sets apart from
+/// the defaults, then each open order's place held until its Order's `held_until`, and confirmed
+/// when the order is past `placed`.
+fn schedule_seed_cmds(g: &Generated, i: usize, born: BusinessTime) -> Result<Vec<Cmd>> {
+    let day = &g.schedule[i];
+    let mut cmds = vec![Cmd::RefreshCaps {
+        menu_version: 1,
+        caps: day.item_caps.clone(),
+    }];
+    if day.slot_capacity != DEFAULT_SLOT_CAPACITY {
+        cmds.extend(day.date.slot_starts().into_iter().map(|s| {
+            let m = bakery_domain::calendar::local_minutes(s);
+            Cmd::SetCapacity {
+                target: Target::Slot(m),
+                capacity: day.slot_capacity,
+            }
+        }));
+    }
+    if day.zone_capacity != DEFAULT_ZONE_CAPACITY {
+        cmds.extend(
+            bakery_domain::schedule::ZONES
+                .iter()
+                .map(|z| Cmd::SetCapacity {
+                    target: Target::Zone((*z).to_owned()),
+                    capacity: day.zone_capacity,
+                }),
+        );
+    }
+    if day.catering_capacity != DEFAULT_CATERING_CAPACITY {
+        cmds.push(Cmd::SetCapacity {
+            target: Target::Catering,
+            capacity: day.catering_capacity,
+        });
+    }
+    for place in &day.places {
+        let placed_at = g
+            .open_orders
+            .iter()
+            .find(|o| o.id == place.reference)
+            .map(|o| o.placed_at)
+            .ok_or_else(|| Error::RustError("a seeded place names no open order".into()))?;
+        cmds.push(Cmd::Hold(HoldRequest {
+            reference: place.reference,
+            kind: place.kind,
+            start: place.start,
+            zone: place.zone.map(str::to_owned),
+            lines: place.lines.clone(),
+            expires_at: seed_held_until(placed_at, born)?,
+        }));
+        if place.status == HoldStatus::Reserved {
+            cmds.push(Cmd::Confirm {
+                reference: place.reference,
+            });
+        }
+    }
+    Ok(cmds)
+}
+
 /// The events that bring an order to its seeded state. One still waiting for payment is held
-/// for 15 minutes from now, not from its seeded placement, so it is on the board when the
-/// visitor arrives.
+/// until [`seed_held_until`].
 fn open_order_events(
     g: &Generated,
     o: &bakery_seed::OpenOrder,
     now: BusinessTime,
 ) -> Result<Vec<OrderEvent>> {
-    let base = if o.placed_at > now { o.placed_at } else { now };
-    let held_until = base
-        .plus_minutes(SEED_HOLD_MINUTES)
-        .map_err(|e| Error::RustError(e.to_string()))?;
+    let held_until = seed_held_until(o.placed_at, now)?;
     let lines = o
         .lines
         .iter()
@@ -1402,20 +1621,23 @@ mod tests {
     }
 
     #[test]
-    fn the_plan_is_fifteen_children_catalog_kitchen_and_billing_first() {
+    fn the_plan_is_twenty_two_children_catalog_kitchen_billing_and_the_days_first() {
         let g = generated();
         let sandbox = Ulid::from_parts(1, 1);
         let plan = seed_plan(&g, sandbox);
-        assert_eq!(plan.len(), 15);
+        assert_eq!(plan.len(), 22);
         assert_eq!(plan[0].name, format!("catalog:{sandbox}"));
         assert_eq!(plan[1].name, format!("kitchen:{sandbox}"));
         assert_eq!(plan[2].name, format!("billing:{sandbox}"));
+        assert!(plan[3..10].iter().all(|c| c.class == "Schedule"
+            && c.name.starts_with(&format!("schedule:{sandbox}:"))
+            && schedule::date_of(&c.name).is_some()));
         assert!(
-            plan[3..]
+            plan[10..]
                 .iter()
                 .all(|c| c.class == "Order" && c.name.starts_with(&format!("order:{sandbox}:")))
         );
-        assert_eq!(plan.len().div_ceil(SEED_BATCH), 3, "three seeding runs");
+        assert_eq!(plan.len().div_ceil(SEED_BATCH), 4, "four seeding runs");
         // Every class but the Simulator, which is born on the first "Start traffic".
         for (class, _) in DISPATCH.iter().filter(|(c, _)| *c != simulator::CLASS) {
             assert!(plan.iter().any(|c| c.class == *class), "{class}");
@@ -1461,7 +1683,71 @@ mod tests {
     }
 
     #[test]
+    fn seeded_days_decide_cleanly_and_hold_each_unpaid_order_until_its_held_until() {
+        use bakery_domain::schedule::{Schedule as ScheduleAggregate, ScheduleState};
+        use bakery_domain::{DecideContext, execute};
+        let g = generated();
+        let born: BusinessTime = "2026-11-07T08:00:00-07:00".parse().unwrap();
+        let ctx = DecideContext {
+            now: born,
+            id: Ulid::from_parts(1, 1),
+        };
+        let mut places = 0;
+        for (i, day) in g.schedule.iter().enumerate() {
+            let mut state = ScheduleState::new(day.date);
+            for cmd in schedule_seed_cmds(&g, i, born).unwrap() {
+                if let Cmd::Hold(h) = &cmd {
+                    let o = g.open_orders.iter().find(|o| o.id == h.reference).unwrap();
+                    let events = open_order_events(&g, o, born).unwrap();
+                    let order = replay::<OrderAggregate>(&events);
+                    assert_eq!(order.record().unwrap().held_until, h.expires_at);
+                    places += 1;
+                }
+                let (next, _) = execute::<ScheduleAggregate>(state, &cmd.domain(), &ctx)
+                    .unwrap_or_else(|e| panic!("{} refused {cmd:?}: {}", day.date, e.rule()));
+                state = next;
+            }
+            for place in &day.places {
+                assert_eq!(
+                    state.hold(place.reference).map(|h| h.status),
+                    Some(place.status)
+                );
+            }
+        }
+        assert_eq!(
+            places,
+            g.open_orders.len(),
+            "every open order has its place"
+        );
+    }
+
+    #[test]
+    fn a_day_exists_from_the_birth_day_to_thirty_days_after_today() {
+        let meta = MetaRow {
+            id: Ulid::from_parts(1, 1).to_string(),
+            owner: "guest:x".into(),
+            kind: "guest".into(),
+            seed: 42,
+            // 08:00 MST on 2026-11-07.
+            born: "2026-11-07T15:00:00.000Z".into(),
+            wipe_at: "2026-11-08T10:00:00.000Z".into(),
+            state: "live".into(),
+            persona: Ulid::from_parts(1, 2).to_string(),
+            clock_offset_s: 86_400,
+            clock_v: 1,
+            token_v: 0,
+        };
+        let now: WallTime = "2026-11-07T16:00:00.000Z".parse().unwrap();
+        let d = |s: &str| s.parse::<BakeryDate>().unwrap();
+        assert!(!meta.day_in_range(d("2026-11-06"), now).unwrap());
+        assert!(meta.day_in_range(d("2026-11-07"), now).unwrap());
+        // Business today is the 8th, a day ahead.
+        assert!(meta.day_in_range(d("2026-12-08"), now).unwrap());
+        assert!(!meta.day_in_range(d("2026-12-09"), now).unwrap());
+    }
+
+    #[test]
     fn the_clock_bound_is_fourteen_days() {
-        assert_eq!(MAX_OFFSET_S, 1_209_600);
+        assert_eq!(bakery_domain::clock::MAX_OFFSET_S, 1_209_600);
     }
 }

@@ -24,15 +24,15 @@ use std::cell::RefCell;
 use bakery_app::Clock;
 use bakery_app::names::sandbox_object_name;
 use bakery_app::routing::{Subscriber, deliver_to, reference, strip_for};
-use bakery_contracts::Flag;
-use bakery_domain::{Envelope, Ulid};
+use bakery_contracts::{Flag, OrderResponse};
+use bakery_domain::{BakeryDate, BusinessTime, Envelope, Ulid};
 use worker::{Cache, Context, Env, MessageBatch, MessageExt, Method, Result, console_log, event};
 
 use crate::clock::SystemClock;
 use crate::http::menu_cache_key;
 use crate::objects::sandbox::{self, DeadLetterIn, DeliveryError};
-use crate::objects::sql::call;
-use crate::objects::{billing, control, kitchen, order};
+use crate::objects::sql::{call, call_empty};
+use crate::objects::{billing, control, kitchen, order, schedule};
 
 /// The dead-letter queue's name, as `batch.queue()` reports it.
 const DLQ: &str = "bakery-events-dlq";
@@ -125,6 +125,7 @@ fn sandbox_of(body: &str) -> Option<Ulid> {
 ///
 /// Billing is the sandbox's one; an Order is the one the data's `ref` names, for Billing's
 /// `ByPurpose` and `ByRef` routes (the purpose was matched already by `routing::routes_for`).
+/// The `Schedule` is resolved by [`schedule_days`] instead, since finding its day takes a call.
 /// An Order route with no `ref` (`RoutePublished`'s stops, `StopCompleted`, which nothing
 /// produces before PR 7) has no instance yet.
 fn subscriber(to: Subscriber, envelope: &Envelope) -> Option<(&'static str, String)> {
@@ -200,6 +201,10 @@ async fn consume(batch: &MessageBatch<String>, env: &Env) -> Result<()> {
 /// Every live subscriber gets the envelope, stripped for it. The first failure is the error.
 async fn deliver(env: &Env, envelope: &Envelope) -> std::result::Result<(), String> {
     for route in deliver_to(envelope) {
+        if route.to == Subscriber::Schedule {
+            deliver_to_days(env, envelope).await?;
+            continue;
+        }
         let Some((binding, name)) = subscriber(route.to, envelope) else {
             return Err(format!("{} has no binding", route.to.class()));
         };
@@ -217,6 +222,94 @@ async fn deliver(env: &Env, envelope: &Envelope) -> std::result::Result<(), Stri
         let status = res.status_code();
         if !(200..300).contains(&status) {
             return Err(format!("{} answered {status}", route.to.class()));
+        }
+    }
+    Ok(())
+}
+
+/// The `Schedule` days an envelope goes to. `all(Schedule)` on an Order event is the one day
+/// that holds the order: the Order's slot names it. `scoped(Schedule, TodayOn)` on
+/// `MenuPublished` is every registered day from business today on, from the Sandbox.
+async fn schedule_days(env: &Env, envelope: &Envelope) -> std::result::Result<Vec<String>, String> {
+    if envelope.event_type == "MenuPublished" {
+        let mut res = call_empty(
+            env,
+            sandbox::BINDING,
+            &sandbox_object_name(envelope.sandbox),
+            Method::Get,
+            "/_days",
+        )
+        .await
+        .map_err(|_| "Sandbox could not be reached".to_owned())?;
+        return match res.status_code() {
+            200 => res
+                .json::<Vec<String>>()
+                .await
+                .map_err(|_| "Sandbox's days could not be read".to_owned()),
+            // A wiped sandbox has no days left to tell.
+            410 => Ok(Vec::new()),
+            status => Err(format!("Sandbox answered {status}")),
+        };
+    }
+    let Some(order) = order_in(envelope) else {
+        return Err("Schedule has no day for this stream".to_owned());
+    };
+    let mut res = call_empty(
+        env,
+        order::BINDING,
+        &order::name(envelope.sandbox, order),
+        Method::Get,
+        "/_order",
+    )
+    .await
+    .map_err(|_| "Order could not be reached".to_owned())?;
+    match res.status_code() {
+        200 => {
+            let o: OrderResponse = res
+                .json()
+                .await
+                .map_err(|_| "Order could not be read".to_owned())?;
+            let slot: BusinessTime = o
+                .slot
+                .parse()
+                .map_err(|_| "Order's slot could not be read".to_owned())?;
+            Ok(vec![schedule::name(envelope.sandbox, BakeryDate::of(slot))])
+        }
+        status => Err(format!("Order answered {status}")),
+    }
+}
+
+/// The order an Order stream names, `order:<sandbox>:<ulid>`, in the envelope's own sandbox.
+fn order_in(envelope: &Envelope) -> Option<Ulid> {
+    let parts: Vec<&str> = envelope.stream.split(':').collect();
+    match parts.as_slice() {
+        ["order", sandbox, order] if *sandbox == envelope.sandbox.to_string() => order.parse().ok(),
+        _ => None,
+    }
+}
+
+/// Each day the envelope goes to gets it at `/_event`. A day that was never born (410) holds
+/// nothing the event could change, so it counts as delivered.
+async fn deliver_to_days(env: &Env, envelope: &Envelope) -> std::result::Result<(), String> {
+    let stripped = strip_for(envelope, Subscriber::Schedule);
+    for name in schedule_days(env, envelope).await? {
+        let res = call(
+            env,
+            schedule::BINDING,
+            &name,
+            Method::Post,
+            "/_event",
+            Some(&stripped),
+        )
+        .await
+        .map_err(|_| "Schedule could not be reached".to_owned())?;
+        match res.status_code() {
+            200..=299 => {}
+            410 => console_log!(
+                "{{\"event\":\"schedule_no_day\",\"id\":\"{}\"}}",
+                envelope.id
+            ),
+            status => return Err(format!("Schedule answered {status}")),
         }
     }
     Ok(())
@@ -326,6 +419,17 @@ mod tests {
     }
 
     #[test]
+    fn an_order_event_names_its_order_for_the_schedule() {
+        let mut e: Envelope =
+            serde_json::from_str(&envelope(SANDBOX, &format!("order:{SANDBOX}:{OTHER}"))).unwrap();
+        assert_eq!(order_in(&e), Some(OTHER.parse().unwrap()));
+        e.stream = format!("schedule:{SANDBOX}:2026-11-07");
+        assert_eq!(order_in(&e), None);
+        e.stream = format!("order:{OTHER}:{OTHER}");
+        assert_eq!(order_in(&e), None);
+    }
+
+    #[test]
     fn a_sandbox_owns_only_its_own_streams() {
         let s: Ulid = SANDBOX.parse().unwrap();
         assert!(owns(s, &format!("sandbox:{SANDBOX}")));
@@ -376,7 +480,10 @@ mod tests {
             subscriber(Subscriber::Order, &e),
             Some((order::BINDING, format!("order:{SANDBOX}:{OTHER}")))
         );
-        for live in bakery_app::routing::LIVE {
+        for live in bakery_app::routing::LIVE
+            .iter()
+            .filter(|s| **s != Subscriber::Schedule)
+        {
             assert!(
                 subscriber(*live, &e).is_some(),
                 "{live:?} is live but unbound"

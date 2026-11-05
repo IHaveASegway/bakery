@@ -5,8 +5,8 @@
 //!
 //! The table names every subscriber the catalog names, including classes that do not exist
 //! yet. [`LIVE`] says which do, and [`deliver_to`] filters by it, so PR 4's consumer delivered to
-//! the Kitchen only, PR 5's adds Billing and the Order, and each later pull request turns its
-//! classes on by adding them to [`LIVE`].
+//! the Kitchen only, PR 5's adds Billing and the Order, PR 6's the Schedule, and each later pull
+//! request turns its classes on by adding them to [`LIVE`].
 //! A test reads the catalog table out of docs/domain.md and checks this one against it.
 
 use bakery_domain::Envelope;
@@ -44,11 +44,17 @@ impl Subscriber {
     }
 }
 
-/// The classes that exist, as of PR 5 (docs/roadmap.md, "PR 5": payments): the Kitchen board,
-/// Billing (refund requests and expiries from the Order) and the Order (payments and refunds
-/// from Billing, by purpose and `ref`). The consumer delivers to no other; Crm, Schedule and the
-/// rest join as their pull requests build them.
-pub const LIVE: &[Subscriber] = &[Subscriber::Kitchen, Subscriber::Billing, Subscriber::Order];
+/// The classes that exist, as of PR 6 (docs/roadmap.md, "PR 6": scheduling): the Kitchen board,
+/// Billing (refund requests and expiries from the Order), the Order (payments and refunds from
+/// Billing, by purpose and `ref`) and the Schedule (an order's day, from its slot; every day
+/// from today on for `MenuPublished`). The consumer delivers to no other; Crm and the rest join
+/// as their pull requests build them.
+pub const LIVE: &[Subscriber] = &[
+    Subscriber::Kitchen,
+    Subscriber::Billing,
+    Subscriber::Order,
+    Subscriber::Schedule,
+];
 
 /// Which instances of a class an event goes to, where the catalog narrows it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -459,14 +465,24 @@ mod tests {
     }
 
     #[test]
-    fn pr5_delivers_to_the_kitchen_billing_and_the_order() {
-        assert_eq!(LIVE, [Kitchen, Billing, Order]);
+    fn pr6_delivers_to_the_kitchen_billing_the_order_and_the_schedule() {
+        assert_eq!(LIVE, [Kitchen, Billing, Order, Schedule]);
         let paid = envelope("OrderPaid", json!({ "payment": "x", "amount_cents": 1 }));
-        assert_eq!(classes(deliver_to(&paid)), ["Kitchen"]);
+        assert_eq!(classes(deliver_to(&paid)), ["Schedule", "Kitchen"]);
+        assert_eq!(
+            classes(deliver_to(&envelope("MenuPublished", json!({})))),
+            ["Schedule"]
+        );
+        assert_eq!(
+            classes(deliver_to(&envelope("OrderClosed", json!({})))),
+            ["Schedule"]
+        );
+        for name in ["BakeListChanged", "SlotReserved", "SlotReleased"] {
+            assert_eq!(classes(deliver_to(&envelope(name, json!({})))), ["Kitchen"]);
+        }
         // Events with no live subscriber are acked at once.
         for name in [
-            "MenuPublished",
-            "OrderClosed",
+            "SlotHeld",
             "SandboxWiped",
             "PaymentIntentCreated",
             "PaymentCanceled",
@@ -482,7 +498,7 @@ mod tests {
         );
         assert_eq!(
             classes(deliver_to(&envelope("OrderExpired", json!({})))),
-            ["Billing", "Kitchen"]
+            ["Schedule", "Billing", "Kitchen"]
         );
         // Billing answers the Order named by `ref`, when the purpose is an order.
         let order = Ulid::from_parts(1_793_819_530_318, 7);
@@ -514,9 +530,8 @@ mod tests {
             "OrderPickedUp",
             "OrderDelivered",
         ] {
-            assert_eq!(
-                classes(deliver_to(&envelope(name, json!({})))),
-                ["Kitchen"],
+            assert!(
+                classes(deliver_to(&envelope(name, json!({})))).contains(&"Kitchen"),
                 "{name}"
             );
         }

@@ -24,6 +24,7 @@
       { "name": "KITCHEN", "class_name": "Kitchen" },
       { "name": "SIMULATOR", "class_name": "Simulator" },
       { "name": "BILLING", "class_name": "Billing" },
+      { "name": "SCHEDULE", "class_name": "Schedule" },
     ],
   },
   // Declarative class lifecycle: each change is a deploy and a rollback boundary.
@@ -36,6 +37,7 @@
     "Kitchen": { "type": "durable-object", "storage": "sqlite" },
     "Simulator": { "type": "durable-object", "storage": "sqlite" },
     "Billing": { "type": "durable-object", "storage": "sqlite" },
+    "Schedule": { "type": "durable-object", "storage": "sqlite" },
   },
 
   "queues": {

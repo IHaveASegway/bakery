@@ -21,4 +21,9 @@ export interface ClockResponse {
    * Counts the advances; a child that has not heard of the latest one is retried.
    */
   clock_v: number;
+  /**
+   * The step applied, in its wire form: `15m`, `1h`, `1d`, `next-opening`, or `<n>m` for the
+   * older `minutes` form.
+   */
+  step?: string | null;
 }
