@@ -369,6 +369,16 @@ button.link:disabled {
   margin: 0.25rem 0;
 }
 
+.pay-form,
+.refunds form {
+  margin-top: 0.75rem;
+  border-top: 0;
+}
+
+.refunds {
+  margin-top: 0.5rem;
+}
+
 .feed li {
   padding: 0.375rem 0;
   border-bottom: 1px solid var(--border);

@@ -1,6 +1,7 @@
 import { actionFor, groupByState, isSimulated, type Card } from '../lib/kitchen';
 import { useKitchen, type Command } from '../lib/use-kitchen';
 import GuestNote from './GuestNote';
+import RefundControls from './RefundControls';
 
 const ACTION_WORDS = {
   start_production: 'Start production',
@@ -35,14 +36,18 @@ function commandText(c: Command): string {
 
 function CardView({
   card,
+  sandboxId,
   canAct,
   open,
   onAct,
+  onRefunded,
 }: {
   card: Card;
+  sandboxId: string;
   canAct: boolean;
   open: boolean;
   onAct: (card: Card) => void;
+  onRefunded: () => void;
 }) {
   const action = actionFor(card);
   return (
@@ -80,6 +85,15 @@ function CardView({
           {action.label}
         </button>
       )}
+      {/* A pending card is unpaid, so there is nothing to refund yet. */}
+      {canAct && card.state !== 'pending' && (
+        <RefundControls
+          sandboxId={sandboxId}
+          order={card.order}
+          label={shortId(card.order)}
+          onRefunded={onRefunded}
+        />
+      )}
     </li>
   );
 }
@@ -89,10 +103,13 @@ export default function KitchenBoard({
   sandboxId,
   isGuest,
   onWiped,
+  onRefunded,
 }: {
   sandboxId: string;
   isGuest: boolean;
   onWiped: () => void;
+  /** Called after a refund, so the ledger beside the board looks again. */
+  onRefunded: () => void;
 }) {
   const kitchen = useKitchen(sandboxId, onWiped);
   const open = kitchen.status === 'open';
@@ -147,6 +164,8 @@ export default function KitchenBoard({
                 <CardView
                   key={card.order}
                   card={card}
+                  sandboxId={sandboxId}
+                  onRefunded={onRefunded}
                   canAct={!isGuest}
                   open={open}
                   onAct={(c) => {
