@@ -220,14 +220,8 @@ mod tests {
 
     #[test]
     fn the_guard_takes_sandbox_secret_and_restricted_keys_only() {
-        assert_eq!(
-            check_key(Some("rk_test_not_a_key")),
-            Ok(())
-        );
-        assert_eq!(
-            check_key(Some("sk_test_not_a_key")),
-            Ok(())
-        );
+        assert_eq!(check_key(Some("rk_test_not_a_key")), Ok(()));
+        assert_eq!(check_key(Some("sk_test_not_a_key")), Ok(()));
         for refused in [
             other_mode("sk"),
             other_mode("rk"),
