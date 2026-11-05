@@ -189,6 +189,7 @@ mod tests {
             s,
             DispatchCommand::Publish {
                 plan: plan_choice(&publish),
+                departed: false,
             },
             3,
         );
@@ -208,7 +209,14 @@ mod tests {
         let published = r.published.as_ref().unwrap();
         assert_eq!(published.source, wire::PlanSource::Browser);
         assert_eq!(published.vans.len(), 2);
-        let longest = published.vans.iter().map(|v| v.minutes).max().unwrap();
+        // Back last: the longest of each van's drive plus 3 minutes at each of its doors.
+        let longest = published
+            .vans
+            .iter()
+            .map(|v| v.minutes + 3 * v.stops.len() as u32)
+            .max()
+            .unwrap();
+        assert!(published.vans.iter().all(|v| v.stops.len() == 1));
         assert_eq!(
             published.last_back,
             date.at_local(9 * 60 + longest as u16).to_string()

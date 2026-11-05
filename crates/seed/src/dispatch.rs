@@ -2,9 +2,12 @@
 //! start; ADR 0012). Everything is derived from a [`Generated`] and the travel-time matrix, with
 //! no draw of its own, so no pinned value moves.
 //!
-//! - [`seed_matrix`] is the matrix the seed plans on. Until spike S7's Salt Lake City fixture
-//!   lands in `crates/seed/data/`, it is [`TravelMatrix::synthetic`] over the seed's 64 places,
-//!   the bakery at index 0 (`p1`).
+//! - [`seed_matrix`] is the matrix the seed plans on: spike S7's Salt Lake City fixture,
+//!   [`CITY_MATRIX_JSON`] (`crates/seed/data/salt-lake-city/matrix.json`, built 2026-11-05), read
+//!   by [`TravelMatrix::from_json`], the same file and reader the Worker's `Dispatch` object
+//!   uses, so the seeded proposal's minutes are the ones the object recomputes. Its 64 places
+//!   are the seed's `p1` to `p64` by index (`p<n>` is index `n - 1`), the bakery at index 0
+//!   (`p1`); their labels are the map's names, for the screen only.
 //! - [`seed_dispatch`] is today's day: one stop per open delivery order (its customer's place,
 //!   its window, its units), added at its placement, confirmed at its payment for every open
 //!   state but `placed`, and the server's proposal from the savings heuristic once the last of
@@ -42,10 +45,18 @@ pub struct DispatchDay {
     pub state: DispatchState,
 }
 
-/// The matrix the seed's days are planned on: the synthetic city of the seed's 64 places, until
-/// spike S7's fixture replaces it.
-pub fn seed_matrix(g: &Generated) -> TravelMatrix {
-    TravelMatrix::synthetic(g.seed.0, PLACE_COUNT)
+/// The Salt Lake City travel-time fixture, whole minutes between the 64 places (spike S7, built
+/// 2026-11-05 with a self-hosted openrouteservice; docs/domain.md, "The seed").
+pub const CITY_MATRIX_JSON: &str = include_str!("../data/salt-lake-city/matrix.json");
+
+/// The fixture as a [`TravelMatrix`].
+pub fn city_matrix() -> TravelMatrix {
+    TravelMatrix::from_json(CITY_MATRIX_JSON).expect("the committed fixture is a valid matrix")
+}
+
+/// The matrix the seed's days are planned on: the city's fixture, the same for every seed.
+pub fn seed_matrix(_g: &Generated) -> TravelMatrix {
+    city_matrix()
 }
 
 /// Vans on the road: four on a Saturday, one on the other open days.
@@ -62,6 +73,7 @@ fn place_of(customers: &[Customer], customer: Ulid) -> u8 {
         .iter()
         .find(|c| c.id == customer)
         .and_then(|c| place_index(&c.place))
+        .filter(|&i| usize::from(i) < PLACE_COUNT)
         .expect("every order's customer is a seeded persona with a place p1 to p64")
 }
 
@@ -246,8 +258,47 @@ mod tests {
         };
         let publish = DispatchCommand::Publish {
             plan: PlanChoice::Proposed,
+            departed: false,
         };
         assert!(Dispatch::decide(&day.state, &publish, &ctx).is_ok());
+    }
+
+    #[test]
+    fn the_city_fixture_reads_the_seeds_place_names_by_index() {
+        let m = city_matrix();
+        assert_eq!(
+            (m.len(), m.depot(), m.city()),
+            (PLACE_COUNT, 0, "salt-lake-city")
+        );
+        // The seed's names are indexes; the fixture's labels are the map's names.
+        assert_eq!(m.place_index("p1"), Some(0));
+        assert_eq!(m.label(0), Some("The bakery"));
+        assert_eq!(m.place_index("p64"), Some(63));
+        assert_eq!(m.place_index("p65"), None);
+        for i in 0..64u8 {
+            let label = m.label(i).unwrap();
+            assert!(!label.is_empty());
+            assert_eq!(m.place_index(&format!("p{}", u16::from(i) + 1)), Some(i));
+        }
+        // No label is itself a seed name, so a screen never shows `p<n>` for the fixture.
+        assert!((0..64u8).all(|i| place_index(m.label(i).unwrap()).is_none()));
+        // Every persona's place is one of the fixture's.
+        let g = generated(42, "2026-11-07");
+        assert!(
+            g.customers
+                .iter()
+                .all(|c| m.place_index(&c.place).is_some())
+        );
+    }
+
+    #[test]
+    fn the_time_at_each_door_is_the_route_datas() {
+        let data: serde_json::Value =
+            serde_json::from_str(include_str!("../data/salt-lake-city/route-data.json")).unwrap();
+        assert_eq!(
+            data["serviceSeconds"].as_u64(),
+            Some(u64::from(bakery_domain::dispatch::SERVICE_MINUTES) * 60)
+        );
     }
 
     #[test]

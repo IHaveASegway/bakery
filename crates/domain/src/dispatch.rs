@@ -38,6 +38,14 @@
 //!   publishing command's id, so a second publish with one key is a no-op.
 //! - **The matrix rides in the command.** `Propose` and `SubmitPlan` carry the day's
 //!   [`TravelMatrix`], a static fixture the object loads; it is never stored in the log.
+//! - **A plan is not replaced once a van has left** (Joseph's decision of 2026-11-05 on the
+//!   domain stream's question 4). Whether any order of the published plan is out for delivery
+//!   (or delivered) is the Orders' to know, not this log's, so the object reads it from them and
+//!   hands it to `Publish` as `departed`, as it hands `Propose` the matrix: a fresh publish with
+//!   `departed` is refused `published`. `CompleteStop` still works.
+//! - **The time the last van is back counts the doors**: each stop adds [`SERVICE_MINUTES`]
+//!   (the route data's `serviceSeconds`, 180 s) to its van's drive (the same decision, question
+//!   5). A van's `minutes` stay drive minutes, which the validator and the comparison use.
 
 mod matrix;
 mod savings;
@@ -71,6 +79,10 @@ pub const DEFAULT_CAPACITY: u32 = 250;
 /// When the vans leave, local minutes after midnight: the first delivery window, 09:00. The time
 /// the last van is back is this plus the longest route's drive.
 pub const DEPARTURE_MINUTES: u16 = WINDOW_STARTS[0];
+/// Minutes a van spends at each door: `serviceSeconds`, 180, in the Salt Lake City route data
+/// (`crates/seed/data/salt-lake-city/route-data.json`, built 2026-11-05; a test in `bakery-seed`
+/// reads it). Counted in [`PlanSummary::last_back`], never in a plan's drive minutes.
+pub const SERVICE_MINUTES: u32 = 3;
 
 /// Where a stop stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -193,7 +205,16 @@ impl Plan {
             })
             .collect();
         let departure = state.date.at_local(DEPARTURE_MINUTES);
-        let longest = vans.iter().map(|v| v.minutes).max().unwrap_or(0);
+        // Each van's drive and its time at the doors; the longest is back last.
+        let longest = vans
+            .iter()
+            .map(|v| {
+                let doors = u32::try_from(v.stops.len()).unwrap_or(u32::MAX);
+                v.minutes
+                    .saturating_add(SERVICE_MINUTES.saturating_mul(doors))
+            })
+            .max()
+            .unwrap_or(0);
         PlanSummary {
             source: self.source,
             plan_v: self.plan_v,
@@ -224,7 +245,8 @@ pub struct PlanSummary {
     pub plan_v: u16,
     pub vans: Vec<VanSummary>,
     pub minutes: u32,
-    /// The vans leave at [`DEPARTURE_MINUTES`]; this is when the longest route is back.
+    /// The vans leave at [`DEPARTURE_MINUTES`]; this is when the last is back: the longest of
+    /// each van's drive plus [`SERVICE_MINUTES`] at each of its doors.
     pub last_back: BusinessTime,
     pub unassigned: Vec<Ulid>,
 }
@@ -351,8 +373,10 @@ pub enum DispatchCommand {
         routes: Vec<SubmittedRoute>,
         matrix: Arc<TravelMatrix>,
     },
-    /// Staff: make a stored plan the record. Keyed by the command's id.
-    Publish { plan: PlanChoice },
+    /// Staff: make a stored plan the record. Keyed by the command's id. `departed` says whether
+    /// any order of the published plan has gone out for delivery, which the object reads from
+    /// the Orders before deciding: then the plan stands, and a new publish is refused.
+    Publish { plan: PlanChoice, departed: bool },
     /// A driver, or staff: stop number `stop` of the published plan is delivered.
     CompleteStop { stop: u16 },
 }
@@ -463,6 +487,8 @@ pub enum DispatchError {
     WrongDay,
     #[error("stop {order}'s place {place} is not in the travel-time matrix")]
     PlaceUnknown { order: Ulid, place: PlaceIndex },
+    #[error("a van has left on the published plan, so it is not replaced")]
+    Published,
 }
 
 impl DispatchError {
@@ -480,6 +506,7 @@ impl DispatchError {
             DispatchError::Capacity => "capacity",
             DispatchError::WrongDay => "wrong-day",
             DispatchError::PlaceUnknown { .. } => "place-unknown",
+            DispatchError::Published => "published",
         }
     }
 }
@@ -785,9 +812,12 @@ impl Aggregate for Dispatch {
                     minutes,
                 }])
             }
-            DispatchCommand::Publish { plan } => {
+            DispatchCommand::Publish { plan, departed } => {
                 if state.publish_keys.contains(&ctx.id) {
                     return Ok(vec![]);
+                }
+                if *departed && state.published.is_some() {
+                    return Err(DispatchError::Published);
                 }
                 let chosen = match plan {
                     PlanChoice::Proposed => state.proposed.as_ref(),

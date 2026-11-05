@@ -6,8 +6,8 @@
 //! The table names every subscriber the catalog names, including classes that do not exist
 //! yet. [`LIVE`] says which do, and [`deliver_to`] filters by it, so PR 4's consumer delivered to
 //! the Kitchen only, PR 5's adds Billing and the Order, PR 6's the Schedule, PR 7's the
-//! CateringEvent, PR 8's the Customer, Crm and the Inbox, and each later pull request turns its
-//! classes on by adding them to [`LIVE`].
+//! CateringEvent, PR 8's the Customer, Crm and the Inbox, PR 9's Dispatch, and each later pull
+//! request turns its classes on by adding them to [`LIVE`].
 //! A test reads the catalog table out of docs/domain.md and checks this one against it.
 
 use bakery_domain::Envelope;
@@ -52,8 +52,11 @@ impl Subscriber {
 /// event's day, from its date; every day from today on for `MenuPublished`), the CateringEvent
 /// (deposits and balances from Billing, by purpose and `ref`, and its invoice), the Customer
 /// (the order's customer, which the consumer asks the Order for, on `OrderPaid` and
-/// `OrderRefunded`), Crm and the Inbox (the sandbox's one of each). The consumer delivers to no
-/// other; Dispatch and Control join as their pull requests build them.
+/// `OrderRefunded`), Crm and the Inbox (the sandbox's one of each), and since PR 9 Dispatch (the
+/// day of the order's window: `OrderPlaced` for a delivery adds its stop, `OrderPaid` confirms
+/// it, `OrderExpired` and `OrderCancelled` remove it). PR 9 also delivers the Order's
+/// `RoutePublished` (each stop) and `StopCompleted` routes. The consumer delivers to no other;
+/// Control joins as its pull request builds it.
 pub const LIVE: &[Subscriber] = &[
     Subscriber::Kitchen,
     Subscriber::Billing,
@@ -63,6 +66,7 @@ pub const LIVE: &[Subscriber] = &[
     Subscriber::Customer,
     Subscriber::Crm,
     Subscriber::Inbox,
+    Subscriber::Dispatch,
 ];
 
 /// Which instances of a class an event goes to, where the catalog narrows it.
@@ -527,7 +531,7 @@ mod tests {
     }
 
     #[test]
-    fn pr8_delivers_to_every_class_but_dispatch_and_control() {
+    fn pr9_delivers_to_every_class_but_control() {
         assert_eq!(
             LIVE,
             [
@@ -538,14 +542,53 @@ mod tests {
                 CateringEvent,
                 Customer,
                 Crm,
-                Inbox
+                Inbox,
+                Dispatch
             ]
         );
         let paid = envelope("OrderPaid", json!({ "payment": "x", "amount_cents": 1 }));
         assert_eq!(
             classes(deliver_to(&paid)),
-            ["Schedule", "Kitchen", "Crm", "Customer", "Inbox"]
+            [
+                "Schedule", "Kitchen", "Crm", "Customer", "Inbox", "Dispatch"
+            ]
         );
+        // A delivery's placement adds its stop; a pickup's skips Dispatch.
+        assert_eq!(
+            classes(deliver_to(&envelope(
+                "OrderPlaced",
+                json!({ "kind": "delivery" })
+            ))),
+            ["Kitchen", "Crm", "Dispatch", "Inbox"]
+        );
+        assert_eq!(
+            classes(deliver_to(&envelope(
+                "OrderPlaced",
+                json!({ "kind": "pickup" })
+            ))),
+            ["Kitchen", "Crm", "Inbox"]
+        );
+        assert_eq!(
+            classes(deliver_to(&envelope("OrderCancelled", json!({})))),
+            ["Schedule", "Kitchen", "Dispatch", "Crm"]
+        );
+        // The published plan goes to each stop's Order and the Kitchen; a completed stop to its
+        // Order; the proposal to Crm's activity.
+        assert_eq!(
+            classes(deliver_to(&envelope("RoutePublished", json!({})))),
+            ["Order", "Kitchen"]
+        );
+        assert_eq!(
+            classes(deliver_to(&envelope("StopCompleted", json!({})))),
+            ["Order"]
+        );
+        assert_eq!(
+            classes(deliver_to(&envelope("RouteProposed", json!({})))),
+            ["Crm"]
+        );
+        for name in ["StopAdded", "StopConfirmed", "StopRemoved", "PlanSubmitted"] {
+            assert!(deliver_to(&envelope(name, json!({}))).is_empty(), "{name}");
+        }
         assert_eq!(
             classes(deliver_to(&envelope("OrderRefunded", json!({})))),
             ["Crm", "Customer", "Inbox"]
@@ -619,7 +662,7 @@ mod tests {
         );
         assert_eq!(
             classes(deliver_to(&envelope("OrderExpired", json!({})))),
-            ["Schedule", "Billing", "Kitchen"]
+            ["Schedule", "Billing", "Kitchen", "Dispatch"]
         );
         // Billing answers the Order named by `ref`, when the purpose is an order.
         let order = Ulid::from_parts(1_793_819_530_318, 7);

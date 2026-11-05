@@ -90,6 +90,11 @@ pub enum RouteId {
     GetActivity,
     StartRebuild,
     GetRebuild,
+    GetDispatch,
+    ProposeDispatch,
+    SubmitPlan,
+    PublishDispatch,
+    CompleteStop,
 }
 
 #[derive(Debug)]
@@ -582,6 +587,43 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/rebuild",
         Scope::Session,
         Limit::None,
+    ),
+    // PR 9: a day's dispatch, which any session reads (the console's screen shows it to a guest
+    // read-only), and the staff's four commands.
+    route(
+        RouteId::GetDispatch,
+        "GET",
+        "/v1/sandboxes/{id}/dispatch/{sub}",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::ProposeDispatch,
+        "POST",
+        "/v1/sandboxes/{id}/dispatch/{sub}/propose",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
+    route(
+        RouteId::SubmitPlan,
+        "POST",
+        "/v1/sandboxes/{id}/dispatch/{sub}/plan",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
+    route(
+        RouteId::PublishDispatch,
+        "POST",
+        "/v1/sandboxes/{id}/dispatch/{sub}/publish",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
+    route(
+        RouteId::CompleteStop,
+        "POST",
+        "/v1/sandboxes/{id}/dispatch/{sub}/complete",
+        Scope::SignedIn,
+        Limit::Command,
     ),
 ];
 

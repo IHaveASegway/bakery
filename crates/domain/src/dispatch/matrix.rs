@@ -1,9 +1,18 @@
 //! The travel-time matrix the savings heuristic and the validator read (ADR 0012, decision 7):
 //! whole minutes of driving between every ordered pair of places, and which place is the bakery.
 //!
-//! A place is an index, `0` to `n - 1`, with a label, `p1` to `pn` for the seed's 64 (docs/domain.md,
-//! "Identifiers"). The matrix holds no coordinate, no street and no name: the labels are the
-//! only text, and a screen shows a customer's made-up address, never the place.
+//! A place is an index, `0` to `n - 1`. It has two names, kept apart:
+//!
+//! - **The seed's name**, `p1` to `pn` (docs/domain.md, "Identifiers"): what a persona's address
+//!   and the seed carry. `p<n>` is always index `n - 1` ([`place_index`], [`place_label`]), and
+//!   [`TravelMatrix::place_index`] reads it whatever the matrix's own labels are.
+//! - **The matrix's label**, a display name: the fixture's public OpenStreetMap names ("The
+//!   bakery" for index 0, as built on 2026-11-05), the same labels the dispatch screen's map
+//!   shows; `p<n>` again for [`TravelMatrix::new`] and [`TravelMatrix::synthetic`]. Only a
+//!   screen reads it ([`TravelMatrix::label`]); no rule does.
+//!
+//! The matrix holds no coordinate and no street: the labels are its only text, and a screen
+//! shows a customer's made-up address, never the place as somebody's home.
 //!
 //! Two sources:
 //!
@@ -320,8 +329,16 @@ impl TravelMatrix {
         &self.city
     }
 
+    /// The place's display label: the fixture's map name, or `p<n>` for a built matrix.
     pub fn label(&self, place: PlaceIndex) -> Option<&str> {
         self.labels.get(usize::from(place)).map(String::as_str)
+    }
+
+    /// The place a seed name `p<n>` names in this matrix, index `n - 1`, whatever the matrix's
+    /// labels say: the fixture labels its places with map names, and a persona's place is still
+    /// `p17`. `None` for a name that is not `p<n>` or for an index past the matrix's places.
+    pub fn place_index(&self, seed_name: &str) -> Option<PlaceIndex> {
+        place_index(seed_name).filter(|&i| self.contains(i))
     }
 
     /// Whether `place` is one of the matrix's.
@@ -374,6 +391,33 @@ mod tests {
         for bad in ["p0", "p257", "17", "p", "p017", "q3", "p-1"] {
             assert_eq!(place_index(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn a_seed_name_is_read_by_index_whatever_the_matrix_labels_say() {
+        let m = TravelMatrix::from_json(
+            r#"{"city":"c","built":"b","source":"s","depot":0,
+            "places":[{"index":0,"label":"The bakery"},{"index":1,"label":"Fern Park"},
+                      {"index":2,"label":"p1"}],
+            "minutes":[[0,4,6],[5,0,3],[6,2,0]]}"#,
+        )
+        .unwrap();
+        // `p1` is index 0, the bakery, even though place 2's label happens to read "p1".
+        assert_eq!(m.place_index("p1"), Some(0));
+        assert_eq!(m.label(0), Some("The bakery"));
+        assert_eq!(m.place_index("p2"), Some(1));
+        assert_eq!(m.label(1), Some("Fern Park"));
+        assert_eq!(m.place_index("p3"), Some(2));
+        // Past the matrix's places, and the display names themselves, name nothing.
+        assert_eq!(m.place_index("p4"), None);
+        assert_eq!(m.place_index("Fern Park"), None);
+        assert_eq!(m.place_index("The bakery"), None);
+        // A built matrix's labels are the seed's names.
+        let built = TravelMatrix::new(vec![vec![0, 1], vec![1, 0]], 0).unwrap();
+        assert_eq!(
+            (built.place_index("p2"), built.label(1)),
+            (Some(1), Some("p2"))
+        );
     }
 
     #[test]

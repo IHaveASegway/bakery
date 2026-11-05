@@ -33,7 +33,9 @@ pub use crm::{
     SEED_MESSAGES, SeedMessage, closed_at, directory, history_envelopes, history_event_id,
     register, seed_messages,
 };
-pub use dispatch::{DispatchDay, busy_saturday, seed_dispatch, seed_matrix, vans_for};
+pub use dispatch::{
+    CITY_MATRIX_JSON, DispatchDay, busy_saturday, city_matrix, seed_dispatch, seed_matrix, vans_for,
+};
 pub use menu::{ALLERGENS, CATEGORIES, ITEMS, ItemSpec, PACKAGES, PackageSpec, VariantSpec};
 
 use calendar::{

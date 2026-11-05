@@ -110,7 +110,10 @@ fn submit(routes: &[(u8, &[u128])]) -> DispatchCommand {
 }
 
 fn publish(plan: PlanChoice) -> DispatchCommand {
-    DispatchCommand::Publish { plan }
+    DispatchCommand::Publish {
+        plan,
+        departed: false,
+    }
 }
 
 // -------------------------------------------------------------------------------------------
@@ -397,6 +400,29 @@ fn publishing_twice_with_one_key_stores_one_plan_and_appends_one_route_published
 }
 
 #[test]
+fn a_plan_is_not_replaced_once_a_van_has_left() {
+    let gone = |plan| DispatchCommand::Publish {
+        plan,
+        departed: true,
+    };
+    // Nothing published yet: `departed` cannot hold, and the first publish goes through.
+    let s = step(day(), propose(2, 20));
+    let (s, events) = run(s, &gone(PlanChoice::Proposed), 1);
+    assert_eq!(events.len(), 1);
+    // A van left: a new key is refused, the plan stands, and completing a stop still works.
+    let s = step(s, submit(&[(1, &[1, 2, 3])]));
+    assert_eq!(refused(&s, gone(PlanChoice::Submitted)), "published");
+    assert_eq!(s.published().unwrap().source, PlanSource::Server);
+    // The first publish's key replays as nothing, departed or not.
+    assert_eq!(
+        Dispatch::decide(&s, &gone(PlanChoice::Proposed), &ctx(1)),
+        Ok(vec![])
+    );
+    let (_, events) = run(s, &DispatchCommand::CompleteStop { stop: 1 }, 2);
+    assert_eq!(events.len(), 1);
+}
+
+#[test]
 fn a_plan_is_checked_again_when_it_is_published() {
     assert_eq!(refused(&day(), publish(PlanChoice::Proposed)), "no-plan");
     assert_eq!(refused(&day(), publish(PlanChoice::Submitted)), "no-plan");
@@ -479,13 +505,15 @@ fn the_summary_and_the_comparison() {
     let server = s.proposed().unwrap().summary(&s, &m);
     assert_eq!(server.vans.len(), 1);
     assert_eq!((server.vans[0].units, server.vans[0].minutes), (15, 28));
-    assert_eq!(server.last_back, date().at_local(9 * 60 + 28));
+    // 28 minutes of driving and 3 doors of 3 minutes.
+    assert_eq!(server.last_back, date().at_local(9 * 60 + 28 + 9));
     let browser = s.submitted().unwrap().summary(&s, &m);
     assert_eq!(
         browser.vans.iter().map(|v| v.minutes).collect::<Vec<_>>(),
         [24, 20]
     );
-    assert_eq!(browser.last_back, date().at_local(9 * 60 + 24));
+    // Van 1: 24 minutes and 2 doors; van 2: 20 and 1. Van 1 is back last.
+    assert_eq!(browser.last_back, date().at_local(9 * 60 + 24 + 6));
     // (28 − 44) / 44 = −36.36%.
     assert_eq!(
         compare(&s),

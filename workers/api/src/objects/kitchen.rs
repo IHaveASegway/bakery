@@ -14,8 +14,10 @@
 //! Paths:
 //!
 //! - `POST /_seed {birth, fault}` → 201; 200 when already seeded. An empty board.
-//! - `POST /_event` with an envelope → 200 `{change}` (`upserted`, `removed`, `duplicate`,
-//!   `stale`, `not-for-board`); 503 `{error: "fault"}` while the `kitchen` fault is on; 409
+//! - `POST /_event` with an envelope → 200 `{change}` (`upserted`, `removed`, `bake-list`,
+//!   `labelled`, `duplicate`, `stale`, `not-for-board`); `labelled` is the day's
+//!   `RoutePublished` giving its delivery cards their `van` and `stop` (PR 9), sent to the
+//!   sockets as the event itself; 503 `{error: "fault"}` while the `kitchen` fault is on; 409
 //!   `{error: "unknown-order"}` for a later event whose `OrderPlaced` has not arrived (the
 //!   consumer retries); 422 `{error: "envelope"}` for one that cannot be read. An event that
 //!   changed the board goes to every open socket as an `evt` frame.
@@ -856,6 +858,7 @@ impl Kitchen {
             BoardChange::Upserted(_) => ("upserted", true),
             BoardChange::Removed(_) => ("removed", true),
             BoardChange::BakeList(_) => ("bake-list", true),
+            BoardChange::Labelled(_) => ("labelled", true),
             BoardChange::Unchanged(Ignored::Duplicate) => ("duplicate", false),
             BoardChange::Unchanged(Ignored::Stale) => ("stale", false),
             BoardChange::Unchanged(Ignored::NotForBoard) => ("not-for-board", false),

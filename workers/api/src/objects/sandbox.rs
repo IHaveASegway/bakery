@@ -29,6 +29,11 @@
 //!   day, born on first touch, for a date from the birth day to 30 days after business today, or
 //!   any later one with `catering: true` (an accepted quote's event day, which the domain's
 //!   rules already bound); 404 `{error: "no-such-day"}` for any other.
+//! - `POST /_register-dispatch {date}` → `{name, clock_offset_s, clock_v}`: the day's
+//!   `Dispatch`, born on first touch, for the same dates as a `Schedule` day (PR 9); 404
+//!   `{error: "no-such-day"}` for any other, 409 `{error: "seeding"}` before seeding is done.
+//! - `GET /_place/<customer>` → `{place}`: a persona's delivery place, the seed's `p<n>`, from
+//!   the `personas` table (PR 9: the consumer's `AddStop`); 404 `{error: "unknown-persona"}`.
 //! - `GET /_children/<class>` → `[name]`: the registered children of a class, by name.
 //! - `GET /_days` → `[name]`: the registered `Schedule` days from business today on.
 //! - `GET /_child/<name>` → 200 `{class}` for a registered child, else 404.
@@ -74,7 +79,9 @@ use super::sql::{
     self, exec, first, gone, has_table, json, refuse, replayed, rows, transaction_sync, user_rows,
 };
 use super::stream::{self, OUTBOX};
-use super::{billing, catalog, catering, crm, customer, inbox, kitchen, order, simulator};
+use super::{
+    billing, catalog, catering, crm, customer, dispatch, inbox, kitchen, order, simulator,
+};
 use crate::clock::{SystemClock, alarm_time, business, business_at};
 use crate::random;
 
@@ -94,6 +101,7 @@ const DISPATCH: &[(&str, &str)] = &[
     (customer::CLASS, customer::BINDING),
     (crm::CLASS, crm::BINDING),
     (inbox::CLASS, inbox::BINDING),
+    (dispatch::CLASS, dispatch::BINDING),
 ];
 
 const WIPE: &str = "wipe";
@@ -102,8 +110,8 @@ const SEED: &str = "seed";
 const CLOCK: &str = "clock";
 
 /// Children seeded per alarm run: the Catalog, the Kitchen, Billing, Crm, the Inbox, the 7
-/// Schedule days, the 12 open orders, the 8 catering events and their 3 days, 35 in all, take
-/// five runs, each far inside the 1,000 subrequests a Free invocation may make (Workers limits,
+/// Schedule days, today's Dispatch, the 12 open orders, the 8 catering events and their 3 days,
+/// 36 in all (PR 9 added the Dispatch), take six runs, each far inside the 1,000 subrequests a Free invocation may make (Workers limits,
 /// https://developers.cloudflare.com/workers/platform/limits/, as of 2026-11-05): a run's
 /// largest, the one with the catering events, makes 7 seeds, 7 log reads and 14 hand-overs.
 const SEED_BATCH: usize = 7;
@@ -432,6 +440,13 @@ impl DurableObject for Sandbox {
                     (Method::Post, "/_register-day") => {
                         let body: RegisterDay = sql::body(&mut req).await?;
                         self.register_day(&meta, body.date, body.catering, now)
+                    }
+                    (Method::Post, "/_register-dispatch") => {
+                        let body: RegisterDay = sql::body(&mut req).await?;
+                        self.register_dispatch(&meta, body.date, now)
+                    }
+                    (Method::Get, p) if p.starts_with("/_place/") => {
+                        self.place_of(&meta, &p["/_place/".len()..])
                     }
                     (Method::Post, "/_register-catering") => {
                         let body: RegisterCatering = sql::body(&mut req).await?;
@@ -1156,6 +1171,84 @@ impl Sandbox {
         )
     }
 
+    /// A day's `Dispatch` for the router's read or a staff command, or the consumer's stop,
+    /// born on first touch. The same days as a `Schedule`'s: from the birth day to 30 days after
+    /// business today.
+    fn register_dispatch(
+        &self,
+        meta: &MetaRow,
+        date: BakeryDate,
+        now: WallTime,
+    ) -> Result<Response> {
+        match meta.state.as_str() {
+            "live" => {}
+            "seeding" => return refuse(409, "seeding"),
+            _ => return gone(),
+        }
+        if !meta.day_in_range(date, now)? {
+            return refuse(404, "no-such-day");
+        }
+        let name = dispatch::name(meta.sandbox()?, date);
+        exec(
+            &self.sql(),
+            "INSERT OR IGNORE INTO registry (name, class, registered_at, clock_v) VALUES (?, ?, ?, ?)",
+            vec![
+                name.as_str().into(),
+                dispatch::CLASS.into(),
+                now.to_string().into(),
+                meta.clock_v.into(),
+            ],
+        )?;
+        json(
+            &DayBirth {
+                name,
+                clock_offset_s: meta.clock_offset_s,
+                clock_v: u32::try_from(meta.clock_v).unwrap_or(0),
+            },
+            200,
+        )
+    }
+
+    /// A persona's delivery place, the seed's `p<n>`, from its first-touch payload: where its
+    /// delivery orders' stops are. Answered while seeding too, as `/_register-customer` is.
+    fn place_of(&self, meta: &MetaRow, customer_id: &str) -> Result<Response> {
+        if !matches!(meta.state.as_str(), "live" | "seeding") {
+            return gone();
+        }
+        let Ok(customer_id) = customer_id.parse::<Ulid>() else {
+            return refuse(404, "unknown-persona");
+        };
+        #[derive(Deserialize)]
+        struct PersonaRow {
+            register: String,
+        }
+        let sql = self.sql();
+        let found: Option<PersonaRow> = if has_table(&sql, "personas")? {
+            first(
+                &sql,
+                "SELECT register FROM personas WHERE id = ?",
+                vec![customer_id.to_string().into()],
+            )?
+        } else {
+            None
+        };
+        let place = match found {
+            Some(r) => {
+                serde_json::from_str::<customer::RegisterIn>(&r.register)?
+                    .profile
+                    .place
+            }
+            None => {
+                let g = Self::generated(u64::try_from(meta.seed).unwrap_or(0), meta.born()?)?;
+                match g.customers.iter().find(|c| c.id == customer_id) {
+                    Some(c) => c.place.clone(),
+                    None => return refuse(404, "unknown-persona"),
+                }
+            }
+        };
+        json(&serde_json::json!({ "place": place }), 200)
+    }
+
     /// The registered `Schedule` days from business today on: where `MenuPublished`'s new
     /// caps go.
     fn days(&self, meta: &MetaRow, now: WallTime) -> Result<Response> {
@@ -1667,9 +1760,10 @@ struct SeedChild {
     catering_day: Option<usize>,
 }
 
-/// The Catalog, the Kitchen, Billing, Crm, the Inbox, the seed's 7 Schedule days, its 12 open
-/// orders, its 8 catering events and the 3 days that hold the accepted and confirmed events'
-/// places: 35 children. The days go before the orders, so an order's events find its day; Crm
+/// The Catalog, the Kitchen, Billing, Crm, the Inbox, the seed's 7 Schedule days, today's
+/// Dispatch, its 12 open orders, its 8 catering events and the 3 days that hold the accepted and
+/// confirmed events' places: 36 children. The days and the Dispatch go before the orders, so an
+/// order's events find its day and its stop already there; Crm
 /// and the Inbox go before the orders too, so the seeded orders' events, which their outboxes
 /// relay, find both born (and a seeded paid order's points find Crm), and before the catering
 /// events, whose own events the Sandbox hands them as each is seeded.
@@ -1723,6 +1817,11 @@ fn seed_plan(g: &Generated, sandbox: Ulid) -> Vec<SeedChild> {
         catering: None,
         catering_day: None,
     }));
+    plan.push(plain(
+        dispatch::CLASS,
+        dispatch::BINDING,
+        dispatch::name(sandbox, bakery_seed::seed_dispatch(g).date),
+    ));
     plan.extend(g.open_orders.iter().enumerate().map(|(i, o)| SeedChild {
         class: order::CLASS,
         binding: order::BINDING,
@@ -1874,6 +1973,16 @@ impl SeedChild {
                     categories: via_json::<_, Vec<Category>>(&g.categories)?,
                     items,
                     variants: via_json::<_, Vec<Variant>>(&g.variants)?,
+                })?
+            }
+            None if self.class == dispatch::CLASS => {
+                serde_json::to_value(dispatch::SeedDispatch {
+                    birth,
+                    cmds: bakery_seed::seed_dispatch(g)
+                        .commands
+                        .iter()
+                        .filter_map(|(_, c)| dispatch::Cmd::of(c))
+                        .collect(),
                 })?
             }
             None if self.class == billing::CLASS => serde_json::to_value(billing::SeedBilling {
@@ -2084,11 +2193,12 @@ mod tests {
     }
 
     #[test]
-    fn the_plan_is_thirty_five_children_catalog_kitchen_billing_crm_inbox_and_the_days_first() {
+    fn the_plan_is_thirty_six_children_catalog_kitchen_billing_crm_inbox_the_days_and_dispatch_first()
+     {
         let g = generated();
         let sandbox = Ulid::from_parts(1, 1);
         let plan = seed_plan(&g, sandbox);
-        assert_eq!(plan.len(), 35);
+        assert_eq!(plan.len(), 36);
         assert_eq!(plan[0].name, format!("catalog:{sandbox}"));
         assert_eq!(plan[1].name, format!("kitchen:{sandbox}"));
         assert_eq!(plan[2].name, format!("billing:{sandbox}"));
@@ -2103,21 +2213,26 @@ mod tests {
         assert!(plan[5..12].iter().all(|c| c.class == "Schedule"
             && c.name.starts_with(&format!("schedule:{sandbox}:"))
             && schedule::date_of(&c.name).is_some()));
+        // Today's Dispatch, before the orders whose stops it holds.
+        assert_eq!(
+            (plan[12].class, plan[12].name.clone()),
+            ("Dispatch", format!("dispatch:{sandbox}:2026-11-07"))
+        );
         assert!(
-            plan[12..24]
+            plan[13..25]
                 .iter()
                 .all(|c| c.class == "Order" && c.name.starts_with(&format!("order:{sandbox}:")))
         );
         assert!(
-            plan[24..32].iter().all(|c| c.class == "CateringEvent"
+            plan[25..33].iter().all(|c| c.class == "CateringEvent"
                 && c.name.starts_with(&format!("catering:{sandbox}:")))
         );
         // The accepted and the two confirmed events' days, none of them a seeded week day.
-        assert!(plan[32..].iter().all(|c| c.class == "Schedule"));
+        assert!(plan[33..].iter().all(|c| c.class == "Schedule"));
         let names: std::collections::BTreeSet<&str> =
             plan.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names.len(), plan.len(), "no child twice");
-        assert_eq!(plan.len().div_ceil(SEED_BATCH), 5, "five seeding runs");
+        assert_eq!(plan.len().div_ceil(SEED_BATCH), 6, "six seeding runs");
         // Every class but the Simulator, born on the first "Start traffic", and the Customer,
         // born on a persona's first touch.
         for (class, _) in DISPATCH

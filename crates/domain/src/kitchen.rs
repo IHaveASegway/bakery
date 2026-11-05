@@ -20,6 +20,11 @@
 //! a lower; `SlotReserved` and `SlotReleased` keep, per day, which orders are reserved, each
 //! ref's latest `seq` winning.
 //!
+//! Since PR 9 a delivery's card carries its van and stop number: `RoutePublished` from the
+//! day's `Dispatch` labels every card of its plan (the highest `plan_v` a day has seen wins, so
+//! a redelivered older plan changes nothing), and the order's own `OrderOutForDelivery {route,
+//! stop}` sets the same pair when the van leaves.
+//!
 //! Protocol v1, the socket's frames, arrives with the Worker; [`Board::snapshot`] and
 //! [`Board::bake_lists`] are what a joining socket is sent.
 
@@ -29,6 +34,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::aggregate::{DomainEvent, EventCodecError};
+use crate::dispatch::{DispatchEvent, deliveries};
 use crate::order::{Line, OrderEvent, OrderKind};
 use crate::schedule::{PlanLine, ScheduleEvent};
 use crate::{BakeryDate, BusinessTime, Envelope, Ulid};
@@ -65,6 +71,13 @@ pub struct Card {
     pub kind: OrderKind,
     /// The `seq` of the last event applied to this card.
     pub updated_seq: u64,
+    /// The published plan's route for a delivery, `van-2`: from `RoutePublished`, then the
+    /// order's `OrderOutForDelivery`. Absent before either, and for a pickup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub van: Option<String>,
+    /// The delivery's stop number in that plan, counted from 1 across the vans.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop: Option<u16>,
 }
 
 /// One day's bake list as the board shows it: the Schedule's latest plan, and how many orders
@@ -100,6 +113,8 @@ pub enum BoardChange {
     Removed(Ulid),
     /// A day's bake list or reserved count changed; send it.
     BakeList(BakeList),
+    /// A published plan labelled these cards with their vans and stops; send the event.
+    Labelled(Vec<Card>),
     /// Nothing changed; send nothing.
     Unchanged(Ignored),
 }
@@ -140,6 +155,9 @@ pub struct Board {
     plans: BTreeMap<BakeryDate, Plan>,
     #[serde(default)]
     slots: BTreeMap<BakeryDate, BTreeMap<Ulid, SlotMark>>,
+    /// Each day's highest published `plan_v` the board has labelled its cards from (PR 9).
+    #[serde(default)]
+    routes: BTreeMap<BakeryDate, u16>,
 }
 
 impl Board {
@@ -151,6 +169,11 @@ impl Board {
         }
         if ScheduleEvent::NAMES.contains(&envelope.event_type.as_str()) {
             let change = self.apply_schedule(envelope)?;
+            self.seen.insert(envelope.id);
+            return Ok(change);
+        }
+        if envelope.event_type == "RoutePublished" {
+            let change = self.apply_route(envelope)?;
             self.seen.insert(envelope.id);
             return Ok(change);
         }
@@ -181,6 +204,8 @@ impl Board {
                     slot,
                     kind,
                     updated_seq: envelope.seq,
+                    van: None,
+                    stop: None,
                 };
                 self.cards.insert(order, card.clone());
                 BoardChange::Upserted(card)
@@ -194,8 +219,17 @@ impl Board {
             OrderEvent::OrderReady {} => {
                 self.move_card(order, head, envelope.seq, CardState::Ready)?
             }
-            OrderEvent::OrderOutForDelivery { .. } => {
-                self.move_card(order, head, envelope.seq, CardState::OutForDelivery)?
+            OrderEvent::OrderOutForDelivery { route, stop } => {
+                let change =
+                    self.move_card(order, head, envelope.seq, CardState::OutForDelivery)?;
+                match (change, self.cards.get_mut(&order)) {
+                    (BoardChange::Upserted(_), Some(card)) => {
+                        card.van = Some(route);
+                        card.stop = Some(stop);
+                        BoardChange::Upserted(card.clone())
+                    }
+                    (change, _) => change,
+                }
             }
             OrderEvent::OrderPickedUp { .. }
             | OrderEvent::OrderDelivered { .. }
@@ -262,10 +296,39 @@ impl Board {
         }
     }
 
-    /// Drops the bake lists of days before `today`.
+    /// Drops the bake lists, and the published plans' versions, of days before `today`.
     pub fn prune_before(&mut self, today: BakeryDate) {
         self.plans.retain(|d, _| *d >= today);
         self.slots.retain(|d, _| *d >= today);
+        self.routes.retain(|d, _| *d >= today);
+    }
+
+    /// `RoutePublished`: each card of the plan gets its van and stop number. A plan no newer
+    /// than the day's last one changes nothing; an order with no card (not yet placed here, or
+    /// already gone) is skipped.
+    fn apply_route(&mut self, envelope: &Envelope) -> Result<BoardChange, BoardError> {
+        let DispatchEvent::RoutePublished {
+            date, plan_v, vans, ..
+        } = DispatchEvent::from_envelope(envelope)?
+        else {
+            return Ok(BoardChange::Unchanged(Ignored::NotForBoard));
+        };
+        if self.routes.get(&date).is_some_and(|v| plan_v <= *v) {
+            return Ok(BoardChange::Unchanged(Ignored::Stale));
+        }
+        self.routes.insert(date, plan_v);
+        let mut labelled = Vec::new();
+        for (order, route, stop) in deliveries(&vans) {
+            if let Some(card) = self.cards.get_mut(&order) {
+                card.van = Some(route);
+                card.stop = Some(stop);
+                labelled.push(card.clone());
+            }
+        }
+        if labelled.is_empty() {
+            return Ok(BoardChange::Unchanged(Ignored::Stale));
+        }
+        Ok(BoardChange::Labelled(labelled))
     }
 
     fn apply_schedule(&mut self, envelope: &Envelope) -> Result<BoardChange, BoardError> {
@@ -749,6 +812,102 @@ mod tests {
     }
 
     #[test]
+    fn a_published_plan_labels_its_cards_with_vans_and_stops() {
+        use crate::dispatch::{PlanSource, VanRoute};
+        let mut board = Board::default();
+        for o in [1, 2, 3] {
+            board.apply(&envelope(o, 1, &placed(o))).unwrap();
+        }
+        let published = |id: u128, plan_v: u16, vans: Vec<VanRoute>| {
+            let event = DispatchEvent::RoutePublished {
+                date: "2026-11-07".parse().unwrap(),
+                plan_v,
+                source: PlanSource::Server,
+                vans,
+                minutes: 40,
+                publish: ulid(90),
+            };
+            Envelope {
+                v: 1,
+                id: ulid(id),
+                sandbox: ulid(7),
+                stream: format!("dispatch:{}:2026-11-07", ulid(7)),
+                seq: u64::from(plan_v) + 10,
+                event_type: event.name().to_owned(),
+                at: "2026-11-07T08:00:00-07:00".parse().unwrap(),
+                recorded_at: WallTime::from_unix_ms(1_793_000_000_000).unwrap(),
+                data: event.to_data(),
+                cause: None,
+            }
+        };
+        let plan = vec![
+            VanRoute {
+                van: 1,
+                stops: vec![ulid(2)],
+            },
+            VanRoute {
+                van: 2,
+                stops: vec![ulid(1), ulid(9)],
+            },
+        ];
+        let first = published(500, 2, plan);
+        let BoardChange::Labelled(cards) = board.apply(&first).unwrap() else {
+            panic!()
+        };
+        // Order 9 has no card, so two cards are labelled; order 3 is in no van.
+        assert_eq!(cards.len(), 2);
+        let label = |b: &Board, o| {
+            let c = b.card(ulid(o)).unwrap();
+            (c.van.clone(), c.stop)
+        };
+        assert_eq!(label(&board, 2), (Some("van-1".into()), Some(1)));
+        assert_eq!(label(&board, 1), (Some("van-2".into()), Some(2)));
+        assert_eq!(label(&board, 3), (None, None));
+        assert_eq!(
+            board.apply(&first).unwrap(),
+            BoardChange::Unchanged(Ignored::Duplicate)
+        );
+        // An older plan, delivered late, changes nothing.
+        let older = published(
+            501,
+            1,
+            vec![VanRoute {
+                van: 1,
+                stops: vec![ulid(1), ulid(2)],
+            }],
+        );
+        assert_eq!(
+            board.apply(&older).unwrap(),
+            BoardChange::Unchanged(Ignored::Stale)
+        );
+        assert_eq!(label(&board, 1), (Some("van-2".into()), Some(2)));
+        // The order's own event sets the pair it left with.
+        board.apply(&envelope(3, 2, &paid())).unwrap();
+        board
+            .apply(&envelope(3, 3, &OrderEvent::OrderProductionStarted {}))
+            .unwrap();
+        board
+            .apply(&envelope(3, 4, &OrderEvent::OrderReady {}))
+            .unwrap();
+        let out = OrderEvent::OrderOutForDelivery {
+            route: "van-1".into(),
+            stop: 2,
+        };
+        let BoardChange::Upserted(card) = board.apply(&envelope(3, 5, &out)).unwrap() else {
+            panic!()
+        };
+        assert_eq!(
+            (card.state, card.van.as_deref(), card.stop),
+            (CardState::OutForDelivery, Some("van-1"), Some(2))
+        );
+        // A label never shows on the wire as null: a card without one has no such keys.
+        let text = serde_json::to_string(&board.card(ulid(2)).unwrap()).unwrap();
+        assert!(text.contains(r#""van":"van-1","stop":1"#));
+        let none = serde_json::to_value(Board::default()).unwrap();
+        assert!(none.get("routes").is_some());
+    }
+
+    #[test]
     fn a_board_stored_before_bake_lists_still_reads() {
         let mut board = Board::default();
         board.apply(&envelope(1, 1, &placed(1))).unwrap();
@@ -756,6 +915,7 @@ mod tests {
         let o = v.as_object_mut().unwrap();
         o.remove("plans");
         o.remove("slots");
+        o.remove("routes");
         let back: Board = serde_json::from_value(v).unwrap();
         assert_eq!(back, board);
     }
