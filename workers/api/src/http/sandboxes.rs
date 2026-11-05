@@ -45,7 +45,13 @@ pub(super) fn own_sandbox(cx: &Cx, id: Option<&str>) -> Result<(SessionClaims, U
 
 /// An account's session id is refused once signed out, even from a copied cookie. A guest's
 /// session has nothing to revoke: it ends when its sandbox does.
+///
+/// An API token is not a session: sign-out does not end it, a rotation or the wipe does, and the
+/// router checked both before the route ran.
 pub(super) async fn not_revoked(cx: &Cx, claims: &SessionClaims) -> Result<(), Failure> {
+    if cx.auth.is_bearer() {
+        return Ok(());
+    }
     let Some(acct) = &claims.acct else {
         return Ok(());
     };

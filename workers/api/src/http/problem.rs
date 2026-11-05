@@ -182,6 +182,68 @@ pub fn rate_limit() -> Failure {
     .retry_after(Some(60))
 }
 
+/// The per-token limit, `TOKEN_LIMIT`, spent by every request a token makes.
+pub fn token_rate_limit() -> Failure {
+    Failure::typed(
+        "rate-limit",
+        429,
+        "Slow down",
+        "Too many requests with this API token in the last minute. Try again after the time in Retry-After.",
+    )
+    .retry_after(Some(60))
+    .because("token-limit")
+}
+
+/// A refused API token (docs/security.md, "The API token"): 400 for a request that carries one
+/// the wrong way, 401 for one that is not good here. `detail` names the rule as a whole word and
+/// never the token.
+pub fn token(reason: &'static str, status: u16) -> Failure {
+    let (title, sentence) = match reason {
+        "query" => (
+            "The API token was sent the wrong way",
+            "An API token goes in the Authorization header as a Bearer token, never in the URL.",
+        ),
+        "both" => (
+            "The API token was sent the wrong way",
+            "Send the session cookie or an API token, not both.",
+        ),
+        "expired" => (
+            "The API token was refused",
+            "This API token is more than 24 hours old. Issue a new one from the console.",
+        ),
+        "rotated" => (
+            "The API token was refused",
+            "This API token was rotated. Use the newest token from the console.",
+        ),
+        "purpose" => (
+            "The API token was refused",
+            "That is not an API token. Use the token the console issued.",
+        ),
+        "cookie-only" => (
+            "The API token was refused",
+            "This route takes the session cookie, never an API token: the session, sign-out, the kitchen socket, and issuing or rotating a token.",
+        ),
+        _ => (
+            "The API token was refused",
+            "The Authorization header does not hold an API token this API issued.",
+        ),
+    };
+    Failure {
+        problem: Box::new(Problem::typed(
+            "token",
+            status,
+            title,
+            format!("{sentence} The rule is {reason}."),
+        )),
+        retry_after: None,
+        reason,
+    }
+}
+
+pub fn token_error(e: bakery_app::auth::TokenError) -> Failure {
+    token(e.reason(), e.status())
+}
+
 pub fn wiped() -> Failure {
     Failure::typed(
         "wiped",

@@ -15,6 +15,9 @@ pub enum Auth {
     /// No cookie.
     None,
     Session(SessionClaims),
+    /// The sandbox's API token, verified: its claims as a session's, `sid` its token id, so
+    /// every route behaves as for the cookie (docs/security.md, "The API token").
+    Bearer(SessionClaims),
     /// A cookie that did not verify; the reason goes to the log line.
     Invalid(&'static str),
 }
@@ -36,9 +39,13 @@ impl Auth {
 
     pub fn claims(&self) -> Option<&SessionClaims> {
         match self {
-            Auth::Session(c) => Some(c),
+            Auth::Session(c) | Auth::Bearer(c) => Some(c),
             _ => None,
         }
+    }
+
+    pub fn is_bearer(&self) -> bool {
+        matches!(self, Auth::Bearer(_))
     }
 }
 

@@ -3310,7 +3310,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -3439,7 +3444,7 @@
                 }
               }
             },
-            "description": "`locked`: 10 failures in 15 minutes; with `Retry-After`; `rate-limit`: the session's or IP hash's limit",
+            "description": "`locked`: 10 failures in 15 minutes; with `Retry-After`; `rate-limit`: the session's or IP hash's limit, with `Retry-After`",
             "headers": {
               "Retry-After": {
                 "$ref": "#/components/headers/RetryAfter"
@@ -3645,9 +3650,10 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
-              "idempotency-key"
+              "idempotency-key",
+              "token"
             ]
           },
           "401": {
@@ -3658,8 +3664,9 @@
                 }
               }
             },
-            "description": "`session`: no session, or one that does not verify",
+            "description": "`token`: an API token: this route takes the session cookie only (`cookie-only`); `session`: no session, or one that does not verify",
             "x-problems": [
+              "token",
               "session"
             ]
           },
@@ -3697,7 +3704,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -3914,7 +3926,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -3927,7 +3939,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -3977,7 +3989,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -4031,7 +4048,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -4044,7 +4061,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -4071,6 +4088,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -4133,7 +4168,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -4146,7 +4181,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -4173,6 +4208,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -4226,7 +4279,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -4239,7 +4292,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -4266,6 +4319,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           },
           "503": {
@@ -4332,7 +4403,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -4345,7 +4416,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -4372,6 +4443,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -4459,7 +4548,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "body",
@@ -4474,7 +4563,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -4538,7 +4627,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -4603,7 +4697,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -4616,7 +4710,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -4643,6 +4737,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -4716,7 +4828,7 @@
                 }
               }
             },
-            "description": "`body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "body",
               "token"
@@ -4730,7 +4842,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -4794,7 +4906,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -4867,7 +4984,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "token"
@@ -4881,7 +4998,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -4958,7 +5075,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -5041,7 +5163,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "body",
@@ -5056,7 +5178,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -5134,7 +5256,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -5190,7 +5317,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -5203,7 +5330,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -5230,6 +5357,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -5317,7 +5462,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "body",
@@ -5332,7 +5477,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -5396,7 +5541,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -5461,7 +5611,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -5474,7 +5624,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -5501,6 +5651,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -5571,7 +5739,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "token"
@@ -5585,7 +5753,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -5662,7 +5830,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -5745,7 +5918,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "body",
@@ -5760,7 +5933,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -5836,7 +6009,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -5919,7 +6097,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "body",
@@ -5934,7 +6112,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -6011,7 +6189,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -6084,7 +6267,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "token"
@@ -6098,7 +6281,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -6175,7 +6358,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -6248,7 +6436,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "token"
@@ -6262,7 +6450,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -6338,7 +6526,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -6424,7 +6617,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "token"
@@ -6438,7 +6631,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -6514,7 +6707,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -6597,7 +6795,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "body",
@@ -6612,7 +6810,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -6690,7 +6888,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -6773,7 +6976,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "body",
@@ -6788,7 +6991,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -6865,7 +7068,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -6938,7 +7146,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "token"
@@ -6952,7 +7160,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -7029,7 +7237,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -7103,7 +7316,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "body",
@@ -7118,7 +7331,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -7183,7 +7396,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -7239,7 +7457,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -7252,7 +7470,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -7279,6 +7497,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -7341,7 +7577,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -7354,7 +7590,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -7381,6 +7617,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -7461,7 +7715,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "body",
@@ -7476,7 +7730,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -7540,7 +7794,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -7605,7 +7864,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -7618,7 +7877,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -7645,6 +7904,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -7701,7 +7978,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -7714,7 +7991,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -7741,6 +8018,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -7811,7 +8106,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "token"
@@ -7825,7 +8120,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -7889,7 +8184,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -7954,7 +8254,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -7967,7 +8267,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -7997,6 +8297,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -8077,7 +8395,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "body",
@@ -8092,7 +8410,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -8173,7 +8491,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -8256,7 +8579,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "body",
@@ -8271,7 +8594,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -8339,7 +8662,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -8422,7 +8750,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "body",
@@ -8437,7 +8765,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -8505,7 +8833,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -8588,7 +8921,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "body",
@@ -8603,7 +8936,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -8683,7 +9016,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -8757,7 +9095,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "body",
@@ -8772,7 +9110,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -8836,7 +9174,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -8893,7 +9236,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "token"
@@ -8907,7 +9250,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -8970,7 +9313,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -9053,7 +9401,7 @@
                 }
               }
             },
-            "description": "`filter`: a filter the inbox refuses; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`filter`: a filter the inbox refuses; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "filter",
               "token"
@@ -9067,7 +9415,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -9094,6 +9442,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -9156,7 +9522,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -9169,7 +9535,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -9196,6 +9562,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -9234,6 +9618,19 @@
           "101": {
             "description": "the socket; frames in `x-websocket`"
           },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
+            "x-problems": [
+              "token"
+            ]
+          },
           "401": {
             "content": {
               "application/problem+json": {
@@ -9242,8 +9639,9 @@
                 }
               }
             },
-            "description": "`session`: no session, or one that does not verify",
+            "description": "`token`: an API token: this route takes the session cookie only (`cookie-only`); `session`: no session, or one that does not verify",
             "x-problems": [
+              "token",
               "session"
             ]
           },
@@ -9304,7 +9702,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -9430,7 +9833,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -9443,7 +9846,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -9470,6 +9873,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -9526,7 +9947,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -9539,7 +9960,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -9566,6 +9987,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           },
           "503": {
@@ -9654,7 +10093,7 @@
                 }
               }
             },
-            "description": "`body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "body",
               "token"
@@ -9668,7 +10107,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -9732,7 +10171,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -9796,7 +10240,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "token"
@@ -9810,7 +10254,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -9875,7 +10319,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -9967,7 +10416,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "body",
@@ -9982,7 +10431,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -10063,7 +10512,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -10141,7 +10595,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -10154,7 +10608,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -10181,6 +10635,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -10251,7 +10723,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "token"
@@ -10265,7 +10737,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -10329,7 +10801,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -10402,7 +10879,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "token"
@@ -10416,7 +10893,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -10492,7 +10969,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -10588,7 +11070,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "body",
@@ -10603,7 +11085,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -10681,7 +11163,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -10750,7 +11237,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -10763,7 +11250,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -10790,6 +11277,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -10849,7 +11354,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "token"
@@ -10863,7 +11368,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -10940,7 +11445,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -11005,7 +11515,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -11018,7 +11528,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -11048,6 +11558,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           },
           "503": {
@@ -11136,7 +11664,7 @@
                 }
               }
             },
-            "description": "`body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "body",
               "token"
@@ -11150,7 +11678,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -11217,7 +11745,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -11273,7 +11806,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -11286,7 +11819,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -11313,6 +11846,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -11375,7 +11926,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -11388,7 +11939,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -11415,6 +11966,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -11468,7 +12037,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -11481,7 +12050,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -11521,6 +12090,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -11580,9 +12167,10 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
-              "idempotency-key"
+              "idempotency-key",
+              "token"
             ]
           },
           "401": {
@@ -11593,8 +12181,9 @@
                 }
               }
             },
-            "description": "`session`: no session, or one that does not verify",
+            "description": "`token`: an API token: this route takes the session cookie only (`cookie-only`); `session`: no session, or one that does not verify",
             "x-problems": [
+              "token",
               "session"
             ]
           },
@@ -11656,7 +12245,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -11717,9 +12311,10 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
-              "idempotency-key"
+              "idempotency-key",
+              "token"
             ]
           },
           "401": {
@@ -11730,8 +12325,9 @@
                 }
               }
             },
-            "description": "`session`: no session, or one that does not verify",
+            "description": "`token`: an API token: this route takes the session cookie only (`cookie-only`); `session`: no session, or one that does not verify",
             "x-problems": [
+              "token",
               "session"
             ]
           },
@@ -11793,7 +12389,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -11846,7 +12447,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -11859,7 +12460,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -11910,7 +12511,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -11964,7 +12570,7 @@
                 }
               }
             },
-            "description": "`token`: a cookie and a token both, or a token in the query string",
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "token"
             ]
@@ -11977,7 +12583,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -12004,6 +12610,24 @@
             "description": "`wiped`: the sandbox is being wiped or is gone",
             "x-problems": [
               "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
             ]
           }
         },
@@ -12073,7 +12697,7 @@
                 }
               }
             },
-            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both, or a token in the query string",
+            "description": "`idempotency-key`: no `Idempotency-Key`, or not a ULID; `body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
             "x-problems": [
               "idempotency-key",
               "body",
@@ -12088,7 +12712,7 @@
                 }
               }
             },
-            "description": "`token`: a token that is malformed, expired, rotated or not an API token; `session`: no session, or one that does not verify",
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
             "x-problems": [
               "token",
               "session"
@@ -12166,7 +12790,12 @@
                 }
               }
             },
-            "description": "`rate-limit`: the session's or IP hash's limit",
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "x-problems": [
               "rate-limit"
             ]
@@ -12221,6 +12850,19 @@
             },
             "description": "the cookie, decoded"
           },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
+            "x-problems": [
+              "token"
+            ]
+          },
           "401": {
             "content": {
               "application/problem+json": {
@@ -12229,8 +12871,9 @@
                 }
               }
             },
-            "description": "`session`: no session, or one that does not verify",
+            "description": "`token`: an API token: this route takes the session cookie only (`cookie-only`); `session`: no session, or one that does not verify",
             "x-problems": [
+              "token",
               "session"
             ]
           }

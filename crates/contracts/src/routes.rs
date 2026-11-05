@@ -1332,16 +1332,23 @@ pub fn answers(route: &RouteSpec) -> Vec<Answer> {
     if route.request.is_some() {
         add(400, Some("body"), "a body that is not the contract's JSON");
     }
-    if route.bearer {
+    // Every route that needs a session reads `Authorization` (the Worker's router, as built in
+    // PR 10): a token in the query string or beside the cookie is 400 there, and a route that
+    // takes the cookie only refuses a token in its place, so no token is ever silently ignored.
+    if route.bearer || route.session.needs_session() {
         add(
             400,
             Some("token"),
-            "a cookie and a token both, or a token in the query string",
+            "a cookie and a token both (`both`), or a token in the query string (`query`)",
         );
         add(
             401,
             Some("token"),
-            "a token that is malformed, expired, rotated or not an API token",
+            if route.bearer {
+                "a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`)"
+            } else {
+                "an API token: this route takes the session cookie only (`cookie-only`)"
+            },
         );
     }
     if route.session.needs_session() {
@@ -1373,8 +1380,24 @@ pub fn answers(route: &RouteSpec) -> Vec<Answer> {
         }
         add(410, Some("wiped"), "the sandbox is being wiped or is gone");
     }
-    if is_limited(route) {
-        add(429, Some("rate-limit"), "the session's or IP hash's limit");
+    // A token spends its own limit on every request it makes, reads included.
+    match (is_limited(route), route.bearer) {
+        (true, true) => add(
+            429,
+            Some("rate-limit"),
+            "the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+        ),
+        (true, false) => add(
+            429,
+            Some("rate-limit"),
+            "the session's or IP hash's limit, with `Retry-After`",
+        ),
+        (false, true) => add(
+            429,
+            Some("rate-limit"),
+            "with a token, the token's limit: every request it makes counts, with `Retry-After`",
+        ),
+        (false, false) => {}
     }
     out.sort_by_key(|a| a.status);
     out
@@ -1582,7 +1605,24 @@ mod tests {
         let rotate = answers(find("POST", "/v1/sandboxes/{id}/token/rotate").unwrap());
         assert!(rotate.iter().any(|a| a.problem == Some("guest-scope")));
         assert!(rotate.iter().any(|a| a.status == 404));
-        assert!(!rotate.iter().any(|a| a.problem == Some("token")));
+        // A token is refused there, never accepted: the route takes the cookie only.
+        assert!(rotate.iter().any(|a| a.status == 401
+            && a.problem == Some("token")
+            && a.note.contains("`cookie-only`")));
+        let menu = answers(find("GET", "/v1/sandboxes/{id}/menu").unwrap());
+        assert!(
+            menu.iter()
+                .any(|a| a.status == 401 && a.note.contains("`rotated`"))
+        );
+        assert!(
+            menu.iter()
+                .any(|a| a.status == 429 && a.problem == Some("rate-limit"))
+        );
+        let sandboxes = answers(find("POST", "/v1/sandboxes").unwrap());
+        assert!(
+            !sandboxes.iter().any(|a| a.problem == Some("token")),
+            "public: no token read"
+        );
     }
 
     /// The pull request the README's routes table covers, from its lead line
@@ -1598,9 +1638,9 @@ mod tests {
             .expect("workers/api/README.md says which pull request its routes table covers")
     }
 
-    /// `(METHOD, path, answers cell)` for each row of the README's routes table, the path
-    /// without its query string.
-    fn readme_rows() -> Vec<(String, String, String, String)> {
+    /// `(METHOD, path, session cell, token cell, answers cell)` for each row of the README's
+    /// routes table, the path without its query string.
+    fn readme_rows() -> Vec<(String, String, String, String, String)> {
         // The README's lead line names the latest pull request it covers; any number will do.
         let table = README
             .split(" it answers:\n")
@@ -1622,7 +1662,8 @@ mod tests {
                     method.to_owned(),
                     path.to_owned(),
                     cells[1].to_owned(),
-                    cells[3].to_owned(),
+                    cells[2].to_owned(),
+                    cells[4].to_owned(),
                 ))
             })
             .collect()
@@ -1726,15 +1767,21 @@ mod tests {
         assert!(rows.len() >= 46, "{} rows", rows.len());
         let covered = readme_pr();
         let mut listed = BTreeSet::new();
-        for (method, path, session, cell) in &rows {
+        // (a) Every README row is in the table with its method, pattern, session rule, bearer
+        // rule and answers, whatever its pull request: the README may list a later one's routes
+        // (PR 10's token routes) before its lead line moves. (b) Every table row up to the lead
+        // line's pull request is in the README; a later one (PR 9's, before its merge) may be
+        // missing.
+        for (method, path, session, token, cell) in &rows {
             let route = find(method, path)
                 .unwrap_or_else(|| panic!("README's {method} {path} is not in the table"));
             listed.insert(route.id);
-            assert!(
-                route.pr <= covered,
-                "{}: the README lists it, so PR {covered} or before",
-                route.id
-            );
+            let bearer = match token.as_str() {
+                "yes" => true,
+                "no" => false,
+                other => panic!("{method} {path}: an unknown token cell {other:?}"),
+            };
+            assert_eq!(route.bearer, bearer, "{method} {path}: the token cell");
             let all = answers(route);
             for (status, slugs) in readme_answers(cell) {
                 assert!(
@@ -1782,8 +1829,8 @@ mod tests {
         }
     }
 
-    /// `(RouteId, method, pattern, scope)` for each `route(...)` in the Worker's table.
-    fn worker_routes() -> Vec<(String, String, String, String)> {
+    /// `(RouteId, method, pattern, scope, bearer)` for each `route(...)` in the Worker's table.
+    fn worker_routes() -> Vec<(String, String, String, String, bool)> {
         let table = WORKER_ROUTES
             .split("pub const ROUTES: &[Route] = &[")
             .nth(1)
@@ -1799,7 +1846,12 @@ mod tests {
                     .collect();
                 let id = args[0].trim_start_matches("RouteId::").to_owned();
                 let scope = args[3].trim_start_matches("Scope::").to_owned();
-                (id, args[1].clone(), args[2].clone(), scope)
+                let bearer = match args[5].trim_end_matches(')').trim() {
+                    "Bearer::Yes" => true,
+                    "Bearer::No" => false,
+                    other => panic!("{id}: an unknown bearer rule {other:?}"),
+                };
+                (id, args[1].clone(), args[2].clone(), scope, bearer)
             })
             .collect()
     }
@@ -1808,7 +1860,10 @@ mod tests {
     fn every_worker_route_is_in_the_table() {
         let worker = worker_routes();
         assert!(worker.len() >= 46, "{} Worker routes", worker.len());
-        for (id, method, pattern, scope) in &worker {
+        // (c) Every route the Worker serves is in the table, a later pull request's included;
+        // workers/api's own test holds (d), every table row up to the README's pull request
+        // served.
+        for (id, method, pattern, scope, bearer) in &worker {
             let kebab = kebab(id);
             let route = ROUTES
                 .iter()
@@ -1823,6 +1878,16 @@ mod tests {
                 other => panic!("{kebab}: unknown scope {other}"),
             };
             assert!(expected.contains(&route.session), "{kebab}: {scope}");
+            assert_eq!(route.bearer, *bearer, "{kebab}: bearer");
+        }
+        let covered = readme_pr();
+        for route in ROUTES.iter().filter(|r| r.pr <= covered) {
+            assert!(
+                worker.iter().any(|(id, ..)| kebab(id) == route.id),
+                "{}: PR {} but the Worker does not serve it",
+                route.id,
+                route.pr
+            );
         }
     }
 
