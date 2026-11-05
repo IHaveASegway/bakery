@@ -1362,6 +1362,222 @@ pub struct RebuildResponse {
     pub ms: Option<u32>,
 }
 
+/// Where a delivery stop stands (ADR 0012; docs/domain.md, "Ubiquitous language": Stop).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum StopStatus {
+    /// Placed, not yet paid: shown, in no plan.
+    Provisional,
+    /// Paid: every plan must carry it.
+    Confirmed,
+    /// Expired or cancelled.
+    Removed,
+    /// Delivered.
+    Completed,
+}
+
+/// Who made a plan: the server's savings heuristic or the browser's VROOM solver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanSource {
+    Server,
+    Browser,
+}
+
+/// One stop of the day.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StopView {
+    /// The order's ULID: what every plan names the stop by.
+    pub order: String,
+    /// The customer's ULID; the screen shows the persona's made-up address, never the place.
+    pub customer: String,
+    /// The customer's place, an index into the travel-time matrix, 0 to 63.
+    pub place: u8,
+    /// The place's label, `p1` to `p64`.
+    pub place_label: String,
+    /// The delivery window's start, a business time.
+    pub window: String,
+    /// `z1`, `z2` or `z3`.
+    pub zone: String,
+    /// The order's line quantities summed: what the stop takes of a van's capacity.
+    pub units: u32,
+    pub status: StopStatus,
+    /// The stop's number in the published plan, counted from 1 across the vans, van 1's stops
+    /// first; `null` when it is in no published plan.
+    pub stop: Option<u16>,
+    /// The van that carries it in the published plan; `null` when none does.
+    pub van: Option<u8>,
+}
+
+/// One van of a plan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VanPlanView {
+    /// 1 to the day's vans.
+    pub van: u8,
+    /// Order ULIDs, in driving order.
+    pub stops: Vec<String>,
+    /// The stops' units summed; never over the day's capacity.
+    pub units: u32,
+    /// The drive, bakery to bakery, from the travel-time matrix.
+    pub minutes: u32,
+}
+
+/// A plan as the dispatch screen shows it (ADR 0012, decision 5). Its minutes are the server's
+/// own arithmetic over the matrix, whoever made the plan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PlanView {
+    pub source: PlanSource,
+    /// A published plan's version. A proposal or submission carries the version it would be
+    /// published as when it was made; one at or below the response's `plan_v` is stale.
+    pub plan_v: u16,
+    /// The vans used, by van; a plan may use fewer than the day has.
+    pub vans: Vec<VanPlanView>,
+    /// Every van's drive summed.
+    pub minutes: u32,
+    /// When the last van is back, a business time: the vans leave at 09:00 and drive the
+    /// matrix's minutes, with no time at the door counted.
+    pub last_back: String,
+    /// Order ULIDs no van could take. A plan with any cannot be published.
+    pub unassigned: Vec<String>,
+}
+
+/// The two plans' totals side by side.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ComparisonView {
+    pub server_minutes: u32,
+    pub browser_minutes: u32,
+    /// `(server − browser) / browser × 100`, to one decimal: positive when the heuristic drives
+    /// longer. `null` when the browser's plan drives 0 minutes and the server's does not.
+    pub gap_percent: Option<f64>,
+}
+
+/// `GET /v1/sandboxes/{id}/dispatch/{date}`, staff only, and the answer to every dispatch
+/// command: one bakery day's stops and plans. It mirrors the Dispatch aggregate's state.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DispatchResponse {
+    /// The bakery day, `YYYY-MM-DD`.
+    pub date: String,
+    /// The day's vans, 1 to 4: the last proposal's, 4 before any.
+    pub vans: u8,
+    /// Units a van carries: the last proposal's, 250 before any.
+    pub capacity: u32,
+    /// Every stop the day has seen, removed ones included, by order ULID.
+    pub stops: Vec<StopView>,
+    /// The server's plan from the last `propose`.
+    pub proposed: Option<PlanView>,
+    /// The browser's plan from the last `plan`, validated.
+    pub submitted: Option<PlanView>,
+    /// The record: what drivers, the kitchen board and the order status read.
+    pub published: Option<PlanView>,
+    /// The published plan's version, 0 before the first publish.
+    pub plan_v: u16,
+    /// Both plans' totals, when there are both; `null` while the browser's solver has not run
+    /// or cannot (the page then shows the server's plan alone and says why).
+    pub comparison: Option<ComparisonView>,
+}
+
+/// `POST /v1/sandboxes/{id}/dispatch/{date}/propose`, staff only: the server's plan for the
+/// confirmed stops. The vans and capacity become the day's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ProposeRequest {
+    /// 1 to 4.
+    pub vans: u8,
+    /// Units a van carries, at least 1.
+    pub capacity: u32,
+}
+
+/// One van of the browser's plan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PlanRouteRequest {
+    /// 1 to the day's vans, each once.
+    pub van: u8,
+    /// Order ULIDs, in driving order. An empty list is a van left at the bakery.
+    pub stops: Vec<String>,
+    /// The place the van leaves from, as the solver reports it; it must be the bakery, and is
+    /// taken to be when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<u8>,
+    /// The place the van comes back to; the same rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<u8>,
+}
+
+/// `POST /v1/sandboxes/{id}/dispatch/{date}/plan`, staff only: the plan VROOM made in the
+/// browser. It carries no minutes: the server computes them from the matrix. Refused with 422
+/// `stop-missing`, `stop-twice`, `stop-unknown`, `over-capacity`, `route-ends`, `vans` or
+/// `no-stops`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PlanRequest {
+    pub vans: Vec<PlanRouteRequest>,
+}
+
+/// Which stored plan to publish.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanChoice {
+    /// The server's.
+    Proposed,
+    /// The browser's.
+    Submitted,
+}
+
+/// `POST /v1/sandboxes/{id}/dispatch/{date}/publish`, staff only: make a stored plan the record.
+/// Checked again against the day's stops; a repeat with the same `Idempotency-Key` publishes
+/// nothing more.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PublishRequest {
+    pub plan: PlanChoice,
+}
+
+/// `POST /v1/sandboxes/{id}/dispatch/{date}/complete`, staff only: a stop of the published plan
+/// is delivered. Again for a delivered stop changes nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CompleteStopRequest {
+    /// The stop's number in the published plan, from 1.
+    pub stop: u16,
+}
+
+/// One place of the travel-time matrix.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MatrixPlace {
+    /// 0 to the places' count less one, in order.
+    pub index: u8,
+    /// The map label, `p1` to `p64`; no name, coordinate or street.
+    pub label: String,
+}
+
+/// The travel-time matrix the dispatch screen loads to run VROOM. It is not an API response: it
+/// is a static asset of the web Worker, the same JSON as the committed fixture
+/// `crates/seed/data/<city>/matrix.json` (ADR 0012, decision 7), and this type only fixes its
+/// shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MatrixResponse {
+    /// The city the build is for, or `synthetic`.
+    pub city: String,
+    /// When the build ran, or `seed:<n>` for the synthetic city.
+    pub built: String,
+    /// Where the travel times come from, with the attribution the data's licence asks for.
+    pub source: String,
+    /// The bakery's place, where every route starts and ends; 0 when left out.
+    #[serde(default)]
+    pub depot: u8,
+    pub places: Vec<MatrixPlace>,
+    /// `minutes[i][j]`: whole minutes driving from place `i` to place `j`, 0 on the diagonal.
+    /// Not necessarily symmetric.
+    pub minutes: Vec<Vec<u32>>,
+}
+
 /// Every exported schema as `(file name, pretty JSON with a trailing newline)`, in a fixed
 /// order. The binary writes these bytes and the test compares them.
 pub fn schemas() -> Vec<(&'static str, String)> {
@@ -1457,6 +1673,15 @@ pub fn schemas() -> Vec<(&'static str, String)> {
         ),
         ("ActivityResponse.schema.json", render::<ActivityResponse>()),
         ("RebuildResponse.schema.json", render::<RebuildResponse>()),
+        ("DispatchResponse.schema.json", render::<DispatchResponse>()),
+        ("ProposeRequest.schema.json", render::<ProposeRequest>()),
+        ("PlanRequest.schema.json", render::<PlanRequest>()),
+        ("PublishRequest.schema.json", render::<PublishRequest>()),
+        (
+            "CompleteStopRequest.schema.json",
+            render::<CompleteStopRequest>(),
+        ),
+        ("MatrixResponse.schema.json", render::<MatrixResponse>()),
     ]
 }
 
@@ -2029,5 +2254,65 @@ mod tests {
         let consent: ConsentRequest = serde_json::from_str(r#"{"marketing":false}"#).unwrap();
         assert!(!consent.marketing);
         assert!(serde_json::from_str::<ConsentRequest>(r#"{"marketing":false,"to":"x"}"#).is_err());
+    }
+
+    #[test]
+    fn dispatch_shapes() {
+        let plan = PlanView {
+            source: PlanSource::Browser,
+            plan_v: 2,
+            vans: vec![VanPlanView {
+                van: 1,
+                stops: vec!["01JC8Z5R0T2B6Y8C4V1N3K7QXE".into()],
+                units: 7,
+                minutes: 31,
+            }],
+            minutes: 31,
+            last_back: "2026-11-07T09:31:00-07:00".into(),
+            unassigned: vec![],
+        };
+        assert_eq!(
+            serde_json::to_value(&plan).unwrap(),
+            json!({ "source": "browser", "plan_v": 2,
+                    "vans": [{ "van": 1, "stops": ["01JC8Z5R0T2B6Y8C4V1N3K7QXE"], "units": 7, "minutes": 31 }],
+                    "minutes": 31, "last_back": "2026-11-07T09:31:00-07:00", "unassigned": [] })
+        );
+        let comparison = ComparisonView {
+            server_minutes: 118,
+            browser_minutes: 104,
+            gap_percent: Some(13.5),
+        };
+        assert_eq!(
+            serde_json::to_value(comparison).unwrap(),
+            json!({ "server_minutes": 118, "browser_minutes": 104, "gap_percent": 13.5 })
+        );
+        let request: PlanRequest = serde_json::from_value(json!({
+            "vans": [{ "van": 1, "stops": ["01JC8Z5R0T2B6Y8C4V1N3K7QXE"], "start": 0, "end": 0 },
+                     { "van": 2, "stops": [] }]
+        }))
+        .unwrap();
+        assert_eq!(request.vans[1].start, None);
+        assert!(
+            serde_json::from_value::<PlanRequest>(json!({ "vans": [], "minutes": 10 })).is_err(),
+            "a client's total is refused, not ignored"
+        );
+        let publish: PublishRequest = serde_json::from_str(r#"{"plan":"submitted"}"#).unwrap();
+        assert_eq!(publish.plan, PlanChoice::Submitted);
+        let complete: CompleteStopRequest = serde_json::from_str(r#"{"stop":3}"#).unwrap();
+        assert_eq!(complete.stop, 3);
+        let matrix: MatrixResponse = serde_json::from_str(
+            r#"{"city":"synthetic","built":"seed:7","source":"s",
+                "places":[{"index":0,"label":"p1"}],"minutes":[[0]]}"#,
+        )
+        .unwrap();
+        assert_eq!(matrix.depot, 0);
+        for (status, text) in [
+            (StopStatus::Provisional, "provisional"),
+            (StopStatus::Confirmed, "confirmed"),
+            (StopStatus::Removed, "removed"),
+            (StopStatus::Completed, "completed"),
+        ] {
+            assert_eq!(serde_json::to_value(status).unwrap(), json!(text));
+        }
     }
 }

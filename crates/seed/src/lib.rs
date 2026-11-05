@@ -14,6 +14,7 @@
 mod calendar;
 mod catering;
 mod crm;
+mod dispatch;
 mod menu;
 mod words;
 
@@ -31,6 +32,9 @@ pub use catering::seed_commands;
 pub use crm::{
     SEED_MESSAGES, SeedMessage, closed_at, directory, history_envelopes, history_event_id,
     register, seed_messages,
+};
+pub use dispatch::{
+    CITY_MATRIX_JSON, DispatchDay, busy_saturday, city_matrix, seed_dispatch, seed_matrix, vans_for,
 };
 pub use menu::{ALLERGENS, CATEGORIES, ITEMS, ItemSpec, PACKAGES, PackageSpec, VariantSpec};
 

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProposeRequest",
+  "description": "`POST /v1/sandboxes/{id}/dispatch/{date}/propose`, staff only: the server's plan for the\nconfirmed stops. The vans and capacity become the day's.",
+  "type": "object",
+  "properties": {
+    "capacity": {
+      "description": "Units a van carries, at least 1.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "vans": {
+      "description": "1 to 4.",
+      "type": "integer",
+      "format": "uint8",
+      "maximum": 255,
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "vans",
+    "capacity"
+  ]
+}
