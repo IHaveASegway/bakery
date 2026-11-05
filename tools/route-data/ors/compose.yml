@@ -1,0 +1,23 @@
+# Run the pinned openrouteservice with Docker, the documented path for a stranger. From
+# tools/route-data/:  docker compose -f ors/compose.yml up -d   (build.mjs does this for you when
+# a Docker daemon answers; it also prepares work/ors/ first).
+#
+# The image is pinned by tag, v9.10.0. A digest pin (image: ...@sha256:...) is the stronger pin:
+# nobody could pull the tag in the session that wrote this file (no Docker daemon, 2026-11-05), so
+# the digest is still to fill in; `docker buildx imagetools inspect openrouteservice/openrouteservice:v9.10.0`
+# prints it, and config.mjs `ors.imageDigest` records it.
+services:
+  ors:
+    image: openrouteservice/openrouteservice:v9.10.0
+    container_name: route-data-ors
+    ports:
+      # Same port as the jar path, local only.
+      - '127.0.0.1:8082:8082'
+    volumes:
+      # config/ors-config.yml, files/routing.osm.pbf, graphs/ and logs/ all live in work/ors/.
+      - ../work/ors:/home/ors
+    environment:
+      REBUILD_GRAPHS: 'False'
+      CONTAINER_LOG_LEVEL: INFO
+      XMS: 1g
+      XMX: 6g
