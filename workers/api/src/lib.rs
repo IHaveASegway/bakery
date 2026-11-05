@@ -1,7 +1,8 @@
 //! The Worker `bakery-api`: the router, every Durable Object class, the Queue consumer and the
 //! cron handler (docs/architecture.md). PR 3 added sign-in, sandboxes and the nightly wipe to
 //! PR 2's walking skeleton; PR 4 adds the menu, orders, the kitchen board with its sockets, the event relay and
-//! simulated traffic.
+//! simulated traffic; PR 5 adds payments and refunds through Stripe's sandbox, its webhooks and
+//! the `Billing` object.
 
 mod clock;
 mod config;
@@ -10,8 +11,10 @@ mod http;
 mod objects;
 mod queue;
 mod random;
+mod stripe;
 
 pub use objects::account::Account;
+pub use objects::billing::Billing;
 pub use objects::catalog::Catalog;
 pub use objects::control::Control;
 pub use objects::kitchen::Kitchen;

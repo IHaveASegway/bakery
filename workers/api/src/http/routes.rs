@@ -54,6 +54,10 @@ pub enum RouteId {
     GetTraffic,
     StartTraffic,
     StopTraffic,
+    Pay,
+    Refund,
+    Ledger,
+    StripeWebhook,
 }
 
 #[derive(Debug)]
@@ -285,7 +289,56 @@ pub const ROUTES: &[Route] = &[
         Scope::SignedIn,
         Limit::Command,
     ),
+    // PR 5: payments and refunds through Stripe's sandbox. The webhook is Stripe's, not a
+    // browser's: no CORS, no Origin, no session and no Idempotency-Key (router), its signature
+    // the only gate, so it spends no limit either.
+    route(
+        RouteId::Pay,
+        "POST",
+        "/v1/sandboxes/{id}/orders/{sub}/payment",
+        Scope::Session,
+        Limit::Command,
+    ),
+    route(
+        RouteId::Refund,
+        "POST",
+        "/v1/sandboxes/{id}/orders/{sub}/refund",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
+    route(
+        RouteId::Ledger,
+        "GET",
+        "/v1/sandboxes/{id}/billing/ledger",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::StripeWebhook,
+        "POST",
+        "/v1/stripe/webhook",
+        Scope::Public,
+        Limit::None,
+    ),
 ];
+
+/// Routes a browser never calls: no CORS headers, no preflight, no Origin check, no session
+/// and no `Idempotency-Key` (docs/security.md, "Payments safety").
+pub const SERVER_TO_SERVER: &[RouteId] = &[RouteId::StripeWebhook];
+
+pub fn is_server_to_server(id: RouteId) -> bool {
+    SERVER_TO_SERVER.contains(&id)
+}
+
+/// Whether every route on `path` is server to server, whatever the method asked: such a path
+/// gets no CORS headers even on its 405.
+pub fn is_server_to_server_path(path: &str) -> bool {
+    let mut on_path = ROUTES
+        .iter()
+        .filter(|r| matches(r.pattern, path).is_some())
+        .peekable();
+    on_path.peek().is_some() && on_path.all(|r| is_server_to_server(r.id))
+}
 
 /// A route's path parameters.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -337,6 +390,9 @@ pub fn match_route(method: &str, path: &str) -> Matched {
         return Matched::NotFound;
     }
     if method == "OPTIONS" {
+        if on_path.iter().all(|(r, _)| is_server_to_server(r.id)) {
+            return Matched::MethodNotAllowed(allow(path));
+        }
         return Matched::Preflight;
     }
     match on_path.into_iter().find(|(r, _)| r.method == method) {
@@ -347,13 +403,15 @@ pub fn match_route(method: &str, path: &str) -> Matched {
 
 /// The methods a path answers, in the table's order, then `OPTIONS`.
 pub fn allow(path: &str) -> String {
-    let mut methods: Vec<&str> = ROUTES
+    let on_path: Vec<&Route> = ROUTES
         .iter()
         .filter(|r| matches(r.pattern, path).is_some())
-        .map(|r| r.method)
         .collect();
+    let mut methods: Vec<&str> = on_path.iter().map(|r| r.method).collect();
     methods.dedup();
-    methods.push("OPTIONS");
+    if !on_path.iter().all(|r| is_server_to_server(r.id)) {
+        methods.push("OPTIONS");
+    }
     methods.join(", ")
 }
 
@@ -470,6 +528,54 @@ mod tests {
     }
 
     #[test]
+    fn payment_routes_and_the_webhook() {
+        let s = "01JC8Z6K3W9QF2N4T7XRB5M0HD";
+        let o = "01JC8Z5R0T2B6Y8C4V1N3K7QXE";
+        let some = |v: &str| Some(v.to_owned());
+        assert_eq!(
+            sub_of(match_route(
+                "POST",
+                &format!("/v1/sandboxes/{s}/orders/{o}/payment")
+            )),
+            Some((RouteId::Pay, some(s), some(o)))
+        );
+        assert_eq!(
+            sub_of(match_route(
+                "POST",
+                &format!("/v1/sandboxes/{s}/orders/{o}/refund")
+            )),
+            Some((RouteId::Refund, some(s), some(o)))
+        );
+        assert_eq!(
+            id_of(match_route(
+                "GET",
+                &format!("/v1/sandboxes/{s}/billing/ledger")
+            )),
+            Some((RouteId::Ledger, some(s)))
+        );
+        assert_eq!(
+            id_of(match_route("POST", "/v1/stripe/webhook")),
+            Some((RouteId::StripeWebhook, None))
+        );
+        assert!(is_server_to_server_path("/v1/stripe/webhook"));
+        assert!(!is_server_to_server_path("/v1/health"));
+        assert!(!is_server_to_server_path("/v1/nope"));
+        // No preflight for Stripe's route, and no OPTIONS in its Allow.
+        assert_eq!(
+            match_route("OPTIONS", "/v1/stripe/webhook"),
+            Matched::MethodNotAllowed("POST".into())
+        );
+        assert_eq!(
+            match_route("GET", "/v1/stripe/webhook"),
+            Matched::MethodNotAllowed("POST".into())
+        );
+        assert_eq!(
+            match_route("OPTIONS", &format!("/v1/sandboxes/{s}/orders/{o}/payment")),
+            Matched::Preflight
+        );
+    }
+
+    #[test]
     fn scopes_follow_the_spec() {
         let scope = |id| ROUTES.iter().find(|r| r.id == id).unwrap().scope;
         for id in [
@@ -514,10 +620,22 @@ mod tests {
                 "a callback stays outside the Origin check by being a GET"
             );
         }
-        // Every command but the callbacks spends a limit, and so does the upgrade.
-        for r in ROUTES.iter().filter(|r| r.method != "GET") {
+        // Every command a browser sends spends a limit, and so does the upgrade. Stripe's
+        // webhook is gated by its signature instead.
+        for r in ROUTES
+            .iter()
+            .filter(|r| r.method != "GET" && !is_server_to_server(r.id))
+        {
             assert_ne!(r.limit, Limit::None, "{:?}", r.id);
         }
+        assert_eq!(
+            scope(RouteId::Refund),
+            Scope::SignedIn,
+            "a refund is staff's"
+        );
+        assert_eq!(scope(RouteId::Pay), Scope::Session, "guests pay");
+        assert_eq!(scope(RouteId::Ledger), Scope::Session);
+        assert_eq!(scope(RouteId::StripeWebhook), Scope::Public);
         let socket = ROUTES
             .iter()
             .find(|r| r.id == RouteId::KitchenSocket)

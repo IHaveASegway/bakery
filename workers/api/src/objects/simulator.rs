@@ -8,7 +8,9 @@
 //! there, spends one of the minutes `Control` granted, and places up to `rate` orders as the
 //! seed's other personas through the same path a visitor's order takes (the Sandbox maps the
 //! key `sim:<ulid>` to an order ULID and registers it, the Catalog gives the menu, the Order
-//! decides), each with `cause: sim:<ulid>`. The orders are drawn from the seed crate's ChaCha,
+//! decides), each with `cause: sim:<ulid>`, then pays each one through `Billing`'s `/_intent` and
+//! `/_confirm-test` with Stripe's test payment method, one in six with the card Stripe declines;
+//! the order is confirmed when Stripe's webhook lands. The orders are drawn from the seed crate's ChaCha,
 //! keyed by the sandbox's seed and on the minute's own stream, so a tick that runs again draws
 //! the same orders with the same keys and the Orders answer them as replays.
 //!
@@ -35,7 +37,9 @@
 use std::cell::Cell;
 
 use bakery_app::Clock;
-use bakery_contracts::TrafficResponse;
+use bakery_contracts::{OrderResponse, TrafficResponse};
+use bakery_domain::Cents;
+use bakery_domain::billing::Purpose;
 use bakery_domain::catalog::{ItemStatus, MenuView};
 use bakery_domain::order::{DEFAULT_TAX_BP, LineInput, OrderKind};
 use bakery_domain::{BusinessTime, Envelope, Ulid, WallTime};
@@ -47,6 +51,7 @@ use worker::{
     durable_object,
 };
 
+use super::billing::{self, Card, ConfirmIn, IntentIn};
 use super::catalog;
 use super::child::{self, Birth, ClockUpdate};
 use super::control::{self, ReserveTraffic, SettleTraffic};
@@ -78,6 +83,8 @@ pub const TICK_MS: i64 = 60_000;
 const SLOT_AHEAD_MINUTES: i64 = 240;
 /// One simulated order in this many is a delivery.
 const DELIVERY_ONE_IN: u32 = 4;
+/// One simulated payment in about this many is declined (`pm_card_chargeDeclined`).
+const DECLINE_ONE_IN: u8 = 6;
 const TICK: &str = "tick";
 
 const SCHEMA: &[&str] = &[
@@ -916,7 +923,7 @@ impl Simulator {
             }),
         )
         .await?;
-        Ok(match res.status_code() {
+        let placed = match res.status_code() {
             201 => Placed::New,
             200 => Placed::Replayed,
             422 => {
@@ -928,10 +935,77 @@ impl Simulator {
                     rule: Option<String>,
                 }
                 let r: Refused = serde_json::from_str(&res.text().await?).unwrap_or_default();
-                Placed::Refused(r.rule.unwrap_or(r.error))
+                return Ok(Placed::Refused(r.rule.unwrap_or(r.error)));
             }
-            _ => Placed::Stop,
-        })
+            _ => return Ok(Placed::Stop),
+        };
+        let order: Option<OrderResponse> = serde_json::from_str(&res.text().await?).ok();
+        if let Some(order) = order.filter(|o| o.status == bakery_contracts::OrderStatus::Placed) {
+            self.pay(sandbox, slot.order, &order, &d.key).await;
+        }
+        Ok(placed)
+    }
+
+    /// Pays a simulated order as the server-side path does: Billing's intent, then a confirm
+    /// with Stripe's test payment method, one in six declined, so the board moves to confirmed
+    /// when the webhook lands and a `PaymentFailed` shows now and then. Which card is drawn
+    /// from the order's key, so a rerun of the tick picks the same one. Best effort: an order
+    /// left unpaid expires, as a visitor's would.
+    async fn pay(&self, sandbox: Ulid, order: Ulid, o: &OrderResponse, key: &str) {
+        let card = card_for(key);
+        let intent = sql::call(
+            &self.env,
+            billing::BINDING,
+            &billing::name(sandbox),
+            Method::Post,
+            "/_intent",
+            Some(&IntentIn {
+                purpose: Purpose::Order,
+                reference: order,
+                amount: Cents(o.total_cents),
+            }),
+        )
+        .await;
+        let status = intent.as_ref().map_or(0, |r| r.status_code());
+        if status != 200 {
+            console_log!(
+                "{{\"event\":\"sim_pay\",\"sandbox\":\"{sandbox}\",\"order\":\"{order}\",\"step\":\"intent\",\"status\":{status}}}"
+            );
+            return;
+        }
+        let confirmed = sql::call(
+            &self.env,
+            billing::BINDING,
+            &billing::name(sandbox),
+            Method::Post,
+            "/_confirm-test",
+            Some(&ConfirmIn {
+                purpose: Purpose::Order,
+                reference: order,
+                card,
+            }),
+        )
+        .await;
+        let status = confirmed.as_ref().map_or(0, |r| r.status_code());
+        let card = match card {
+            Card::Visa => "visa",
+            Card::ChargeDeclined => "declined",
+        };
+        console_log!(
+            "{{\"event\":\"sim_pay\",\"sandbox\":\"{sandbox}\",\"order\":\"{order}\",\"step\":\"confirm\",\"card\":\"{card}\",\"status\":{status}}}"
+        );
+    }
+}
+
+/// One simulated order in [`DECLINE_ONE_IN`] pays with the card Stripe declines, chosen by
+/// the order's key.
+fn card_for(key: &str) -> Card {
+    let digest = crate::http::body_hash(key);
+    let n = u8::from_str_radix(&digest[..2], 16).unwrap_or(1);
+    if n.is_multiple_of(DECLINE_ONE_IN) {
+        Card::ChargeDeclined
+    } else {
+        Card::Visa
     }
 }
 
@@ -1048,6 +1122,19 @@ mod tests {
             draw(42, minute, 0, at, &menu(), &[]).is_none(),
             "no personas, no order"
         );
+    }
+
+    #[test]
+    fn about_one_payment_in_six_is_declined_and_the_same_key_draws_the_same_card() {
+        let keys: Vec<String> = (0..600u128)
+            .map(|n| format!("sim:{}", Ulid::from_parts(1_793_819_530_318, n)))
+            .collect();
+        let declined = keys
+            .iter()
+            .filter(|k| card_for(k) == Card::ChargeDeclined)
+            .count();
+        assert!((60..=150).contains(&declined), "{declined} of 600");
+        assert!(keys.iter().all(|k| card_for(k) == card_for(k)));
     }
 
     #[test]
