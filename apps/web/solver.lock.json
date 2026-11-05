@@ -1,0 +1,30 @@
+{
+  "source": {
+    "repository": "https://github.com/IHaveASegway/website.git",
+    "commit": "34b4515260bdcca350a949f130a879b472ff90e0",
+    "path": "apps/web/public/lab/routes/solver/vroom-1.15.0-870d7d5e"
+  },
+  "folder": "vroom-1.15.0-870d7d5e",
+  "files": {
+    "vroom.wasm": {
+      "sha256": "60086074ad9ffd3bfcf5afb053bdbd479e0356128b373c0e30dc9fa95f43af51",
+      "bytes": 919927
+    },
+    "vroom.mjs": {
+      "sha256": "c50b16cb3418cc2dbc7ffa027e6a4781ae02fba16e672a7cf7f1b27754238d18",
+      "bytes": 8403
+    },
+    "vroom-solver.mjs": {
+      "sha256": "1c77299019ea25849e4b57c01eef7c15fd5962ee0d9d59813819cc04f5810602",
+      "bytes": 1591
+    },
+    "vroom-worker.mjs": {
+      "sha256": "77704759a073b21930da37a5f5852c4e82b13a9e26b5fa1d0cb61ff8bf9c8f30",
+      "bytes": 1002
+    },
+    "LICENSES.txt": {
+      "sha256": "dd0bff4cd14773b2498cf7ceb59a5fca38e77ec85620a96bce8f86f7b24b6f14",
+      "bytes": 69442
+    }
+  }
+}

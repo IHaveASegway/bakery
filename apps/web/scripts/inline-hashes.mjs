@@ -31,7 +31,10 @@ export function hashesByRule(dir, rules) {
   for (const file of readdirSync(dir, { recursive: true })) {
     if (typeof file !== 'string' || !file.endsWith('.html')) continue;
     const url = `/${file.replaceAll('\\', '/')}`;
-    const rule = rules.find((r) => url.startsWith(r.slice(0, -1))) ?? '/*';
+    // The longest matching prefix wins: /app/dispatch/* is under /app/*.
+    const rule =
+      rules.filter((r) => url.startsWith(r.slice(0, -1))).sort((x, y) => y.length - x.length)[0] ??
+      '/*';
     const found = inlineHashes(readFileSync(join(dir, file), 'utf8'));
     for (const kind of ['script', 'style']) {
       out[rule][kind] = [...new Set([...out[rule][kind], ...found[kind]])].sort();

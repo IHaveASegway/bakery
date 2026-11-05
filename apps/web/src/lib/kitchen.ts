@@ -34,6 +34,10 @@ export interface Card {
   cause: string | null;
   /** The last event's type, when this page saw one. */
   last: string | null;
+  /** A delivery's van in the published plan, `van-2`; null until a van has it. */
+  van: string | null;
+  /** The delivery's stop number across the plan's vans, counted from 1; null until a van has it. */
+  stop: number | null;
 }
 
 /** One line of a day's plan: how many of an item to have ready for a slot or window start. */
@@ -71,9 +75,21 @@ export interface BoardState {
    * `SlotReserved` or `SlotReleased` does not count twice. A snapshot starts it over.
    */
   marks: Record<string, Record<string, SlotMark>>;
+  /**
+   * The highest `plan_v` of a `RoutePublished` this page has applied, per day, as the Kitchen's
+   * `routes` map: a plan no newer than it changes nothing. Not in a snapshot, so the hook carries
+   * it across one.
+   */
+  routes: Record<string, number>;
 }
 
-export const EMPTY_BOARD: BoardState = { cards: {}, heads: {}, bakeLists: {}, marks: {} };
+export const EMPTY_BOARD: BoardState = {
+  cards: {},
+  heads: {},
+  bakeLists: {},
+  marks: {},
+  routes: {},
+};
 
 export interface Envelope {
   id: string;
@@ -111,6 +127,11 @@ function readLines(value: unknown): CardLine[] {
   return value.filter(isObject).map((l) => ({ variant: str(l['variant']), qty: num(l['qty']) }));
 }
 
+const readVan = (value: unknown): string | null =>
+  typeof value === 'string' && value !== '' ? value : null;
+const readStop = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : null;
+
 function readCard(raw: unknown, fallbackOrder = ''): Card | null {
   if (!isObject(raw)) return null;
   const state = str(raw['state']);
@@ -126,6 +147,8 @@ function readCard(raw: unknown, fallbackOrder = ''): Card | null {
     updated_seq: num(raw['updated_seq']),
     cause: typeof raw['cause'] === 'string' ? raw['cause'] : null,
     last: typeof raw['last'] === 'string' ? raw['last'] : null,
+    van: readVan(raw['van']),
+    stop: readStop(raw['stop']),
   };
 }
 
@@ -171,7 +194,7 @@ export function boardFromSnapshot(raw: unknown): BoardState {
       list.push(isObject(card) && card['order'] === undefined ? { ...card, order } : card);
     }
   }
-  const board: BoardState = { cards: {}, heads: {}, bakeLists: {}, marks: {} };
+  const board: BoardState = { cards: {}, heads: {}, bakeLists: {}, marks: {}, routes: {} };
   if (isObject(raw)) {
     for (const bakeList of readBakeLists(raw['bake_lists']))
       board.bakeLists[bakeList.date] = bakeList;
@@ -258,6 +281,7 @@ const LEAVES = new Set(['OrderPickedUp', 'OrderDelivered', 'OrderExpired', 'Orde
  */
 export function applyEvent(board: BoardState, env: Envelope): BoardState {
   if (SCHEDULE_EVENTS.has(env.type)) return applyScheduleEvent(board, env);
+  if (env.type === 'RoutePublished') return applyRoutePublished(board, env);
   const order = orderOf(env.stream);
   if (order === null) return board;
   const head = board.heads[order];
@@ -277,6 +301,8 @@ export function applyEvent(board: BoardState, env: Envelope): BoardState {
       updated_seq: env.seq,
       cause: env.cause,
       last: env.type,
+      van: null,
+      stop: null,
     };
     return { ...board, cards, heads };
   }
@@ -288,8 +314,45 @@ export function applyEvent(board: BoardState, env: Envelope): BoardState {
   }
   const state = MOVES[env.type];
   if (state === undefined) return board;
-  cards[order] = { ...card, state, updated_seq: env.seq, cause: env.cause, last: env.type };
+  const moved = { ...card, state, updated_seq: env.seq, cause: env.cause, last: env.type };
+  if (env.type === 'OrderOutForDelivery') {
+    // The van leaving sets the pair again, so the fold agrees with a snapshot (kitchen.rs does too).
+    moved.van = readVan(env.data['route']) ?? card.van;
+    moved.stop = readStop(env.data['stop']) ?? card.stop;
+  }
+  cards[order] = moved;
   return { ...board, cards, heads };
+}
+
+/**
+ * `RoutePublished`, folded the way crates/domain/src/kitchen.rs `apply_route` does. A plan no newer
+ * than the day's last one (`plan_v <=` the highest seen) changes nothing; otherwise the day's
+ * highest is recorded and each order of the plan that has a card gets `van-<n>` and its stop
+ * number, counted from 1 across the vans in order (`deliveries()`). A card the plan does not name
+ * keeps whatever it had (a plan never clears a label), an order with no card is skipped, and no
+ * card's `seq`, state, cause or `last` moves: the event is not the order's.
+ */
+function applyRoutePublished(board: BoardState, env: Envelope): BoardState {
+  const date = str(env.data['date']);
+  const planV = env.data['plan_v'];
+  const vans = env.data['vans'];
+  if (!DATE.test(date) || typeof planV !== 'number' || !Number.isInteger(planV)) return board;
+  if (!Array.isArray(vans)) return board;
+  const seen = board.routes[date];
+  if (seen !== undefined && planV <= seen) return board;
+  const cards = { ...board.cards };
+  let stop = 0;
+  for (const route of vans.filter(isObject)) {
+    const van = num(route['van'], -1);
+    const stops = Array.isArray(route['stops']) ? route['stops'] : [];
+    for (const order of stops) {
+      stop += 1;
+      if (typeof order !== 'string' || van < 0) continue;
+      const card = cards[order];
+      if (card !== undefined) cards[order] = { ...card, van: `van-${van}`, stop };
+    }
+  }
+  return { ...board, cards, routes: { ...board.routes, [date]: planV } };
 }
 
 const SCHEDULE_EVENTS = new Set(['BakeListChanged', 'SlotReserved', 'SlotReleased']);
@@ -387,6 +450,22 @@ export function groupByState(
       .filter((c) => c.state === state)
       .sort((a, b) => a.slot.localeCompare(b.slot) || a.order.localeCompare(b.order)),
   }));
+}
+
+/**
+ * Where a delivery's card is in the published plan: "Van 2, stop 3". Null when no van has it. The
+ * van is the plan's label, `van-2`; a label of another shape is shown as it came, dashes as spaces.
+ */
+export function routeWords(card: Pick<Card, 'van' | 'stop'>): string | null {
+  const number = card.van === null ? undefined : /^van-(\d+)$/.exec(card.van)?.[1];
+  const van =
+    card.van === null
+      ? null
+      : number
+        ? `Van ${number}`
+        : card.van.replaceAll('-', ' ').replace(/^./, (c) => c.toUpperCase());
+  if (van !== null) return card.stop === null ? van : `${van}, stop ${card.stop}`;
+  return card.stop === null ? null : `Stop ${card.stop}`;
 }
 
 /** What a staff member can do with a card in this state, if anything. */
