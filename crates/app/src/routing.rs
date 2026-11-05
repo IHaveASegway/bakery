@@ -162,6 +162,7 @@ pub const ROUTES: &[(&str, &[Route])] = &[
         &[all(Schedule), all(Billing), all(Crm)],
     ),
     ("PaymentIntentCreated", &[all(Crm)]),
+    ("PaymentIntentRecorded", &[]),
     (
         "PaymentSucceeded",
         &[scoped(Order, ByPurpose), scoped(CateringEvent, ByPurpose)],
@@ -175,6 +176,7 @@ pub const ROUTES: &[(&str, &[Route])] = &[
         ],
     ),
     ("PaymentCanceled", &[all(Crm)]),
+    ("RefundRequested", &[]),
     (
         "RefundIssued",
         &[scoped(Order, ByRef), scoped(CateringEvent, ByRef)],
@@ -367,13 +369,8 @@ mod tests {
         assert_eq!(in_table, in_doc);
         assert_eq!(ROUTES.len(), in_table.len(), "an event is listed twice");
         // The table has as many rows as the catalog has events.
-        assert_eq!(in_doc.len(), 57);
+        assert_eq!(in_doc.len(), 59);
     }
-
-    /// Billing events the catalog does not list yet: they change Billing's own state and have
-    /// no subscriber, so the consumer acks them at once. When docs/domain.md gains their rows,
-    /// they move into [`ROUTES`] and out of this list.
-    const AWAITING_A_CATALOG_ROW: &[&str] = &["PaymentIntentRecorded", "RefundRequested"];
 
     #[test]
     fn every_domain_event_is_routed() {
@@ -382,17 +379,6 @@ mod tests {
             .chain(CatalogEvent::NAMES)
             .chain(BillingEvent::NAMES)
         {
-            if AWAITING_A_CATALOG_ROW.contains(name) {
-                assert!(
-                    routes(name).is_none(),
-                    "{name} has a row: take it off the list"
-                );
-                assert!(
-                    !DOMAIN_MD.contains(&format!("| `{name}` |")),
-                    "docs/domain.md lists {name}: add its row to ROUTES"
-                );
-                continue;
-            }
             assert!(routes(name).is_some(), "{name} has no row");
         }
     }
