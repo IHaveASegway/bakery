@@ -296,6 +296,16 @@ Every other Monday, beside the site's sitting; security updates as they arrive.
 4. pnpm failing on release age (`ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`): re-run after 24 to 48 hours, or add the exact version to `minimumReleaseAgeExclude` with a dated comment and a removal date within 7 days.
 5. `cargo audit` or `cargo deny` red: update the crate, or pin it and document why; same day for a reachable vulnerability. Never hand-edit a lockfile.
 
+### Rebuild the Salt Lake City data
+
+Not a recurring task and not in CI: run it only to change the places, the city or the routing engine, and expect the files to change. The steps, the outputs' checksums and the open questions are in [tools/route-data/out/README.md](../tools/route-data/out/README.md); the first build (2026-11-05) ran as follows.
+
+1. Needs Node 22, osmium-tool 1.16.0, about 4 GB of disk under `tools/route-data/work/` (git-ignored; delete it to reclaim the space) and either Docker, or Java 21 and Maven.
+2. Without Docker, `sh ors/build-jar.sh` from `tools/route-data/` builds the ORS v9.10.0 jar (4 to 5 minutes on 2026-11-05). Then `npm run build` downloads the extract (Geofabrik's Utah file, else the openstreetmap.fr US West file, 3.78 GB, about 3 minutes), checks its MD5, builds the graph (about 20 s) and writes `out/`, `crates/seed/data/salt-lake-city/` and `apps/web/public/app/dispatch/data/`. With Docker, `npm run build` starts `ors/compose.yml` itself; that path is untested.
+3. `npm test` runs the 20 tests (they skip the end-to-end ones when osmium is missing); `npm run check-box` makes one Nominatim request to re-check the city's box.
+4. Read `out/places.md` against the firewall's classes (Joseph does), then commit the output in a pull request of its own. A different extract gives a different file, so say which extract and its timestamp in the pull request.
+5. Moving to a new VROOM build is a different change: edit `apps/web/solver.lock.json` (commit, files, SHA-256s) in a pull request of its own and run `pnpm --filter web build`; `scripts/fetch-solver.mjs --check` verifies a fetched folder without fetching.
+
 ### Incident: the bakery down
 
 Nothing on `ihaveasegway.com` changes: the site is separate Workers and static assets, and its links to the bakery are plain links. Link targets show the bakery's own state.
