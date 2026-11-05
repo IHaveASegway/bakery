@@ -525,10 +525,11 @@ pub struct TrafficRequest {
 #[serde(deny_unknown_fields)]
 pub struct TrafficResponse {
     pub running: bool,
+    /// Orders a minute of the current or last run; 0 before the first start.
     pub rate: u8,
     /// Minutes of traffic this sandbox used today, UTC.
     pub minutes_used: u16,
-    /// Of the day's 30.
+    /// What is left of the day's cap, 30 minutes (docs/cost.md, "Guardrails").
     pub minutes_left: u16,
     /// Orders the simulator placed today.
     pub orders: u16,

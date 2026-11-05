@@ -175,6 +175,18 @@ fn resolve_override(value: Option<&str>, default: &str) -> (String, bool) {
     }
 }
 
+/// Minutes of simulated traffic a sandbox may run in a UTC day (docs/cost.md, "Guardrails": 30).
+pub const DEFAULT_TRAFFIC_MINUTES_CAP: u16 = 30;
+
+/// `TRAFFIC_MINUTES_CAP`, read by `Control`, which owns the ledger, and by the `Simulator`, which
+/// shows what is left. A local run may lower it to reach the cap in minutes; an unset or
+/// unreadable var is the default.
+pub fn traffic_minutes_cap(env: &Env) -> u16 {
+    read(env, "TRAFFIC_MINUTES_CAP")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_TRAFFIC_MINUTES_CAP)
+}
+
 /// The daily caps from the vars, each falling back to its default (docs/cost.md, "Guardrails").
 pub fn caps_from_env(env: &Env) -> Caps {
     let d = Caps::default();

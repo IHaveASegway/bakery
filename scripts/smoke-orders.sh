@@ -1,24 +1,28 @@
 #!/usr/bin/env bash
 # Smoke-tests PR 4 on `wrangler dev`: seeding, the menu and its cache, orders and their
 # idempotency, the expiry on the business clock, the event relay with the `kitchen` fault, the
-# dead-letter list and its redrive, and the wipe of every child. It proves each line of
-# docs/roadmap.md's PR 4 "Done when" that can be proven locally, prints ok or FAIL per check as
+# dead-letter list and its redrive, the kitchen board's socket (snapshot, events, commands,
+# presence, its limits and its hibernation), the console's heartbeat, simulated traffic and
+# Control's minute ledger, and the wipe of every child. It proves each line of docs/roadmap.md's
+# PR 4 "Done when" that can be proven locally, prints ok or FAIL per check as
 # scripts/smoke-auth.sh does, and exits non-zero on any failure.
 #
-# Usage: scripts/smoke-orders.sh   (from anywhere; needs cargo, worker-build, pnpm, node and curl).
+# Usage: scripts/smoke-orders.sh   (from anywhere; needs cargo, worker-build, pnpm, node 22 and curl).
 #
 # Like scripts/smoke-auth.sh it writes a throwaway workers/api/.dev.vars, refuses to run when one
 # exists unless SMOKE_ORDERS_OVERWRITE=1, starts the fake provider for Turnstile, and keeps the
 # Worker's log in SMOKE_ORDERS_LOG=<file> when set. One Worker run, fresh state in a scratch
-# directory. The Kitchen's sockets, the Simulator and the board as a browser sees it are added
-# by the next stream of PR 4; until then the board is read from the Kitchen's own SQLite file,
-# which `wrangler dev` keeps on disk, never through a route.
+# directory. The board is read as a browser reads it, through scripts/ws-probe.mjs on the socket.
+# The .dev.vars lowers TRAFFIC_MINUTES_CAP to 2, so the day's cap is reached in two minutes by the
+# same code path as 30. One check waits out the Simulator's 90 s console window, so a run takes
+# about four minutes.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${SMOKE_PORT:-8788}"
 FAKE_PORT="${SMOKE_FAKE_PORT:-8790}"
 BASE="http://127.0.0.1:${PORT}"
+WS="ws://127.0.0.1:${PORT}"
 FAKE="http://127.0.0.1:${FAKE_PORT}"
 STOREFRONT="http://127.0.0.1:8787"
 STARTUP_TIMEOUT_S="${STARTUP_TIMEOUT_S:-240}"
@@ -43,6 +47,7 @@ stop_pid() {
   fi
 }
 stop() {
+  for pid in ${WS_A:-} ${WS_B:-} ${WS_G:-} ${WS_L[@]:-} ${REDRIVE_PROBE:-}; do kill -TERM "$pid" 2>/dev/null || true; done
   stop_pid "$SERVER_PID"
   stop_pid "$FAKE_PID"
   if [[ -n "$WROTE_DEV_VARS" ]]; then rm -f "$DEV_VARS"; fi
@@ -158,22 +163,59 @@ wait_live() {
   return 1
 }
 
-# Each object a `wrangler dev --persist-to` run keeps on disk (Wrangler 4.157.0, 2026-11-05).
-do_dir() { echo "$STATE/v3/do/bakery-api-$1"; }
-# kitchen_board: every Kitchen's board row as JSON lines {cards, applied}, read-only.
-kitchen_board() {
+# probe JAR ID [ws-probe options]: a socket on sandbox ID's board as the storefront opens it, with
+# the jar's cookies and the storefront's Origin. Prints the probe's JSON lines. In the background,
+# run `node "${PROBE[@]}" ...` after `probe_args`, so $! is the probe's own process.
+probe_args() {
+  PROBE=("$ROOT/scripts/ws-probe.mjs" --url "$WS/v1/sandboxes/$2/kitchen/ws" --jar "$TMP/$1.jar" --origin "$STOREFRONT")
+}
+probe() {
+  probe_args "$1" "$2"; shift 2
+  node "${PROBE[@]}" "$@"
+}
+# probe_ok FILE EXPR: EXPR holds over a probe's output, read as `frames` (each with its `at`),
+# `closed` ({code, reason} or undefined) and `board` ({order: state}, as the probe folded it).
+probe_ok() {
   node -e "
-    process.removeAllListeners('warning');
-    const { DatabaseSync } = require('node:sqlite');
-    const fs = require('fs'), path = require('path');
-    const dir = process.argv[1];
-    if (!fs.existsSync(dir)) process.exit(0);
-    for (const f of fs.readdirSync(dir).filter((f) => /^[0-9a-f]{64}\.sqlite$/.test(f))) {
-      const db = new DatabaseSync(path.join(dir, f), { readOnly: true });
-      const has = db.prepare(\"SELECT name FROM sqlite_master WHERE name = 'board'\").get();
-      if (has) { const r = db.prepare('SELECT body, applied FROM board').get(); console.log(JSON.stringify({ board: JSON.parse(r.body), applied: r.applied })); }
-      db.close();
-    }" "$(do_dir Kitchen)"
+    const lines = require('fs').readFileSync(process.argv[1], 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const frames = lines.filter((l) => l.frame).map((l) => ({ ...l.frame, at: l.at }));
+    const closed = (lines.find((l) => l.closed) || {}).closed;
+    const board = (lines.find((l) => l.board) || {}).board || {};
+    const snapshot = frames.find((f) => f.t === 'snapshot');
+    const cards = snapshot ? snapshot.board.cards : [];
+    const evts = frames.filter((f) => f.t === 'evt').map((f) => ({ ...f.env, at_ms: f.at }));
+    if (!($2)) process.exit(1);" "$1" 2>/dev/null
+}
+expect_probe() {
+  if probe_ok "$2" "$3"; then pass "$1"; else fail "$1 ($(head -c 300 "$2" | tr '\n' ' '))"; fi
+}
+probe_field() {
+  node -e "
+    const lines = require('fs').readFileSync(process.argv[1], 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const frames = lines.filter((l) => l.frame).map((l) => ({ ...l.frame, at: l.at }));
+    const snapshot = frames.find((f) => f.t === 'snapshot');
+    const cards = snapshot ? snapshot.board.cards : [];
+    const v = ($2); process.stdout.write(v === undefined || v === null ? '' : String(v));" "$1"
+}
+# upgrade NAME JAR ID [curl args]: an upgrade request with curl, which shows the status a WebSocket
+# client hides. A 101 is cut off after a second.
+upgrade() {
+  local name="$1" jar_name="$2" id="$3"; shift 3
+  local cookies; cookies="$(jar "$jar_name")"
+  local args=(--max-time 2 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13'
+    -H 'Sec-WebSocket-Key: c21va2Utb3JkZXJzLXByb2Jl' -H "CF-Connecting-IP: 192.0.2.251")
+  if [[ -n "$cookies" ]]; then args+=(-H "Cookie: $cookies"); fi
+  request "$name" "${args[@]}" "$@" "$BASE/v1/sandboxes/$id/kitchen/ws"
+}
+# log_has PATTERN: the Worker's log holds a line with this fixed text.
+log_has() { grep -qF -- "$1" "$LOG"; }
+# wait_log PATTERN SECONDS: polls the log for a fixed text.
+wait_log() {
+  local deadline=$(( $(date +%s) + $2 ))
+  until log_has "$1"; do
+    if (( $(date +%s) > deadline )); then return 1; fi
+    sleep 0.5
+  done
 }
 
 write_dev_vars() {
@@ -185,6 +227,7 @@ write_dev_vars() {
     echo "TURNSTILE_SITEVERIFY_URL=$FAKE/turnstile/siteverify"
     echo "ALLOWED_ORIGIN=$STOREFRONT"
     echo "API_ORIGIN=$BASE"
+    echo "TRAFFIC_MINUTES_CAP=2"
   } > "$DEV_VARS"
   WROTE_DEV_VARS=1
 }
@@ -274,6 +317,19 @@ expect_status demo 201
 DID="$(json_field demo b.id)"
 check "demo: seeding reaches live within 20 s" "wait_live demo_live D '$DID'"
 expect_json demo_live "b.state === 'live' && b.children === 14 && b.kind === 'account'"
+DUSER="$(json_field signup b.username)"
+
+# A second demo account whose traffic runs with no console at all: no socket, no heartbeat. Its
+# Simulator must stop by itself, `console_closed`, once 90 s pass; the rest of the script runs
+# meanwhile, and the check waits for whatever is left of the window.
+command_as signup_e E 192.0.2.43 POST /v1/auth/demo "{\"password\":\"$CANARY\",\"turnstile_token\":\"pass-1\"}"
+command_as sandbox_e E 192.0.2.43 POST /v1/sandboxes '{"replace":false}'
+SID_E="$(json_field sandbox_e b.id)"
+check "e: seeding reaches live within 20 s" "wait_live e_live E '$SID_E'"
+command_as traffic_e E 192.0.2.43 POST "/v1/sandboxes/$SID_E/traffic" '{"rate":1}'
+expect_status traffic_e 200
+expect_json traffic_e "b.running === true && b.rate === 1 && b.minutes_left === 2"
+E_STARTED="$(date +%s)"
 
 # ---------- the menu and its cache ----------
 
@@ -443,7 +499,13 @@ get_as guest_dead G "/v1/sandboxes/$GID/dead-letters"
 expect_json guest_dead "Array.isArray(b) && b.length === 0"
 command_as guest_redrive G 192.0.2.41 POST "/v1/sandboxes/$GID/dead-letters/$EVENT/redrive"
 expect_problem guest_redrive 403 guest-scope
-check "the board lacks the faulted order" "! kitchen_board | grep -q '$FID'"
+probe D "$DID" --until snapshot > "$TMP/board_faulted.out" || true
+expect_probe "the board, read on the socket, lacks the faulted order" "$TMP/board_faulted.out" "cards.length > 0 && !cards.some((c) => c.order === '$FID')"
+# A socket waits for the redriven event while the fault is cleared and the letter redriven.
+probe_args D "$DID"
+node "${PROBE[@]}" --wait-evt OrderPlaced --timeout 30 > "$TMP/board_redrive.out" &
+REDRIVE_PROBE=$!
+sleep 1
 
 command_as fault_off D 192.0.2.42 POST "/v1/sandboxes/$DID/faults" '{"fault":"kitchen","on":false}'
 expect_json fault_off "b.faults.kitchen === false"
@@ -458,30 +520,225 @@ command_as redrive_unknown D 192.0.2.42 POST "/v1/sandboxes/$DID/dead-letters/01
 expect_status redrive_unknown 404
 get_as dead_after D "/v1/sandboxes/$DID/dead-letters"
 expect_json dead_after "!b.some(d => d.id === '$EVENT')"
-applied=0
-for _ in $(seq 1 60); do
-  if kitchen_board | node -e "let n = 0; for (const l of require('fs').readFileSync(0, 'utf8').split('\n').filter(Boolean)) { const b = JSON.parse(l).board; n += Object.keys(b.cards).filter(k => k === '$FID').length; } process.exit(n === 1 ? 0 : 1)"; then applied=1; break; fi
-  sleep 0.5
-done
-check "the redriven OrderPlaced is on the board once" "(( applied == 1 ))"
+wait "$REDRIVE_PROBE" || true
+expect_probe "the redriven OrderPlaced reaches an open socket as an evt" "$TMP/board_redrive.out" "evts.some((e) => e.type === 'OrderPlaced' && e.stream.endsWith(':$FID'))"
+probe D "$DID" --until snapshot > "$TMP/board_redriven.out" || true
+expect_probe "the redriven OrderPlaced is on the board once" "$TMP/board_redriven.out" "cards.filter((c) => c.order === '$FID').length === 1"
 get_as faulted_get D "/v1/sandboxes/$DID/orders/$FID"
 expect_json faulted_get "b.id === '$FID' && b.events_seq === 1"
-check "every seeded order reached a board: 24 cards across two sandboxes" "[[ \$(kitchen_board | node -e \"let n = 0; for (const l of require('fs').readFileSync(0, 'utf8').split('\\\\n').filter(Boolean)) n += Object.keys(JSON.parse(l).board.cards).length; console.log(n)\") -ge 24 ]]"
+probe G "$GID" --until snapshot > "$TMP/board_guest.out" || true
+cards_g="$(probe_field "$TMP/board_guest.out" cards.length)"
+cards_d="$(probe_field "$TMP/board_redriven.out" cards.length)"
+check "every seeded order reached a board: $cards_g and $cards_d cards, 24 or more across two sandboxes" "(( ${cards_g:-0} + ${cards_d:-0} >= 24 ))"
+
+# ---------- the kitchen socket ----------
+
+# Two more sessions on the demo sandbox (a second and third sign-in of its account), so no
+# session passes the 6 upgrades a minute it is allowed while the checks below open sockets.
+command_as signin_d2 D2 192.0.2.44 POST /v1/auth/demo/signin "{\"username\":\"$DUSER\",\"password\":\"$CANARY\"}"
+expect_status signin_d2 200
+command_as signin_d3 D3 192.0.2.45 POST /v1/auth/demo/signin "{\"username\":\"$DUSER\",\"password\":\"$CANARY\"}"
+expect_status signin_d3 200
+
+# The upgrade's checks, with curl, which shows the status a WebSocket client hides.
+upgrade ws_no_origin D "$DID"
+expect_problem ws_no_origin 403 origin
+upgrade ws_bad_origin D "$DID" -H 'Origin: https://bakery.ihaveasegway.com.example.com'
+expect_problem ws_bad_origin 403 origin
+upgrade ws_no_cookie NOBODY "$DID" -H "Origin: $STOREFRONT"
+expect_problem ws_no_cookie 401 session
+upgrade ws_other D3 "$GID" -H "Origin: $STOREFRONT"
+expect_status ws_other 404
+get_as ws_plain D3 "/v1/sandboxes/$DID/kitchen/ws"
+expect_problem ws_plain 426 upgrade
+
+# Two consoles on the demo sandbox's board.
+probe_args D "$DID"
+node "${PROBE[@]}" --hold 0 > "$TMP/ws_a.out" &
+WS_A=$!
+node "${PROBE[@]}" --hold 0 > "$TMP/ws_b.out" &
+WS_B=$!
+for _ in $(seq 1 40); do
+  probe_ok "$TMP/ws_a.out" "frames.some((f) => f.t === 'presence' && f.sockets === 2)" && probe_ok "$TMP/ws_b.out" "snapshot" && break
+  sleep 0.25
+done
+expect_probe "socket a: protocol v1, the snapshot first, then presence 2" "$TMP/ws_a.out" "frames[0].t === 'snapshot' && frames.every((f) => f.v === 1) && typeof frames[0].seq === 'number' && frames.some((f) => f.t === 'presence' && f.sockets === 2)"
+expect_probe "socket a: each card has its order, state, lines, note, slot, kind and updated_seq" "$TMP/ws_a.out" "cards.length > 0 && cards.every((c) => /^[0-9A-HJKMNP-TV-Z]{26}$/.test(c.order) && ['pending', 'confirmed', 'in_production', 'ready', 'out_for_delivery'].includes(c.state) && c.lines.every((l) => typeof l.variant === 'string' && l.qty > 0) && 'note' in c && typeof c.slot === 'string' && ['pickup', 'delivery'].includes(c.kind) && c.updated_seq > 0)"
+
+# A board change reaches both sockets within one second of the order being sent: the clock starts
+# before the POST, so the time includes the placement itself.
+PLACED_MS="$(now_ms)"
+command_as ws_order D 192.0.2.42 POST "/v1/sandboxes/$DID/orders" "{\"kind\":\"pickup\",\"slot\":\"$FSLOT\",\"lines\":[{\"variant\":\"$DVARIANT\",\"qty\":1}],\"note\":\"Two boxes, please\"}"
+expect_status ws_order 201
+WOID="$(json_field ws_order b.id)"
+for _ in $(seq 1 20); do
+  probe_ok "$TMP/ws_b.out" "evts.some((e) => e.stream.endsWith(':$WOID'))" && probe_ok "$TMP/ws_a.out" "evts.some((e) => e.stream.endsWith(':$WOID'))" && break
+  sleep 0.25
+done
+for s in a b; do
+  expect_probe "socket $s: the new order's OrderPlaced within 1 s of the POST: $(probe_field "$TMP/ws_$s.out" "(frames.find((f) => f.t === 'evt' && f.env.stream.endsWith(':$WOID')) || {}).at - $PLACED_MS") ms" "$TMP/ws_$s.out" "evts.some((e) => e.type === 'OrderPlaced' && e.stream.endsWith(':$WOID') && e.at_ms - $PLACED_MS <= 1000)"
+done
+expect_probe "socket a: the evt carries the envelope, the note with it (the board owns the note)" "$TMP/ws_a.out" "evts.some((e) => e.stream.endsWith(':$WOID') && e.data.note === 'Two boxes, please' && e.seq === 1 && e.cause !== null && e.sandbox === '$DID')"
+
+# Staff commands from a third socket: a confirmed pickup is started, made ready and picked up.
+CONF="$(probe_field "$TMP/ws_a.out" "(cards.find((c) => c.state === 'confirmed' && c.kind === 'pickup') || {}).order")"
+C1="$(ulid)"; C2="$(ulid)"; C3="$(ulid)"; C4="$(ulid)"; C5="$(ulid)"
+probe D2 "$DID" --cmd "$C1:$CONF:start_production" --cmd "$C1:$CONF:start_production" --cmd "$C2:$CONF:mark_ready" \
+  --cmd "$C3:$CONF:mark_picked_up" --cmd "$C4:$WOID:start_production" --cmd "$C5:01JC8Z6K3W9QF2N4T7XRB5M0HD:mark_ready" \
+  --timeout 4 > "$TMP/ws_cmd.out" || true
+expect_probe "a staff cmd is acked, and the same id again is acked again" "$TMP/ws_cmd.out" "frames.filter((f) => f.t === 'ack' && f.id === '$C1').length === 2"
+expect_probe "mark_ready and mark_picked_up are acked" "$TMP/ws_cmd.out" "['$C2', '$C3'].every((id) => frames.some((f) => f.t === 'ack' && f.id === id))"
+expect_probe "a cmd the order's rules refuse is nacked with the rule" "$TMP/ws_cmd.out" "frames.some((f) => f.t === 'nack' && f.id === '$C4' && f.rule === 'out-of-order')"
+expect_probe "a cmd for an order not on the board is nacked unknown-order" "$TMP/ws_cmd.out" "frames.some((f) => f.t === 'nack' && f.id === '$C5' && f.rule === 'unknown-order')"
+sleep 2
+expect_probe "the repeated id made one event: one OrderProductionStarted, its cause the frame id" "$TMP/ws_a.out" "evts.filter((e) => e.stream.endsWith(':$CONF') && e.type === 'OrderProductionStarted').length === 1 && evts.find((e) => e.type === 'OrderProductionStarted' && e.stream.endsWith(':$CONF')).cause === '$C1'"
+expect_probe "socket a saw the card become ready and leave the board" "$TMP/ws_a.out" "evts.some((e) => e.stream.endsWith(':$CONF') && e.type === 'OrderReady' && e.cause === '$C2') && evts.some((e) => e.stream.endsWith(':$CONF') && e.type === 'OrderPickedUp' && e.cause === '$C3')"
+check "the Kitchen logged each cmd with its id and outcome, nothing more" "grep -q '\"event\":\"kitchen_cmd\",\"instance\":\"[0-9a-f]*\",\"id\":\"$C4\",\"outcome\":\"nack\",\"rule\":\"out-of-order\"}' '$LOG'"
+
+# Hibernation: both sockets stay idle for 12 s. A guest's socket, accepted before the idle spell,
+# sends its cmd after it: the frame wakes the guest's Kitchen, which must still know the socket
+# is a guest's from its attachment alone.
+GCARD="$(probe_field "$TMP/board_guest.out" "cards[0].order")"
+GC="$(ulid)"
+probe_args G "$GID"
+node "${PROBE[@]}" --delay 13 --cmd "$GC:$GCARD:mark_ready" --until nack --timeout 25 > "$TMP/ws_guest.out" &
+WS_G=$!
+sleep 1
+WAKE_FROM="$(wc -l < "$LOG")"
+sleep 12
+probe D2 "$DID" --until snapshot > "$TMP/ws_r.out" || true
+wait "$WS_G" || true
+tail -n "+$WAKE_FROM" "$LOG" > "$TMP/wake.log"
+D_BEFORE="$(head -n "$WAKE_FROM" "$LOG" | grep '"event":"kitchen_socket_open"' | grep '"sockets":2}' | tail -n 1 | sed -E 's/.*"instance":"([0-9a-f]+)".*/\1/')"
+D_AFTER="$(grep '"event":"kitchen_wake"' "$TMP/wake.log" | grep '"sockets":2}' | head -n 1 | sed -E 's/.*"instance":"([0-9a-f]+)".*/\1/')"
+check "an idle board hibernates: after 12 s idle the Kitchen with 2 sockets open woke (kitchen_wake)" "[[ -n '$D_AFTER' ]]"
+check "the woken Kitchen is a new instance ($D_BEFORE, then $D_AFTER): memory did not survive, the sockets did" "[[ -n '$D_BEFORE' && -n '$D_AFTER' && '$D_BEFORE' != '$D_AFTER' ]]"
+expect_probe "after a wake, a guest's cmd is nacked guest-scope from the socket's attachment" "$TMP/ws_guest.out" "frames.some((f) => f.t === 'nack' && f.id === '$GC' && f.rule === 'guest-scope')"
+check "the guest's Kitchen woke for that frame" "grep '\"event\":\"kitchen_wake\"' '$TMP/wake.log' | grep -q '\"sockets\":1}'"
+
+# A reconnect gets a snapshot equal to the board a socket that stayed open holds.
+kill -TERM "$WS_B" 2>/dev/null || true
+wait "$WS_B" || true
+B_BOARD="$(node -e "const l = require('fs').readFileSync(process.argv[1], 'utf8').trim().split('\n').map(JSON.parse).find((x) => x.board); console.log(l ? JSON.stringify(Object.entries(l.board).sort()) : '')" "$TMP/ws_b.out" || true)"
+R_BOARD="$(probe_field "$TMP/ws_r.out" "JSON.stringify(cards.map((c) => [c.order, c.state]).sort())")"
+check "a reconnect's snapshot equals the board socket b folded from its snapshot and events" "[[ -n '$R_BOARD' && '$R_BOARD' == '$B_BOARD' ]]"
+
+# Four sockets a sandbox: a is open; three more fill it, and a fifth is told `bye` and closed.
+WS_L=()
+probe_args D3 "$DID"
+for n in 1 2 3; do
+  node "${PROBE[@]}" --hold 0 > "$TMP/ws_l$n.out" &
+  WS_L+=($!)
+done
+for _ in $(seq 1 40); do probe_ok "$TMP/ws_a.out" "frames.some((f) => f.t === 'presence' && f.sockets === 4)" && break; sleep 0.25; done
+probe D3 "$DID" --timeout 5 > "$TMP/ws_fifth.out" || true
+expect_probe "the 5th socket gets no snapshot, bye limit, and close 1008" "$TMP/ws_fifth.out" "!snapshot && frames.some((f) => f.t === 'bye' && f.reason === 'limit') && closed && closed.code === 1008"
+check "the refusal is logged too-many-sockets" "log_has '\"reason\":\"too-many-sockets\"'"
+check "socket a was told each change in presence: 3, then 1 after a close, then 4" "probe_ok '$TMP/ws_a.out' \"frames.some((f) => f.t === 'presence' && f.sockets === 3) && frames.some((f) => f.t === 'presence' && f.sockets === 1) && frames.some((f) => f.t === 'presence' && f.sockets === 4)\""
+get_as ws_limited D3 "/v1/sandboxes/$DID/kitchen/ws"
+expect_problem ws_limited 429 rate-limit
+for pid in "${WS_L[@]}"; do kill -TERM "$pid" 2>/dev/null || true; wait "$pid" || true; done
+
+# A frame's limits, on the guest's board: 10 frames a second, 4 KB a frame, text only.
+probe G "$GID" --flood 11 --timeout 5 > "$TMP/ws_flood.out" || true
+expect_probe "11 frames in a second: 10 answered, then bye limit and close 1008" "$TMP/ws_flood.out" "frames.filter((f) => f.t === 'nack' && f.rule === 'id').length === 10 && frames.some((f) => f.t === 'bye' && f.reason === 'limit') && closed && closed.code === 1008"
+BIG="$(node -e "process.stdout.write(JSON.stringify({ t: 'cmd', v: 1, id: '', pad: 'x'.repeat(5000) }))")"
+probe G "$GID" --raw "$BIG" --timeout 5 > "$TMP/ws_big.out" || true
+expect_probe "a frame over 4 KB: bye limit and close 1009" "$TMP/ws_big.out" "frames.some((f) => f.t === 'bye' && f.reason === 'limit') && closed && closed.code === 1009"
+
+# The console's heartbeat, for a console with no socket open.
+command_as hb_d D 192.0.2.42 POST "/v1/sandboxes/$DID/heartbeat"
+expect_status hb_d 204
+command_as hb_g G 192.0.2.41 POST "/v1/sandboxes/$GID/heartbeat"
+expect_status hb_g 204
+command_as hb_other G 192.0.2.41 POST "/v1/sandboxes/$DID/heartbeat"
+expect_status hb_other 404
+
+# ---------- simulated traffic ----------
+
+command_as traffic_guest G 192.0.2.41 POST "/v1/sandboxes/$GID/traffic" '{"rate":1}'
+expect_problem traffic_guest 403 guest-scope
+get_as traffic_guest_get G "/v1/sandboxes/$GID/traffic"
+expect_json traffic_guest_get "b.running === false && b.rate === 0 && b.minutes_left === 2 && b.orders === 0"
+get_as traffic_before D "/v1/sandboxes/$DID/traffic"
+expect_json traffic_before "b.running === false && b.minutes_used === 0 && b.minutes_left === 2"
+command_as traffic_7 D 192.0.2.42 POST "/v1/sandboxes/$DID/traffic" '{"rate":7}'
+expect_problem traffic_7 422 traffic
+expect_json traffic_7 "b.detail.includes('The rule is rate')"
+command_as traffic_0 D 192.0.2.42 POST "/v1/sandboxes/$DID/traffic" '{"rate":0}'
+expect_problem traffic_0 422 traffic
+
+# Both runs below must fall in one wall-time minute: start early in a minute.
+sec="$(date +%S)"
+if (( 10#$sec > 30 )); then sleep $(( 61 - 10#$sec )); fi
+SIM_FROM_MS="$(now_ms)"
+KEY="$(ulid)"
+command_as traffic_start D 192.0.2.42 POST "/v1/sandboxes/$DID/traffic" '{"rate":6}'
+command_as traffic_replay D 192.0.2.42 POST "/v1/sandboxes/$DID/traffic" '{"rate":6}'
+unset KEY
+expect_status traffic_start 200
+expect_json traffic_start "b.running === true && b.rate === 6 && b.minutes_left === 2"
+expect_header traffic_replay idempotent-replayed true
+command_as traffic_twice D 192.0.2.42 POST "/v1/sandboxes/$DID/traffic" '{"rate":3}'
+expect_problem traffic_twice 409 traffic-running
+for _ in $(seq 1 40); do
+  probe_ok "$TMP/ws_a.out" "evts.filter((e) => e.type === 'OrderPlaced' && e.at_ms >= $SIM_FROM_MS).length >= 6" && break
+  sleep 0.25
+done
+sleep 1
+SIM_ORDERS="$(probe_field "$TMP/ws_a.out" "frames.filter((f) => f.t === 'evt' && f.env.type === 'OrderPlaced' && f.at >= $SIM_FROM_MS).length")"
+check "rate 6 with a console socket open: $SIM_ORDERS orders on the board in the first minute, 1 to 6" "(( SIM_ORDERS >= 1 && SIM_ORDERS <= 6 ))"
+expect_probe "every event the Simulator caused carries cause sim:<ulid>" "$TMP/ws_a.out" "evts.filter((e) => e.at_ms >= $SIM_FROM_MS).length > 0 && evts.filter((e) => e.at_ms >= $SIM_FROM_MS).every((e) => /^sim:[0-9A-HJKMNP-TV-Z]{26}$/.test(e.cause))"
+get_as traffic_running D "/v1/sandboxes/$DID/traffic"
+expect_json traffic_running "b.running === true && b.minutes_used === 1 && b.minutes_left === 1 && b.orders === $SIM_ORDERS"
+command_as traffic_stop D 192.0.2.42 DELETE "/v1/sandboxes/$DID/traffic"
+expect_status traffic_stop 200
+expect_json traffic_stop "b.running === false && b.minutes_used === 1"
+check "DELETE stopped it with reason stop" "log_has '\"event\":\"sim_stopped\",\"sandbox\":\"$DID\",\"reason\":\"stop\",\"minutes\":1,\"orders\":$SIM_ORDERS}'"
+command_as traffic_stop_again D 192.0.2.42 DELETE "/v1/sandboxes/$DID/traffic"
+expect_json traffic_stop_again "b.running === false && b.minutes_used === 1"
+# A second run in the same minute: its orders would be the minute's 7th and later.
+command_as traffic_restart D 192.0.2.42 POST "/v1/sandboxes/$DID/traffic" '{"rate":6}'
+expect_status traffic_restart 200
+expect_json traffic_restart "b.running === true && b.minutes_left === 1"
+check "a 7th order in a minute is refused and logged sim_rate" "wait_log '\"event\":\"sim_rate\",\"sandbox\":\"$DID\"' 10"
+expect_probe "the minute's orders stayed at $SIM_ORDERS: the second run placed none past 6" "$TMP/ws_a.out" "evts.filter((e) => e.type === 'OrderPlaced' && e.at_ms >= $SIM_FROM_MS).length <= 6"
 
 # ---------- the wipe empties every child ----------
 
 list_objects list_live
 check "list-objects: exits 1 while sandboxes hold data" "(( LIST_EXIT == 1 ))"
-check "list-objects: lists Catalog, Kitchen and Order objects" "grep -q '\"class\":\"Catalog\"' '$TMP/list_live.out' && grep -q '\"class\":\"Kitchen\"' '$TMP/list_live.out' && grep -q '\"class\":\"Order\"' '$TMP/list_live.out'"
+check "list-objects: lists Catalog, Kitchen, Order and Simulator objects" "grep -q '\"class\":\"Catalog\"' '$TMP/list_live.out' && grep -q '\"class\":\"Kitchen\"' '$TMP/list_live.out' && grep -q '\"class\":\"Order\"' '$TMP/list_live.out' && grep -q '\"class\":\"Simulator\"' '$TMP/list_live.out'"
+get_as demo_children D "/v1/sandboxes/$DID"
+expect_json demo_children "b.children > 15"
+# The demo sandbox goes while its traffic runs and socket a is open.
 command_as wipe_demo D 192.0.2.42 DELETE "/v1/sandboxes/$DID"
 expect_status wipe_demo 200
+wait "$WS_A" || true
+expect_probe "the wipe says bye wiped to the open socket and closes it with 1001" "$TMP/ws_a.out" "frames.some((f) => f.t === 'bye' && f.reason === 'wiped') && closed && closed.code === 1001"
+check "the wipe stopped the Simulator with reason wipe" "log_has '\"event\":\"sim_stopped\",\"sandbox\":\"$DID\",\"reason\":\"wipe\"'"
+get_as wiped_menu D "/v1/sandboxes/$DID/menu"
+expect_status wiped_menu 404
+
+# The console-less traffic of sandbox e: no socket and no heartbeat for 90 s stops it.
+left=$(( E_STARTED + 150 - $(date +%s) ))
+echo "--- waiting up to ${left} s for sandbox e's Simulator to find its console closed"
+check "no socket and no heartbeat for 90 s: stopped console_closed" "wait_log '\"event\":\"sim_stopped\",\"sandbox\":\"$SID_E\",\"reason\":\"console_closed\"' $(( left > 0 ? left : 1 ))"
+check "and not before 90 s had passed: $(( $(date +%s) - E_STARTED )) s" "(( $(date +%s) - E_STARTED >= 90 ))"
+get_as traffic_e_after E "/v1/sandboxes/$SID_E/traffic"
+expect_json traffic_e_after "b.running === false && b.minutes_used === 2 && b.minutes_left === 0 && b.orders >= 1"
+command_as traffic_e_cap E 192.0.2.43 POST "/v1/sandboxes/$SID_E/traffic" '{"rate":1}'
+expect_problem traffic_e_cap 503 traffic-cap
+check "traffic-cap: Retry-After counts to 00:00 UTC" "[[ '$(header_of traffic_e_cap retry-after)' =~ ^[0-9]+$ ]] && (( $(header_of traffic_e_cap retry-after) <= 86400 ))"
+check "the minute past the day's cap is refused and logged sim_cap" "log_has '\"event\":\"sim_cap\",\"sandbox\":\"$SID_E\",\"used\":2,\"cap\":2}'"
+
+command_as wipe_e E 192.0.2.43 DELETE "/v1/sandboxes/$SID_E"
+expect_status wipe_e 200
 command_as wipe_guest G 192.0.2.41 DELETE "/v1/sandboxes/$GID"
 expect_status wipe_guest 200
 sleep 1
 list_objects list_wiped
-check "list-objects: exits 0 after both wipes: every child is empty" "(( LIST_EXIT == 0 ))"
-get_as wiped_menu D "/v1/sandboxes/$DID/menu"
-expect_status wiped_menu 404
+check "list-objects: exits 0 after the wipes: every child is empty, the Simulators too" "(( LIST_EXIT == 0 ))"
 
 stop_pid "$SERVER_PID"; SERVER_PID=""
 
@@ -493,6 +750,7 @@ check "the Worker's log holds no order note" "! grep -q 'Two boxes' '$runtime_lo
 check "the Worker's log holds no refused note" "! grep -qF -- '$NOTE_CANARY' '$runtime_log'"
 check "the Worker's log holds no password" "! grep -qF -- '$CANARY' '$runtime_log'"
 check "the relay logged its sends" "grep -q '\"event\":\"relay\",\"object\":\"Order\"' '$runtime_log'"
+check "the Simulator's events went through its outbox" "grep -q '\"event\":\"relay\",\"object\":\"Simulator\"' '$runtime_log'"
 
 echo
 if (( FAILURES > 0 )); then

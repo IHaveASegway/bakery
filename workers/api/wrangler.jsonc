@@ -22,6 +22,7 @@
       { "name": "CATALOG", "class_name": "Catalog" },
       { "name": "ORDER", "class_name": "Order" },
       { "name": "KITCHEN", "class_name": "Kitchen" },
+      { "name": "SIMULATOR", "class_name": "Simulator" },
     ],
   },
   // Declarative class lifecycle: each change is a deploy and a rollback boundary.
@@ -32,6 +33,7 @@
     "Catalog": { "type": "durable-object", "storage": "sqlite" },
     "Order": { "type": "durable-object", "storage": "sqlite" },
     "Kitchen": { "type": "durable-object", "storage": "sqlite" },
+    "Simulator": { "type": "durable-object", "storage": "sqlite" },
   },
 
   "queues": {
@@ -40,6 +42,12 @@
       {
         "queue": "bakery-events",
         "max_batch_size": 10,
+        // A batch goes as soon as a message is there: the board's change must reach a second
+        // browser within a second (docs/roadmap.md, PR 4), and the default wait is 5 s on the
+        // platform and 1 s locally (Queues configuration, as of 2026-11-05,
+        // https://developers.cloudflare.com/queues/configuration/configure-queues/). Operations
+        // are counted per message, so smaller batches cost no Queue operations.
+        "max_batch_timeout": 0,
         "max_retries": 3,
         "dead_letter_queue": "bakery-events-dlq",
       },
@@ -54,8 +62,9 @@
   "triggers": { "crons": ["0 10 * * *", "*/15 * * * *"] },
 
   // The free layer of admission, before Control (docs/architecture.md, "Creating a sandbox"):
-  // per IP hash on POST /v1/sandboxes, per session on other commands. The namespace ids are
-  // the account's own labels for the two limits, not secrets.
+  // per IP hash on POST /v1/sandboxes, per session on other commands and on the kitchen
+  // socket's upgrades (docs/cost.md, "Guardrails": 6 a minute). The namespace ids are the
+  // account's own labels for the limits, not secrets.
   "ratelimits": [
     {
       "name": "SANDBOX_CREATE_LIMIT",
@@ -63,6 +72,7 @@
       "simple": { "limit": 1, "period": 60 },
     },
     { "name": "COMMAND_LIMIT", "namespace_id": "1002", "simple": { "limit": 60, "period": 60 } },
+    { "name": "UPGRADE_LIMIT", "namespace_id": "1003", "simple": { "limit": 6, "period": 60 } },
   ],
 
   "vars": {
@@ -74,5 +84,7 @@
     "GUEST_SANDBOX_CAP": "100",
     "DEMO_ACCOUNT_CAP": "100",
     "ACCOUNT_SANDBOX_CAP": "3",
+    // Minutes of simulated traffic a sandbox may run in a UTC day (docs/cost.md, "Guardrails").
+    "TRAFFIC_MINUTES_CAP": "30",
   },
 }

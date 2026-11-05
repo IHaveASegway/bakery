@@ -277,6 +277,57 @@ pub fn order(rule: &str, class: Option<&str>) -> Failure {
     }
 }
 
+/// The kitchen socket's path without `Upgrade: websocket`.
+pub fn upgrade() -> Failure {
+    Failure::typed(
+        "upgrade",
+        426,
+        "This path is a WebSocket",
+        "Open it with a WebSocket client, which sends Upgrade: websocket.",
+    )
+}
+
+/// A rate the Simulator does not run at.
+pub fn traffic(rule: &str) -> Failure {
+    let detail = match rule {
+        "rate" => "Simulated traffic runs at 1 to 6 orders a minute. The rule is rate.".to_owned(),
+        _ => format!("The traffic request was refused. The rule is {rule}."),
+    };
+    Failure {
+        problem: Box::new(Problem::typed(
+            "traffic",
+            422,
+            "That traffic rate is not offered",
+            detail,
+        )),
+        retry_after: None,
+        reason: "traffic",
+    }
+}
+
+/// "Start traffic" while it runs.
+pub fn traffic_running() -> Failure {
+    Failure::typed(
+        "traffic-running",
+        409,
+        "Traffic is already running",
+        "Stop the traffic first to start it at another rate.",
+    )
+}
+
+/// The sandbox spent today's minutes of simulated traffic, with `Retry-After` to 00:00 UTC.
+pub fn traffic_cap(retry_after: u32, cap: u16) -> Failure {
+    Failure::typed(
+        "traffic-cap",
+        503,
+        "Today's simulated traffic is spent",
+        &format!(
+            "A sandbox runs at most {cap} minutes of simulated traffic a UTC day. Try after 00:00 UTC."
+        ),
+    )
+    .retry_after(Some(retry_after))
+}
+
 /// A broken menu rule (`CatalogError::rule()`).
 pub fn menu(rule: &str) -> Failure {
     let sentence = match rule {

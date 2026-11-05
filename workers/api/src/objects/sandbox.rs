@@ -12,7 +12,7 @@
 //! - `POST /_create {id, owner, kind, seed, born}` → 201 `SandboxResponse` in state `seeding`.
 //! - `GET /_state` → `SandboxResponse`.
 //! - `POST /_register {name, class}` → `{seed, clock_offset_s, clock_v}`: a child born on first
-//!   use, such as the Simulator (W2). 409 `{error: "seeding"}` before seeding is done.
+//!   use, the Simulator. 409 `{error: "seeding"}` before seeding is done.
 //! - `POST /_register-order {key}` → `{order, persona, clock_offset_s, clock_v, replayed}`:
 //!   the client's `Idempotency-Key` mapped to one order ULID, registered with class `Order`.
 //! - `GET /_child/<name>` → 200 `{class}` for a registered child, else 404.
@@ -51,19 +51,20 @@ use super::sql::{
     self, exec, first, gone, has_table, json, refuse, replayed, rows, transaction_sync, user_rows,
 };
 use super::stream::{self, OUTBOX};
-use super::{catalog, kitchen, order};
+use super::{catalog, kitchen, order, simulator};
 use crate::clock::{SystemClock, alarm_time, business, business_at};
 use crate::random;
 
 pub const BINDING: &str = "SANDBOX";
 pub const CLASS: &str = "Sandbox";
 
-/// Which binding wipes, and tells of the clock, a registered child, by class. The Simulator
-/// joins it with its own class (W2).
+/// Which binding wipes, and tells of the clock, a registered child, by class. The Simulator is
+/// the one class registered through `/_register`, on the first "Start traffic".
 const DISPATCH: &[(&str, &str)] = &[
     (catalog::CLASS, catalog::BINDING),
     (kitchen::CLASS, kitchen::BINDING),
     (order::CLASS, order::BINDING),
+    (simulator::CLASS, simulator::BINDING),
 ];
 
 const WIPE: &str = "wipe";
@@ -1354,7 +1355,8 @@ mod tests {
                 .all(|c| c.class == "Order" && c.name.starts_with(&format!("order:{sandbox}:")))
         );
         assert_eq!(plan.len().div_ceil(SEED_BATCH), 2, "two seeding runs");
-        for (class, _) in DISPATCH {
+        // Every class but the Simulator, which is born on the first "Start traffic".
+        for (class, _) in DISPATCH.iter().filter(|(c, _)| *c != simulator::CLASS) {
             assert!(plan.iter().any(|c| c.class == *class), "{class}");
         }
     }

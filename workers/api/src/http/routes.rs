@@ -20,6 +20,8 @@ pub enum Limit {
     SandboxCreate,
     /// `COMMAND_LIMIT`, per session, or per IP hash without one.
     Command,
+    /// `UPGRADE_LIMIT`, per session: the kitchen socket's upgrades.
+    Upgrade,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +49,11 @@ pub enum RouteId {
     ListDeadLetters,
     Redrive,
     AdvanceClock,
+    KitchenSocket,
+    Heartbeat,
+    GetTraffic,
+    StartTraffic,
+    StopTraffic,
 }
 
 #[derive(Debug)]
@@ -241,6 +248,43 @@ pub const ROUTES: &[Route] = &[
         Scope::SignedIn,
         Limit::Command,
     ),
+    // PR 4: the kitchen board's socket, the console's heartbeat and simulated traffic. The
+    // upgrade is a GET that carries the cookie, so it takes the Origin check too (router).
+    route(
+        RouteId::KitchenSocket,
+        "GET",
+        "/v1/sandboxes/{id}/kitchen/ws",
+        Scope::Session,
+        Limit::Upgrade,
+    ),
+    route(
+        RouteId::Heartbeat,
+        "POST",
+        "/v1/sandboxes/{id}/heartbeat",
+        Scope::Session,
+        Limit::Command,
+    ),
+    route(
+        RouteId::GetTraffic,
+        "GET",
+        "/v1/sandboxes/{id}/traffic",
+        Scope::Session,
+        Limit::None,
+    ),
+    route(
+        RouteId::StartTraffic,
+        "POST",
+        "/v1/sandboxes/{id}/traffic",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
+    route(
+        RouteId::StopTraffic,
+        "DELETE",
+        "/v1/sandboxes/{id}/traffic",
+        Scope::SignedIn,
+        Limit::Command,
+    ),
 ];
 
 /// A route's path parameters.
@@ -412,6 +456,17 @@ mod tests {
             Matched::MethodNotAllowed("GET, DELETE, OPTIONS".into())
         );
         assert_eq!(allow("/v1/auth/signout"), "POST, OPTIONS");
+        assert_eq!(
+            allow("/v1/sandboxes/01JC8Z6K3W9QF2N4T7XRB5M0HD/traffic"),
+            "GET, POST, DELETE, OPTIONS"
+        );
+        assert_eq!(
+            match_route(
+                "POST",
+                "/v1/sandboxes/01JC8Z6K3W9QF2N4T7XRB5M0HD/kitchen/ws"
+            ),
+            Matched::MethodNotAllowed("GET, OPTIONS".into())
+        );
     }
 
     #[test]
@@ -423,6 +478,8 @@ mod tests {
             RouteId::PublishMenu,
             RouteId::Redrive,
             RouteId::AdvanceClock,
+            RouteId::StartTraffic,
+            RouteId::StopTraffic,
         ] {
             assert_eq!(scope(id), Scope::SignedIn, "{id:?}: a console write");
         }
@@ -432,6 +489,9 @@ mod tests {
             RouteId::GetOrder,
             RouteId::CancelOrder,
             RouteId::ListDeadLetters,
+            RouteId::KitchenSocket,
+            RouteId::Heartbeat,
+            RouteId::GetTraffic,
         ] {
             assert_eq!(
                 scope(id),
@@ -454,9 +514,14 @@ mod tests {
                 "a callback stays outside the Origin check by being a GET"
             );
         }
-        // Every command but the callbacks spends a limit.
+        // Every command but the callbacks spends a limit, and so does the upgrade.
         for r in ROUTES.iter().filter(|r| r.method != "GET") {
             assert_ne!(r.limit, Limit::None, "{:?}", r.id);
         }
+        let socket = ROUTES
+            .iter()
+            .find(|r| r.id == RouteId::KitchenSocket)
+            .unwrap();
+        assert_eq!(socket.limit, Limit::Upgrade);
     }
 }

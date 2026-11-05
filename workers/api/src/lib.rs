@@ -1,6 +1,7 @@
 //! The Worker `bakery-api`: the router, every Durable Object class, the Queue consumer and the
 //! cron handler (docs/architecture.md). PR 3 added sign-in, sandboxes and the nightly wipe to
-//! PR 2's walking skeleton; PR 4 adds the menu, orders, the kitchen board and the event relay.
+//! PR 2's walking skeleton; PR 4 adds the menu, orders, the kitchen board with its sockets, the event relay and
+//! simulated traffic.
 
 mod clock;
 mod config;
@@ -16,6 +17,7 @@ pub use objects::control::Control;
 pub use objects::kitchen::Kitchen;
 pub use objects::order::Order;
 pub use objects::sandbox::Sandbox;
+pub use objects::simulator::Simulator;
 
 use worker::{Context, Env, Request, Response, Result, event};
 

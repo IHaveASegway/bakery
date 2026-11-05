@@ -6,6 +6,7 @@ mod auth;
 mod demo;
 mod guard;
 mod headers;
+mod kitchen;
 mod menu;
 mod oauth;
 mod orders;
@@ -13,6 +14,7 @@ mod outbound;
 mod problem;
 mod routes;
 mod sandboxes;
+mod traffic;
 
 use std::cell::RefCell;
 
@@ -178,7 +180,9 @@ async fn checked(
     ip_hash: Option<String>,
 ) -> std::result::Result<Response, Failure> {
     let headers = req.headers();
-    if guard::is_command(route.method) {
+    // The socket's upgrade is a GET, but it carries the cookie and ignores CORS: the exact
+    // Origin is the defence against cross-site hijacking (docs/security.md, the threats table).
+    if guard::is_command(route.method) || route.id == RouteId::KitchenSocket {
         let allowed = cx.cfg.origin()?;
         let origin = headers.get("Origin").ok().flatten();
         let site = headers.get("Sec-Fetch-Site").ok().flatten();
@@ -231,6 +235,12 @@ async fn checked(
                 .map(|c| format!("sid:{}", c.sid))
                 .unwrap_or_else(|| ip_key(ip_hash.as_deref())),
         )),
+        Limit::Upgrade => Some((
+            "UPGRADE_LIMIT",
+            cx.claims()
+                .map(|c| format!("sid:{}", c.sid))
+                .unwrap_or_else(|| ip_key(ip_hash.as_deref())),
+        )),
     };
     if let Some((binding, key)) = limit_key
         && !outbound::within_limit(&cx.env, binding, key).await
@@ -265,6 +275,11 @@ async fn checked(
         RouteId::ListDeadLetters => sandboxes::dead_letters(cx, id.as_deref()).await,
         RouteId::Redrive => sandboxes::redrive(cx, id.as_deref(), sub).await,
         RouteId::AdvanceClock => sandboxes::advance_clock(cx, req, id.as_deref()).await,
+        RouteId::KitchenSocket => kitchen::socket(cx, req, id.as_deref()).await,
+        RouteId::Heartbeat => kitchen::heartbeat(cx, id.as_deref()).await,
+        RouteId::GetTraffic => traffic::get(cx, id.as_deref()).await,
+        RouteId::StartTraffic => traffic::start(cx, req, id.as_deref()).await,
+        RouteId::StopTraffic => traffic::stop(cx, id.as_deref()).await,
     }
 }
 

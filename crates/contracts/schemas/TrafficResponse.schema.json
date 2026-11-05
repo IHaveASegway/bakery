@@ -5,7 +5,7 @@
   "type": "object",
   "properties": {
     "minutes_left": {
-      "description": "Of the day's 30.",
+      "description": "What is left of the day's cap, 30 minutes (docs/cost.md, \"Guardrails\").",
       "type": "integer",
       "format": "uint16",
       "maximum": 65535,
@@ -26,6 +26,7 @@
       "minimum": 0
     },
     "rate": {
+      "description": "Orders a minute of the current or last run; 0 before the first start.",
       "type": "integer",
       "format": "uint8",
       "maximum": 255,

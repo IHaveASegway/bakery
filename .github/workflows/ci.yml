@@ -140,6 +140,14 @@ jobs:
           cargo run -q --locked -p bakery-seed -- 42 2026-11-07 > "$RUNNER_TEMP/seed-b.json"
           cmp "$RUNNER_TEMP/seed-a.json" "$RUNNER_TEMP/seed-b.json"
           echo "seed 42, born 2026-11-07: $(wc -c < "$RUNNER_TEMP/seed-a.json") bytes, the same twice"
+      - name: The storefront's menu is the seed's (apps/web/src/data/menu.json from apps/web/scripts/menu.mjs)
+        run: |
+          node apps/web/scripts/menu.mjs "$RUNNER_TEMP/menu.json"
+          if ! cmp "$RUNNER_TEMP/menu.json" apps/web/src/data/menu.json; then
+            echo "::error file=apps/web/src/data/menu.json::the committed menu is not what the seed gives; run node apps/web/scripts/menu.mjs and commit the result"
+            exit 1
+          fi
+          echo "menu.json is the seed's menu, $(wc -c < apps/web/src/data/menu.json) bytes"
       - name: No timers or wall clock in the domain, the app or any object (workers/api/src/clock.rs is the one adapter)
         run: |
           # clock.rs sits outside these paths on purpose: it is the Clock port's only adapter.
