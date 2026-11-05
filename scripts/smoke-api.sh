@@ -20,7 +20,7 @@ SERVER_PID=""
 
 stop() {
   if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
-    # The server runs in its own process group (setsid), so this stops wrangler and workerd only.
+    # The server leads its own process group, so this stops wrangler and workerd only.
     kill -TERM -- "-$SERVER_PID" 2>/dev/null || true
     for _ in $(seq 1 50); do kill -0 "$SERVER_PID" 2>/dev/null || break; sleep 0.1; done
     kill -KILL -- "-$SERVER_PID" 2>/dev/null || true
@@ -75,17 +75,21 @@ if curl -s -o /dev/null "$BASE/" 2>/dev/null; then
   exit 2
 fi
 
-echo "starting $WRANGLER dev on $BASE (log: $LOG)"
+# macOS's date has no %N, and node is here already for the JSON checks.
+now_ms() { node -e 'console.log(Date.now())'; }
+
+if [[ -n "$WRANGLER" ]]; then run_wrangler=(npx --yes "$WRANGLER"); else run_wrangler=(pnpm exec wrangler); fi
+echo "starting ${run_wrangler[*]} dev on $BASE (log: $LOG)"
 cd "$ROOT/workers/api"
-start_ns="$(date +%s%N)"
+start_ms="$(now_ms)"
 # Fresh object state in a scratch directory, so "nobody admitted today" holds on any laptop.
-# setsid gives the server its own session; the child writes its id, which is also its process
-# group, so stop() can end wrangler and workerd together, and nothing else.
-setsid bash -c 'echo $$ > "$1"; shift; exec "$@"' _ "$TMP/server.pid" \
-  ${WRANGLER:+npx --yes "$WRANGLER"} ${WRANGLER:-pnpm exec wrangler} dev --local --ip 127.0.0.1 --port "$PORT" \
+# Job control gives the background server its own process group, whose id is $!, so stop() can
+# end wrangler and workerd together, and nothing else. macOS has no setsid to do this with.
+set -m
+"${run_wrangler[@]}" dev --local --ip 127.0.0.1 --port "$PORT" \
   --persist-to "$TMP/state" --show-interactive-dev-session=false > "$LOG" 2>&1 < /dev/null &
-for _ in $(seq 1 50); do [[ -s "$TMP/server.pid" ]] && break; sleep 0.1; done
-SERVER_PID="$(cat "$TMP/server.pid")"
+SERVER_PID=$!
+set +m
 
 deadline=$(( $(date +%s) + STARTUP_TIMEOUT_S ))
 until [[ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/v1/health" 2>/dev/null || true)" == "200" ]]; do
@@ -96,7 +100,7 @@ until [[ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/v1/health" 2>/dev/null
   fi
   sleep 0.2
 done
-echo "first 200 after $(( ($(date +%s%N) - start_ns) / 1000000 )) ms (including the build)"
+echo "first 200 after $(( $(now_ms) - start_ms )) ms (including the build)"
 
 # Health: 200 JSON, no object touched.
 request health "$BASE/v1/health"

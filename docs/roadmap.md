@@ -50,7 +50,7 @@ At 20 hours the last pull request lands about two years out. The plan answers wi
 | Phase | Pull request | Scope | Est. (focused days) | Actual | Blocked by |
 |---|---|---|---|---|---|
 | 0 | [PR 1 The plan](#pr-1-the-plan-docs) | `docs/` (this pull request) | done | — | — |
-| 1 | [PR 2 Foundation](#pr-2-foundation) | Local-first: Cargo and pnpm workspaces; `bakery-api` with one `Control` object and `/v1/health`, and a `bakery-web` placeholder Home, both on `wrangler dev`; CI `verify`, `firewall` and `firewall-selftest`; the firewall; hooks; Dependabot; the Stripe sandbox and the Google and GitHub OAuth clients; spikes S1, S2, S5, S6 | 5–7 | — | nothing: the blocking questions were answered on 2026-11-04 |
+| 1 | [PR 2 Foundation](#pr-2-foundation) | Local-first: Cargo and pnpm workspaces; `bakery-api` with one `Control` object and `/v1/health`, and a `bakery-web` placeholder Home, both on `wrangler dev`; CI `verify`, `firewall` and `firewall-selftest`; the firewall; hooks; Dependabot; the Stripe sandbox and the Google and GitHub OAuth clients; spikes S1, S2, S5, S6 | 5–7 | 1 (2026-11-04 to 05, with agents) | nothing: the blocking questions were answered on 2026-11-04 |
 | 2 | [PR 3 Accounts, sandboxes and the wipe](#pr-3-accounts-sandboxes-and-the-wipe) | Google and GitHub sign-in, demo accounts, Turnstile, `Sandbox` and `Account`, guest scope, the seed crate, the nightly wipe, the privacy page's text | 5–7 | — | PR 2; the Google and GitHub OAuth gate |
 | 3 | [PR 4 Menu, orders and the kitchen board](#pr-4-menu-orders-and-the-kitchen-board) | `Catalog`, `Order`, `Kitchen`, the outbox, the Queue and consumer, the menu cache, the live board, menu and cart, simulated traffic (`Simulator`) | 7–9 | — | PR 3 |
 | 3 | [PR 5 Payments](#pr-5-payments) | Stripe sandbox, `Billing`, Payment Element checkout, webhooks, refunds, receipts, the key guard | 4–6 | — | PR 4; spike S3 |
@@ -103,11 +103,12 @@ Phase 1 · estimate: 5–7 focused days, spikes included · blocked by: nothing:
 
 **Done when:**
 - [ ] S1, S2, S5 and S6 have a dated Result; a failed spike has changed its owning doc.
-- [ ] `GET /v1/health` on `wrangler dev` answers 200 with the build commit; a request with `Origin: https://bakery.ihaveasegway.com` gets exact CORS headers and any other origin gets none.
-- [ ] The placeholder Home on `wrangler dev` carries the headers in [security.md](security.md).
+- [x] `GET /v1/health` on `wrangler dev` answers 200 with the build commit; a request with `Origin: https://bakery.ihaveasegway.com` gets exact CORS headers and any other origin gets none (2026-11-05: `scripts/smoke-api.sh` passes on Linux and on macOS).
+- [x] The placeholder Home on `wrangler dev` carries the headers in [security.md](security.md) (2026-11-05: the policy, `nosniff`, the referrer, permissions and opener policies, and no HSTS, which is the zone's).
 - [x] The Stripe sandbox and both OAuth clients exist; a sandbox-key test passes locally and no key is in the tree (2026-11-04: the restricted key reads customers, 200, and is refused the balance, 403; both client secrets authenticate against their providers).
-- [ ] `firewall-selftest` proves exits 0, 1 and 2; the pre-push hook refuses `main`; Dependabot has opened a pull request per ecosystem.
-- [ ] `cargo test`, `cargo clippy -D warnings` and `cargo deny check` pass on five crates, and CI shows `verify`, `firewall` and `firewall-selftest` green.
+- [x] `firewall-selftest` proves exits 0, 1 and 2; the pre-push hook refuses `main` (2026-11-05: both, locally and in CI).
+- [ ] After the merge, Dependabot has opened a pull request per ecosystem. It reads `.github/dependabot.yml` only from `main`, so this cannot be proven before then.
+- [x] `cargo test`, `cargo clippy -D warnings` and `cargo deny check` pass on five crates, and CI shows `verify`, `firewall` and `firewall-selftest` green (2026-11-05, with the real rules in `firewall` and a clean full-history scan).
 
 **What it teaches.** The **walking skeleton**: the thinnest runnable slice through every layer, local first because nobody is waiting on it. **Build once, scan the bytes you will ship.** **Least privilege**, by creating no deploy credential until one is needed. **Fitness functions**: a budget checked by the build cannot erode one pull request at a time. **Expand, migrate, contract** for DO classes, since each class change is a rollback boundary.
 
