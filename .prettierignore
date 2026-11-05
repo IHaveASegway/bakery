@@ -16,3 +16,6 @@ target/
 tools/route-data/out/
 crates/seed/data/
 apps/web/public/app/dispatch/data/
+
+# Vitest writes its JSON reporter output here
+**/.vitest/

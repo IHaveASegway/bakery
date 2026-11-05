@@ -34,7 +34,16 @@ function directive(policy: string, name: string): string[] {
 describe('dist/_headers', () => {
   expect(existsSync(file), 'run pnpm build first').toBe(true);
   const text = readFileSync(file, 'utf8');
-  const rules = ['/*', '/signin/*', '/app/*', '/menu/*', '/checkout/*', '/catering/*', '/_astro/*'];
+  const rules = [
+    '/*',
+    '/signin/*',
+    '/app/*',
+    '/menu/*',
+    '/inbox/*',
+    '/checkout/*',
+    '/catering/*',
+    '/_astro/*',
+  ];
   const paymentRules = ['/checkout/*', '/catering/*'];
 
   test('the "/*" rule carries the policy and the other security headers', () => {
@@ -72,22 +81,25 @@ describe('dist/_headers', () => {
     );
   });
 
-  test('/menu/* is an island page: its own policy with hashes, and no third party', () => {
-    const lines = rule(text, '/menu/*');
-    expect(lines.indexOf('! Content-Security-Policy')).toBe(0);
-    const policy = policyOf(lines);
-    expect(policy).not.toContain('challenges.cloudflare.com');
-    expect(policy).not.toContain('stripe.com');
-    expect(directive(policy, 'frame-src')).toEqual(["'none'"]);
-    // Astro's island loader and its one-rule style are allowed by hash, never by 'unsafe-inline'.
-    expect(
-      directive(policy, 'script-src').filter((s) => s.startsWith("'sha256-")),
-    ).not.toHaveLength(0);
-    expect(directive(policy, 'script-src')[0]).toBe("'self'");
-    expect(directive(policy, 'connect-src')).toEqual(
-      directive(policyOf(rule(text, '/*')), 'connect-src'),
-    );
-  });
+  test.each(['/menu/*', '/inbox/*'])(
+    '%s is an island page: its own policy with hashes, and no third party',
+    (path) => {
+      const lines = rule(text, path);
+      expect(lines.indexOf('! Content-Security-Policy')).toBe(0);
+      const policy = policyOf(lines);
+      expect(policy).not.toContain('challenges.cloudflare.com');
+      expect(policy).not.toContain('stripe.com');
+      expect(directive(policy, 'frame-src')).toEqual(["'none'"]);
+      // Astro's island loader and its one-rule style are allowed by hash, never by 'unsafe-inline'.
+      expect(
+        directive(policy, 'script-src').filter((s) => s.startsWith("'sha256-")),
+      ).not.toHaveLength(0);
+      expect(directive(policy, 'script-src')[0]).toBe("'self'");
+      expect(directive(policy, 'connect-src')).toEqual(
+        directive(policyOf(rule(text, '/*')), 'connect-src'),
+      );
+    },
+  );
 
   test.each(paymentRules)(
     '%s is a payment page: the island policy plus exactly Stripe’s three origins',

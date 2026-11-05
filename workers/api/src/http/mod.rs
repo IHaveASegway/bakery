@@ -3,6 +3,7 @@
 //! checks" and "Privacy and data inventory").
 
 mod auth;
+mod catering;
 mod demo;
 mod guard;
 mod headers;
@@ -299,6 +300,34 @@ async fn checked(
         RouteId::Ledger => payments::ledger(cx, id.as_deref()).await,
         RouteId::GetSchedule => schedule::get(cx, id.as_deref(), sub).await,
         RouteId::SetCapacity => schedule::set_capacity(cx, req, id.as_deref(), sub).await,
+        RouteId::CreateCatering => catering::create(cx, req, id.as_deref()).await,
+        RouteId::ListCatering => catering::list(cx, id.as_deref()).await,
+        RouteId::GetCatering => catering::get(cx, id.as_deref(), sub).await,
+        RouteId::AcceptQuote => catering::accept(cx, id.as_deref(), sub).await,
+        RouteId::CateringDeposit => catering::deposit(cx, id.as_deref(), sub).await,
+        RouteId::PayBalance => catering::pay_balance(cx, id.as_deref(), sub).await,
+        RouteId::CancelCatering => catering::cancel(cx, req, id.as_deref(), sub).await,
+        RouteId::SendQuote => catering::quote(cx, req, id.as_deref(), sub).await,
+        RouteId::DeclineCatering => catering::decline(cx, req, id.as_deref(), sub).await,
+        RouteId::StartCateringProduction => {
+            catering::staff_step(
+                cx,
+                id.as_deref(),
+                sub,
+                crate::objects::catering::Cmd::StartProduction,
+            )
+            .await
+        }
+        RouteId::MarkCateringDelivered => {
+            catering::staff_step(
+                cx,
+                id.as_deref(),
+                sub,
+                crate::objects::catering::Cmd::MarkDelivered,
+            )
+            .await
+        }
+        RouteId::StaffCancelCatering => catering::staff_cancel(cx, req, id.as_deref(), sub).await,
         // Answered before the checks above.
         RouteId::StripeWebhook => Err(problem::internal()),
     }

@@ -391,8 +391,8 @@ check "wrong_method: Allow: POST, OPTIONS" "[[ '$(header_of wrong_method allow)'
 command_as guest_1 S1 192.0.2.31 POST /v1/sandboxes '{"turnstile_token":"pass-1","replace":false}'
 expect_status guest_1 201
 # PR 4 seeds a sandbox on its first alarm, so it answers `seeding` until its children exist: 15
-# since PR 5 added Billing.
-expect_json guest_1 "b.kind === 'guest' && ['seeding', 'live'].includes(b.state) && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(b.id) && Number.isSafeInteger(b.seed) && b.seed >= 0 && b.clock_offset_s === 0 && b.children <= 22 && b.faults.inbox === false"
+# since PR 5 added Billing, 33 since PR 7 (the catering events and their days).
+expect_json guest_1 "b.kind === 'guest' && ['seeding', 'live'].includes(b.state) && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(b.id) && Number.isSafeInteger(b.seed) && b.seed >= 0 && b.clock_offset_s === 0 && b.children <= 33 && b.faults.inbox === false"
 expect_json guest_1 "(() => { const born = Date.parse(b.born); const d = new Date(born); let w = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 10); if (w <= born) w += 86400000; return Date.parse(b.wipe_at) === w; })()"
 guest_1_id="$(json_field guest_1 b.id)"
 get_as guest_1_get S1 "/v1/sandboxes/$guest_1_id"
@@ -475,7 +475,7 @@ cp "$TMP/list_after_wipe.out" "$TMP/report_clean.out"
 command_as orphan S5 192.0.2.36 POST /v1/sandboxes '{"turnstile_token":"pass-6","replace":false}'
 expect_status orphan 201
 orphan_id="$(json_field orphan b.id)"
-# Its seeding done first: since PR 6 it writes 22 children, and a file read while the runtime is
+# Its seeding done first: since PR 7 it writes 33 children, and a file read while the runtime is
 # still creating it can fail the listing's read.
 for _ in $(seq 1 150); do
   get_as orphan_state S5 "/v1/sandboxes/$orphan_id"

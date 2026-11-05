@@ -109,13 +109,14 @@ describe('headersFile', () => {
     expect(body.toLowerCase()).not.toContain('strict-transport-security');
   });
 
-  test('the menu gets an island rule and the checkout and catering pages a payment rule: detach, then their own policy and hashes', () => {
-    expect(ISLAND_PATHS).toEqual(['/menu/*']);
+  test('the menu and the inbox get an island rule, the checkout and catering pages a payment rule: detach, then their own policy and hashes', () => {
+    expect(ISLAND_PATHS).toEqual(['/menu/*', '/inbox/*']);
     expect(PAYMENT_PATHS).toEqual(['/checkout/*', '/catering/*']);
     expect(RULE_PATHS).toEqual([...CHALLENGE_PATHS, ...ISLAND_PATHS, ...PAYMENT_PATHS]);
     const hashes = { script: ["'sha256-AAAA'"], style: ["'sha256-BBBB'"] };
     const file = headersFile(DEFAULT_API_ORIGIN, {
       '/menu/*': hashes,
+      '/inbox/*': hashes,
       '/checkout/*': hashes,
       '/catering/*': hashes,
     });
@@ -131,6 +132,20 @@ describe('headersFile', () => {
     expect(file.split('challenges.cloudflare.com').length - 1).toBe(CHALLENGE_PATHS.length * 2);
     // Stripe: script-src, two frame-src origins, connect-src; only in the payment rules.
     expect(file.split('stripe.com').length - 1).toBe(4 * PAYMENT_PATHS.length);
+  });
+
+  test('the inbox is an island page: the strict policy and its hashes, no Stripe and no Turnstile', () => {
+    const lines = headersFile(DEFAULT_API_ORIGIN, {
+      '/inbox/*': { script: ["'sha256-AAAA'"], style: [] },
+    }).split('\n');
+    const at = lines.indexOf('/inbox/*');
+    expect(at).toBeGreaterThan(0);
+    expect(lines[at + 1]).toBe('  ! Content-Security-Policy');
+    expect(lines[at + 2]).toBe(
+      `  Content-Security-Policy: ${csp('island', DEFAULT_API_ORIGIN, { script: ["'sha256-AAAA'"], style: [] })}`,
+    );
+    expect(lines[at + 2]).not.toContain('stripe.com');
+    expect(lines[at + 2]).not.toContain('cloudflare');
   });
 
   test('the catering page is a payment page: its rule carries the payment policy, and nothing else does', () => {

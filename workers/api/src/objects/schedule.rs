@@ -25,7 +25,10 @@
 //! - `GET /_state` → 200 `ScheduleResponse`.
 //! - `POST /_event` with an envelope, from the consumer → 200 `{outcome}`: `OrderPaid` is
 //!   `Confirm`, `OrderExpired` and `OrderCancelled` are `Release {expired | cancelled}`,
-//!   `OrderClosed` is `Fulfil`, each for the order the stream names; `MenuPublished` is
+//!   `OrderClosed` is `Fulfil`, each for the order the stream names; for the catering event the
+//!   stream names, `CateringDepositPaid` is `Confirm`, `CateringDepositLapsed` is `Release
+//!   {deposit_lapsed}`, `CateringCancelled` is `Release {cancelled}` and `CateringClosed` is
+//!   `Fulfil` (`CateringBalancePaid` is `ignored`: the closure in the same step fulfils); `MenuPublished` is
 //!   `RefreshCaps` with the caps of the Catalog's published menu. The event's id goes into
 //!   `seen` with what it changed, so a redelivery is `duplicate`.
 //! - `POST /_wipe`, `POST /_clock`: the child protocol (child.rs). The clock moves every hold
@@ -735,7 +738,8 @@ impl Schedule {
         if !seen.is_empty() {
             return json(&serde_json::json!({ "outcome": "duplicate" }), 200);
         }
-        let order = || order_of(&envelope);
+        let order = || place_of(&envelope, "order");
+        let catering = || place_of(&envelope, "catering");
         let cmd = match envelope.event_type.as_str() {
             "OrderPaid" => order().map(|reference| ScheduleCommand::Confirm { reference }),
             "OrderExpired" => order().map(|reference| ScheduleCommand::Release {
@@ -747,6 +751,18 @@ impl Schedule {
                 reason: ReleaseReason::Cancelled,
             }),
             "OrderClosed" => order().map(|reference| ScheduleCommand::Fulfil { reference }),
+            "CateringDepositPaid" => {
+                catering().map(|reference| ScheduleCommand::Confirm { reference })
+            }
+            "CateringDepositLapsed" => catering().map(|reference| ScheduleCommand::Release {
+                reference,
+                reason: ReleaseReason::DepositLapsed,
+            }),
+            "CateringCancelled" => catering().map(|reference| ScheduleCommand::Release {
+                reference,
+                reason: ReleaseReason::Cancelled,
+            }),
+            "CateringClosed" => catering().map(|reference| ScheduleCommand::Fulfil { reference }),
             "MenuPublished" => {
                 let menu = self.menu(meta.sandbox_id()?).await?;
                 Some(ScheduleCommand::RefreshCaps {
@@ -928,14 +944,15 @@ impl Schedule {
     }
 }
 
-/// The order an Order stream names: `order:<sandbox>:<ulid>`.
-fn order_of(envelope: &Envelope) -> Option<Ulid> {
+/// The place an Order or CateringEvent stream names: `order:<sandbox>:<ulid>` or
+/// `catering:<sandbox>:<ulid>`, as `class` asks, in the envelope's own sandbox.
+fn place_of(envelope: &Envelope, class: &str) -> Option<Ulid> {
     let mut parts = envelope.stream.split(':');
     match (parts.next(), parts.next(), parts.next(), parts.next()) {
-        (Some("order"), Some(sandbox), Some(order), None)
-            if sandbox == envelope.sandbox.to_string() =>
+        (Some(c), Some(sandbox), Some(id), None)
+            if c == class && sandbox == envelope.sandbox.to_string() =>
         {
-            order.parse().ok()
+            id.parse().ok()
         }
         _ => None,
     }
@@ -1112,10 +1129,13 @@ mod tests {
             "data": {}, "cause": null
         }))
         .unwrap();
-        assert_eq!(order_of(&e), Some(order));
+        assert_eq!(place_of(&e, "order"), Some(order));
+        assert_eq!(place_of(&e, "catering"), None);
+        e.stream = format!("catering:{sandbox}:{order}");
+        assert_eq!(place_of(&e, "catering"), Some(order));
         e.stream = format!("order:{order}:{order}");
-        assert_eq!(order_of(&e), None);
+        assert_eq!(place_of(&e, "order"), None);
         e.stream = format!("catalog:{sandbox}");
-        assert_eq!(order_of(&e), None);
+        assert_eq!(place_of(&e, "order"), None);
     }
 }

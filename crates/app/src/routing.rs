@@ -5,8 +5,8 @@
 //!
 //! The table names every subscriber the catalog names, including classes that do not exist
 //! yet. [`LIVE`] says which do, and [`deliver_to`] filters by it, so PR 4's consumer delivered to
-//! the Kitchen only, PR 5's adds Billing and the Order, PR 6's the Schedule, and each later pull
-//! request turns its classes on by adding them to [`LIVE`].
+//! the Kitchen only, PR 5's adds Billing and the Order, PR 6's the Schedule, PR 7's the
+//! CateringEvent, and each later pull request turns its classes on by adding them to [`LIVE`].
 //! A test reads the catalog table out of docs/domain.md and checks this one against it.
 
 use bakery_domain::Envelope;
@@ -44,16 +44,19 @@ impl Subscriber {
     }
 }
 
-/// The classes that exist, as of PR 6 (docs/roadmap.md, "PR 6": scheduling): the Kitchen board,
-/// Billing (refund requests and expiries from the Order), the Order (payments and refunds from
-/// Billing, by purpose and `ref`) and the Schedule (an order's day, from its slot; every day
-/// from today on for `MenuPublished`). The consumer delivers to no other; Crm and the rest join
-/// as their pull requests build them.
+/// The classes that exist, as of PR 7 (docs/roadmap.md, "PR 7": catering and billing): the
+/// Kitchen board, Billing (refund requests and expiries from the Order; the balance invoice
+/// and the deposit's refund from the CateringEvent), the Order (payments and refunds from
+/// Billing, by purpose and `ref`), the Schedule (an order's day, from its slot; a catering
+/// event's day, from its date; every day from today on for `MenuPublished`) and the
+/// CateringEvent (deposits and balances from Billing, by purpose and `ref`, and its invoice).
+/// The consumer delivers to no other; Crm and the rest join as their pull requests build them.
 pub const LIVE: &[Subscriber] = &[
     Subscriber::Kitchen,
     Subscriber::Billing,
     Subscriber::Order,
     Subscriber::Schedule,
+    Subscriber::CateringEvent,
 ];
 
 /// Which instances of a class an event goes to, where the catalog narrows it.
@@ -510,8 +513,8 @@ mod tests {
     }
 
     #[test]
-    fn pr6_delivers_to_the_kitchen_billing_the_order_and_the_schedule() {
-        assert_eq!(LIVE, [Kitchen, Billing, Order, Schedule]);
+    fn pr7_delivers_to_the_kitchen_billing_the_order_the_schedule_and_the_catering_event() {
+        assert_eq!(LIVE, [Kitchen, Billing, Order, Schedule, CateringEvent]);
         let paid = envelope("OrderPaid", json!({ "payment": "x", "amount_cents": 1 }));
         assert_eq!(classes(deliver_to(&paid)), ["Schedule", "Kitchen"]);
         assert_eq!(
@@ -558,7 +561,26 @@ mod tests {
                 name,
                 json!({ "purpose": "deposit", "ref": order.to_string() }),
             );
-            assert!(deliver_to(&to_catering).is_empty(), "{name}");
+            assert_eq!(
+                classes(deliver_to(&to_catering)),
+                ["CateringEvent"],
+                "{name}"
+            );
+        }
+        // The saga's edges: the day, Billing and the event itself.
+        for (name, to) in [
+            ("CateringDepositPaid", &["Schedule"][..]),
+            ("CateringDepositLapsed", &["Schedule"]),
+            ("CateringDelivered", &["Billing", "Kitchen"]),
+            ("CateringClosed", &["Schedule"]),
+            ("CateringCancelled", &["Schedule", "Billing"]),
+            ("InvoiceIssued", &["CateringEvent"]),
+        ] {
+            assert_eq!(
+                classes(deliver_to(&envelope(name, json!({})))),
+                to,
+                "{name}"
+            );
         }
         assert_eq!(
             reference(&envelope("RefundIssued", json!({ "ref": "nope" }))),

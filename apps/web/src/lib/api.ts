@@ -1,6 +1,10 @@
 // The storefront's whole contact with the API. The session is a cookie on the API's host, so
 // every call sends credentials and no script ever sees a token.
 import type {
+  ActivityResponse,
+  CampaignListResponse,
+  CampaignRequest,
+  CampaignResponse,
   CapacityRequest,
   CateringCancelRequest,
   CateringInquiryRequest,
@@ -8,7 +12,10 @@ import type {
   CateringResponse,
   ClockRequest,
   ClockResponse,
+  ConsentRequest,
   CreateSandboxRequest,
+  CustomerListResponse,
+  CustomerResponse,
   DeadLetter,
   DeclineRequest,
   DemoSigninRequest,
@@ -16,19 +23,28 @@ import type {
   DemoSignupResponse,
   FaultRequest,
   FaultsResponse,
+  InboxResponse,
+  LeadPipelineResponse,
   MenuEditResponse,
   MenuItemPatch,
   MenuResponse,
   LedgerResponse,
+  MessageKind,
+  MessageResponse,
   OrderRequest,
   OrderResponse,
   PaymentResponse,
   QuoteRequest,
+  RebuildResponse,
   RefundRequest,
   RefundResponse,
   SandboxResponse,
+  ScheduleRequest,
   ScheduleResponse,
+  SegmentListResponse,
+  SegmentResponse,
   SessionResponse,
+  TimelineResponse,
   TrafficResponse,
   WipedResponse,
 } from '../contracts';
@@ -83,8 +99,11 @@ async function send(
   const headers: Record<string, string> = { ...options.headers };
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
   // A fresh key per call unless the caller names one: the API replays the answer to a repeated
-  // key, so a retry of the same intent passes its key again and a new intent never does.
-  if (method === 'POST') headers['Idempotency-Key'] = options.key ?? ulid();
+  // key, so a retry of the same intent passes its key again and a new intent never does. A PATCH
+  // or PUT sends a key only when the caller names one (the campaign edit does; PR 8).
+  if (method === 'POST' || options.key !== undefined) {
+    headers['Idempotency-Key'] = options.key ?? ulid();
+  }
   try {
     return await fetch(`${apiOrigin}${path}`, {
       method,
@@ -303,6 +322,115 @@ export const markCateringDelivered = (id: string, cid: string) =>
 /** Staff: `POST .../catering/{cid}/staff-cancel`; the Worker derives `by: staff`. */
 export const staffCancelCatering = (id: string, cid: string, req: CateringCancelRequest) =>
   request<CateringResponse>('POST', `${cateringPath(id, cid)}/staff-cancel`, { body: req });
+
+// ---- PR 8: customers, segments, campaigns, the inbox, leads, activity and the rebuild ----
+// Every route is under /v1/sandboxes/{id}. Each write takes the idempotency key as its last
+// argument; leave it out and the call mints one, which is right for a click that is never retried
+// (lib/crm.ts, KeyedAction, keeps a key across a retry of the same intent).
+
+const customerPath = (id: string, cid?: string) =>
+  `${sandboxPath(id)}/customers${cid === undefined ? '' : `/${encodeURIComponent(cid)}`}`;
+const campaignPath = (id: string, cid?: string) =>
+  `${sandboxPath(id)}/campaigns${cid === undefined ? '' : `/${encodeURIComponent(cid)}`}`;
+
+/** `GET .../customers`: the sandbox's synthetic customers. */
+export const listCustomers = (id: string) => request<CustomerListResponse>('GET', customerPath(id));
+
+/** `GET .../customers/{cid}`; 404 for an unknown customer. */
+export const getCustomer = (id: string, cid: string) =>
+  request<CustomerResponse>('GET', customerPath(id, cid));
+
+/** `GET .../customers/{cid}/timeline`. */
+export const getTimeline = (id: string, cid: string) =>
+  request<TimelineResponse>('GET', `${customerPath(id, cid)}/timeline`);
+
+/** `POST .../customers/{cid}/consent`: the visitor's own persona or staff; answers the customer. */
+export const setConsent = (id: string, cid: string, req: ConsentRequest, key?: string) =>
+  request<CustomerResponse>('POST', `${customerPath(id, cid)}/consent`, {
+    body: req,
+    ...(key === undefined ? {} : { key }),
+  });
+
+/** `GET .../segments`: the five segments with their member counts and a sample. */
+export const listSegments = (id: string) =>
+  request<SegmentListResponse>('GET', `${sandboxPath(id)}/segments`);
+
+/** `GET .../segments/{segment}`; 404 for an unknown segment. */
+export const getSegment = (id: string, segment: string) =>
+  request<SegmentResponse>('GET', `${sandboxPath(id)}/segments/${encodeURIComponent(segment)}`);
+
+/** Staff: `GET .../campaigns`. */
+export const listCampaigns = (id: string) => request<CampaignListResponse>('GET', campaignPath(id));
+
+/** Staff: `POST .../campaigns`, a draft from the templates; 201 with a `Location`. */
+export const createCampaign = (id: string, req: CampaignRequest, key?: string) =>
+  request<CampaignResponse>('POST', campaignPath(id), {
+    body: req,
+    ...(key === undefined ? {} : { key }),
+  });
+
+/** `GET .../campaigns/{cid}`. */
+export const getCampaign = (id: string, cid: string) =>
+  request<CampaignResponse>('GET', campaignPath(id, cid));
+
+/** Staff: `PATCH .../campaigns/{cid}`, a draft only (else 409 `campaign`, `out-of-order`). */
+export const editCampaign = (id: string, cid: string, req: CampaignRequest, key: string) =>
+  request<CampaignResponse>('PATCH', campaignPath(id, cid), { body: req, key });
+
+/** Staff: `POST .../campaigns/{cid}/schedule`; 422 `campaign`, `schedule-too-soon`, with the time. */
+export const scheduleCampaign = (id: string, cid: string, req: ScheduleRequest, key?: string) =>
+  request<CampaignResponse>('POST', `${campaignPath(id, cid)}/schedule`, {
+    body: req,
+    ...(key === undefined ? {} : { key }),
+  });
+
+/** Staff: `POST .../campaigns/{cid}/cancel`: a scheduled one returns to draft, a draft is cancelled. */
+export const cancelCampaign = (id: string, cid: string, key?: string) =>
+  request<CampaignResponse>('POST', `${campaignPath(id, cid)}/cancel`, {
+    ...(key === undefined ? {} : { key }),
+  });
+
+/** What the inbox list can be narrowed by: a kind, a recipient, and how many (the API's default is 50). */
+export interface InboxFilter {
+  kind?: MessageKind | undefined;
+  to?: string | undefined;
+  limit?: number | undefined;
+}
+
+/** `GET .../inbox`, newest first; the filter becomes `?kind=`, `?to=` and `?limit=`. */
+export const listInbox = (id: string, filter: InboxFilter = {}) => {
+  const query = new URLSearchParams();
+  if (filter.kind) query.set('kind', filter.kind);
+  if (filter.to) query.set('to', filter.to);
+  if (filter.limit !== undefined) query.set('limit', String(filter.limit));
+  const text = query.toString();
+  return request<InboxResponse>('GET', `${sandboxPath(id)}/inbox${text === '' ? '' : `?${text}`}`);
+};
+
+/** `GET .../inbox/{mid}`. */
+export const getMessage = (id: string, mid: string) =>
+  request<MessageResponse>('GET', `${sandboxPath(id)}/inbox/${encodeURIComponent(mid)}`);
+
+/** `GET .../leads`: the catering lead pipeline by stage. */
+export const getLeads = (id: string) =>
+  request<LeadPipelineResponse>('GET', `${sandboxPath(id)}/leads`);
+
+/** `GET .../activity`, newest first; `limit` becomes `?limit=`. */
+export const getActivity = (id: string, limit?: number) =>
+  request<ActivityResponse>(
+    'GET',
+    `${sandboxPath(id)}/activity${limit === undefined ? '' : `?limit=${limit}`}`,
+  );
+
+/** Staff: `POST .../rebuild`; 202, or 409 `rebuild` while one runs. */
+export const startRebuild = (id: string, key?: string) =>
+  request<RebuildResponse>('POST', `${sandboxPath(id)}/rebuild`, {
+    ...(key === undefined ? {} : { key }),
+  });
+
+/** `GET .../rebuild`: the cursor; ask every second while `rebuilding`. */
+export const getRebuild = (id: string) =>
+  request<RebuildResponse>('GET', `${sandboxPath(id)}/rebuild`);
 
 /** The sign-in links are navigations through the API, not fetches (security.md, "Sign-in"). */
 export const signinUrl = (provider: 'google' | 'github') =>

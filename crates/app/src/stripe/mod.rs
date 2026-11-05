@@ -107,7 +107,13 @@ mod flow_tests {
             purpose: p.purpose,
             reference: p.reference,
             amount: p.amount,
-            idempotency_key: idempotency_key(Call::Create, order, Purpose::Order, p.attempt),
+            idempotency_key: idempotency_key(
+                Call::Create,
+                sandbox,
+                order,
+                Purpose::Order,
+                p.attempt,
+            ),
         }))
         .unwrap();
         let (state, events) = execute::<Billing>(
@@ -127,7 +133,7 @@ mod flow_tests {
         block_on(gateway.confirm_intent(ConfirmRequest {
             intent: intent.clone(),
             card: TestCard::Visa,
-            idempotency_key: idempotency_key(Call::Confirm, order, Purpose::Order, 1),
+            idempotency_key: idempotency_key(Call::Confirm, sandbox, order, Purpose::Order, 1),
         }))
         .unwrap();
         let succeeded = webhook_body(
@@ -185,7 +191,13 @@ mod flow_tests {
                 intent: intent.clone(),
                 amount: r.amount,
                 reason: RefundReason::Goodwill,
-                idempotency_key: idempotency_key(Call::Refund, order, Purpose::Order, r.ordinal),
+                idempotency_key: idempotency_key(
+                    Call::Refund,
+                    sandbox,
+                    order,
+                    Purpose::Order,
+                    r.ordinal,
+                ),
             }))
             .unwrap();
             let (next, events) = execute::<Billing>(
@@ -316,7 +328,7 @@ mod flow_tests {
             amount: balance_cents,
             due,
             today: "2026-11-21".parse().unwrap(),
-            idempotency_key: idempotency_key(Call::Invoice, job, Purpose::Balance, 1),
+            idempotency_key: idempotency_key(Call::Invoice, sandbox, job, Purpose::Balance, 1),
         }))
         .unwrap();
         assert_eq!(made.status, InvoiceStatus::Open);
@@ -359,7 +371,7 @@ mod flow_tests {
         assert_eq!(job_state.status(), Some(CateringStatus::Invoiced));
 
         // Paid on the test path; Stripe posts invoice.paid with the invoice's metadata.
-        let key = idempotency_key(Call::Pay, job, Purpose::Balance, 1);
+        let key = idempotency_key(Call::Pay, sandbox, job, Purpose::Balance, 1);
         let paid = block_on(gateway.pay_invoice_test(&made.provider_id, &key)).unwrap();
         let body = webhook_body(
             "evt_fake_invoice_1",
