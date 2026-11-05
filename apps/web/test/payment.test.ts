@@ -15,7 +15,7 @@ import {
   waitForPaid,
 } from '../src/lib/payment';
 
-const testKey = 'pk_test_fake000000000000000000000000';
+const testKey = 'pk_test_not_a_key';
 // Assembled, never written out: CI greps the tree for the live prefixes.
 const liveShaped = ['pk', 'live', 'fake000'].join('_');
 
@@ -50,7 +50,7 @@ describe('publishableKeyFor', () => {
   test('a key that is not a sandbox key is never used, whoever supplied it', () => {
     expect(publishableKeyFor('', liveShaped)).toBeNull();
     expect(publishableKeyFor(liveShaped, null)).toBeNull();
-    expect(publishableKeyFor('sk_test_fake000', null)).toBeNull();
+    expect(publishableKeyFor('sk_test_not_a_key', null)).toBeNull();
   });
 });
 

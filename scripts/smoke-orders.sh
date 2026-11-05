@@ -240,8 +240,8 @@ write_dev_vars() {
     echo "TRAFFIC_MINUTES_CAP=2"
     # The fake Stripe's own test-shaped values (scripts/fake-stripe.mjs), not secrets.
     echo "STRIPE_API_BASE=$STRIPE"
-    echo "STRIPE_SECRET_KEY=rk_test_fake000000000000000000000000"
-    echo "STRIPE_WEBHOOK_SECRET=whsec_fake0000000000000000000000000000"
+    echo "STRIPE_SECRET_KEY=rk_test_not_a_key"
+    echo "STRIPE_WEBHOOK_SECRET=whsec_not_a_secret"
   } > "$DEV_VARS"
   WROTE_DEV_VARS=1
 }

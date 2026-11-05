@@ -51,8 +51,8 @@ Created in PR 2, because local development needs the keys; the production webhoo
 
    ```sh
    STRIPE_API_BASE=http://127.0.0.1:8791
-   STRIPE_SECRET_KEY=rk_test_fake000000000000000000000000
-   STRIPE_WEBHOOK_SECRET=whsec_fake0000000000000000000000000000
+   STRIPE_SECRET_KEY=rk_test_not_a_key
+   STRIPE_WEBHOOK_SECRET=whsec_not_a_secret
    ```
 
 2. Start the fake: `node scripts/fake-stripe.mjs` (port 8791; `--port` changes it). It posts its webhooks to `http://127.0.0.1:8788/v1/stripe/webhook`, which is `wrangler dev`'s default, and signs them with the `whsec_` value above.

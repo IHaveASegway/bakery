@@ -196,8 +196,8 @@ header lists what it models and where it differs from Stripe). With it running, 
 
 ```sh
 STRIPE_API_BASE=http://127.0.0.1:8791
-STRIPE_SECRET_KEY=rk_test_fake000000000000000000000000
-STRIPE_WEBHOOK_SECRET=whsec_fake0000000000000000000000000000
+STRIPE_SECRET_KEY=rk_test_not_a_key
+STRIPE_WEBHOOK_SECRET=whsec_not_a_secret
 ```
 
 `STRIPE_API_VERSION`, when set, is sent as `Stripe-Version`; `STRIPE_PUBLISHABLE_KEY`, a

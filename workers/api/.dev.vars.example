@@ -52,5 +52,5 @@ STRIPE_API_VERSION=
 # With the fake running, these three lines point the Worker at it; its key and webhook secret
 # are test-shaped fakes, not secrets:
 # STRIPE_API_BASE=http://127.0.0.1:8791
-# STRIPE_SECRET_KEY=rk_test_fake000000000000000000000000
-# STRIPE_WEBHOOK_SECRET=whsec_fake0000000000000000000000000000
+# STRIPE_SECRET_KEY=rk_test_not_a_key
+# STRIPE_WEBHOOK_SECRET=whsec_not_a_secret
