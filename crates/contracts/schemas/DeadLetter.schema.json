@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeadLetter",
+  "description": "One message the Queue gave up on after 3 retries, from `GET /v1/sandboxes/{id}/dead-letters`\n(an array of these), and the answer to a redrive.",
+  "type": "object",
+  "properties": {
+    "at": {
+      "description": "When it was dead-lettered, a wall time.",
+      "type": "string"
+    },
+    "error": {
+      "description": "The last delivery error, as a reason code such as `Kitchen answered 503`.",
+      "type": "string"
+    },
+    "id": {
+      "description": "The event's ULID: the key a redrive sends it again with.",
+      "type": "string"
+    },
+    "seq": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "stream": {
+      "description": "The producing object's name.",
+      "type": "string"
+    },
+    "type": {
+      "description": "The event type, such as `OrderPlaced`.",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "type",
+    "stream",
+    "seq",
+    "error",
+    "at"
+  ]
+}

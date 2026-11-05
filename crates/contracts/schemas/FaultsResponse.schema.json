@@ -14,16 +14,20 @@
   ],
   "$defs": {
     "Faults": {
-      "description": "The sandbox's fault switches. `inbox` makes the broken-subscriber demo's Inbox fail (PR 4).",
+      "description": "The sandbox's fault switches: the Queue Lab's broken subscriber, live. `kitchen` makes the\nKitchen refuse every delivery with 503, so a message retries three times and lands in the\ndead-letter queue (PR 4); `inbox` does the same to the Inbox when it arrives (PR 8).",
       "type": "object",
       "properties": {
         "inbox": {
+          "type": "boolean"
+        },
+        "kitchen": {
           "type": "boolean"
         }
       },
       "additionalProperties": false,
       "required": [
-        "inbox"
+        "inbox",
+        "kitchen"
       ]
     }
   }

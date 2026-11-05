@@ -117,6 +117,15 @@ pub fn gone() -> Result<Response> {
     json(&serde_json::json!({ "error": "gone" }), 410)
 }
 
+/// The stored answer to a command whose key was seen with the same body, marked so the router
+/// can say `Idempotent-Replayed: true`.
+pub fn replayed(result: &str) -> Result<Response> {
+    let mut res = Response::ok(result)?;
+    res.headers_mut().set("Content-Type", "application/json")?;
+    res.headers_mut().set("Idempotent-Replayed", "true")?;
+    Ok(res)
+}
+
 /// A refusal with a code the router maps to a problem.
 pub fn refuse(status: u16, error: &str) -> Result<Response> {
     json(&serde_json::json!({ "error": error }), status)
@@ -156,8 +165,10 @@ pub async fn call_empty(
     call::<()>(env, binding, name, method, path, None).await
 }
 
-/// A request body as JSON, or a 400 for the caller: only the Worker calls these paths, so a
-/// bad body is a defect, not a visitor's mistake.
+/// A request body as JSON: only the Worker calls these paths, so a bad body is a defect, not a
+/// visitor's mistake. Read as text and parsed by serde_json, as every answer is written, rather
+/// than by `Request::json`, which goes through serde-wasm-bindgen: one deserializer a type, not
+/// two, which kept 136,666 B out of the bundle (measured 2026-11-05).
 pub async fn body<T: DeserializeOwned>(req: &mut Request) -> Result<T> {
-    req.json().await
+    Ok(serde_json::from_str(&req.text().await?)?)
 }

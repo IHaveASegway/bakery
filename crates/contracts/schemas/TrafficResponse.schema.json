@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TrafficResponse",
+  "description": "`GET /v1/sandboxes/{id}/traffic`, and the answer to starting or stopping it.",
+  "type": "object",
+  "properties": {
+    "minutes_left": {
+      "description": "What is left of the day's cap, 30 minutes (docs/cost.md, \"Guardrails\").",
+      "type": "integer",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0
+    },
+    "minutes_used": {
+      "description": "Minutes of traffic this sandbox used today, UTC.",
+      "type": "integer",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0
+    },
+    "orders": {
+      "description": "Orders the simulator placed today.",
+      "type": "integer",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0
+    },
+    "rate": {
+      "description": "Orders a minute of the current or last run; 0 before the first start.",
+      "type": "integer",
+      "format": "uint8",
+      "maximum": 255,
+      "minimum": 0
+    },
+    "running": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "running",
+    "rate",
+    "minutes_used",
+    "minutes_left",
+    "orders"
+  ]
+}

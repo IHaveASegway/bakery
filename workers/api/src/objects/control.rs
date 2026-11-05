@@ -5,6 +5,9 @@
 //!
 //! One alarm serves two timers: the ledger prune at 00:00 UTC, and the wipe's fan-out, which
 //! wipes up to 50 sandboxes a run and re-arms while rows remain (docs/security.md, "The wipe").
+//! The traffic ledger holds each sandbox's minutes of simulated traffic for the UTC day: the
+//! `Simulator` reserves what is left when it starts and settles what it did not use when it stops
+//! (docs/architecture.md, "Simulated traffic"; docs/cost.md, "Guardrails": 30 minutes).
 //! The daily IP salt lives in memory only and is never stored, so yesterday's IP hashes cannot
 //! be recomputed (docs/security.md, "Privacy and data inventory").
 
@@ -25,7 +28,7 @@ use worker::{
 use super::sandbox::{self, WipeRequest};
 use super::sql::{self, exec, first, rows, transaction_sync};
 use crate::clock::{SystemClock, alarm_time};
-use crate::config::caps_from_env;
+use crate::config::{caps_from_env, traffic_minutes_cap};
 use crate::random;
 
 pub const BINDING: &str = "CONTROL";
@@ -82,6 +85,13 @@ const SCHEMA: &[&str] = &[
        id TEXT PRIMARY KEY,
        purpose TEXT NOT NULL,
        due_wall TEXT NOT NULL)",
+    // Minutes of simulated traffic charged to a sandbox on a UTC day: reserved at a start,
+    // given back at a stop. Pruned with the ledger.
+    "CREATE TABLE IF NOT EXISTS traffic (
+       day TEXT NOT NULL,
+       sandbox TEXT NOT NULL,
+       minutes INTEGER NOT NULL,
+       PRIMARY KEY (day, sandbox))",
 ];
 
 /// `POST /admit`.
@@ -140,6 +150,41 @@ pub struct Pruned {
     pub deleted: u32,
 }
 
+/// `GET /flag`: the demo's flag alone, for the Queue consumer, which caches it for 60 s.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct FlagAnswer {
+    pub flag: Flag,
+}
+
+/// `POST /reserve-traffic`: a `Simulator` starting. `key` is the start's own key, so a retried
+/// reservation is charged once.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReserveTraffic {
+    pub key: String,
+    pub sandbox: Ulid,
+    /// Minutes asked for; the grant is at most what is left of today's cap.
+    pub minutes: u16,
+}
+
+/// `POST /settle-traffic`: a `Simulator` stopping, giving back what it reserved and did not use.
+/// `day` is the reservation's, so a run that crosses 00:00 UTC credits the day it was charged to.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SettleTraffic {
+    pub key: String,
+    pub sandbox: Ulid,
+    pub day: String,
+    pub unused: u16,
+}
+
+/// The answer to both: what was granted (0 when the cap is spent), the minutes charged to the
+/// sandbox on `day` after this call, and the cap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrafficGrant {
+    pub granted: u16,
+    pub used: u16,
+    pub cap: u16,
+}
+
 /// `POST /wipe` and `POST /sweep`: how many rows were stamped for the fan-out.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stamped {
@@ -181,10 +226,21 @@ impl DurableObject for Control {
                 Response::from_json(&self.admit_demo(body, now)?)
             }
             (Method::Get, "/salt") => Response::from_json(&self.salt(now)?),
+            (Method::Get, "/flag") => Response::from_json(&FlagAnswer {
+                flag: read_flag(&self.sql())?,
+            }),
             (Method::Post, "/wiped") => {
                 let body: Wiped = sql::body(&mut req).await?;
                 self.wiped(&body, now)?;
                 Response::from_json(&serde_json::json!({ "ok": true }))
+            }
+            (Method::Post, "/reserve-traffic") => {
+                let body: ReserveTraffic = sql::body(&mut req).await?;
+                Response::from_json(&self.reserve_traffic(body, now)?)
+            }
+            (Method::Post, "/settle-traffic") => {
+                let body: SettleTraffic = sql::body(&mut req).await?;
+                Response::from_json(&self.settle_traffic(body)?)
             }
             (Method::Post, "/wipe") => Response::from_json(&self.stamp_wipe(now).await?),
             (Method::Post, "/sweep") => Response::from_json(&self.sweep(now).await?),
@@ -424,6 +480,72 @@ impl Control {
         })
     }
 
+    /// Grants a starting `Simulator` what is left of the sandbox's minutes today, at most what it
+    /// asked for, and charges the grant at once: the replay check, the read and the write are one
+    /// transaction, so two starts cannot both take the last minutes.
+    fn reserve_traffic(&self, req: ReserveTraffic, now: WallTime) -> Result<TrafficGrant> {
+        let sql = self.sql();
+        let day = now.utc_day();
+        let cap = traffic_minutes_cap(&self.env);
+        let key = format!("traffic:{}", req.key);
+        transaction_sync(&self.state.storage(), move || {
+            if let Some(seen) = seen(&sql, &key)? {
+                return Ok(serde_json::from_str(&seen)?);
+            }
+            let sandbox = req.sandbox.to_string();
+            let used = traffic_used(&sql, &day, &sandbox)?;
+            let granted = req.minutes.min(cap.saturating_sub(used));
+            if granted > 0 {
+                exec(
+                    &sql,
+                    "INSERT INTO traffic (day, sandbox, minutes) VALUES (?, ?, ?)
+                     ON CONFLICT (day, sandbox) DO UPDATE SET minutes = minutes + excluded.minutes",
+                    vec![
+                        day.as_str().into(),
+                        sandbox.as_str().into(),
+                        i64::from(granted).into(),
+                    ],
+                )?;
+            }
+            let answer = TrafficGrant {
+                granted,
+                used: used + granted,
+                cap,
+            };
+            remember(&sql, &key, &day, &serde_json::to_string(&answer)?)?;
+            Ok(answer)
+        })
+    }
+
+    /// Gives back the minutes a stopped run did not use, once per key, never below zero.
+    fn settle_traffic(&self, req: SettleTraffic) -> Result<TrafficGrant> {
+        let sql = self.sql();
+        let cap = traffic_minutes_cap(&self.env);
+        let key = format!("settle:{}", req.key);
+        transaction_sync(&self.state.storage(), move || {
+            if let Some(seen) = seen(&sql, &key)? {
+                return Ok(serde_json::from_str(&seen)?);
+            }
+            let sandbox = req.sandbox.to_string();
+            exec(
+                &sql,
+                "UPDATE traffic SET minutes = max(0, minutes - ?) WHERE day = ? AND sandbox = ?",
+                vec![
+                    i64::from(req.unused).into(),
+                    req.day.as_str().into(),
+                    sandbox.as_str().into(),
+                ],
+            )?;
+            let answer = TrafficGrant {
+                granted: 0,
+                used: traffic_used(&sql, &req.day, &sandbox)?,
+                cap,
+            };
+            remember(&sql, &key, &req.day, &serde_json::to_string(&answer)?)?;
+            Ok(answer)
+        })
+    }
+
     /// The day's salt, drawn on the first request of a UTC day and never written down.
     fn salt(&self, now: WallTime) -> Result<Salt> {
         let day = now.utc_day();
@@ -589,6 +711,10 @@ impl Control {
             vec![before.as_str().into()],
         )? + exec(
             &sql,
+            "DELETE FROM traffic WHERE day < ?",
+            vec![before.as_str().into()],
+        )? + exec(
+            &sql,
             "DELETE FROM sandboxes WHERE created_at < ? AND wiped_at IS NOT NULL",
             vec![before.as_str().into()],
         )?;
@@ -654,6 +780,20 @@ struct ModeRow {
     mode: String,
 }
 
+/// A sandbox's minutes of traffic charged on `day`; none is 0.
+fn traffic_used(sql: &SqlStorage, day: &str, sandbox: &str) -> Result<u16> {
+    #[derive(Deserialize)]
+    struct Minutes {
+        minutes: i64,
+    }
+    let row: Option<Minutes> = first(
+        sql,
+        "SELECT minutes FROM traffic WHERE day = ? AND sandbox = ?",
+        vec![day.into(), sandbox.into()],
+    )?;
+    Ok(u16::try_from(row.map_or(0, |r| r.minutes)).unwrap_or(u16::MAX))
+}
+
 /// A missing row counts as 0.
 fn read_meter(sql: &SqlStorage, day: &str, meter: &str) -> Result<u32> {
     let row: Option<ValueRow> = first(
@@ -692,6 +832,12 @@ pub async fn status(env: &Env) -> Result<StatusResponse> {
     ask::<(), _>(env, Method::Get, "/status", None).await
 }
 
+pub async fn flag(env: &Env) -> Result<Flag> {
+    ask::<(), FlagAnswer>(env, Method::Get, "/flag", None)
+        .await
+        .map(|a| a.flag)
+}
+
 pub async fn salt(env: &Env) -> Result<Salt> {
     ask::<(), _>(env, Method::Get, "/salt", None).await
 }
@@ -708,6 +854,14 @@ pub async fn wiped(env: &Env, w: &Wiped) -> Result<()> {
     ask::<_, serde_json::Value>(env, Method::Post, "/wiped", Some(w))
         .await
         .map(|_| ())
+}
+
+pub async fn reserve_traffic(env: &Env, req: &ReserveTraffic) -> Result<TrafficGrant> {
+    ask(env, Method::Post, "/reserve-traffic", Some(req)).await
+}
+
+pub async fn settle_traffic(env: &Env, req: &SettleTraffic) -> Result<TrafficGrant> {
+    ask(env, Method::Post, "/settle-traffic", Some(req)).await
 }
 
 pub async fn wipe(env: &Env) -> Result<Stamped> {

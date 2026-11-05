@@ -34,7 +34,7 @@ function directive(policy: string, name: string): string[] {
 describe('dist/_headers', () => {
   expect(existsSync(file), 'run pnpm build first').toBe(true);
   const text = readFileSync(file, 'utf8');
-  const rules = ['/*', '/signin/*', '/app/*', '/_astro/*'];
+  const rules = ['/*', '/signin/*', '/app/*', '/menu/*', '/checkout/*', '/_astro/*'];
 
   test('the "/*" rule carries the policy and the other security headers', () => {
     const all = rule(text, '/*');
@@ -70,6 +70,25 @@ describe('dist/_headers', () => {
       directive(policyOf(rule(text, '/*')), 'connect-src'),
     );
   });
+
+  test.each(['/menu/*', '/checkout/*'])(
+    '%s is an island page: its own policy with hashes, and no Turnstile',
+    (path) => {
+      const lines = rule(text, path);
+      expect(lines.indexOf('! Content-Security-Policy')).toBe(0);
+      const policy = policyOf(lines);
+      expect(policy).not.toContain('challenges.cloudflare.com');
+      expect(directive(policy, 'frame-src')).toEqual(["'none'"]);
+      // Astro's island loader and its one-rule style are allowed by hash, never by 'unsafe-inline'.
+      expect(
+        directive(policy, 'script-src').filter((s) => s.startsWith("'sha256-")),
+      ).not.toHaveLength(0);
+      expect(directive(policy, 'script-src')[0]).toBe("'self'");
+      expect(directive(policy, 'connect-src')).toEqual(
+        directive(policyOf(rule(text, '/*')), 'connect-src'),
+      );
+    },
+  );
 
   test('no rule carries unsafe-inline, unsafe-eval or a nonce; "/*" carries no hash either', () => {
     for (const path of rules) {

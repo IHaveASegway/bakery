@@ -2,7 +2,7 @@
 
 How the bakery demo fits together: the systems around it, the two Workers and the fourteen Durable Object (DO) classes inside the API, how events move between objects, who owns each datum, how the main requests flow, and what each failure takes down. The made-up bakery, Proof of Concept Bakery (Q2 · Q-name), is a running business system built so a visitor can watch the site's Lab principles run in production code. The why is in [product.md](product.md), the language and event catalog in [domain.md](domain.md), pins in [stack.md](stack.md), threats in [security.md](security.md), prices in [cost.md](cost.md), the pipeline in [delivery.md](delivery.md), runbooks in [operations.md](operations.md), decisions in [adr/](adr/README.md). Nothing is built yet; spike S1 (a Rust DO on Workers: size, startup, SQL) runs before anything depends on this design, and nothing is deployed before the launch pull request (PR 11); until then every pull request runs on `wrangler dev` (Q44 · Q-posture, [roadmap.md](roadmap.md)).
 
-Status: Updated in PR 3 · 2026-11-05
+Status: Updated in PR 4 · 2026-11-05
 
 Limits and prices on this page are as of 2026-11-04. Sources are in the footnotes.
 
@@ -249,7 +249,9 @@ CREATE TABLE commands_seen (id TEXT PRIMARY KEY, result TEXT NOT NULL, at TEXT N
 
 **Idempotent consumers.** Each subscriber applies an event and records its id in `seen` in one transaction, so a redelivery changes nothing.
 
-**Dead letters.** After 3 retries a message goes to `bakery-events-dlq`. A second consumer writes it and its last error to the owning Sandbox's `dead_letters`, logs it and acks. The visitor sees it on the Queue screen and can redrive it with the same id, which `seen` still protects. A fault switch makes the Inbox refuse deliveries: the Queue Lab's broken subscriber, live.
+**Batch timeout.** The consumer in `wrangler.jsonc` sets `max_batch_timeout: 0`, as built in PR 4 (2026-11-05). `wrangler dev`'s default of 1 s put the kitchen board about 1,012 ms behind a write, past the one-second goal. The platform's default is believed to be 5 s and was not re-verified. The cost is more consumer invocations, not more Queue operations, because operations are counted per message.[^queues]
+
+**Dead letters.** After 3 retries the platform moves a message to `bakery-events-dlq`. The same `#[event(queue)]` handler, seeing the dead-letter queue's name, writes it and its last error to the owning Sandbox's `dead_letters`, logs a `dlq` line and acks. `worker` 0.8.7 exposes no attempt count, so the consumer records each failed delivery's error in the Sandbox's `delivery_errors` table and the dead-letter writer picks the last one up. Any session can list the dead letters (`GET /v1/sandboxes/{id}/dead-letters`); a signed-in one can redrive a message (`POST .../dead-letters/{id}/redrive`), which delivers it again with the same event id, so `seen` still protects it. Proven on 2026-11-05 with the `kitchen` fault: the Kitchen answered 503, each delivery was retried, the message reached the dead letters after three retries, and a redrive after clearing the fault put the card on the board once. A fault switch makes the Inbox or the Kitchen refuse deliveries: the Queue Lab's broken subscriber, live. The alert on a dead letter does not exist yet; it arrives with PR 11.
 
 **Ordering is per stream, by `seq`.** Queues promise no order. `seq` is gap-free because one object writes each stream. Subscribers that copy state (the board, Crm's order rows) keep the highest `seq` per stream and ignore older events; subscribers that react (Billing, Inbox) are written so order within a stream does not change the outcome. Nothing orders across streams, and nothing needs to.
 
@@ -365,6 +367,7 @@ sequenceDiagram
 - **Guest scope** (Q45 · Q-guest-scope): a guest sandbox can browse, order and pay with a test card. Sign-in unlocks the console's writes (menu edits, campaigns, publishing a route), the API token, simulated traffic, and a sandbox that follows the account across devices. Guests are capped at 100 of the 300 sandboxes a day in `Control`, so bots creating sandboxes hit a wall before the paid-for meters do.
 - `Control` also keeps the creation's `Idempotency-Key` with its result for the ledger's retention, so a retried creation does not take a second place. The key is checked in `Control` at admission because that is the one request a creation already makes.
 - `Control` costs one exact DO request, so it runs after the free checks: admission in layers. Its cap of 300 sandboxes a day bounds a bot ([cost.md](cost.md)).
+- **Seeding is asynchronous, as built in PR 4 (2026-11-05, [ADR 0005](adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md) decision 2).** `create` writes the Sandbox in state `seeding` and arms an alarm for now; the first alarm seeds the children in resumable batches of 7 from a cursor row, registering each child before its first write, so a crashed batch resumes where it stopped. In PR 4 the children are the Catalog, the Kitchen and 12 Orders (14, not the 33 the diagram shows; the rest arrive with their PRs). The last batch sets state `live` and appends `SandboxSeeded`. The creation answers 201 at once with `seeding`, and a repeated creation returns the same sandbox, still `seeding` or `live` with `children: 14`. Until `live`, the order, menu and clock routes answer 503 `seeding` with `Retry-After: 1`. The seeded orders' events reach the Kitchen through the outbox and the Queue like any others, so the board fills by delivery.
 - About 2,000 rows in about 2 s. Closed history goes into Crm's log and Billing's daily summaries; only open orders and the 8 catering jobs become live objects ([domain.md](domain.md#the-seed)). Personas and later days materialize on first touch.
 
 ### Placing and paying an order
@@ -407,6 +410,22 @@ sequenceDiagram
 - `fields.billingDetails: 'never'` stops the Payment Element collecting name, email, phone and address, and the page passes the persona's synthetic ones to `confirmPayment`.[^paymentelement] Whether Stripe's sandbox accepts that with test cards such as 4242 4242 4242 4242[^testing] is spike S3 ([ADR 0007](adr/0007-stripe-sandbox-and-a-payment-element-that-collects-nothing.md)).
 - **Expiry.** With no payment, the Order's alarm appends `OrderExpired`; Schedule releases the hold (`SlotReleased`) and Billing cancels the intent. A payment that lands after the expiry gets `OrderPaymentLate` and a full refund (`RefundIssued`): the compensating step.
 - A webhook for a wiped sandbox finds an empty Billing, which answers 200 so Stripe stops retrying.
+
+### The kitchen socket
+
+As built in PR 4 (2026-11-05), `GET /v1/sandboxes/{id}/kitchen/ws` upgrades to a WebSocket on the Kitchen, on the Hibernation API. It needs the session cookie (401 without), the exact `Origin` (403 otherwise) and the Upgrade header (426 otherwise), and `UPGRADE_LIMIT` allows 6 upgrades a minute per session (429 after). Every frame is JSON text with `v: 1`.
+
+| Frame | Direction | Meaning |
+|---|---|---|
+| `snapshot {board, seq}` | server to client | On open: every card, and the board's applied count as `seq`. A reconnect gets the board as it stands, so no replay is needed |
+| `evt {env}` | server to client | The whole envelope, after each event that changed the board |
+| `presence {sockets}` | server to client | On every open and close |
+| `bye {reason}` | server to client | `wiped` or `limit`, just before the server closes |
+| `cmd {id, order, action}` | client to server | `start_production`, `mark_ready` or `mark_picked_up`. It goes to the Order's command path with the frame id as the key |
+| `ack {id}` or `nack {id, rule}` | server to client | The answer. The last 64 ids and answers are kept in the Kitchen's `commands` table, so a repeated id gets the stored answer and the same id with another body gets `nack key-reused`. A guest's command gets `nack guest-scope` |
+| `ping` and `pong` | client to server, and back | Answered by the platform's auto-response, so a ping does not wake a hibernating Kitchen |
+
+An idle Kitchen leaves memory while its sockets stay open; the next frame or upgrade wakes it (`kitchen_wake` in the log). The limits are in [security.md](security.md#threats). A heartbeat `POST /v1/sandboxes/{id}/heartbeat` stands in for the socket where one is not open, and the Simulator reads both.
 
 ### The catering saga
 
@@ -545,9 +564,9 @@ sequenceDiagram
 ```
 
 - **One object per sandbox,** `simulator:<sandbox>`, registered with the Sandbox on the first "Start traffic" like any other child. It holds the rate, the running flag, the minute ledger and its alarm. It starts stopped.
-- **Alarm-driven.** Each run is a `Tick`: it draws the minute's commands from the seed's PRNG and the business clock (orders at the preset rate, now and then a catering inquiry or a pickup), issues them, records the minute and re-arms one wall-time minute later. Thirty ticks a day sit far under the loop guard's 100 re-arms.
-- **Ordinary commands, the same path.** A synthetic customer is one of the 60 personas. Each command passes the checks the router applies after admission (validation, an idempotency key of `sim:<ulid>`, the object names, the free-text rules) and goes to the same objects; every event it causes carries `cause: sim:<ulid>`, so the activity screen and the tour can tell the visitor's actions from the simulator's. Simulated orders pay with Stripe's test payment method, confirmed by the API, so the webhook path runs as for the visitor's own order.[^testing]
-- **Bounded.** It runs only while the console is open: each `Tick` asks the Kitchen whether a console socket is open, a console without a socket sends a heartbeat `POST` every 30 s instead, and with neither for 90 s the `Tick` stops with reason `console_closed`. At most 6 orders a minute and 30 minutes a sandbox a UTC day, reserved in `Control`'s ledger and charged to its daily budgets, so the designed worst month does not move ([cost.md](cost.md#guardrails)). The wipe stops it with everything else.
+- **Alarm-driven.** Each run is a `Tick`: it draws the minute's commands from the seed's PRNG and the business clock (orders at the preset rate; in PR 4 orders only, the catering inquiry waits for PR 7 and the pickup for PR 6), issues them, records the minute and re-arms one wall-time minute later. Thirty ticks a day sit far under the loop guard's 100 re-arms.
+- **Ordinary commands, the same path.** A synthetic customer is one of the 60 personas. Each command passes the checks the router applies after admission (validation, an idempotency key of `sim:<ulid>`, the object names, the free-text rules) and goes to the same objects; every event it causes carries `cause: sim:<ulid>`, so the activity screen and the tour can tell the visitor's actions from the simulator's. Simulated orders pay with Stripe's test payment method, confirmed by the API, so the webhook path runs as for the visitor's own order.[^testing] Until PR 5 there is no Billing, so in PR 4 simulated orders stay unpaid and expire after 15 minutes of business time.
+- **Bounded.** It runs only while the console is open: each `Tick` asks the Kitchen whether a console socket is open, a console without a socket sends a heartbeat `POST` every 30 s instead, and with neither for 90 s the `Tick` stops with reason `console_closed`. The start itself counts as a console sighting, so a new run has its first 90 s before it needs a socket or a heartbeat. At most 6 orders a minute and 30 minutes a sandbox a UTC day, reserved in `Control`'s `traffic(day, sandbox, minutes)` ledger. In PR 4 that ledger is the only budget charged: the DO-request and Queue budgets are not metered by `Control` yet, and PR 11's breaker reads the account's analytics instead ([cost.md](cost.md#guardrails)). The wipe stops it with everything else.
 
 ### The tour
 

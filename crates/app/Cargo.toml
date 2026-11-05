@@ -28,3 +28,6 @@ data-encoding = { workspace = true }
 [dev-dependencies]
 # Test-time RSA keys, for the ID token tests.
 rand_chacha_rsa = { workspace = true }
+# The seed's menu and open orders, read through the domain's catalog and order rules in
+# tests/seed_alignment.rs. bakery-domain cannot take it: the seed depends on the domain.
+bakery-seed = { workspace = true }

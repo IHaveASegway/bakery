@@ -44,5 +44,20 @@ pub fn alarm_time(at: WallTime) -> ScheduledTime {
 /// Wall time as the bakery's business time, with no sandbox offset: a sandbox's birth date.
 /// Pure arithmetic on a time already read, not a clock read.
 pub fn business(at: WallTime) -> BusinessTime {
-    BusinessTime::new(at.unix_ms(), BAKERY_UTC_OFFSET_MINUTES).expect("business time in range")
+    business_at(at, 0)
+}
+
+/// Wall time as a sandbox's business time: `offset_s` seconds later, at the bakery's offset.
+pub fn business_at(at: WallTime, offset_s: i64) -> BusinessTime {
+    BusinessTime::new(
+        at.unix_ms().saturating_add(offset_s.saturating_mul(1_000)),
+        BAKERY_UTC_OFFSET_MINUTES,
+    )
+    .expect("business time in range")
+}
+
+/// The wall time at which a sandbox's business clock reads `at`: what an alarm is armed for.
+pub fn wall_at(at: BusinessTime, offset_s: i64) -> WallTime {
+    let ms = at.unix_ms().saturating_sub(offset_s.saturating_mul(1_000));
+    WallTime::from_unix_ms(ms).expect("wall time in range")
 }

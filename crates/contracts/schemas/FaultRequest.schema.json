@@ -18,10 +18,11 @@
   ],
   "$defs": {
     "FaultName": {
-      "description": "The faults a visitor may set. PR 3 ships one.",
+      "description": "The faults a visitor may set.",
       "type": "string",
       "enum": [
-        "inbox"
+        "inbox",
+        "kitchen"
       ]
     }
   }

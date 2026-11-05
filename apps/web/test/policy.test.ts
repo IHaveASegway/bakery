@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import {
+  CHALLENGE_PATHS,
   DEFAULT_API_ORIGIN,
+  ISLAND_PATHS,
+  RULE_PATHS,
   csp,
   directives,
   headersFile,
@@ -47,8 +50,23 @@ describe('page classes', () => {
     expect(csp('every', DEFAULT_API_ORIGIN)).not.toContain('cloudflare');
   });
 
-  test('nothing is unsafe in either class', () => {
-    for (const pageClass of ['every', 'challenge'] as const) {
+  test('the island class is the strict policy: no Turnstile, no frames', () => {
+    const island = directives('island', DEFAULT_API_ORIGIN);
+    expect(island['script-src']).toEqual(["'self'"]);
+    expect(island['frame-src']).toEqual(["'none'"]);
+    expect(csp('island', DEFAULT_API_ORIGIN)).not.toContain('cloudflare');
+    expect(island['connect-src']).toEqual(directives('every', DEFAULT_API_ORIGIN)['connect-src']);
+  });
+
+  test('the island class carries the page’s inline hashes, and the other classes can too', () => {
+    const hashes = { script: ["'sha256-AAAA'"], style: ["'sha256-BBBB'"] };
+    const island = directives('island', DEFAULT_API_ORIGIN, hashes);
+    expect(island['script-src']).toEqual(["'self'", "'sha256-AAAA'"]);
+    expect(island['style-src']).toEqual(["'self'", "'sha256-BBBB'"]);
+  });
+
+  test('nothing is unsafe in any class', () => {
+    for (const pageClass of ['every', 'challenge', 'island'] as const) {
       expect(csp(pageClass, DEFAULT_API_ORIGIN)).not.toMatch(/unsafe-|sha256-|\*/);
     }
   });
@@ -61,6 +79,23 @@ describe('headersFile', () => {
       .filter((line) => !line.startsWith('#'))
       .join('\n');
     expect(body.toLowerCase()).not.toContain('strict-transport-security');
+  });
+
+  test('the menu and the checkout get an island rule: detach, then their own policy and hashes', () => {
+    expect(ISLAND_PATHS).toEqual(['/menu/*', '/checkout/*']);
+    expect(RULE_PATHS).toEqual([...CHALLENGE_PATHS, ...ISLAND_PATHS]);
+    const hashes = { script: ["'sha256-AAAA'"], style: ["'sha256-BBBB'"] };
+    const file = headersFile(DEFAULT_API_ORIGIN, { '/menu/*': hashes, '/checkout/*': hashes });
+    for (const path of ISLAND_PATHS) {
+      const at = file.split('\n').indexOf(path);
+      expect(at).toBeGreaterThan(0);
+      const lines = file.split('\n').slice(at + 1, at + 3);
+      expect(lines[0]).toBe('  ! Content-Security-Policy');
+      expect(lines[1]).toContain("script-src 'self' 'sha256-AAAA';");
+      expect(lines[1]).not.toContain('challenges.cloudflare.com');
+    }
+    // Turnstile is named exactly by the challenge rules: two paths, script-src and frame-src each.
+    expect(file.split('challenges.cloudflare.com').length - 1).toBe(CHALLENGE_PATHS.length * 2);
   });
 
   test('puts the given API origin in every policy', () => {

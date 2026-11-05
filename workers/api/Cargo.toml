@@ -16,7 +16,11 @@ bakery-app = { workspace = true }
 bakery-contracts = { workspace = true }
 bakery-domain = { workspace = true }
 bakery-seed = { workspace = true }
+# Already in the build through bakery-seed: the Simulator draws from the seed's ChaCha, and the
+# trait that reads it lives here. No new crate.
+rand_core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 wasm-bindgen = { workspace = true }
 worker = { workspace = true }

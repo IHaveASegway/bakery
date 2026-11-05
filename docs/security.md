@@ -2,7 +2,7 @@
 
 What the system of the made-up bakery, Proof of Concept Bakery, protects, from whom, and how. This doc owns the threat model, the headers, the Content Security Policy (CSP) and CORS, sign-in and sessions, sandbox isolation, the privacy and data inventory, the wipe as a privacy control, payments safety, the secrets inventory, the content firewall here, commit identities, the supply chain and account continuity. Money and denial of wallet are in [cost.md](cost.md); how the Durable Object (DO) classes fit together is in [architecture.md](architecture.md); rotation, leak response and the Stripe sandbox reset are runbooks in [operations.md](operations.md). The decisions are [ADR 0005](adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md) (sandbox), 0006 (sign-in), 0007 (Stripe) and 0009 (the API hostname) ([ADR index](adr/README.md)).
 
-Status: Updated in PR 3 · 2026-11-05
+Status: Updated in PR 4 · 2026-11-05
 
 Prices, limits and versions are as of 2026-11-04, with sources.
 
@@ -51,9 +51,9 @@ Out of scope: provider insiders, legal compulsion, malware on a visitor's machin
 | Email bombing through sign-in links, later | Turnstile; the Rate Limiting binding per IP hash and per address HMAC; Paid's 3,000 sends a month ([email sign-in, later](#email-sign-in-later)) | Cloudflare's delivery logs hold each address sent to |
 | Open redirect in sign-in | The return path is a relative path matching a fixed pattern, held in the signed `__Host-oauth` cookie | None known |
 | Denial of wallet | Turnstile, the Rate Limiting binding, `Control`'s caps (100 guest sandboxes of 300 a day), the simulator's caps, the loop guard, the breaker ([cost.md](cost.md#guardrails)) | Budget alerts at $10, $25, $50 and $100, the account's ceiling, arrive a day late; the breaker bounds the gap to about 2 hours |
-| Denial of service against the kitchen socket | Session and rate limit on upgrades; 4 sockets per sandbox; 4 KB messages; 10 a second, then close 1008 | A visitor can saturate only their own room |
+| Denial of service against the kitchen socket | Session cookie and exact `Origin` on upgrades (401, 403); the `UPGRADE_LIMIT` rate-limit binding, 6 upgrades a minute per session (429 on the 7th); at most 4 sockets per sandbox, the 5th getting `bye limit` and close 1008; frames over 4 KB close with 1009; more than 10 frames a second close with 1008; binary frames close with 1003; the wipe closes with 1001. As built and run on `wrangler dev` 4.157.0 on 2026-11-05 | A visitor can saturate only their own room |
 | Alarm loops | Re-arm only for a later time, at most 100 a day per object ([cost.md](cost.md#d-a-loop-with-no-outside-traffic)) | Code that skips the guard; the breaker reads metered usage |
-| A poisoned Queue message | Envelope version and schema checked; `sandbox` must own `stream`; 3 retries, then `bakery-events-dlq`; no re-enqueue | A well-formed wrong event reaches a projection; "rebuild projections" repairs it |
+| A poisoned Queue message | Envelope version and schema checked; `sandbox` must own `stream`; 3 retries, then `bakery-events-dlq`; no re-enqueue. The `inbox` and `kitchen` fault switches (signed-in sandboxes only; a guest gets 403 `guest-scope`) make one subscriber refuse deliveries, so a dead letter can be made on purpose and redriven | A well-formed wrong event reaches a projection; "rebuild projections" repairs it |
 | Supply chain in cargo and npm | Pins, lockfiles, `cargo deny`, `cargo audit`, cooldowns ([Supply chain](#supply-chain)) | A version older than the cooldown |
 | A firewall miss | The site's firewall, copied (Q34 · Q-firewall) | Public at `git push`, before CI scans |
 | Drafts on public previews | Web previews from the launch pull request (PR 11), as the site's (`noindex`, deleted on close); API previews only with their own DO namespaces (Q30 · Q-previews) | A preview URL is readable while its PR is open |
@@ -87,7 +87,7 @@ The API is a second origin (Q8 · Q-api-host, [ADR 0009](adr/0009-the-api-on-its
 | `Access-Control-Allow-Credentials` | `true` | The cookie rides on every call |
 | `Access-Control-Allow-Methods` | `GET, POST, PATCH, DELETE` | Nothing else exists under `/v1/` |
 | `Access-Control-Allow-Headers` | `Content-Type, Idempotency-Key, If-Match, If-None-Match` | JSON, idempotency, ETags |
-| `Access-Control-Expose-Headers` | `ETag, Location, Retry-After` | What the islands read |
+| `Access-Control-Expose-Headers` | `ETag, Location, Retry-After, Bakery-Cache` | What the islands read; `Bakery-Cache` (`miss` or `hit`, added in PR 4) is the Cache Lab's miss-or-hit line in the drawer |
 | `Access-Control-Max-Age` | `7200` | Chromium's cap ([MDN](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Access-Control-Max-Age)); the cache is per URL, so [cost.md](cost.md#the-per-sandbox-meter) counts preflights |
 | `Vary` | `Origin` | No cache serves one origin's answer to another |
 
@@ -192,7 +192,7 @@ Decided on 2026-11-04 (Q24 · Q-guest, Q25 · Q-ttl, Q45 · Q-guest-scope; [ADR 
 - **No cross-sandbox reads.** Projections are per sandbox, and the consumer routes an event only within its envelope's sandbox.
 - **The simulator stays home.** The `Simulator` issues commands only to objects named from its own sandbox id, through the same checks as the visitor's commands.
 - **Guest scope** (Q45 · Q-guest-scope): a guest sandbox can browse, order and pay with a test card. Sign-in unlocks the console's writes (menu edits, campaigns, publishing a route), the API token, simulated traffic, and a sandbox that follows the account across devices.
-- **`Control`'s caps:** 300 sandboxes a day, of which at most 100 are guests', so bots creating sandboxes hit a wall before the paid-for meters do; 3 per account; a per-IP-hash limit for guests; if `Control` errors, no sandbox ([cost.md](cost.md#guardrails)).
+- **`Control`'s caps:** 300 sandboxes a day, of which at most 100 are guests', so bots creating sandboxes hit a wall before the paid-for meters do; 3 per account; a per-IP-hash limit for guests; 30 minutes of simulated traffic a sandbox a day (the public var `TRAFFIC_MINUTES_CAP`, added in PR 4); if `Control` errors, no sandbox ([cost.md](cost.md#guardrails)).
 
 **Why not row-level security.** Row-level security filters the rows of a shared table per tenant on every query. It is the design a single D1 or Postgres database would need, and one missing or wrong policy exposes every tenant. Here there is no shared table. Every aggregate of a sandbox is its own object with its own SQLite database, addressed by a name the Worker derives from the sandbox id in the signed cookie or token; each object stores its sandbox id and refuses a mismatch; nothing lists or joins across sandboxes; and the wipe deletes whole databases instead of filtering rows out of shared ones. It is a database per tenant per aggregate, which is stronger than row-level security and cheaper to wipe, at the cost of any query across sandboxes, which the demo never needs.
 

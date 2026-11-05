@@ -11,6 +11,8 @@
 //! - [`names`]: object names (docs/architecture.md, "Object naming").
 //! - [`wipe`]: when sandboxes and accounts end (docs/security.md, "The wipe").
 //! - [`log`]: the request log line (docs/security.md, "Privacy and data inventory").
+//! - [`routing`]: the subscriber table the Queue consumer reads (docs/domain.md, "The event
+//!   catalog").
 
 pub mod admission;
 pub mod auth;
@@ -18,6 +20,7 @@ pub mod health;
 pub mod log;
 pub mod names;
 pub mod ports;
+pub mod routing;
 pub mod wipe;
 
 #[cfg(any(test, feature = "test-support"))]

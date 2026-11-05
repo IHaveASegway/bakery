@@ -201,6 +201,173 @@ pub fn guest_scope() -> Failure {
     )
 }
 
+/// An object's refusal body: `{error, rule?, class?}`, codes only.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct Refused {
+    #[serde(default)]
+    pub error: String,
+    #[serde(default)]
+    pub rule: Option<String>,
+    #[serde(default)]
+    pub class: Option<String>,
+}
+
+/// The sandbox is still being seeded: the console polls `GET /v1/sandboxes/{id}` until `live`.
+pub fn seeding() -> Failure {
+    Failure::typed(
+        "seeding",
+        503,
+        "The sandbox is still being set up",
+        "The sandbox is still being seeded with its menu and orders. Try again in a moment.",
+    )
+    .retry_after(Some(1))
+}
+
+/// A note refused by the free-text rules: the class it matched is named, the text never is.
+fn note_detail(class: &str) -> String {
+    let what = match class {
+        "email" => "an email address",
+        "phone" => "a phone number",
+        "card-number" => "a card number",
+        "url" => "a link",
+        "too-long" => {
+            return "The note is longer than 140 characters. The rule is note-too-long.".into();
+        }
+        _ => "something the bakery does not store",
+    };
+    format!(
+        "The note looks like it holds {what}, which an order note may not. The rule is note-{class}."
+    )
+}
+
+/// A broken order rule, named by its slug (`OrderError::rule()`), with a sentence for the
+/// rules a visitor's cart can break.
+pub fn order(rule: &str, class: Option<&str>) -> Failure {
+    let detail = match (rule, class) {
+        ("note", Some(class)) => note_detail(class),
+        _ => {
+            let sentence = match rule {
+                "no-lines" => "An order needs at least one line.",
+                "too-many-lines" => "An order holds at most 20 lines.",
+                "qty-out-of-range" => "Each line is a quantity of 1 to 24.",
+                "not-on-menu" => "A line names a variant that is not on the published menu.",
+                "item-paused" => "A line names an item the bakery has paused.",
+                "not-baked-that-day" => "A line names an item that is not baked on the slot's day.",
+                "out-of-season" => "A line names an item that is out of season on the slot's day.",
+                "pickup-only" => "A line names an item that is sold for pickup only.",
+                "zone-required" => "A delivery needs a zone: z1, z2 or z3.",
+                "zone-on-pickup" => "A pickup has no zone.",
+                "lead-time" => "The slot is sooner than the longest lead time among the lines.",
+                "slot" => "The slot is not a business time such as 2026-11-07T09:45:00-07:00.",
+                "cancel-too-late" => "The order is in production or later and cannot be cancelled.",
+                _ => "The order does not fit the bakery's rules.",
+            };
+            format!("{sentence} The rule is {rule}.")
+        }
+    };
+    Failure {
+        problem: Box::new(Problem::typed(
+            "order",
+            422,
+            "The order was refused",
+            detail,
+        )),
+        retry_after: None,
+        reason: "order",
+    }
+}
+
+/// The kitchen socket's path without `Upgrade: websocket`.
+pub fn upgrade() -> Failure {
+    Failure::typed(
+        "upgrade",
+        426,
+        "This path is a WebSocket",
+        "Open it with a WebSocket client, which sends Upgrade: websocket.",
+    )
+}
+
+/// A rate the Simulator does not run at.
+pub fn traffic(rule: &str) -> Failure {
+    let detail = match rule {
+        "rate" => "Simulated traffic runs at 1 to 6 orders a minute. The rule is rate.".to_owned(),
+        _ => format!("The traffic request was refused. The rule is {rule}."),
+    };
+    Failure {
+        problem: Box::new(Problem::typed(
+            "traffic",
+            422,
+            "That traffic rate is not offered",
+            detail,
+        )),
+        retry_after: None,
+        reason: "traffic",
+    }
+}
+
+/// "Start traffic" while it runs.
+pub fn traffic_running() -> Failure {
+    Failure::typed(
+        "traffic-running",
+        409,
+        "Traffic is already running",
+        "Stop the traffic first to start it at another rate.",
+    )
+}
+
+/// The sandbox spent today's minutes of simulated traffic, with `Retry-After` to 00:00 UTC.
+pub fn traffic_cap(retry_after: u32, cap: u16) -> Failure {
+    Failure::typed(
+        "traffic-cap",
+        503,
+        "Today's simulated traffic is spent",
+        &format!(
+            "A sandbox runs at most {cap} minutes of simulated traffic a UTC day. Try after 00:00 UTC."
+        ),
+    )
+    .retry_after(Some(retry_after))
+}
+
+/// A broken menu rule (`CatalogError::rule()`).
+pub fn menu(rule: &str) -> Failure {
+    let sentence = match rule {
+        "nothing-to-publish" => "There are no draft changes to publish.",
+        "price-not-positive" => "A price is a positive number of cents.",
+        "out-of-order" => "The item is not in a state that change applies to.",
+        "retired" => "The item is retired.",
+        "empty-patch" => "Send a price_cents, a status, or both.",
+        _ => "The change does not fit the menu's rules.",
+    };
+    Failure {
+        problem: Box::new(Problem::typed(
+            "menu",
+            422,
+            "The menu change was refused",
+            format!("{sentence} The rule is {rule}."),
+        )),
+        retry_after: None,
+        reason: "menu",
+    }
+}
+
+/// A refused clock advance.
+pub fn clock(rule: &str) -> Failure {
+    let sentence = match rule {
+        "too-far" => "Business time moves at most 14 days ahead in all, and only forward.",
+        _ => "Advance the clock by a positive number of minutes.",
+    };
+    Failure {
+        problem: Box::new(Problem::typed(
+            "clock",
+            422,
+            "The clock cannot move that far",
+            format!("{sentence} The rule is {rule}."),
+        )),
+        retry_after: None,
+        reason: "clock",
+    }
+}
+
 /// A cap or the flag, with `Retry-After` to the next 00:00 UTC for a cap.
 pub fn refusal(r: Refusal, retry_after: Option<u32>, account_cap: u32) -> Failure {
     let f = match r {
@@ -284,6 +451,26 @@ mod tests {
     }
 
     #[test]
+    fn a_refused_note_names_its_class_never_its_text() {
+        let f = order("note", Some("phone"));
+        assert_eq!(f.problem.status, 422);
+        assert_eq!(
+            f.problem.problem_type,
+            "https://bakery.ihaveasegway.com/problems/order"
+        );
+        let detail = f.problem.detail.unwrap();
+        assert!(detail.contains("note-phone") && detail.contains("phone number"));
+        assert!(
+            order("lead-time", None)
+                .problem
+                .detail
+                .unwrap()
+                .contains("The rule is lead-time.")
+        );
+        assert_eq!(seeding().retry_after, Some(1));
+    }
+
+    #[test]
     fn the_guest_rule_is_named() {
         let f = guest_scope();
         assert_eq!(f.problem.status, 403);
@@ -305,6 +492,13 @@ mod tests {
             rate_limit(),
             wiped(),
             guest_scope(),
+            seeding(),
+            order("too-many-lines", None),
+            order("note", Some("email")),
+            order("note", Some("too-long")),
+            order("something-new", None),
+            menu("nothing-to-publish"),
+            clock("too-far"),
             Failure::from(ConfigError::Missing("TURNSTILE_SECRET")),
         ] {
             let detail = f.problem.detail.clone().unwrap();

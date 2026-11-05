@@ -22,7 +22,8 @@ export interface SandboxResponse {
    */
   born: string;
   /**
-   * Registered child objects; none in PR 3.
+   * Registered child objects: the Catalog, the Kitchen and the 12 seeded orders once
+   * seeding is done, then one more for each order placed.
    */
   children: number;
   /**
@@ -40,6 +41,11 @@ export interface SandboxResponse {
   id: string;
   kind: SandboxKind;
   /**
+   * The visitor's customer persona: the seed's first customer's ULID. Orders the visitor
+   * places are this customer's.
+   */
+  persona: string;
+  /**
    * The seed the sandbox was generated from. A JSON number: JavaScript reads it exactly only
    * below 2^53, so the router mints seeds in that range.
    */
@@ -55,8 +61,11 @@ export interface SandboxResponse {
   wipe_at: string;
 }
 /**
- * The sandbox's fault switches. `inbox` makes the broken-subscriber demo's Inbox fail (PR 4).
+ * The sandbox's fault switches: the Queue Lab's broken subscriber, live. `kitchen` makes the
+ * Kitchen refuse every delivery with 503, so a message retries three times and lands in the
+ * dead-letter queue (PR 4); `inbox` does the same to the Inbox when it arrives (PR 8).
  */
 export interface Faults {
   inbox: boolean;
+  kitchen: boolean;
 }

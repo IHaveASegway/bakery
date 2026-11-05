@@ -4,7 +4,7 @@ import { defineConfig } from 'astro/config';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { hashesByRule } from './scripts/inline-hashes.mjs';
-import { CHALLENGE_PATHS, DEFAULT_API_ORIGIN, headersFile } from './src/policy.ts';
+import { DEFAULT_API_ORIGIN, RULE_PATHS, headersFile } from './src/policy.ts';
 
 /**
  * Writes dist/_headers from src/policy.ts once the build is done, so `pnpm build` stays one
@@ -33,7 +33,7 @@ function pagePolicy() {
       'astro:build:done': ({ dir }) => {
         const out = fileURLToPath(dir);
         mkdirSync(out, { recursive: true });
-        writeFileSync(`${out}_headers`, headersFile(apiOrigin, hashesByRule(out, CHALLENGE_PATHS)));
+        writeFileSync(`${out}_headers`, headersFile(apiOrigin, hashesByRule(out, RULE_PATHS)));
       },
     },
   };

@@ -2,7 +2,7 @@
 
 What the system of the made-up bakery, Proof of Concept Bakery (Q2 · Q-name), costs to run, what breaks first on each Cloudflare plan under a launch, a bot or a bug, and the guardrails that keep both the bill and the breakage bounded. This doc owns the price sheet, the formulas, the per-sandbox meter, scenarios A–F, the guardrails, the launch checklist, the annual totals and denial of wallet. [ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md) owns the plan decision ([ADR index](adr/README.md)); [architecture.md](architecture.md) owns how the objects and the Queue fit together; [operations.md](operations.md) owns the runbooks that act on these numbers.
 
-Status: Draft for review in PR 1 · 2026-11-04
+Status: Updated in PR 4 · 2026-11-05
 
 Prices and limits are as of 2026-11-04, with a source for every line.
 
@@ -304,7 +304,7 @@ Each control arrives with the work that needs it, in Q37 · Q-order-of-work's ph
 | Auth, sandbox and wipe | Alarm loop guard: re-arm only for a later time, at most 100 times a day per object | Counted in the object's SQLite | Scenario D |
 | Kitchen board | Hibernation API only (`State::accept_web_socket`), auto-response pings, no timers in objects | A lint fails a timer | Idle duration: 11,059 GB-s a day per non-hibernating socket |
 | Kitchen board | The consumer holds no producer; DLQ after 3 retries | — | Queue loops |
-| Kitchen board and simulated traffic (PR 4) | The `Simulator`'s caps: signed-in sandboxes only; runs only while the console's socket or heartbeat is live; reserved in `Control`'s ledger at its ceiling and charged to the daily budgets above | 6 orders a minute; 30 minutes a sandbox a UTC day; stopped by the wipe. On a day at the 300-sandbox cap the Queue budget leaves room for about 9 full runs (5,000 ÷ 546) | A load generator of our own making: about $0.0033 of meters per run at overage prices, 92% of it rows, and the designed worst month stays $5.29 |
+| Kitchen board and simulated traffic (PR 4) | The `Simulator`'s caps: signed-in sandboxes only; runs only while the console's socket or heartbeat is live; reserved in `Control`'s ledger at its ceiling, designed to be charged to the daily budgets above. As built in PR 4 (2026-11-05), minutes are charged to `Control`'s new `traffic(day, sandbox, minutes)` ledger only; the DO-request and Queue budgets are not metered by `Control` yet, and PR 11's breaker reads the account's analytics instead | 6 orders a minute; 30 minutes a sandbox a UTC day; stopped by the wipe. On a day at the 300-sandbox cap the Queue budget leaves room for about 9 full runs (5,000 ÷ 546) | A load generator of our own making: about $0.0033 of meters per run at overage prices, 92% of it rows, and the designed worst month stays $5.29 |
 | Payments | Stripe sandbox key guard in CI and the Worker | Any non-sandbox key refused; payment routes answer 503 ([security.md](security.md#payments-safety)) | Real money moving at all |
 
 At `Control`'s caps the worst designed month is $5.29, 5.3% of the $100 ceiling, so a $10 alert means usage went around `Control`: a loop, a ledger bug, or a meter this doc counts wrong. That is why the breaker reads the account's real usage from analytics and not `Control`'s counters.

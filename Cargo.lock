@@ -39,8 +39,10 @@ dependencies = [
  "bakery-contracts",
  "bakery-domain",
  "bakery-seed",
+ "rand_core 0.10.1",
  "serde",
  "serde_json",
+ "sha2",
  "wasm-bindgen",
  "worker",
 ]
@@ -52,6 +54,7 @@ dependencies = [
  "argon2",
  "bakery-contracts",
  "bakery-domain",
+ "bakery-seed",
  "data-encoding",
  "hmac",
  "rand_chacha 0.3.1",

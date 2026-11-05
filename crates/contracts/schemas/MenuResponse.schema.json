@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MenuResponse",
+  "description": "`GET /v1/sandboxes/{id}/menu`: the published menu, with `ETag: \"v<version>\"`.",
+  "type": "object",
+  "properties": {
+    "categories": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/MenuCategory"
+      }
+    },
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "categories"
+  ],
+  "$defs": {
+    "MenuBulkLead": {
+      "description": "More than `over_qty` of one variant needs `lead_minutes`.",
+      "type": "object",
+      "properties": {
+        "lead_minutes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "over_qty": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "over_qty",
+        "lead_minutes"
+      ]
+    },
+    "MenuCategory": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MenuItem"
+          }
+        },
+        "name": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "slug",
+        "name",
+        "items"
+      ]
+    },
+    "MenuItem": {
+      "type": "object",
+      "properties": {
+        "allergens": {
+          "description": "From the nine major US allergens, such as `wheat` and `tree-nuts`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "bulk_lead": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MenuBulkLead"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "daily_cap": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "days_baked": {
+          "description": "`mon` to `sun`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "type": "string"
+        },
+        "pickup_only": {
+          "type": "boolean"
+        },
+        "season": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MenuSeason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slug": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/MenuItemState"
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MenuVariant"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "slug",
+        "name",
+        "allergens",
+        "daily_cap",
+        "days_baked",
+        "pickup_only",
+        "status",
+        "variants"
+      ]
+    },
+    "MenuItemState": {
+      "description": "An item's stored lifecycle; the menu lists `available` and `paused` items.",
+      "type": "string",
+      "enum": [
+        "draft",
+        "available",
+        "paused",
+        "retired"
+      ]
+    },
+    "MenuSeason": {
+      "description": "A seasonal window, `MM-DD` to `MM-DD` inclusive, wrapping over the new year when `from` is\nafter `to`.",
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to"
+      ]
+    },
+    "MenuVariant": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "lead_minutes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "price_cents": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "slug": {
+          "description": "`<item slug>/<suffix>`, such as `croissant/box-6`.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "slug",
+        "label",
+        "price_cents",
+        "lead_minutes"
+      ]
+    }
+  }
+}

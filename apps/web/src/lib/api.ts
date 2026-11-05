@@ -1,17 +1,25 @@
 // The storefront's whole contact with the API. The session is a cookie on the API's host, so
 // every call sends credentials and no script ever sees a token.
 import type {
+  ClockResponse,
   CreateSandboxRequest,
+  DeadLetter,
   DemoSigninRequest,
   DemoSignupRequest,
   DemoSignupResponse,
   FaultRequest,
   FaultsResponse,
+  MenuEditResponse,
+  MenuItemPatch,
+  MenuResponse,
+  OrderRequest,
+  OrderResponse,
   SandboxResponse,
   SessionResponse,
+  TrafficResponse,
   WipedResponse,
 } from '../contracts';
-import { DEFAULT_API_ORIGIN, normalizeOrigin } from '../policy';
+import { DEFAULT_API_ORIGIN, normalizeOrigin, socketOrigin } from '../policy';
 import { parseProblem, problemSlug, type ProblemInfo } from './problem';
 import { ulid } from './ulid';
 
@@ -50,31 +58,45 @@ export class NetworkError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = {};
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
-  // A fresh key per call: the API replays the answer to a repeated key, so a retry is a new call.
-  if (method === 'POST') headers['Idempotency-Key'] = ulid();
-
-  let response: Response;
+/** Sends one request with the session cookie; a network failure is a NetworkError. */
+async function send(
+  method: string,
+  path: string,
+  options: { body?: unknown; key?: string; headers?: Record<string, string> } = {},
+): Promise<Response> {
+  const headers: Record<string, string> = { ...options.headers };
+  if (options.body !== undefined) headers['Content-Type'] = 'application/json';
+  // A fresh key per call unless the caller names one: the API replays the answer to a repeated
+  // key, so a retry of the same intent passes its key again and a new intent never does.
+  if (method === 'POST') headers['Idempotency-Key'] = options.key ?? ulid();
   try {
-    response = await fetch(`${apiOrigin}${path}`, {
+    return await fetch(`${apiOrigin}${path}`, {
       method,
       credentials: 'include',
       headers,
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
     });
   } catch {
     throw new NetworkError();
   }
+}
 
-  if (!response.ok) {
-    const retry = Number(response.headers.get('Retry-After'));
-    throw new ApiError(
-      parseProblem(response.status, await response.text()),
-      Number.isFinite(retry) && retry > 0 ? retry : null,
-    );
-  }
+/** An error response as the ApiError it is. */
+async function problemOf(response: Response): Promise<ApiError> {
+  const retry = Number(response.headers.get('Retry-After'));
+  return new ApiError(
+    parseProblem(response.status, await response.text()),
+    Number.isFinite(retry) && retry > 0 ? retry : null,
+  );
+}
+
+async function request<T>(
+  method: string,
+  path: string,
+  options: { body?: unknown; key?: string } = {},
+): Promise<T> {
+  const response = await send(method, path, options);
+  if (!response.ok) throw await problemOf(response);
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
@@ -83,17 +105,81 @@ const sandboxPath = (id: string) => `/v1/sandboxes/${encodeURIComponent(id)}`;
 
 export const getSession = () => request<SessionResponse>('GET', '/v1/session');
 export const demoSignup = (req: DemoSignupRequest) =>
-  request<DemoSignupResponse>('POST', '/v1/auth/demo', req);
+  request<DemoSignupResponse>('POST', '/v1/auth/demo', { body: req });
 export const demoSignin = (req: DemoSigninRequest) =>
-  request<SessionResponse>('POST', '/v1/auth/demo/signin', req);
+  request<SessionResponse>('POST', '/v1/auth/demo/signin', { body: req });
 export const signOut = () => request<void>('POST', '/v1/auth/signout');
 export const createSandbox = (req: CreateSandboxRequest) =>
-  request<SandboxResponse>('POST', '/v1/sandboxes', req);
+  request<SandboxResponse>('POST', '/v1/sandboxes', { body: req });
 export const getSandbox = (id: string) => request<SandboxResponse>('GET', sandboxPath(id));
 export const wipeSandbox = (id: string) => request<WipedResponse>('DELETE', sandboxPath(id));
 export const setFault = (id: string, req: FaultRequest) =>
-  request<FaultsResponse>('POST', `${sandboxPath(id)}/faults`, req);
+  request<FaultsResponse>('POST', `${sandboxPath(id)}/faults`, { body: req });
+
+/** The live menu, or "not modified" when the ETag the caller holds is still current. */
+export type MenuAnswer =
+  | { modified: true; menu: MenuResponse; etag: string | null; cache: string | null }
+  | { modified: false; etag: string | null; cache: string | null };
+
+/**
+ * `GET /v1/sandboxes/{id}/menu`. With the ETag of the copy in hand it sends `If-None-Match` and a
+ * 304 comes back as `modified: false`. `Bakery-Cache` (`hit` or `miss`) and `ETag` are the two
+ * headers the API exposes for the "How this works" line.
+ */
+export async function getMenu(id: string, etag: string | null = null): Promise<MenuAnswer> {
+  const response = await send('GET', `${sandboxPath(id)}/menu`, {
+    headers: etag === null ? {} : { 'If-None-Match': etag },
+  });
+  const seen = {
+    etag: response.headers.get('ETag'),
+    cache: response.headers.get('Bakery-Cache'),
+  };
+  if (response.status === 304) return { modified: false, ...seen };
+  if (!response.ok) throw await problemOf(response);
+  return { modified: true, menu: (await response.json()) as MenuResponse, ...seen };
+}
+
+/**
+ * `POST /v1/sandboxes/{id}/orders`. The caller owns the idempotency key: the same key for a retry
+ * of the same attempt, a new one for a new attempt (see lib/attempt.ts).
+ */
+export const placeOrder = (id: string, req: OrderRequest, key: string) =>
+  request<OrderResponse>('POST', `${sandboxPath(id)}/orders`, { body: req, key });
+
+export const heartbeat = (id: string) => request<void>('POST', `${sandboxPath(id)}/heartbeat`);
+
+export const getTraffic = (id: string) =>
+  request<TrafficResponse>('GET', `${sandboxPath(id)}/traffic`);
+export const startTraffic = (id: string, rate: number) =>
+  request<TrafficResponse>('POST', `${sandboxPath(id)}/traffic`, { body: { rate } });
+export const stopTraffic = (id: string) =>
+  request<TrafficResponse>('DELETE', `${sandboxPath(id)}/traffic`);
+
+export const patchMenuItem = (id: string, slug: string, patch: MenuItemPatch) =>
+  request<MenuEditResponse>('PATCH', `${sandboxPath(id)}/menu/items/${encodeURIComponent(slug)}`, {
+    body: patch,
+  });
+export const publishMenu = (id: string) =>
+  request<MenuEditResponse>('POST', `${sandboxPath(id)}/menu/publish`);
+
+export const getDeadLetters = async (id: string): Promise<DeadLetter[]> => {
+  const list = await request<unknown>('GET', `${sandboxPath(id)}/dead-letters`);
+  return Array.isArray(list) ? (list as DeadLetter[]) : [];
+};
+export const redrive = (id: string, eventId: string) =>
+  request<unknown>(
+    'POST',
+    `${sandboxPath(id)}/dead-letters/${encodeURIComponent(eventId)}/redrive`,
+  );
+
+/** Moves the sandbox's business clock forward; the offset only ever grows. */
+export const advanceClock = (id: string, minutes: number) =>
+  request<ClockResponse>('POST', `${sandboxPath(id)}/clock`, { body: { minutes } });
 
 /** The sign-in links are navigations through the API, not fetches (security.md, "Sign-in"). */
 export const signinUrl = (provider: 'google' | 'github') =>
   `${apiOrigin}/v1/auth/${provider}/start?return=/app/`;
+
+/** Where the kitchen board's socket is: the API's own origin with ws: or wss: (src/policy.ts). */
+export const kitchenSocketUrl = (id: string) =>
+  `${socketOrigin(apiOrigin)}${sandboxPath(id)}/kitchen/ws`;

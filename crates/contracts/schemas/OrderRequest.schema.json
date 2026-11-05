@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OrderRequest",
+  "description": "`POST /v1/sandboxes/{id}/orders`. The customer is the sandbox's persona; the prices come\nfrom the menu version the Catalog publishes when the order is placed.",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "$ref": "#/$defs/OrderKind"
+    },
+    "lines": {
+      "description": "1 to 20 lines.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/OrderLineRequest"
+      }
+    },
+    "note": {
+      "description": "At most 140 characters, with no email address, phone number, card number or URL.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "slot": {
+      "description": "The pickup slot's or delivery window's start, a business time such as\n`2026-11-07T09:45:00-07:00`.",
+      "type": "string"
+    },
+    "zone": {
+      "description": "`z1`, `z2` or `z3` for a delivery; absent for a pickup.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "slot",
+    "lines"
+  ],
+  "$defs": {
+    "OrderKind": {
+      "description": "Pickup at the counter, or delivery to a zone.",
+      "type": "string",
+      "enum": [
+        "pickup",
+        "delivery"
+      ]
+    },
+    "OrderLineRequest": {
+      "description": "One line of an order as the customer asks for it.",
+      "type": "object",
+      "properties": {
+        "qty": {
+          "description": "1 to 24.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "variant": {
+          "description": "A variant slug from the menu, such as `croissant/box-6`.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "variant",
+        "qty"
+      ]
+    }
+  }
+}

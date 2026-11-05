@@ -6,11 +6,15 @@ mod auth;
 mod demo;
 mod guard;
 mod headers;
+mod kitchen;
+mod menu;
 mod oauth;
+mod orders;
 mod outbound;
 mod problem;
 mod routes;
 mod sandboxes;
+mod traffic;
 
 use std::cell::RefCell;
 
@@ -28,9 +32,10 @@ use crate::objects::control;
 
 use auth::Auth;
 use problem::Failure;
-use routes::{Limit, Matched, Route, RouteId, Scope};
+use routes::{Limit, Matched, Params, Route, RouteId, Scope};
 
 pub use headers::ALLOWED_ORIGIN_VAR;
+pub use menu::cache_key as menu_cache_key;
 
 /// Everything a route reads about its request, decided once.
 pub struct Cx {
@@ -100,14 +105,15 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
             preflight = true;
             Ok(Response::empty()?.with_status(204))
         }
-        Matched::Route(route, id) => {
+        Matched::Route(route, params) => {
             // Health touches no object, so it has no IP hash; everything else asks for the
             // day's salt, which the isolate caches for 30 s.
             if route.id != RouteId::Health {
                 ip_hash = outbound::ip_hash_for(&env, ip.as_deref(), started).await;
             }
             let mut req = req;
-            let (result, n) = run(route, id, &mut req, env, cfg, started, ip_hash.clone()).await;
+            let (result, n) =
+                run(route, params, &mut req, env, cfg, started, ip_hash.clone()).await;
             note = n;
             result
         }
@@ -147,7 +153,7 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
 /// anything but the salt until the route itself runs.
 async fn run(
     route: &'static Route,
-    id: Option<String>,
+    params: Params,
     req: &mut Request,
     env: Env,
     cfg: Config,
@@ -162,19 +168,21 @@ async fn run(
         key: None,
         note: RefCell::new(Note::default()),
     };
-    let result = checked(route, id, req, &mut cx, ip_hash).await;
+    let result = checked(route, params, req, &mut cx, ip_hash).await;
     (result, cx.note.into_inner())
 }
 
 async fn checked(
     route: &'static Route,
-    id: Option<String>,
+    params: Params,
     req: &mut Request,
     cx: &mut Cx,
     ip_hash: Option<String>,
 ) -> std::result::Result<Response, Failure> {
     let headers = req.headers();
-    if guard::is_command(route.method) {
+    // The socket's upgrade is a GET, but it carries the cookie and ignores CORS: the exact
+    // Origin is the defence against cross-site hijacking (docs/security.md, the threats table).
+    if guard::is_command(route.method) || route.id == RouteId::KitchenSocket {
         let allowed = cx.cfg.origin()?;
         let origin = headers.get("Origin").ok().flatten();
         let site = headers.get("Sec-Fetch-Site").ok().flatten();
@@ -184,6 +192,11 @@ async fn checked(
     if route.method == "POST" {
         let key = headers.get("Idempotency-Key").ok().flatten();
         cx.key = Some(guard::idempotency_key(key.as_deref()).ok_or_else(problem::idempotency_key)?);
+    } else if route.method == "PATCH" {
+        // Optional on a PATCH, which is idempotent by its body; a malformed one is still refused.
+        if let Some(key) = headers.get("Idempotency-Key").ok().flatten() {
+            cx.key = Some(guard::idempotency_key(Some(&key)).ok_or_else(problem::idempotency_key)?);
+        }
     }
 
     // The session: required by its scope, read when present otherwise. Without a signing key
@@ -222,6 +235,12 @@ async fn checked(
                 .map(|c| format!("sid:{}", c.sid))
                 .unwrap_or_else(|| ip_key(ip_hash.as_deref())),
         )),
+        Limit::Upgrade => Some((
+            "UPGRADE_LIMIT",
+            cx.claims()
+                .map(|c| format!("sid:{}", c.sid))
+                .unwrap_or_else(|| ip_key(ip_hash.as_deref())),
+        )),
     };
     if let Some((binding, key)) = limit_key
         && !outbound::within_limit(&cx.env, binding, key).await
@@ -230,6 +249,8 @@ async fn checked(
     }
 
     let cx = &*cx;
+    let id = params.id;
+    let sub = params.sub.as_deref();
     match route.id {
         RouteId::Health => get_health(cx),
         RouteId::Status => get_status(cx).await,
@@ -245,6 +266,20 @@ async fn checked(
         RouteId::GetSandbox => sandboxes::get(cx, id.as_deref()).await,
         RouteId::WipeSandbox => sandboxes::wipe(cx, id.as_deref()).await,
         RouteId::SetFault => sandboxes::set_fault(cx, req, id.as_deref()).await,
+        RouteId::GetMenu => menu::get(cx, req, id.as_deref()).await,
+        RouteId::PatchMenuItem => menu::patch_item(cx, req, id.as_deref(), sub).await,
+        RouteId::PublishMenu => menu::publish(cx, id.as_deref()).await,
+        RouteId::PlaceOrder => orders::place(cx, req, id.as_deref()).await,
+        RouteId::GetOrder => orders::get(cx, id.as_deref(), sub).await,
+        RouteId::CancelOrder => orders::cancel(cx, id.as_deref(), sub).await,
+        RouteId::ListDeadLetters => sandboxes::dead_letters(cx, id.as_deref()).await,
+        RouteId::Redrive => sandboxes::redrive(cx, id.as_deref(), sub).await,
+        RouteId::AdvanceClock => sandboxes::advance_clock(cx, req, id.as_deref()).await,
+        RouteId::KitchenSocket => kitchen::socket(cx, req, id.as_deref()).await,
+        RouteId::Heartbeat => kitchen::heartbeat(cx, id.as_deref()).await,
+        RouteId::GetTraffic => traffic::get(cx, id.as_deref()).await,
+        RouteId::StartTraffic => traffic::start(cx, req, id.as_deref()).await,
+        RouteId::StopTraffic => traffic::stop(cx, id.as_deref()).await,
     }
 }
 
@@ -282,6 +317,12 @@ fn get_health(cx: &Cx) -> std::result::Result<Response, Failure> {
 async fn get_status(cx: &Cx) -> std::result::Result<Response, Failure> {
     let status = control::status(&cx.env).await?;
     Ok(Response::from_json(&status)?)
+}
+
+/// The digest `commands_seen` compares a repeated key's body by: SHA-256 of the body text, hex.
+pub fn body_hash(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    bakery_app::auth::hex(&Sha256::digest(text.as_bytes()))
 }
 
 /// A JSON body for the visitor, with a status.

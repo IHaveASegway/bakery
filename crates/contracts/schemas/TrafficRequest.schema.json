@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TrafficRequest",
+  "description": "`POST /v1/sandboxes/{id}/traffic`, signed-in sessions only: simulated orders a minute.",
+  "type": "object",
+  "properties": {
+    "rate": {
+      "description": "1 to 6.",
+      "type": "integer",
+      "format": "uint8",
+      "maximum": 255,
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "rate"
+  ]
+}

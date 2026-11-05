@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MenuItemPatch",
+  "description": "`PATCH /v1/sandboxes/{id}/menu/items/{slug}`, signed-in sessions only. A price is a draft,\nset on every variant of the item, until `POST .../menu/publish`; a pause or a resume\npublishes that one item at once.",
+  "type": "object",
+  "properties": {
+    "price_cents": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "int64",
+      "default": null
+    },
+    "status": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MenuItemStatus"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "MenuItemStatus": {
+      "description": "What a staff edit may set on a menu item's status.",
+      "type": "string",
+      "enum": [
+        "paused",
+        "available"
+      ]
+    }
+  }
+}
