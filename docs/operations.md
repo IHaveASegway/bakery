@@ -38,10 +38,10 @@ Q17 · Q-psp, Q20 · Q-stripe-account, [ADR 0007](adr/0007-stripe-sandbox-and-a-
 
 Created in PR 2, because local development needs the keys; the production webhook comes on launch day.
 
-1. In Joseph's Stripe account, create a general sandbox named Proof of Concept Bakery: an isolated test environment with its own keys and webhooks, free, not processed by card networks ([Stripe](https://docs.stripe.com/sandboxes), as of 2026-11-04).
-2. A restricted key for the Worker with only the permissions the adapter uses (confirm when building) becomes `STRIPE_SECRET_KEY`: in `.dev.vars` locally, a Worker secret at launch.
+1. Use the test-mode sandbox Stripe gives the account: an isolated test environment with its own keys and webhooks, free, not processed by card networks ([Stripe](https://docs.stripe.com/sandboxes), as of 2026-11-04). Stripe refuses a second sandbox until the business is verified (seen in the dashboard on 2026-11-04), and a made-up bakery has nothing to verify, so this is the only one and it is never deleted.
+2. A restricted key named `bakery-api-local`, with Write on payment intents, customers, invoices, and charges and refunds, and nothing else, becomes `STRIPE_SECRET_KEY` in `.dev.vars` (created 2026-11-04). At launch, a separate key with the same permissions becomes the Worker secret. The publishable key, public by design, is `STRIPE_PUBLISHABLE_KEY`.
 3. Locally, the Stripe CLI forwards events to `wrangler dev` and prints a signing secret for `.dev.vars` ([Stripe CLI](https://docs.stripe.com/stripe-cli), as of 2026-11-04). At launch, a webhook endpoint at `https://api.bakery.ihaveasegway.com/v1/stripe/webhook`; its signing secret becomes `STRIPE_WEBHOOK_SECRET`. Signatures are HMAC-SHA256 over `t.payload` with a 5-minute tolerance ([Stripe](https://docs.stripe.com/webhooks#verify-manually)).
-4. At launch, a second sandbox for CI, as Stripe recommends for automated tests, with its own restricted key: the GitHub secret `STRIPE_E2E_SECRET_KEY`. Test cards only ([Stripe testing](https://docs.stripe.com/testing)).
+4. A second restricted key in the same sandbox, `bakery-ci-e2e`, with the same permissions: the GitHub secret `STRIPE_E2E_SECRET_KEY`, set on 2026-11-04 for the `e2e` job that arrives in PR 11. Stripe recommends a separate sandbox for automated tests, which the refusal above rules out, so CI and local work share test data, and `e2e` asserts only on objects it created. Test cards only ([Stripe testing](https://docs.stripe.com/testing)).
 
 ### 4. The Google OAuth client
 
@@ -50,9 +50,9 @@ Created in PR 2, because local development needs the keys; the production webhoo
 Created in PR 2 in testing status, with Joseph as its test user, for local development; published on launch day.
 
 1. A Google Cloud project named Proof of Concept Bakery. Console labels move; confirm when building.
-2. Consent screen: External; the app name; privacy page `https://bakery.ihaveasegway.com/privacy/`; authorized domain `ihaveasegway.com`; `hello@ihaveasegway.com` as the required contact, and no other address.
+2. Consent screen: External; the app name; privacy page `https://bakery.ihaveasegway.com/privacy/`; authorized domain `ihaveasegway.com`; `hello@ihaveasegway.com` as the developer contact. The user support email offers only the signed-in account's own address or a Google Group it manages (as of 2026-11-04), so in testing status it is that account's address, which only test users see. Before publishing, it moves to `hello@ihaveasegway.com`, because the screen then shows it to every visitor: a Google account on that address, verified through Email Routing, can select itself (Joseph's decision of 2026-11-04). A free Google Group would end in `@googlegroups.com` and would not match.
 3. Scopes: `openid` only. No sensitive scope is requested, so no verification review is needed ([Google](https://developers.google.com/identity/openid-connect/openid-connect), as of 2026-11-04; confirm the current rule). Publish the screen to production at launch, once the privacy page is live, so any Google account can sign in.
-4. An OAuth client of type Web application, redirect URIs `http://localhost:8788/v1/auth/google/callback` for local development and, at launch, `https://api.bakery.ihaveasegway.com/v1/auth/google/callback` (paths assumed until ADR 0013, written in PR 10; confirm that Google accepts the localhost form). The client secret becomes `GOOGLE_CLIENT_SECRET`; the client id is public and goes in `vars`.
+4. An OAuth client of type Web application, redirect URIs `http://127.0.0.1:8788/v1/auth/google/callback` for local development and `https://api.bakery.ihaveasegway.com/v1/auth/google/callback`, both registered on 2026-11-04 (paths assumed until ADR 0013, written in PR 10). The client secret becomes `GOOGLE_CLIENT_SECRET`; the client id is public and goes in `vars`.
 5. Validate ID tokens locally against the `jwks_uri` keys; `tokeninfo` is for debugging only.
 
 ### 5. Turnstile
@@ -85,16 +85,16 @@ Launch day. `bakery-objects` needs read access every night, so it has its own to
 
 ### 9. Local hooks and the private firewall file
 
-As the site's [step 5](https://github.com/IHaveASegway/website/blob/main/docs/operations.md#5-local-hooks-and-the-private-firewall-file-pr-2), assumed until Q34 · Q-firewall is answered. The rules file is this repository's own, never committed, never quoted: create it under `~/.config/ihaveasegway/` readable only by its owner, back it up, and set `RULE_FLOOR` in `scripts/firewall/check.sh`. Run `git config core.hooksPath .githooks`, then `scripts/firewall/test.sh` and `scripts/firewall/sync-secrets.sh` (it fills both `FIREWALL_RULES` secrets), and prove the hooks by watching `git push origin main` be refused. A cloud session has no rules file and commits without the hooks, by Joseph's decision, saying so in the pull request.
+As the site's [step 5](https://github.com/IHaveASegway/website/blob/main/docs/operations.md#5-local-hooks-and-the-private-firewall-file-pr-2) (Q34 · Q-firewall). The rules file is the site's, never committed, never quoted: both repositories read the one file at `~/.config/ihaveasegway/firewall.toml`, readable only by its owner and backed up in the password manager, and `RULE_FLOOR` in `scripts/firewall/check.sh` matches the site's. Run `git config core.hooksPath .githooks`, then `scripts/firewall/test.sh` and `scripts/firewall/sync-secrets.sh` (it fills both `FIREWALL_RULES` secrets), and prove the hooks by watching `git push origin main` be refused. A cloud session has no rules file and commits without the hooks, by Joseph's decision, saying so in the pull request.
 
 ### 10. The GitHub OAuth app
 
 Created in PR 2 for local development (Q23 · Q-auth, [ADR 0006](adr/0006-sign-in-that-learns-nothing.md)). GitHub sign-in uses the numeric user `id` only: the `user` scope is not requested (so no `user:email`), the token is used once for `GET /user` and discarded, and the id is HMAC'd like Google's `sub` ([GitHub, creating an OAuth app](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app), as of 2026-11-04).
 
-1. GitHub → Settings → Developer settings → OAuth Apps → New OAuth App, named Proof of Concept Bakery (dev). Labels move; confirm when building.
-2. Homepage `https://bakery.ihaveasegway.com/`; authorization callback `http://localhost:8788/v1/auth/github/callback` (path assumed until ADR 0013).
+1. GitHub → Settings → Developer settings → OAuth Apps → New OAuth App, named Proof of Concept Bakery (local). Labels move; confirm when building.
+2. Homepage `https://bakery.ihaveasegway.com/`; authorization callback `http://127.0.0.1:8788/v1/auth/github/callback` (path assumed until ADR 0013).
 3. The client id is public and goes in `vars`; the client secret becomes `GITHUB_CLIENT_SECRET`, in `.dev.vars` locally.
-4. At launch, a second app named Proof of Concept Bakery, with the callback `https://api.bakery.ihaveasegway.com/v1/auth/github/callback`, because an app holds one callback URL (confirm); its secret is the Worker secret. No scope is requested, and the Worker's test asserts it.
+4. A second app named Proof of Concept Bakery, with the callback `https://api.bakery.ihaveasegway.com/v1/auth/github/callback`, created on 2026-11-04 with no secret yet. GitHub's form now takes up to 10 redirect URIs per app (as of 2026-11-04); two apps stay, so the production secret never sits on a laptop. At launch, generate its secret for the Worker. No scope is requested, and the Worker's test asserts it.
 
 ### 11. The Email Service sender (later)
 
@@ -149,7 +149,7 @@ PR 11's day. Everything before it ran locally, so this is the first time anythin
 3. Set the budget alerts at $10, $25, $50 and $100 the same hour, so there is no uncovered spend.
 4. Create the deploy token and the read token ([step 1](#1-the-deploy-token), [step 8](#8-the-read-token-for-the-nightly-object-check)), store them as GitHub secrets, and finish the settings in [step 7](#7-github-repository-settings).
 5. In the zone: the rate-limiting rule on the API hostname and the L3 rule, created and disabled; then `BREAKER_API_TOKEN` and the 15-minute cron breaker.
-6. Production secrets ([step 6](#6-worker-secrets)): the Stripe sandbox's webhook endpoint and CI sandbox, Turnstile's production widget, the production GitHub OAuth app, the Google client's redirect URI.
+6. Production secrets ([step 6](#6-worker-secrets)): the Stripe sandbox's webhook endpoint and a production restricted key, Turnstile's production widget, the production GitHub app's client secret, the Google client secret, and the consent screen's support email moved to `hello@ihaveasegway.com`.
 7. Publish the privacy page, then publish the Google consent screen and the GitHub app.
 8. Merge PR 11. The first `deploy` runs `wrangler deploy` for the API, then the web Worker, attaching both custom domains.
 9. Watch the first `prod-smoke`. If it fails, `prod-verdict` opens the issue: [Rollback](#rollback).
@@ -223,10 +223,10 @@ On suspected exposure, do it at once in this order: delete the exposed credentia
 
 ### Stripe sandbox reset
 
-Quarterly, or when the sandbox is cluttered or its keys leaked. It holds only synthetic data.
+Quarterly, or when the sandbox is cluttered or its keys leaked. It holds only synthetic data. Never delete the sandbox: Stripe refuses a new one until the business is verified (as of 2026-11-04).
 
-1. Delete the sandbox, or reset its data if the dashboard offers it (confirm), and create a new one named Proof of Concept Bakery.
-2. Recreate the Worker's key, CI's key and the webhook endpoint as in [step 3](#3-the-stripe-sandbox); set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and `STRIPE_E2E_SECRET_KEY`.
+1. Clear the sandbox's test data, if the dashboard offers it (confirm the control when building).
+2. Roll the Worker's key, CI's key and the webhook secret as in [step 3](#3-the-stripe-sandbox); set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and `STRIPE_E2E_SECRET_KEY`.
 3. Redeploy the API (L2's dispatch works), run `e2e`, send a signed test event.
 4. Do it just after 10:00 UTC: `Billing` entries then reference Stripe ids that no longer exist for under a day.
 
