@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OrderRequest, OrderResponse } from '../contracts';
-import { placeOrder } from '../lib/api';
+import { ApiError, placeOrder } from '../lib/api';
 import { attemptFor, keepKeyAfter, type Attempt } from '../lib/attempt';
 import {
   EMPTY_CART,
@@ -15,13 +15,33 @@ import { type Message as Text } from '../lib/messages';
 import { findVariant } from '../lib/menu';
 import { dollars, DEFAULT_TAX_BP } from '../lib/money';
 import { describeOrderError } from '../lib/order-errors';
-import { ZONES, byDate, deliveryWindows, pickupSlots, type Zone } from '../lib/slots';
+import {
+  HORIZON_DAYS,
+  horizonDates,
+  dateOfStart,
+  pickable,
+  pickupChoices,
+  slotConflict,
+  windowChoices,
+  type SlotConflict,
+} from '../lib/schedule';
+import {
+  ZONES,
+  byDate,
+  deliveryWindows,
+  mountainLocal,
+  mountainToMs,
+  pickupSlots,
+  type Zone,
+} from '../lib/slots';
 import { useCart } from '../lib/use-cart';
+import { useSchedule } from '../lib/use-schedule';
 import { useLiveMenu } from '../lib/use-live-menu';
 import { useSandboxPhase } from '../lib/use-session';
 import CartLines from './CartLines';
 import HowThisWorks from './HowThisWorks';
 import Message from './Message';
+import SlotPicker from './SlotPicker';
 import StatusLine from './StatusLine';
 
 /** The /checkout/ island: the cart, how to receive it, a note, and the order's result. */
@@ -31,18 +51,26 @@ export default function Checkout() {
   const { cart, ready, update } = useCart();
   const [now, setNow] = useState<number | null>(null);
   const [day, setDay] = useState('');
+  // The day the visitor picked in the slot picker; until then, the cart's slot's day, else today.
+  const [pickedDay, setPickedDay] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<SlotConflict | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Text | null>(null);
   const [retry, setRetry] = useState(false);
   const [result, setResult] = useState<OrderResponse | null>(null);
   const attempt = useRef<Attempt | null>(null);
 
-  // The slot lists are computed from the clock, so refresh it while the page is open.
+  const live = phase.name === 'live';
+  const sandboxId = phase.name === 'live' ? phase.id : null;
+  const offsetS = phase.name === 'live' ? phase.clockOffsetS : 0;
+
+  // The slot lists are computed from business time (wall time plus the sandbox's clock offset),
+  // so refresh it while the page is open.
   useEffect(() => {
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    setNow(Date.now() + offsetS * 1000);
+    const timer = setInterval(() => setNow(Date.now() + offsetS * 1000), 30_000);
     return () => clearInterval(timer);
-  }, []);
+  }, [offsetS]);
 
   const sum = totals(cart.lines, menu.menu);
   const noteChars = noteLength(cart.note);
@@ -59,13 +87,41 @@ export default function Checkout() {
   const timesOfDay = groups.find((g) => g.date === shownDay)?.slots ?? [];
   const blocker = cart.kind === 'delivery' ? deliveryBlocker(cart.lines, menu.menu) : null;
 
+  // A live sandbox reads the day's schedule from the API; the lists above serve the page before
+  // there is a sandbox to read from.
+  const dates = useMemo(() => (now === null ? [] : horizonDates(now, HORIZON_DAYS)), [now]);
+  const today = dates[0] ?? '';
+  const cartDay = cart.slot === '' ? '' : dateOfStart(cart.slot);
+  const wanted = pickedDay ?? (cartDay === '' ? today : cartDay);
+  const liveDay = dates.includes(wanted) ? wanted : today;
+  const schedule = useSchedule(live ? sandboxId : null, live ? liveDay : '');
+  const baked = useMemo(
+    () =>
+      liveDay === '' ||
+      dayAccepts(menu.menu, cart.lines)(mountainLocal(mountainToMs(liveDay, 12 * 60))),
+    [menu.menu, cart.lines, liveDay],
+  );
+  const choices = useMemo(() => {
+    if (schedule.schedule === null || now === null) return [];
+    const ctx = { nowMs: now, leadMinutes: lead, baked };
+    return cart.kind === 'pickup'
+      ? pickupChoices(schedule.schedule, ctx)
+      : windowChoices(schedule.schedule, cart.zone, ctx);
+  }, [schedule.schedule, now, lead, baked, cart.kind, cart.zone]);
+  const chosenLive = choices.find((c) => c.start === cart.slot && pickable(c)) ?? null;
+  const chosenStart = live ? (chosenLive?.start ?? null) : (chosen?.value ?? null);
+
   const reasons: string[] = [];
   if (cart.lines.length === 0) reasons.push('Add something to the cart.');
   if (sum.missing.length > 0) reasons.push('Take out what is no longer on the menu.');
   if (blocker) reasons.push(blocker);
-  if (slots.length === 0 && now !== null && cart.lines.length > 0) {
+  if (!live && slots.length === 0 && now !== null && cart.lines.length > 0) {
     reasons.push('No time in the next 7 days suits everything in the cart. Take something out.');
-  } else if (chosen === null) {
+  } else if (live && schedule.schedule === null && cart.slot === '') {
+    reasons.push(
+      schedule.error ? 'The schedule could not be read. Try again.' : 'Reading the day’s schedule…',
+    );
+  } else if (chosenStart === null) {
     reasons.push(
       cart.slot === ''
         ? `Choose a ${cart.kind === 'pickup' ? 'pickup time' : 'delivery window'}.`
@@ -74,13 +130,11 @@ export default function Checkout() {
   }
   if (noteChars > NOTE_MAX) reasons.push(`Shorten the note by ${noteChars - NOTE_MAX}.`);
 
-  const live = phase.name === 'live';
-
   async function place() {
-    if (phase.name !== 'live' || chosen === null || reasons.length > 0) return;
+    if (phase.name !== 'live' || chosenStart === null || reasons.length > 0) return;
     const body: OrderRequest = {
       kind: cart.kind,
-      slot: chosen.value,
+      slot: chosenStart,
       ...(cart.kind === 'delivery' ? { zone: cart.zone } : {}),
       lines: cart.lines.map(({ variant, qty }) => ({ variant, qty })),
       ...(cart.note.trim() === '' ? {} : { note: cart.note }),
@@ -90,6 +144,7 @@ export default function Checkout() {
     attempt.current = current;
     setBusy(true);
     setError(null);
+    setConflict(null);
     try {
       const order = await placeOrder(phase.id, body, current.key);
       attempt.current = null;
@@ -100,7 +155,12 @@ export default function Checkout() {
       const keep = keepKeyAfter(e);
       if (!keep) attempt.current = null;
       setRetry(keep);
-      setError(describeOrderError(e));
+      // A slot that filled first comes back with the next free one: offer it in the picker. Any
+      // refusal about the day's places means the page's copy of the schedule is stale.
+      const full = slotConflict(e);
+      setConflict(full);
+      setError(full === null ? describeOrderError(e) : null);
+      if (e instanceof ApiError && (e.status === 409 || e.status === 422)) void schedule.refresh();
     } finally {
       setBusy(false);
     }
@@ -149,7 +209,10 @@ export default function Checkout() {
               type="radio"
               name="kind"
               checked={cart.kind === 'pickup'}
-              onChange={() => update((c) => ({ ...c, kind: 'pickup', slot: '' }))}
+              onChange={() => {
+                setConflict(null);
+                update((c) => ({ ...c, kind: 'pickup', slot: '' }));
+              }}
             />{' '}
             Pickup, in 15-minute slots
           </label>{' '}
@@ -158,7 +221,10 @@ export default function Checkout() {
               type="radio"
               name="kind"
               checked={cart.kind === 'delivery'}
-              onChange={() => update((c) => ({ ...c, kind: 'delivery', slot: '' }))}
+              onChange={() => {
+                setConflict(null);
+                update((c) => ({ ...c, kind: 'delivery', slot: '' }));
+              }}
             />{' '}
             Delivery, in 2-hour windows
           </label>
@@ -170,7 +236,10 @@ export default function Checkout() {
             <select
               id="zone"
               value={cart.zone}
-              onChange={(e) => update((c) => ({ ...c, zone: e.target.value as Zone }))}
+              onChange={(e) => {
+                setConflict(null);
+                update((c) => ({ ...c, zone: e.target.value as Zone }));
+              }}
             >
               {ZONES.map((z) => (
                 <option key={z} value={z}>
@@ -181,44 +250,77 @@ export default function Checkout() {
           </p>
         )}
 
-        <p>
-          <label htmlFor="day">Day</label>
-          <select
-            id="day"
-            value={shownDay}
-            disabled={groups.length === 0}
-            onChange={(e) => {
-              setDay(e.target.value);
+        {live ? (
+          <SlotPicker
+            kind={cart.kind}
+            today={today}
+            dates={dates}
+            day={liveDay}
+            onDay={(date) => {
+              setPickedDay(date);
+              setConflict(null);
               update((c) => ({ ...c, slot: '' }));
             }}
-          >
-            {groups.map((g) => (
-              <option key={g.date} value={g.date}>
-                {g.label}
-              </option>
-            ))}
-          </select>
-        </p>
-        <p>
-          <label htmlFor="time">{cart.kind === 'pickup' ? 'Pickup time' : 'Delivery window'}</label>
-          <select
-            id="time"
-            value={chosen?.value ?? ''}
-            disabled={timesOfDay.length === 0}
-            onChange={(e) => update((c) => ({ ...c, slot: e.target.value }))}
-          >
-            <option value="">Choose…</option>
-            {timesOfDay.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-          <span className="hint">
-            Bakery time (Mountain). Open Tuesday to Sunday, 7:00 am to 3:00 pm.
-            {lead > 0 && ` Your cart needs ${Math.round(lead / 60)} hours’ notice at least.`}
-          </span>
-        </p>
+            live={schedule}
+            choices={choices}
+            slot={cart.slot}
+            onSlot={(start) => {
+              setConflict(null);
+              update((c) => ({ ...c, slot: start }));
+            }}
+            conflict={conflict}
+            onTakeNext={(start) => {
+              setPickedDay(dateOfStart(start));
+              setConflict(null);
+              update((c) => ({ ...c, slot: start }));
+            }}
+            baked={baked}
+            leadHours={Math.round(lead / 60)}
+          />
+        ) : (
+          <>
+            <p>
+              <label htmlFor="day">Day</label>
+              <select
+                id="day"
+                value={shownDay}
+                disabled={groups.length === 0}
+                onChange={(e) => {
+                  setDay(e.target.value);
+                  update((c) => ({ ...c, slot: '' }));
+                }}
+              >
+                {groups.map((g) => (
+                  <option key={g.date} value={g.date}>
+                    {g.label}
+                  </option>
+                ))}
+              </select>
+            </p>
+            <p>
+              <label htmlFor="time">
+                {cart.kind === 'pickup' ? 'Pickup time' : 'Delivery window'}
+              </label>
+              <select
+                id="time"
+                value={chosen?.value ?? ''}
+                disabled={timesOfDay.length === 0}
+                onChange={(e) => update((c) => ({ ...c, slot: e.target.value }))}
+              >
+                <option value="">Choose…</option>
+                {timesOfDay.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              <span className="hint">
+                Bakery time (Mountain). Open Tuesday to Sunday, 7:00 am to 3:00 pm.
+                {lead > 0 && ` Your cart needs ${Math.round(lead / 60)} hours’ notice at least.`}
+              </span>
+            </p>
+          </>
+        )}
 
         <p>
           <label htmlFor="note">Note for the kitchen (optional)</label>

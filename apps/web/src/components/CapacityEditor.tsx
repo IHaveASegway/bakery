@@ -1,0 +1,272 @@
+import { useMemo, useState } from 'react';
+import type { ScheduleResponse } from '../contracts';
+import { setCapacity } from '../lib/api';
+import {
+  KINDS,
+  MAX_CAPACITY,
+  buildTarget,
+  capacityRequest,
+  changedText,
+  describeCapacityError,
+  parseCapacity,
+  slotTime,
+  type TargetKind,
+} from '../lib/capacity';
+import { dateLabel, horizonDates } from '../lib/schedule';
+import { ZONES, clockLabel, mountainLocal } from '../lib/slots';
+import { useSchedule } from '../lib/use-schedule';
+import { type Message as Text } from '../lib/messages';
+import GuestNote from './GuestNote';
+import Message from './Message';
+
+const itemWords = (slug: string) => slug.replaceAll('-', ' ');
+
+function slotWords(start: string): string {
+  const l = mountainLocal(Date.parse(start));
+  return clockLabel(l.hour * 60 + l.minute);
+}
+
+/** The day's places and caps as the Schedule reports them, with the counts that matter. */
+function Day({ schedule }: { schedule: ScheduleResponse }) {
+  return (
+    <>
+      <p className="hint">
+        {schedule.open
+          ? 'The bakery is open.'
+          : 'The bakery is closed this day: it refuses every hold.'}{' '}
+        Menu version {schedule.menu_version} set the item caps.
+      </p>
+      <h5>Pickup slots</h5>
+      <ul className="choices">
+        {schedule.slots.map((s) => (
+          <li key={s.start}>
+            <strong>{slotWords(s.start)}</strong>: {s.taken} of {s.capacity} taken, {s.free} free
+          </li>
+        ))}
+      </ul>
+      <h5>Delivery zones</h5>
+      <ul className="choices">
+        {schedule.zones.map((z) => (
+          <li key={z.zone}>
+            <strong>Zone {z.zone.slice(1)}</strong>: {z.taken} of {z.capacity} stops taken, {z.free}{' '}
+            free, in {z.windows.length} windows
+          </li>
+        ))}
+      </ul>
+      <h5>Item caps</h5>
+      {schedule.items.length === 0 ? (
+        <p className="hint">No item has a cap or a use this day.</p>
+      ) : (
+        <ul className="choices">
+          {schedule.items.map((i) => (
+            <li key={i.item}>
+              <strong>{itemWords(i.item)}</strong>:{' '}
+              {i.daily_cap === null || i.daily_cap === undefined
+                ? `${i.used} used, no cap`
+                : `${i.used} of ${i.daily_cap} used, ${Math.max(0, i.daily_cap - i.used)} free`}
+            </li>
+          ))}
+        </ul>
+      )}
+      <h5>Catering</h5>
+      <p>
+        {schedule.catering.taken} of {schedule.catering.capacity} events taken,{' '}
+        {Math.max(0, schedule.catering.capacity - schedule.catering.taken)} free.
+      </p>
+    </>
+  );
+}
+
+/**
+ * Staff set one capacity for a bakery day: a pickup slot, a delivery zone, an item's daily cap or
+ * the catering events. The form builds the target the API's grammar names (`slot:14:45`, `zone:z1`,
+ * `item:croissant`, `catering`); the API checks it. A guest sees the schedule and cannot change it.
+ */
+export default function CapacityEditor({
+  sandboxId,
+  isGuest,
+  clockOffsetS,
+}: {
+  sandboxId: string;
+  isGuest: boolean;
+  clockOffsetS: number;
+}) {
+  // The editor looks at the bakery's days from business today on, like the checkout.
+  const dates = useMemo(() => horizonDates(Date.now() + clockOffsetS * 1000), [clockOffsetS]);
+  const [date, setDate] = useState('');
+  const day = dates.includes(date) ? date : (dates[0] ?? '');
+  const live = useSchedule(sandboxId, day);
+  const [kind, setKind] = useState<TargetKind>('slot');
+  const [value, setValue] = useState('');
+  const [capacity, setCapacityText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<Text | null>(null);
+  const [said, setSaid] = useState('');
+  const schedule = live.schedule;
+
+  const firstSlot = schedule?.slots[0] ? slotTime(schedule.slots[0].start) : '';
+  const chosen = kind === 'slot' ? value || firstSlot : kind === 'zone' ? value || 'z1' : value;
+
+  const built = buildTarget(kind, chosen);
+
+  async function submit() {
+    setError(null);
+    setSaid('');
+    if (!built.ok) {
+      setError({ title: 'That is not a target', detail: built.reason });
+      return;
+    }
+    const count = parseCapacity(capacity);
+    if (count === null) {
+      setError({
+        title: 'That is not a capacity',
+        detail: `Type a whole number from 0 to ${MAX_CAPACITY.toLocaleString('en-US')}.`,
+      });
+      return;
+    }
+    setBusy(true);
+    try {
+      const answer = await setCapacity(sandboxId, day, capacityRequest(built.target, count));
+      live.set(answer);
+      setSaid(changedText(built.target, count, answer));
+    } catch (e) {
+      setError(describeCapacityError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <h3>Capacity</h3>
+      <p>
+        Each slot, zone, item and the catering line has a capacity the Schedule enforces: held plus
+        reserved places never pass it. Staff can change a capacity for a day. A lowered capacity
+        never drops a reservation; it only stops new ones.
+      </p>
+      {isGuest && <GuestNote />}
+      <p>
+        <label htmlFor="capacity-day">Day</label>
+        <select id="capacity-day" value={day} onChange={(e) => setDate(e.target.value)}>
+          {dates.map((d) => (
+            <option key={d} value={d}>
+              {dateLabel(d)}
+            </option>
+          ))}
+        </select>
+      </p>
+      {live.error && (
+        <Message error={live.error}>
+          <button type="button" onClick={() => void live.refresh()}>
+            Try again
+          </button>
+        </Message>
+      )}
+      {schedule === null && !live.error && <p className="hint">Reading the day’s schedule…</p>}
+      {schedule !== null && <Day schedule={schedule} />}
+
+      <form
+        aria-label="Set a capacity"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <p>
+          <label htmlFor="capacity-kind">What to change</label>
+          <select
+            id="capacity-kind"
+            value={kind}
+            disabled={isGuest}
+            onChange={(e) => {
+              setKind(e.target.value as TargetKind);
+              setValue('');
+            }}
+          >
+            {KINDS.map((k) => (
+              <option key={k.kind} value={k.kind}>
+                {k.label}
+              </option>
+            ))}
+          </select>
+        </p>
+        {kind === 'slot' && (
+          <p>
+            <label htmlFor="capacity-slot">Slot</label>
+            <select
+              id="capacity-slot"
+              value={chosen}
+              disabled={isGuest || schedule === null}
+              onChange={(e) => setValue(e.target.value)}
+            >
+              {(schedule?.slots ?? []).map((s) => (
+                <option key={s.start} value={slotTime(s.start)}>
+                  {slotWords(s.start)}
+                </option>
+              ))}
+            </select>
+          </p>
+        )}
+        {kind === 'zone' && (
+          <p>
+            <label htmlFor="capacity-zone">Zone</label>
+            <select
+              id="capacity-zone"
+              value={chosen}
+              disabled={isGuest}
+              onChange={(e) => setValue(e.target.value)}
+            >
+              {ZONES.map((z) => (
+                <option key={z} value={z}>
+                  Zone {z.slice(1)}
+                </option>
+              ))}
+            </select>
+          </p>
+        )}
+        {kind === 'item' && (
+          <p>
+            <label htmlFor="capacity-item">Item slug</label>
+            <input
+              id="capacity-item"
+              type="text"
+              list="capacity-items"
+              value={value}
+              disabled={isGuest}
+              autoComplete="off"
+              onChange={(e) => setValue(e.target.value)}
+            />
+            <datalist id="capacity-items">
+              {(schedule?.items ?? []).map((i) => (
+                <option key={i.item} value={i.item} />
+              ))}
+            </datalist>
+            <span className="hint">The item’s slug from the menu, such as croissant.</span>
+          </p>
+        )}
+        <p>
+          <label htmlFor="capacity-value">New capacity</label>
+          <input
+            id="capacity-value"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={MAX_CAPACITY}
+            value={capacity}
+            disabled={isGuest}
+            onChange={(e) => setCapacityText(e.target.value)}
+          />
+          <span className="hint">
+            Target sent: <code>{built.ok ? built.target : '…'}</code>
+          </span>
+        </p>
+        <p>
+          <button type="submit" disabled={busy || isGuest}>
+            {busy ? 'Saving…' : 'Set capacity'}
+          </button>
+        </p>
+        <Message error={error}>{said && <p className="hint">{said}</p>}</Message>
+      </form>
+    </>
+  );
+}

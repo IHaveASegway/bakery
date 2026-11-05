@@ -16,6 +16,7 @@ describe('parseProblem', () => {
       type: 'https://bakery.ihaveasegway.com/problems/sandbox-cap',
       title: 'No more sandboxes today',
       detail: 'The daily cap is reached.',
+      next_free: null,
     });
   });
 
@@ -31,6 +32,17 @@ describe('parseProblem', () => {
       expect(p.type).toBe('about:blank');
       expect(p.title).toContain('502');
     }
+  });
+
+  test('reads the next_free extension member of a slot-full problem', () => {
+    const body = JSON.stringify({
+      type: 'https://bakery.ihaveasegway.com/problems/slot-full',
+      title: 'That slot is full',
+      status: 409,
+      next_free: '2026-11-07T10:15:00-07:00',
+    });
+    expect(parseProblem(409, body).next_free).toBe('2026-11-07T10:15:00-07:00');
+    expect(parseProblem(409, JSON.stringify({ title: 'x', next_free: 5 })).next_free).toBeNull();
   });
 
   test('the slug is the last path segment', () => {
