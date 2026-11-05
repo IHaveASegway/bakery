@@ -1,6 +1,7 @@
 // The one place the web app imports contract types from. Every file beside this one is generated
 // from crates/contracts/schemas by scripts/contracts.mjs; a test fails when they are stale.
-export type { ClockRequest } from './ClockRequest';
+export type { CapacityRequest } from './CapacityRequest';
+export type { ClockRequest, ClockStep } from './ClockRequest';
 export type { ClockResponse } from './ClockResponse';
 export type { CreateSandboxRequest } from './CreateSandboxRequest';
 export type { DeadLetter } from './DeadLetter';
@@ -26,6 +27,15 @@ export type { OrderKind, OrderLineRequest, OrderRequest } from './OrderRequest';
 export type { OrderResponse, OrderStatus } from './OrderResponse';
 export type { Problem } from './Problem';
 export type { SandboxKind, SandboxResponse, SandboxState } from './SandboxResponse';
+export type {
+  BakeLineView,
+  BakeListView,
+  CateringView,
+  ItemCapView,
+  ScheduleResponse,
+  SlotView,
+  ZoneView,
+} from './ScheduleResponse';
 export type { SessionKind, SessionResponse } from './SessionResponse';
 export type { StatusResponse } from './StatusResponse';
 export type { TrafficRequest } from './TrafficRequest';

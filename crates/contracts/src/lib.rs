@@ -98,6 +98,12 @@ pub struct Problem {
     /// The request path this occurrence concerns.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instance: Option<String>,
+    /// An extension member (RFC 9457, section 3.2), set only on the `slot-full` problem: the
+    /// start of the next pickup slot with a place free that day, a business time such as
+    /// `2026-11-07T10:15:00-07:00`. Absent when nothing later that day is free, and on every
+    /// other problem.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_free: Option<String>,
 }
 
 /// Where the problem types' pages live, on the storefront; the pages arrive with the API docs
@@ -115,6 +121,7 @@ impl Problem {
             status,
             detail: Some(detail.into()),
             instance: None,
+            next_free: None,
         }
     }
 
@@ -126,6 +133,7 @@ impl Problem {
             status,
             detail: None,
             instance: None,
+            next_free: None,
         }
     }
 
@@ -554,22 +562,160 @@ pub struct DeadLetter {
     pub at: String,
 }
 
+/// How far one clock advance moves business time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub enum ClockStep {
+    /// 15 minutes.
+    #[serde(rename = "15m")]
+    Minutes15,
+    /// One hour.
+    #[serde(rename = "1h")]
+    Hour,
+    /// One day: 86,400 seconds of business time, so across a clock change the local time moves
+    /// by an hour.
+    #[serde(rename = "1d")]
+    Day,
+    /// To the next 07:00 on an open day (Tuesday to Sunday) after business time now.
+    #[serde(rename = "next-opening")]
+    NextOpening,
+}
+
 /// `POST /v1/sandboxes/{id}/clock`, signed-in sessions only: move business time forward. The
 /// offset only grows, at most 14 days in total.
+///
+/// Give exactly one of `step` and `minutes`: `step` is the named step, `minutes` the older form
+/// (a positive count). The Worker answers 422 `clock` with rule `not-positive` for no
+/// advance or for both fields, and rule `offset-cap` when the 14 days would be passed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ClockRequest {
-    pub minutes: u32,
+    /// `15m`, `1h`, `1d` or `next-opening`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<ClockStep>,
+    /// The compatible older form: minutes to advance, 1 or more.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minutes: Option<u32>,
 }
 
 /// The business clock after an advance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ClockResponse {
+    /// Seconds of business time ahead of wall time, 0 to 14 days.
     pub clock_offset_s: i64,
+    /// Counts the advances; a child that has not heard of the latest one is retried.
     pub clock_v: u32,
-    /// Business time now, such as `2026-11-07T09:42:10-07:00`.
+    /// Business time now, such as `2026-11-07T09:42:10-07:00`, shown at America/Denver's offset
+    /// at that instant (`-06:00` in summer).
     pub business_now: String,
+}
+
+/// One pickup slot of a day's schedule.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SlotView {
+    /// The slot's start, a business time such as `2026-07-14T14:45:00-06:00`.
+    pub start: String,
+    /// Places in the slot.
+    pub capacity: u16,
+    /// Places held, reserved or fulfilled; released places do not count. Capped at 65,535.
+    pub taken: u16,
+    /// `capacity` minus `taken`, 0 when over-booked after a capacity cut.
+    pub free: u16,
+}
+
+/// One delivery zone of a day's schedule. A zone's stops are shared by its three windows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ZoneView {
+    /// `z1`, `z2` or `z3`.
+    pub zone: String,
+    /// Stops in the zone for the day.
+    pub capacity: u16,
+    /// Stops held, reserved or fulfilled.
+    pub taken: u16,
+    /// `capacity` minus `taken`, 0 when over-booked.
+    pub free: u16,
+    /// The zone's window starts, 09:00, 11:00 and 13:00, business times.
+    pub windows: Vec<String>,
+}
+
+/// One item's daily cap and use.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ItemCapView {
+    /// The item's slug.
+    pub item: String,
+    /// The most the kitchen bakes of it in a day; `null` when the item has no cap.
+    pub daily_cap: Option<u32>,
+    /// Quantity on the day's places that count (held, reserved or fulfilled), variants summed.
+    pub used: u32,
+}
+
+/// The day's catering capacity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CateringView {
+    /// Events the bakery takes in a day.
+    pub capacity: u16,
+    /// Events held, reserved or fulfilled.
+    pub taken: u16,
+}
+
+/// One line of the bake list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BakeLineView {
+    /// The item's slug.
+    pub item: String,
+    /// Quantity to bake for this start, variants summed.
+    pub qty: u32,
+    /// The slot or window start the quantity is for; an item ordered for two starts has two lines.
+    pub start: String,
+}
+
+/// The day's production plan, from the reserved and fulfilled places only; a held place waiting
+/// for payment is not on it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BakeListView {
+    /// Counts the plan's changes; 0 before the first reservation.
+    pub version: u32,
+    pub lines: Vec<BakeLineView>,
+}
+
+/// `GET /v1/sandboxes/{id}/schedule/{date}`, and the answer to a capacity change: one bakery
+/// day's places, caps and bake list. It mirrors the Schedule aggregate's state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ScheduleResponse {
+    /// The bakery day, `YYYY-MM-DD`.
+    pub date: String,
+    /// Whether the bakery opens that day (Tuesday to Sunday); a closed day refuses every hold.
+    pub open: bool,
+    /// The 32 pickup slots, 07:00 to 14:45, in time order.
+    pub slots: Vec<SlotView>,
+    /// The three delivery zones, `z1` to `z3`.
+    pub zones: Vec<ZoneView>,
+    /// The items with a cap or a use that day, by slug; an item with no entry is uncapped.
+    pub items: Vec<ItemCapView>,
+    pub catering: CateringView,
+    pub bake_list: BakeListView,
+    /// The menu version the item caps came from; 0 before the first refresh.
+    pub menu_version: u32,
+}
+
+/// `PATCH /v1/sandboxes/{id}/schedule/{date}/capacity`, signed-in sessions only: set one
+/// capacity for the day. The answer is the day's `ScheduleResponse`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CapacityRequest {
+    /// What to change, in the domain's grammar: `slot:HH:MM` (a slot start on the quarter hour,
+    /// such as `slot:14:45`), `zone:z1` (to `z3`), `item:<slug>` (such as `item:croissant`) or
+    /// `catering`.
+    pub target: String,
+    /// The new capacity. Places already taken stay; a cut below them only stops new ones.
+    pub capacity: u16,
 }
 
 /// Every exported schema as `(file name, pretty JSON with a trailing newline)`, in a fixed
@@ -620,6 +766,8 @@ pub fn schemas() -> Vec<(&'static str, String)> {
         ("DeadLetter.schema.json", render::<DeadLetter>()),
         ("ClockRequest.schema.json", render::<ClockRequest>()),
         ("ClockResponse.schema.json", render::<ClockResponse>()),
+        ("ScheduleResponse.schema.json", render::<ScheduleResponse>()),
+        ("CapacityRequest.schema.json", render::<CapacityRequest>()),
     ]
 }
 
@@ -877,5 +1025,83 @@ mod tests {
             at: "2026-11-05T12:00:00.000Z".into(),
         };
         assert_eq!(serde_json::to_value(&dead).unwrap()["type"], "OrderPlaced");
+    }
+
+    #[test]
+    fn scheduling_shapes() {
+        let step: ClockRequest = serde_json::from_str(r#"{"step":"next-opening"}"#).unwrap();
+        assert_eq!(step.step, Some(ClockStep::NextOpening));
+        assert_eq!(step.minutes, None);
+        for (text, want) in [
+            ("15m", ClockStep::Minutes15),
+            ("1h", ClockStep::Hour),
+            ("1d", ClockStep::Day),
+        ] {
+            let r: ClockRequest = serde_json::from_value(json!({ "step": text })).unwrap();
+            assert_eq!(r.step, Some(want));
+        }
+        let old: ClockRequest = serde_json::from_str(r#"{"minutes":90}"#).unwrap();
+        assert_eq!((old.step, old.minutes), (None, Some(90)));
+        assert!(serde_json::from_str::<ClockRequest>(r#"{"step":"2d"}"#).is_err());
+        assert!(serde_json::from_str::<ClockRequest>(r#"{"hours":2}"#).is_err());
+
+        let capacity: CapacityRequest =
+            serde_json::from_str(r#"{"target":"slot:14:45","capacity":4}"#).unwrap();
+        assert_eq!(capacity.target, "slot:14:45");
+        assert_eq!(capacity.capacity, 4);
+
+        let full = Problem::typed("slot-full", 409, "Slot full", "No place left at 10:00.");
+        let mut full = full;
+        full.next_free = Some("2026-07-14T10:15:00-06:00".into());
+        assert_eq!(
+            serde_json::to_value(&full).unwrap()["next_free"],
+            "2026-07-14T10:15:00-06:00"
+        );
+        assert!(
+            serde_json::to_value(Problem::status(404, "Not Found"))
+                .unwrap()
+                .get("next_free")
+                .is_none()
+        );
+
+        let day = ScheduleResponse {
+            date: "2026-07-14".into(),
+            open: true,
+            slots: vec![SlotView {
+                start: "2026-07-14T14:45:00-06:00".into(),
+                capacity: 6,
+                taken: 1,
+                free: 5,
+            }],
+            zones: vec![ZoneView {
+                zone: "z1".into(),
+                capacity: 20,
+                taken: 0,
+                free: 20,
+                windows: vec!["2026-07-14T09:00:00-06:00".into()],
+            }],
+            items: vec![ItemCapView {
+                item: "croissant".into(),
+                daily_cap: None,
+                used: 2,
+            }],
+            catering: CateringView {
+                capacity: 2,
+                taken: 0,
+            },
+            bake_list: BakeListView {
+                version: 1,
+                lines: vec![BakeLineView {
+                    item: "croissant".into(),
+                    qty: 2,
+                    start: "2026-07-14T14:45:00-06:00".into(),
+                }],
+            },
+            menu_version: 1,
+        };
+        let value = serde_json::to_value(&day).unwrap();
+        assert_eq!(value["items"][0]["daily_cap"], json!(null));
+        let back: ScheduleResponse = serde_json::from_value(value).unwrap();
+        assert_eq!(back, day);
     }
 }

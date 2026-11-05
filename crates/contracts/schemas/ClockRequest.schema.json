@@ -1,17 +1,56 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ClockRequest",
-  "description": "`POST /v1/sandboxes/{id}/clock`, signed-in sessions only: move business time forward. The\noffset only grows, at most 14 days in total.",
+  "description": "`POST /v1/sandboxes/{id}/clock`, signed-in sessions only: move business time forward. The\noffset only grows, at most 14 days in total.\n\nGive exactly one of `step` and `minutes`: `step` is the named step, `minutes` the older form\n(a positive count). The Worker answers 422 `clock` with rule `not-positive` for no\nadvance or for both fields, and rule `offset-cap` when the 14 days would be passed.",
   "type": "object",
   "properties": {
     "minutes": {
-      "type": "integer",
+      "description": "The compatible older form: minutes to advance, 1 or more.",
+      "type": [
+        "integer",
+        "null"
+      ],
       "format": "uint32",
       "minimum": 0
+    },
+    "step": {
+      "description": "`15m`, `1h`, `1d` or `next-opening`.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ClockStep"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "additionalProperties": false,
-  "required": [
-    "minutes"
-  ]
+  "$defs": {
+    "ClockStep": {
+      "description": "How far one clock advance moves business time.",
+      "oneOf": [
+        {
+          "description": "15 minutes.",
+          "type": "string",
+          "const": "15m"
+        },
+        {
+          "description": "One hour.",
+          "type": "string",
+          "const": "1h"
+        },
+        {
+          "description": "One day: 86,400 seconds of business time, so across a clock change the local time moves\nby an hour.",
+          "type": "string",
+          "const": "1d"
+        },
+        {
+          "description": "To the next 07:00 on an open day (Tuesday to Sunday) after business time now.",
+          "type": "string",
+          "const": "next-opening"
+        }
+      ]
+    }
+  }
 }

@@ -432,7 +432,9 @@ pub async fn advance_clock(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answ
         "/_clock",
         Some(&ClockCommand {
             key: key.to_string(),
-            minutes: body.minutes,
+            // Stream-D2 shim: `step` is the Worker stream's to handle; until then a request
+            // without `minutes` is an advance of nothing, refused as `not-positive`.
+            minutes: body.minutes.unwrap_or(0),
         }),
     )
     .await?;

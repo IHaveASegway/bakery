@@ -1,0 +1,250 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ScheduleResponse",
+  "description": "`GET /v1/sandboxes/{id}/schedule/{date}`, and the answer to a capacity change: one bakery\nday's places, caps and bake list. It mirrors the Schedule aggregate's state.",
+  "type": "object",
+  "properties": {
+    "bake_list": {
+      "$ref": "#/$defs/BakeListView"
+    },
+    "catering": {
+      "$ref": "#/$defs/CateringView"
+    },
+    "date": {
+      "description": "The bakery day, `YYYY-MM-DD`.",
+      "type": "string"
+    },
+    "items": {
+      "description": "The items with a cap or a use that day, by slug; an item with no entry is uncapped.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ItemCapView"
+      }
+    },
+    "menu_version": {
+      "description": "The menu version the item caps came from; 0 before the first refresh.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "open": {
+      "description": "Whether the bakery opens that day (Tuesday to Sunday); a closed day refuses every hold.",
+      "type": "boolean"
+    },
+    "slots": {
+      "description": "The 32 pickup slots, 07:00 to 14:45, in time order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SlotView"
+      }
+    },
+    "zones": {
+      "description": "The three delivery zones, `z1` to `z3`.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ZoneView"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "date",
+    "open",
+    "slots",
+    "zones",
+    "items",
+    "catering",
+    "bake_list",
+    "menu_version"
+  ],
+  "$defs": {
+    "BakeLineView": {
+      "description": "One line of the bake list.",
+      "type": "object",
+      "properties": {
+        "item": {
+          "description": "The item's slug.",
+          "type": "string"
+        },
+        "qty": {
+          "description": "Quantity to bake for this start, variants summed.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "start": {
+          "description": "The slot or window start the quantity is for; an item ordered for two starts has two lines.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "item",
+        "qty",
+        "start"
+      ]
+    },
+    "BakeListView": {
+      "description": "The day's production plan, from the reserved and fulfilled places only; a held place waiting\nfor payment is not on it.",
+      "type": "object",
+      "properties": {
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BakeLineView"
+          }
+        },
+        "version": {
+          "description": "Counts the plan's changes; 0 before the first reservation.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "lines"
+      ]
+    },
+    "CateringView": {
+      "description": "The day's catering capacity.",
+      "type": "object",
+      "properties": {
+        "capacity": {
+          "description": "Events the bakery takes in a day.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "taken": {
+          "description": "Events held, reserved or fulfilled.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "capacity",
+        "taken"
+      ]
+    },
+    "ItemCapView": {
+      "description": "One item's daily cap and use.",
+      "type": "object",
+      "properties": {
+        "daily_cap": {
+          "description": "The most the kitchen bakes of it in a day; `null` when the item has no cap.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "item": {
+          "description": "The item's slug.",
+          "type": "string"
+        },
+        "used": {
+          "description": "Quantity on the day's places that count (held, reserved or fulfilled), variants summed.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "item",
+        "used"
+      ]
+    },
+    "SlotView": {
+      "description": "One pickup slot of a day's schedule.",
+      "type": "object",
+      "properties": {
+        "capacity": {
+          "description": "Places in the slot.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "free": {
+          "description": "`capacity` minus `taken`, 0 when over-booked after a capacity cut.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "start": {
+          "description": "The slot's start, a business time such as `2026-07-14T14:45:00-06:00`.",
+          "type": "string"
+        },
+        "taken": {
+          "description": "Places held, reserved or fulfilled; released places do not count. Capped at 65,535.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "capacity",
+        "taken",
+        "free"
+      ]
+    },
+    "ZoneView": {
+      "description": "One delivery zone of a day's schedule. A zone's stops are shared by its three windows.",
+      "type": "object",
+      "properties": {
+        "capacity": {
+          "description": "Stops in the zone for the day.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "free": {
+          "description": "`capacity` minus `taken`, 0 when over-booked.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "taken": {
+          "description": "Stops held, reserved or fulfilled.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "windows": {
+          "description": "The zone's window starts, 09:00, 11:00 and 13:00, business times.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "zone": {
+          "description": "`z1`, `z2` or `z3`.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "zone",
+        "capacity",
+        "taken",
+        "free",
+        "windows"
+      ]
+    }
+  }
+}

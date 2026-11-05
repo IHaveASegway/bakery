@@ -830,10 +830,9 @@ fn schedule_days(born_days: i64, open_orders: &[OpenOrder]) -> Vec<ScheduleDay> 
         .collect()
 }
 
-/// The seed's local day of one of its business times, at its fixed Mountain offset.
+/// The civil day of one of the seed's business times, under Denver's rule.
 fn local_day(t: BusinessTime) -> i64 {
-    (t.unix_ms() + i64::from(calendar::OFFSET_MINUTES) * 60_000)
-        .div_euclid(bakery_domain::MS_PER_DAY)
+    BakeryDate::of(t).days()
 }
 
 /// The item slug of a variant slug, `<item>/<suffix>`.
@@ -954,7 +953,7 @@ mod tests {
 
     const PINNED_FIRST_CUSTOMER: &str = "01M6TCX5C0VKKM7M86WYN7SBR2";
     const PINNED_HISTORY_LEN: usize = 722;
-    const PINNED_FIRST_ORDER: &str = "01KZE0H7D0AHWTMASY3YGTFWD7";
+    const PINNED_FIRST_ORDER: &str = "01KZDX3BS0AHWTMASY3YGTFWD7";
 
     #[test]
     fn another_seed_gives_other_people() {
@@ -1150,9 +1149,7 @@ mod tests {
     }
 
     fn weekday_of(o: &OrderClosed) -> u8 {
-        // The slot is at the Mountain offset, so shifting by it gives the local calendar day.
-        let local = o.slot_start.unix_ms() + i64::from(calendar::OFFSET_MINUTES) * 60_000;
-        weekday(local.div_euclid(bakery_domain::MS_PER_DAY))
+        weekday(BakeryDate::of(o.slot_start).days())
     }
 
     #[test]
@@ -1162,9 +1159,8 @@ mod tests {
             let born_days = g.born.days();
             let mut per_day = std::collections::BTreeMap::new();
             for o in &g.history {
-                let local = o.slot_start.unix_ms() + i64::from(calendar::OFFSET_MINUTES) * 60_000;
                 *per_day
-                    .entry(local.div_euclid(bakery_domain::MS_PER_DAY))
+                    .entry(BakeryDate::of(o.slot_start).days())
                     .or_insert(0usize) += 1;
             }
             assert!(
@@ -1194,11 +1190,7 @@ mod tests {
             let busy_orders: Vec<&OrderClosed> = g
                 .history
                 .iter()
-                .filter(|o| {
-                    let local =
-                        o.slot_start.unix_ms() + i64::from(calendar::OFFSET_MINUTES) * 60_000;
-                    local.div_euclid(bakery_domain::MS_PER_DAY) == busy
-                })
+                .filter(|o| BakeryDate::of(o.slot_start).days() == busy)
                 .collect();
             assert_eq!(busy_orders.len(), 63);
             assert!(busy_orders.iter().all(|o| o.kind == OrderKind::Delivery));
@@ -1243,11 +1235,11 @@ mod tests {
                 o.subtotal_cents.checked_add(o.tax_cents).unwrap()
             );
             assert!(o.total_cents > Cents::ZERO);
-            let minutes = (o.slot_start.unix_ms() - 7 * 3_600_000).rem_euclid(86_400_000) / 60_000;
+            let minutes = bakery_domain::calendar::local_minutes(o.slot_start);
             match o.kind {
                 OrderKind::Pickup => {
                     assert!(
-                        (420..=885).contains(&minutes) && minutes % 15 == 0,
+                        (420..=885).contains(&minutes) && minutes.is_multiple_of(15),
                         "{minutes}"
                     );
                 }
@@ -1272,8 +1264,7 @@ mod tests {
             })
             .collect();
         for o in &g.history {
-            let local = o.slot_start.unix_ms() + i64::from(calendar::OFFSET_MINUTES) * 60_000;
-            let day = local.div_euclid(bakery_domain::MS_PER_DAY);
+            let day = BakeryDate::of(o.slot_start).days();
             let (_, month, dom) = civil_from_days(day);
             let lead_minutes = (o.slot_start.unix_ms() - o.placed_at.unix_ms()) / 60_000;
             for line in &o.lines {
@@ -1337,8 +1328,7 @@ mod tests {
         let g = generate(21, "2026-11-09");
         let tuesday = days_from_civil(2026, 11, 10);
         for o in &g.open_orders {
-            let local = o.slot_start.unix_ms() + i64::from(calendar::OFFSET_MINUTES) * 60_000;
-            assert_eq!(local.div_euclid(bakery_domain::MS_PER_DAY), tuesday);
+            assert_eq!(BakeryDate::of(o.slot_start).days(), tuesday);
         }
     }
 

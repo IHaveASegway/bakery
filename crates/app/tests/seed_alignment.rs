@@ -151,16 +151,23 @@ fn the_seed_orders_pass_the_order_rules_with_the_same_totals() {
 }
 
 /// The seed's week, replayed through `Schedule::decide`: every place holds (and every paid one
-/// confirms) under the day's capacities and the menu's caps. A winter birth date: the seed writes
-/// `-07:00` all year, and the calendar reads a summer date at `-06:00` (see crates/seed's
-/// calendar module).
+/// confirms) under the day's capacities and the menu's caps. Winter and summer birth dates: the
+/// seed's times go through the domain's calendar, so a July slot at 14:45 is `-06:00` and a valid
+/// slot start for the Schedule.
 #[test]
 fn the_seed_week_holds_under_the_schedule_rules() {
+    use bakery_domain::execute;
     use bakery_domain::schedule::{
-        HoldRequest, HoldStatus, ItemCap, ItemQty, Schedule, ScheduleCommand, ScheduleState,
+        HoldKind, HoldRequest, HoldStatus, ItemCap, ItemQty, Schedule, ScheduleCommand,
+        ScheduleState,
     };
-    use bakery_domain::{BusinessTime, execute};
-    for (seed, born) in [(42, "2026-11-07"), (21, "2026-11-09"), (3, "2027-01-11")] {
+    for (seed, born) in [
+        (42, "2026-11-07"),
+        (21, "2026-11-09"),
+        (3, "2027-01-11"),
+        (42, "2026-07-14"),
+        (8, "2027-06-19"),
+    ] {
         let g = Generator::new(Seed(seed), BirthDate::parse(born).unwrap()).generate();
         let mut places = 0;
         for day in &g.schedule {
@@ -185,7 +192,7 @@ fn the_seed_week_holds_under_the_schedule_rules() {
                     start: p.start,
                     zone: p.zone.map(str::to_owned),
                     lines: via_json::<Vec<ItemQty>>(&p.lines),
-                    expires_at: BusinessTime::new(p.start.unix_ms(), -420).unwrap(),
+                    expires_at: p.start,
                 };
                 state = execute::<Schedule>(state, &ScheduleCommand::Hold(Box::new(req)), &ctx)
                     .unwrap_or_else(|e| panic!("{born} {}: {e}", p.reference))
@@ -200,6 +207,13 @@ fn the_seed_week_holds_under_the_schedule_rules() {
                     )
                     .unwrap()
                     .0;
+                }
+                if p.kind == HoldKind::Slot {
+                    assert!(
+                        day.date.slot_starts().contains(&p.start),
+                        "{born} {}",
+                        p.reference
+                    );
                 }
                 places += 1;
             }
