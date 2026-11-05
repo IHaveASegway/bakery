@@ -2,7 +2,7 @@
 
 The made-up bakery's language and rules: the terms every doc, screen and type uses, the aggregates and the Durable Object (DO) that hosts each, their commands, events, invariants and state machines, the event catalog and its envelope, how money, time and identifiers are represented, how idempotency works at every boundary, what a sandbox is born with, and which of the site's Lab principles runs where. The code that implements it is `crates/domain` (aggregates as `decide` and `evolve`, events, value objects) and `crates/seed`; how objects, the Queue and the Workers fit together is [architecture.md](architecture.md). Why the bakery exists is [product.md](product.md).
 
-Status: Updated in PR 3 · 2026-11-05
+Status: Updated in PR 4 · 2026-11-05
 
 Prices, limits and versions are as of 2026-11-04, with sources. Every menu price, package price and tax rate on this page is the made-up bakery's demo data, not a platform price.
 
@@ -112,6 +112,13 @@ stateDiagram-v2
   closed --> [*]
 ```
 
+Notes from building `Order` in PR 4 (2026-11-05), each a reading of this section and not a change to it:
+
+- **Two edges the diagram implies but does not draw.** `cancelled --> refund_pending` when a payment lands after the order was cancelled (`OrderPaymentLate`, as for `expired`), and a self-loop on `refund_pending` for a partial refund requested while one is already pending.
+- **A cancelled paid order emits two events together:** `OrderCancelled` and `OrderRefundRequested`, in one commit.
+- **`RefundOrder` by staff is accepted only in `closed`.**
+- **`Expire` before `held_until` is rejected as not due.** The timer's own run, after the held time, is accepted, and a second run is a replay under the key `timer:expiry`.
+
 ### CateringEvent
 
 Hosted by `CateringEvent`, one object per inquiry (`catering:<sandbox>:<ULID>`). It protects the job's quote, money due and lifecycle, and runs the saga by alarm ([architecture.md](architecture.md#the-catering-saga)).
@@ -189,7 +196,7 @@ stateDiagram-v2
 
 Hosted by `Catalog` (`catalog:<sandbox>`). It protects what may be sold when: price, lead time, the days of the week an item is baked, its daily cap and any season. The count left today lives in that day's `Schedule`, which decrements it at each hold, so a sold-out item is a Schedule fact the storefront reads (Q5 · Q-menu).
 
-Commands: `EditItem`, `SetPrice`, `SetAvailability`, `Pause`, `Resume`, `Retire`, `PublishMenu`. Events: `MenuItemChanged`, `MenuPublished` (the version bump that invalidates the cached menu). Invariants: prices are positive integer cents; a cake's lead time is at least 48 h; a seasonal item is available only between its first and last business date; edits are drafts until `PublishMenu`, so orders always name a published version.
+Commands: `EditItem`, `SetPrice`, `SetAvailability`, `Pause`, `Resume`, `Retire`, `PublishMenu`. Events: `MenuItemChanged`, `MenuPublished` (the version bump that invalidates the cached menu). Invariants: prices are positive integer cents; a cake's lead time is at least 48 h; a seasonal item is available only inside its season; edits are drafts until `PublishMenu`, so orders always name a published version.
 
 ```mermaid
 stateDiagram-v2
@@ -203,6 +210,8 @@ stateDiagram-v2
   paused --> retired: Retire
   retired --> [*]
 ```
+
+Season, as built in PR 4 (2026-11-05): a season is a recurring `MM-DD` window that repeats every year, not the first and last business date this section first described. That is the current reading, chosen by the domain stream, and Joseph can reverse it.
 
 ### Schedule reservation
 
@@ -247,10 +256,10 @@ Every event, past tense, by producer. Types: `id` is a ULID string, `cents` an `
 | `ApiTokenRotated` | Sandbox | `token_v: u32` | Crm | logs it; the token itself is never in an event |
 | `SandboxWiped` | Sandbox | `objects: u16, rows_deleted: u32` | Control | adds to the daily ledger |
 | `MenuItemChanged` | Catalog | `item: string, fields: object` | Crm | logs it |
-| `MenuPublished` | Catalog | `version: u32, items: u16` | Schedule (today on) | refreshes daily caps from the version |
-| `OrderPlaced` | Order | `order: id, customer: id, kind: pickup or delivery, slot: time, zone: string?, lines: [{item, variant, qty: u16, unit_cents}], subtotal_cents, tax_cents, total_cents, note: string?` | Kitchen; Crm; Dispatch (delivery) | adds a pending card with the note; timeline row; adds a provisional stop |
+| `MenuPublished` | Catalog | `version: u32, items: u16, item: string?` | Schedule (today on) | refreshes daily caps from the version |
+| `OrderPlaced` | Order | `order: id, customer: id, kind: pickup or delivery, slot: time, zone: string?, lines: [{item, variant, qty: u16, unit_cents}], subtotal_cents, tax_cents, total_cents, note: string?, menu_version: u32?, held_until: time?` | Kitchen; Crm; Dispatch (delivery) | adds a pending card with the note; timeline row; adds a provisional stop |
 | `OrderPaid` | Order | `payment: id, amount_cents` | Schedule; Kitchen; Crm; Customer; Inbox | confirms the hold; card to the board; timeline; loyalty; receipt |
-| `OrderPaymentLate` | Order | `payment: id` | Crm | logs the compensation |
+| `OrderPaymentLate` | Order | `payment: id, amount_cents: cents?` | Crm | logs the compensation |
 | `OrderRefundRequested` | Order | `payment: id, amount_cents, reason: string` | Billing | refunds at Stripe |
 | `OrderExpired` | Order | `held_until: time` | Schedule; Billing; Kitchen; Dispatch | releases; cancels the intent; removes the card; removes the stop |
 | `OrderCancelled` | Order | `by: customer or staff` | Schedule; Kitchen; Dispatch; Crm | releases; removes; removes; timeline |
@@ -298,7 +307,7 @@ The order note and the catering brief ride in their events but are stored only b
 
 ## The envelope
 
-Every event has one shape, in each object's `events` and `outbox` tables and on the Queue. It is `v` 1; adding an optional field stays `v` 1, and renaming or redefining anything is `v` 2 (tolerant reader, as in the site's protocol v1).
+Every event has one shape, in each object's `events` and `outbox` tables and on the Queue. It is `v` 1; adding an optional field stays `v` 1 (PR 4 added four: `OrderPlaced.menu_version`, `OrderPlaced.held_until`, `OrderPaymentLate.amount_cents` and `MenuPublished.item`), and renaming or redefining anything is `v` 2 (tolerant reader, as in the site's protocol v1).
 
 ```json
 {
@@ -386,6 +395,8 @@ All of them live and die with the sandbox, so none needs pruning. A command and 
 **Catering: 8 events across the lifecycle**: an inquiry, a quote, an accepted quote awaiting its deposit, two confirmed, one delivered and invoiced, one paid and closed, and one declined. **Venues: 6 made-up names**, such as Harbor Loft and Orchard Pavilion, each pinned to one of the 64 places.
 
 **Delivery addresses** are 64 public places in Salt Lake City from OpenStreetMap, of which the bakery is one, identified by index and map label, with no coordinates or street addresses. The places, the map, the travel-time matrix and the isochrones are a new offline build with the site's Route Lab pipeline (`tools/route-data/pipeline/` in the site's repository: osmium, OSRM's car profile, d3-contour) on [Geofabrik's Utah extract](https://download.geofabrik.de/) (ODbL, as of 2026-11-04), clipped to the city, committed as a fixture in `crates/seed` and as static data for the dispatch screen, built in PR 9 ([ADR 0012](adr/0012-delivery-dispatch.md)). The site's Route Lab keeps its own Seattle data. The dispatch screen credits OpenStreetMap's contributors, as the ODbL asks.
+
+**Seed history versus `OrderClosed` (PR 4, 2026-11-05).** The seed's history record is not yet the `OrderClosed` event: it has no `refunded_cents`, its lines carry no `item` and use `qty: u32` where the event has `u16`, and it names `slot_start` where the event says `slot`. PR 8 reconciles the two when it writes the history into Crm's log.
 
 **Simulated traffic starts stopped.** No `Simulator` exists at seed; a signed-in visitor's first "Start traffic" registers one (Q40 · Q-traffic).
 
