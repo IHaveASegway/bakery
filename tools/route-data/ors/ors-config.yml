@@ -1,0 +1,49 @@
+# openrouteservice configuration for the route-data build (ORS v9.10.0, as pinned in config.mjs).
+# Both start paths (Docker and the jar) read this file; build.mjs copies it to
+# work/ors/config/ors-config.yml next to files/routing.osm.pbf, the extract clipped to the
+# city's routing box, and the paths below are relative to work/ors/ (Docker's /home/ors).
+# The instance listens on this machine only, needs no API key and has no quota.
+# Every key is documented in https://giscience.github.io/openrouteservice/run-instance/configuration/
+# (read 2026-11-05).
+ors:
+  endpoints:
+    matrix:
+      # Docs default 2500 (a 50 x 50 matrix); one 64 x 64 request is 4,096 routes.
+      maximum_routes: 10000
+      # The cap for a profile without contraction hierarchies, 25 by default. CH is on below, so
+      # this only matters if it is switched off.
+      maximum_routes_flexible: 10000
+      maximum_visited_nodes: 10000000
+      maximum_search_radius: 2000
+    isochrones:
+      # Docs default 1 interval; the build asks for 6 ranges in one request.
+      maximum_locations: 2
+      maximum_intervals: 10
+      maximum_range_time:
+        - profiles: driving-car
+          # Docs default 3600 s for driving-car; the build needs 1,800 s.
+          value: 3600
+  engine:
+    elevation:
+      preprocessed: false
+    profile_default:
+      build:
+        source_file: files/routing.osm.pbf
+        # The dispatch map needs times and distances, not turn-by-turn text or heights.
+        elevation: false
+        instructions: false
+        preparation:
+          methods:
+            # Matrix requests above 25 routes need contraction hierarchies (RPHAST).
+            ch:
+              enabled: true
+              threads: 2
+              weightings: fastest
+            lm:
+              enabled: false
+    profiles:
+      driving-car:
+        enabled: true
+        service:
+          # The build snaps candidate places to a road within 500 m; the docs default cap is 400 m.
+          maximum_snapping_radius: 1000

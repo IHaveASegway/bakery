@@ -1,0 +1,14 @@
+{
+  "name": "route-data",
+  "private": true,
+  "type": "module",
+  "description": "Salt Lake City places, travel-time matrix and isochrones from openrouteservice, for the dispatch screen (spike S7, PR 9). No dependencies: Node 22 only.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test \"test/*.test.mjs\"",
+    "check-box": "node check-box.mjs"
+  }
+}

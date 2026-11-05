@@ -28,3 +28,6 @@ coverage/
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+# Route data build: downloads, clipped extracts, the ORS graph and the answer cache
+tools/route-data/work/
