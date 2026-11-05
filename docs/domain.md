@@ -219,6 +219,8 @@ stateDiagram-v2
   wiping --> [*]: SandboxWiped, delete_all
 ```
 
+**AdvanceClock, as built in PR 6 (2026-11-05).** The command takes exactly one of a step or a whole number of minutes. The steps are `15m`, `1h`, `1d` and `next-opening`; a count of minutes is the older form and is kept (`Minutes(15)` writes `15m`). `1d` is 86,400 s of business time, so across the spring-forward night Saturday 07:00 Mountain standard time becomes Sunday 08:00 Mountain daylight time, which a domain test pins. `next-opening` is the next 07:00 on an open day strictly after business now, so from a Sunday afternoon it lands on Tuesday 07:00. Two rules refuse it, both answered 422 `clock` and named in the problem: `not-positive` (no step and no minutes, both, or zero minutes) and `offset-cap` (the offset would pass 14 days, 1,209,600 s, Q12 · Q-clock). The Sandbox's `ClockAdvanced` carries `from`, `to`, `clock_v` and the step in its wire form ([architecture.md](architecture.md#time-travel)).
+
 ### MenuItem availability
 
 Hosted by `Catalog` (`catalog:<sandbox>`). It protects what may be sold when: price, lead time, the days of the week an item is baked, its daily cap and any season. The count left today lives in that day's `Schedule`, which decrements it at each hold, so a sold-out item is a Schedule fact the storefront reads (Q5 · Q-menu).
@@ -244,7 +246,7 @@ Season, as built in PR 4 (2026-11-05): a season is a recurring `MM-DD` window th
 
 Hosted by `Schedule`, one object per sandbox and business day (`schedule:<sandbox>:<YYYY-MM-DD>`). It protects capacity: orders per slot, stops per zone, items per day, catering events per day (Q10 · Q-slots, Q11 · Q-production).
 
-Commands: `Hold` (synchronous, from the router, keyed by the order or catering id), `Confirm` (from `OrderPaid` or `CateringDepositPaid`), `Release` (from `OrderExpired`, `OrderCancelled`, `CateringCancelled`, `CateringDepositLapsed`, or the hold's own timer), `SetCapacity` (staff). Events: `SlotReserved`, `SlotReleased`, `CapacityChanged`, `BakeListChanged`. Invariants: held plus reserved never exceeds capacity; a hold lasts 15 minutes of business time; a lowered capacity never cancels existing reservations, it only stops new holds; the production plan is recomputed in the same transaction as any reservation change.
+Commands: `Hold` (synchronous, from the router, keyed by the order or catering id), `Confirm` (from `OrderPaid` or `CateringDepositPaid`), `Release` (from `OrderExpired`, `OrderCancelled`, `CateringCancelled`, `CateringDepositLapsed`, or the hold's own timer), `Fulfil` (from `OrderClosed` or `CateringClosed`), `SetCapacity` (staff), `RefreshCaps` (from `MenuPublished`). Events: `SlotHeld`, `SlotReserved`, `SlotReleased`, `SlotFulfilled`, `CapacityChanged`, `CapsRefreshed`, `BakeListChanged`. Invariants: held, reserved and fulfilled places never exceed capacity, except by a revival (below); a hold lasts 15 minutes of business time; a lowered capacity never cancels existing reservations, it only stops new holds; the production plan is recomputed in the same transaction as any reservation change.
 
 ```mermaid
 stateDiagram-v2
@@ -252,10 +254,25 @@ stateDiagram-v2
   held --> reserved: Confirm
   held --> released: Release or hold timer
   reserved --> released: Release
+  released --> reserved: Confirm, revived
   reserved --> fulfilled: OrderClosed or CateringClosed
   released --> [*]
   fulfilled --> [*]
 ```
+
+**As built in PR 6 (2026-11-05)**, in `crates/domain/src/schedule.rs` and `calendar.rs`; the Worker object that hosts it is [architecture.md](architecture.md#durable-object-topology).
+
+- **The bakery day.** America/Denver under the 2007 US rule, computed with no time-zone crate: open 07:00 to 15:00 Tuesday to Sunday, 32 pickup slots on the quarter hour (07:00 to 14:45), delivery windows of 2 hours starting 09:00, 11:00 and 13:00, three zones `z1` to `z3`. A closed day refuses every hold (`closed-day`).
+- **Capacity defaults.** 6 orders per pickup slot, 20 stops per delivery zone a day, 2 catering events a day. Six in a quarter hour is one hand-over every 2.5 minutes, about what one person serving can manage; 20 a zone is 60 stops across the three, close to the busy Saturday's 63 ([the seed](#the-seed)); 2 catering events is the rule already in [the story](#the-story). They are the made-up bakery's numbers, a decision of the domain stream in PR 6 that staff can change from the console and Joseph can reverse.
+- **What counts.** Held, reserved and fulfilled places all count against capacity; only released ones do not. A zone's 20 stops are shared by its three windows. The bake list counts reserved and fulfilled places only, the confirmed orders Q11 names: a hold is not on it.
+- **Item caps.** `RefreshCaps` copies every item's daily cap from the published menu. The Worker sends it when the seed writes the seven days and on `MenuPublished`, to every registered day from business today on; a day born later by first touch has no item caps until the next publish, so it is uncapped (read in the code, no smoke check drives it). An order line counts by its quantity summed per item, so a box of six croissants counts as one croissant (a reading to confirm, see the questions in [roadmap.md](roadmap.md#pr-6-scheduling-production-and-time-travel)). An item with no cap, before the first refresh or absent from the menu, is uncapped. A hold over an item's remaining cap is refused `item-cap`, naming the item and how many are free.
+- **The check order in `Hold`.** Closed day, then zone and slot validity (`unknown-zone`, `zone-required`, `no-such-slot`), then the same reference again (the same body is a no-op, a different one `ref-held`), then capacity (`slot-full`), then item caps. A slot hold drops any zone it is given; a catering hold accepts any start on the day.
+- **`next_free`.** When a pickup slot is full, the refusal names the first later slot on the same day with a place free, so two orders racing for the last place get one reservation and one refusal naming, for example, 10:15 when 10:00 is gone. It is `None` for a window (the zone's stops are shared, so when one window is full all three are) and for catering, and when no later slot has room.
+- **The hold's timer.** The Order's `held_until` is 15 minutes of business time after placement, and the hold's `expires_at` is that same instant. `held_expiries()` lists the timers to arm, one per held place; at `expires_at` the object decides `Release` with reason `hold_expired`. A `hold_expired` before `expires_at`, or on a place that is no longer held, changes nothing.
+- **Revival.** `Confirm` of a place the hold timer already released reserves it again, past capacity if need be, because the payment already moved money; the event says `revived: true`, and it is the one way a count passes its capacity. The alternative, refusing the place and refunding the payment, is a question for Joseph.
+- **`SetCapacity`'s target grammar.** `slot:HH:MM` (a quarter-hour start), `zone:z1` to `zone:z3`, `item:<slug>` (writes the day's item cap until the next `RefreshCaps` that differs replaces it) or `catering`. Anything else is `bad-target`. A lowered capacity never releases a place: taken stays, free is zero.
+- **`Fulfil`** of a held or released place changes nothing. If `OrderClosed` reached the Schedule before `OrderPaid`, the place would stay reserved and not fulfilled; both count against capacity, so capacity stays safe.
+- **The 18:00 plan lock** that [Money and time](#money-and-time) describes is not built: the docs do not say what it refuses, and a hard lock contradicts a same-day order with a 2 h lead.
 
 ### Simulator
 
@@ -278,7 +295,7 @@ Every event, past tense, by producer. Types: `id` is a ULID string, `cents` an `
 | Event | Producer | Data | Subscribers | What each does |
 |---|---|---|---|---|
 | `SandboxSeeded` | Sandbox | `seed: u64, born: date, rows: u32` | Crm | marks the history start for timelines |
-| `ClockAdvanced` | Sandbox | `from: time, to: time, clock_v: u32` | Crm | logs the jump on the activity screen (children get the offset by command) |
+| `ClockAdvanced` | Sandbox | `from: time, to: time, clock_v: u32, step: string?` | Crm | logs the jump on the activity screen (children get the offset by command) |
 | `FaultSet` | Sandbox | `fault: string, on: bool` | Crm | logs it |
 | `ApiTokenRotated` | Sandbox | `token_v: u32` | Crm | logs it; the token itself is never in an event |
 | `SandboxWiped` | Sandbox | `objects: u16, rows_deleted: u32` | Control | adds to the daily ledger |
@@ -368,11 +385,11 @@ Every event has one shape, in each object's `events` and `outbox` tables and on 
 
 **Money** is an integer count of US cents, `i64`, everywhere: in Rust (`Cents(i64)`), in SQLite (`INTEGER`), on the wire (a JSON integer named `*_cents`). There are no floats and one currency, USD. Rates are basis points: tax defaults to 1,000 bp (10.00%), a flat demo rate the sandbox's staff can change in the console; the deposit is 2,500 bp. Tax is computed once per order on the subtotal and rounded half-up to the cent. Splits are computed as one part and a remainder, so a deposit and its balance always sum to the quote. A catering **business day** is an open day, Tuesday to Sunday, counted from the day after: the 7-business-day lead, the 14-business-day quote and the 3-business-day follow-up all count that way ([CateringEvent](#cateringevent)).
 
-**Business time and wall time.** Business time is wall time plus the sandbox's offset, held by the Sandbox and copied to each child ([architecture.md](architecture.md#time-travel)). Every domain rule reads business time through the `Clock` port in `crates/app`: lead times, expiries, slots, reminders, quotes, campaigns. Platform alarms, the wipe, cookies, Stripe's timestamps and logs use wall time.
+**Business time and wall time.** Business time is wall time plus the sandbox's offset, held by the Sandbox and copied to each child ([architecture.md](architecture.md#time-travel)). Since PR 6 it is shown at America/Denver's offset for that instant, whatever the date: the Worker's clock and the domain's calendar both read the same rule, where PR 4 and PR 5 wrote `-07:00` all year. Every domain rule reads business time through the `Clock` port in `crates/app`: lead times, expiries, slots, reminders, quotes, campaigns. Platform alarms, the wipe, cookies, Stripe's timestamps and logs use wall time.
 
-**The bakery day** is a calendar date in America/Denver, Salt Lake City's time zone. The bakery opens 07:00 to 15:00, Tuesday to Sunday; pickup slots run on the quarter hour; delivery windows are 09:00, 11:00 and 13:00 for each of three zones; tomorrow's production plan locks at 18:00 the day before. The nightly wipe at 10:00 UTC is 03:00 Mountain standard time, 04:00 in summer, a wall-time fact the bakery day never sees.
+**The bakery day** is a calendar date in America/Denver, Salt Lake City's time zone. The bakery opens 07:00 to 15:00, Tuesday to Sunday; pickup slots run on the quarter hour; delivery windows are 09:00, 11:00 and 13:00 for each of three zones; tomorrow's production plan locks at 18:00 the day before (not built in PR 6, [Schedule reservation](#schedule-reservation)). The nightly wipe at 10:00 UTC is 03:00 Mountain standard time, 04:00 in summer, a wall-time fact the bakery day never sees.
 
-**On the wire** every time is an ISO 8601 string: business times with the bakery's Mountain offset, `-07:00` in standard time and `-06:00` in summer (`2026-11-07T09:42:10-07:00`), wall times in UTC with `Z`, dates as `YYYY-MM-DD`. Durations are integer seconds or minutes, named for their unit (`hold_s`, `minutes`).
+**On the wire** every time is an ISO 8601 string: business times with the bakery's Mountain offset, `-07:00` in standard time and `-06:00` in daylight time (`2026-11-07T09:42:10-07:00`, `2026-07-14T14:45:00-06:00`), wall times in UTC with `Z`, dates as `YYYY-MM-DD`. Durations are integer seconds or minutes, named for their unit (`hold_s`, `minutes`).
 
 ## Identifiers
 
@@ -432,6 +449,10 @@ All of them live and die with the sandbox, so none needs pruning. A command and 
 
 **Seed history versus `OrderClosed` (PR 4, 2026-11-05).** The seed's history record is not yet the `OrderClosed` event: it has no `refunded_cents`, its lines carry no `item` and use `qty: u32` where the event has `u16`, and it names `slot_start` where the event says `slot`. PR 8 reconciles the two when it writes the history into Crm's log.
 
+**As built in PR 6 (2026-11-05).** The seed is daylight-aware: a business time such as 14:45 on 2026-07-14 carries `-06:00`, a winter one `-07:00`, and a time before midnight (a placement is the slot minus its lead) counts elapsed minutes from the day's local midnight and shows at the offset of that instant. The history of the standard birth date reaches back 90 days into August, which is daylight time, so the one pinned value that moved is the first order's ULID, `01KZE0H7D0AHWTMASY3YGTFWD7` to `01KZDX3BS0AHWTMASY3YGTFWD7`: its placement time is an hour earlier and only the ULID's time part changed. The random draws are unchanged, so the customers' names and the history's length (722 orders, 2,173 lines for seed 42 and birth date 2026-11-07, run on 2026-11-05) stand. A summer-born sandbox is proven by the alignment test `crates/app/tests/seed_alignment.rs`, which replays the seed's week through the Schedule for five seeds and dates, three in winter and two in summer (2026-07-14 and 2027-06-19), and requires every slot hold to be one of the day's 32 starts.
+
+**The seven `Schedule` days** are the seven open days from the birth date, skipping Mondays (the standard birth date, a Saturday, gives 2026-11-07, 11-08, then Tuesday 11-10 to Saturday 11-14, eight calendar days; born on a Monday or Tuesday the week starts on Tuesday). Each has the default capacities (6, 20 and 2), all 24 items' daily caps (30 to 200 a day, 1,720 across the menu) and the open orders whose slot falls on it as places: a pickup is a `slot` hold and a delivery a `window` hold, `held` for an order only placed and `reserved` for every other open state, with its lines summed per item. For seed 42 and birth date 2026-11-07 all 12 open orders land on the birth day (10 slots and 2 windows, 2 held and 10 reserved) and the other six days are empty (run on 2026-11-05). A test pins that every open order is on exactly one day and no day is over capacity for twelve pairs of seed and birth date. The seed gives a place no `expires_at`: the Worker sets the hold's expiry to the Order's `held_until`, 15 minutes after the later of the placement and the birth, in business time.
+
 **Simulated traffic starts stopped.** No `Simulator` exists at seed; a signed-in visitor's first "Start traffic" registers one (Q40 · Q-traffic).
 
 **Approximate rows written at seed**, for [cost.md](cost.md), which prices the same table:
@@ -440,7 +461,7 @@ All of them live and die with the sandbox, so none needs pruning. A command and 
 |---|---|---|---|
 | Sandbox | 1 | meta, a registry of 34, the clock, timers | 38 |
 | Catalog | 1 | 5 categories, 24 items, 48 variants, 24 availability rules, the version, events | 106 |
-| Schedule | 7 | 32 slots, 6 windows, capacities, 5 plan lines each | 322 |
+| Schedule | 7 | 32 slots, 6 windows, capacities, 5 plan lines each (the PR 4 estimate; the day's real rows are not counted yet, spike S5) | 322 |
 | Order | 12 open | 3 events, state, 3 lines, a key, a timer, outbox rows each | 120 |
 | Kitchen | 1 | the board, a timer | 13 |
 | CateringEvent | 8 | 5 events, state, the quote, 2 timers each | 72 |
@@ -455,7 +476,9 @@ All of them live and die with the sandbox, so none needs pruning. A command and 
 
 That is close to the 2,000 rows [cost.md](cost.md) starts from; spike S5 measures the real figure, wipe included.
 
-**As built in PR 5 (2026-11-05).** A sandbox seeds 15 children in three batches of 7 (`workers/api/src/objects/sandbox.rs`, and its test that the plan is the Catalog, the Kitchen and `Billing` first, then the 12 open orders), where PR 4 seeded 14 in two. `Billing`'s seed is the 90 daily totals, in its `history` table (day, orders, cents); the 16 deposits and balances arrive with the catering PR. Those totals appear in no response yet.
+**As built in PR 6 (2026-11-05).** A sandbox now seeds 22 children in four batches: the Catalog, the Kitchen and `Billing`, then the 7 `Schedule` days, then the 12 open orders (`workers/api/src/objects/sandbox.rs`). A `Schedule` day holds its place for each open order under the order's own id.
+
+**As built in PR 5 (2026-11-05).** A sandbox seeded 15 children in three batches of 7 (`workers/api/src/objects/sandbox.rs`, and its test that the plan is the Catalog, the Kitchen and `Billing` first, then the 12 open orders), where PR 4 seeded 14 in two. `Billing`'s seed is the 90 daily totals, in its `history` table (day, orders, cents); the 16 deposits and balances arrive with the catering PR. Those totals appear in no response yet.
 
 **As built in PR 7 (2026-11-05).** Each of the 8 catering records now carries the persona who asked (`customer`, picked from the event id's random part, so no PRNG draw was added and every value pinned before it stands) and, from the state it has reached on, `quoted_at` (two hours after `created_at`), `accepted_at` (an hour later), `deposit_payment` (five minutes after the acceptance), `delivered_at` (11:00 on the event day), `invoice` (an hour after delivery; it is also the balance's payment id) and `invoice_due` (the event day plus 7). Its brief is always null, since free text is never seeded. `seed_commands` in `crates/seed` turns a record into the commands, with their business times, that take an empty `CateringEvent` to that state through the aggregate's own `decide`, firing any reminder that falls due between two steps; the Worker replays them, so every seeded log is one the aggregate could have written. A test replays all 8 events for 33 seed and date pairs, a summer date and a Monday birth among them, and lands on the seeded state, quote, deposit and invoice every time; another holds the domain's `PACKAGES` and `VENUES` equal to the seed's. Two runs of `bakery-seed 42 2026-11-07` were byte-identical at 614,580 B on 2026-11-05 (581,403 B on PR 3's run), and the output with the new catering fields removed is identical to the output before them.
 
