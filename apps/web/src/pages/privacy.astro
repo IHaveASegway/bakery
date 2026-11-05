@@ -1,0 +1,124 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base
+  title="Privacy | Proof of Concept Bakery"
+  description="What Proof of Concept Bakery receives, keeps and deletes, and when."
+>
+  <h1>Privacy</h1>
+  <p class="draft">
+    <strong>Draft:</strong> this page is published with the launch pull request.
+  </p>
+
+  <p class="lead">
+    Every sandbox is deleted every night at 10:00 UTC, and Proof of Concept Bakery never asks for or
+    stores your name, email, address or card.
+  </p>
+  <p>
+    Cloudflare keeps deleted storage restorable for 30 days, so the account owner could bring rows
+    back for a month. The bakery never restores a sandbox, and nothing in its code calls the
+    restore.
+  </p>
+
+  <h2>What sign-in gives the bakery</h2>
+  <ul>
+    <li>
+      <strong>Google:</strong> the bakery asks for <code>openid</code> only and receives an opaque
+      identifier, <code>sub</code>. It keeps that only as a keyed hash. It receives no email, name
+      or picture. Google’s consent screen still says the bakery will “Associate you with your
+      personal info on Google”. That is Google’s fixed wording for the <code>openid</code> scope; we
+      observed it on 2026-11-05 and the scope returns the identifier and nothing more.
+    </li>
+    <li>
+      <strong>GitHub:</strong> the bakery reads the numeric user id from GitHub’s answer and
+      discards the rest and the access token. It keeps the id only as a keyed hash.
+    </li>
+    <li>
+      <strong>A demo account:</strong> a generated username and a hash of the password you chose.
+      There is no email, so there is no password reset: a forgotten password means a new account.
+    </li>
+    <li>
+      <strong>A guest:</strong> nothing but a cookie.
+    </li>
+  </ul>
+
+  <h2>What is kept, and for how long</h2>
+  <div class="table-scroll" role="region" aria-label="Data the bakery keeps" tabindex="0">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">What</th>
+          <th scope="col">Kept for</th>
+          <th scope="col">Why</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row">Session cookie</th>
+          <td>24 hours, or until you sign out</td>
+          <td>It lets you into your sandbox. The browser keeps it; page scripts cannot read it.</td>
+        </tr>
+        <tr>
+          <th scope="row">Sign-in transaction cookie</th>
+          <td>10 minutes</td>
+          <td>It holds the one-time values that make Google or GitHub sign-in safe.</td>
+        </tr>
+        <tr>
+          <th scope="row">
+            Account id (a keyed hash), and for a demo account the username and password hash
+          </th>
+          <td>Deleted 30 days after your last sign-in</td>
+          <td>One sandbox across your devices.</td>
+        </tr>
+        <tr>
+          <th scope="row">Sandbox contents</th>
+          <td>Until 10:00 UTC. A backstop deletes anything left after 36 hours.</td>
+          <td>The demo itself. Its few free-text fields say they are wiped tonight.</td>
+        </tr>
+        <tr>
+          <th scope="row">Your IP address, as a hash with a salt that changes daily</th>
+          <td>In logs for 7 days. The address itself is never stored or logged.</td>
+          <td>Rate limits, daily caps and abuse review.</td>
+        </tr>
+        <tr>
+          <th scope="row">Country and continent</th>
+          <td>In logs for 7 days</td>
+          <td>Capacity and abuse review. Never a city, region or coordinates.</td>
+        </tr>
+        <tr>
+          <th scope="row">Turnstile’s signals</th>
+          <td>Under Cloudflare’s policy</td>
+          <td>It checks that you are a person when you make a sandbox or an account.</td>
+        </tr>
+        <tr>
+          <th scope="row">Stripe sandbox objects, from the payments pull request (PR 5)</th>
+          <td>Customers and drafts until the wipe; the rest until Stripe’s sandbox is reset</td>
+          <td>Test payments. The details are synthetic.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>What “Wipe now” does</h2>
+  <p>
+    It runs the night’s wipe for your sandbox alone, right away: the sandbox and everything it holds
+    are deleted, and the bakery reports that to its own counter. The same 30 days of Cloudflare’s
+    restore window apply, and the same promise: nobody restores it.
+  </p>
+
+  <h2>Cookies and consent</h2>
+  <p>
+    The session cookie is what lets the service you asked for work, so there is no consent banner.
+    The bakery sets no cookie to track you and loads no third-party script, except Turnstile on the
+    sign-in page.
+  </p>
+
+  <p class="asof">
+    As of 2026-11-05. The detail is in the
+    <a href="https://github.com/IHaveASegway/bakery/blob/main/docs/security.md">
+      security document
+    </a>
+    .
+  </p>
+</Base>

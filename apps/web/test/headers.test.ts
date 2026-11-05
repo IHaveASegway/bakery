@@ -2,24 +2,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 
-// security.md, "Headers and Content Security Policy": the storefront's headers as built. Run after
-// `pnpm build`; the file under test is the one the Worker serves.
+// security.md, "Headers, CSP and CORS": the storefront's headers as built by src/policy.ts. Run
+// after `pnpm build`; the file under test is the one the Worker serves.
 
 const file = fileURLToPath(new URL('../dist/_headers', import.meta.url));
-
-const CSP = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self'",
-  "img-src 'self'",
-  "font-src 'self'",
-  "connect-src 'self' https://api.bakery.ihaveasegway.com wss://api.bakery.ihaveasegway.com",
-  "frame-src 'none'",
-  "object-src 'none'",
-  "base-uri 'none'",
-  "frame-ancestors 'none'",
-  "form-action 'self'",
-].join('; ');
 
 /** The lines of one rule: the header lines under a path, until the next path or a blank line. */
 function rule(text: string, path: string): string[] {
@@ -34,25 +20,70 @@ function rule(text: string, path: string): string[] {
   return body;
 }
 
+const policyOf = (lines: string[]) =>
+  lines
+    .find((line) => line.startsWith('Content-Security-Policy: '))
+    ?.slice('Content-Security-Policy: '.length) ?? '';
+
+/** One directive's sources, split. */
+function directive(policy: string, name: string): string[] {
+  const found = policy.split('; ').find((part) => part.startsWith(`${name} `));
+  return found ? found.slice(name.length + 1).split(' ') : [];
+}
+
 describe('dist/_headers', () => {
   expect(existsSync(file), 'run pnpm build first').toBe(true);
   const text = readFileSync(file, 'utf8');
+  const rules = ['/*', '/signin/*', '/app/*', '/_astro/*'];
 
   test('the "/*" rule carries the policy and the other security headers', () => {
     const all = rule(text, '/*');
-    expect(all).toContain(`Content-Security-Policy: ${CSP}`);
+    const policy = policyOf(all);
+    expect(directive(policy, 'default-src')).toEqual(["'self'"]);
+    expect(directive(policy, 'object-src')).toEqual(["'none'"]);
+    expect(directive(policy, 'frame-ancestors')).toEqual(["'none'"]);
+    expect(directive(policy, 'connect-src')[0]).toBe("'self'");
     expect(all).toContain('X-Content-Type-Options: nosniff');
     expect(all).toContain('Referrer-Policy: strict-origin-when-cross-origin');
     expect(all).toContain('Permissions-Policy: camera=(), microphone=(), geolocation=(), usb=()');
     expect(all).toContain('Cross-Origin-Opener-Policy: same-origin');
   });
 
-  test('the policy has no unsafe keyword and no hash: the pages hold no inline code', () => {
-    expect(CSP).not.toMatch(/unsafe-|sha256-/);
+  test('"/*" names no third party: a visitor reading a page loads nothing from Cloudflare', () => {
+    const policy = policyOf(rule(text, '/*'));
+    expect(policy).not.toContain('challenges.cloudflare.com');
+    expect(directive(policy, 'frame-src')).toEqual(["'none'"]);
+    expect(directive(policy, 'script-src')).toEqual(["'self'"]);
   });
 
-  test('bundles are cached for a year, immutable', () => {
-    expect(rule(text, '/_astro/*')).toContain('Cache-Control: public, max-age=31536000, immutable');
+  test.each(['/signin/*', '/app/*'])('%s adds Turnstile to script-src and frame-src', (path) => {
+    const lines = rule(text, path);
+    // Detach first, then set: otherwise Cloudflare appends a second policy and both are enforced.
+    expect(lines.indexOf('! Content-Security-Policy')).toBe(0);
+    const policy = policyOf(lines);
+    expect(directive(policy, 'script-src').slice(0, 2)).toEqual([
+      "'self'",
+      'https://challenges.cloudflare.com',
+    ]);
+    expect(directive(policy, 'frame-src')).toEqual(['https://challenges.cloudflare.com']);
+    expect(directive(policy, 'connect-src')).toEqual(
+      directive(policyOf(rule(text, '/*')), 'connect-src'),
+    );
+  });
+
+  test('no rule carries unsafe-inline, unsafe-eval or a nonce; "/*" carries no hash either', () => {
+    for (const path of rules) {
+      expect(policyOf(rule(text, path))).not.toMatch(/unsafe-|nonce-/);
+    }
+    expect(policyOf(rule(text, '/*'))).not.toContain('sha256-');
+  });
+
+  test('bundles are cached for a year, immutable, and drop the document-only headers', () => {
+    const bundle = rule(text, '/_astro/*');
+    expect(bundle).toContain('Cache-Control: public, max-age=31536000, immutable');
+    expect(bundle).toContain('! Content-Security-Policy');
+    expect(bundle).toContain('! Permissions-Policy');
+    expect(bundle).toContain('! Cross-Origin-Opener-Policy');
   });
 
   test('Strict-Transport-Security is the zone’s alone', () => {

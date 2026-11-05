@@ -1,0 +1,43 @@
+---
+import Base from '../../layouts/Base.astro';
+import DemoAccount from '../../components/DemoAccount';
+import Guest from '../../components/Guest';
+import { signinUrl } from '../../lib/api';
+import SignInError from '../../components/SignInError';
+---
+
+<Base
+  title="Sign in | Proof of Concept Bakery"
+  description="Three ways into a private sandbox: Google, GitHub or a demo account, or a guest."
+>
+  <h1>Sign in</h1>
+  <p>
+    Proof of Concept Bakery never stores your name or email. A sandbox is yours until 10:00 UTC,
+    when every sandbox is deleted. <a href="/privacy/">What it keeps and for how long</a>.
+  </p>
+
+  <SignInError client:load />
+
+  <section aria-labelledby="providers">
+    <h2 id="providers">Sign in with an account you have</h2>
+    <p>
+      Google and GitHub tell the bakery only a number that identifies the account, kept as a keyed
+      hash.
+    </p>
+    <ul class="choices">
+      <li>
+        <a class="action" href={signinUrl('google')}>
+          Continue with Google
+        </a>
+      </li>
+      <li>
+        <a class="action" href={signinUrl('github')}>
+          Continue with GitHub
+        </a>
+      </li>
+    </ul>
+  </section>
+
+  <DemoAccount client:load />
+  <Guest client:load />
+</Base>
