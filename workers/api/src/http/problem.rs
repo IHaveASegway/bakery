@@ -260,6 +260,9 @@ pub fn order(rule: &str, class: Option<&str>) -> Failure {
                 "lead-time" => "The slot is sooner than the longest lead time among the lines.",
                 "slot" => "The slot is not a business time such as 2026-11-07T09:45:00-07:00.",
                 "cancel-too-late" => "The order is in production or later and cannot be cancelled.",
+                "refund-exceeds-paid" => "The refund is more than what is left of the payment.",
+                "refund-not-positive" => "A refund is a positive number of cents.",
+                "out-of-order" => "The order is not in a state that takes this command.",
                 _ => "The order does not fit the bakery's rules.",
             };
             format!("{sentence} The rule is {rule}.")
@@ -275,6 +278,87 @@ pub fn order(rule: &str, class: Option<&str>) -> Failure {
         retry_after: None,
         reason: "order",
     }
+}
+
+/// The API's `STRIPE_SECRET_KEY` is not a sandbox key: no payment path calls Stripe with it
+/// (ADR 0007, decision 2).
+pub fn stripe_key() -> Failure {
+    Failure::typed(
+        "stripe-key",
+        503,
+        "Payments are switched off on this API",
+        "The API's Stripe key is not a sandbox key, so it takes no payment and makes no refund. The rule is stripe-key.",
+    )
+}
+
+/// Stripe refused the call, or could not be reached; the reason is Stripe's error code, in the
+/// log line only.
+pub fn stripe(retryable: bool) -> Failure {
+    if retryable {
+        Failure::typed(
+            "stripe",
+            503,
+            "Stripe did not answer",
+            "Stripe's sandbox could not be reached. Try again in a moment.",
+        )
+        .retry_after(Some(5))
+    } else {
+        Failure::typed(
+            "stripe",
+            502,
+            "Stripe refused the request",
+            "Stripe's sandbox refused the request. Nothing was charged or refunded.",
+        )
+    }
+}
+
+/// The order cannot be paid (or refunded) in its state, with the rule named.
+pub fn order_conflict(rule: &str) -> Failure {
+    let sentence = match rule {
+        "not-payable" => {
+            "Only an order waiting for payment can be paid: this one is paid, expired or cancelled."
+        }
+        "paid" => "This order is paid already.",
+        "canceled" => "The order expired while Stripe answered, so its payment was cancelled.",
+        "no-stripe-payment" => {
+            "This order was not paid through Stripe (the seed made it paid), so there is nothing to refund there."
+        }
+        _ => "The order is not in a state that takes this request.",
+    };
+    Failure {
+        problem: Box::new(Problem::typed(
+            "order",
+            409,
+            "The order cannot do that now",
+            format!("{sentence} The rule is {rule}."),
+        )),
+        retry_after: None,
+        reason: "order",
+    }
+}
+
+/// A webhook refused before it reached an object: 400, the reason code its type and its log.
+pub fn webhook(reason: &'static str) -> Failure {
+    let detail = match reason {
+        "signature" => {
+            "The Stripe-Signature header is missing or no v1 signature matches the body."
+        }
+        "timestamp" => "The signature's timestamp is more than five minutes from now.",
+        "livemode" => "The event is not a test-mode event; this API takes only Stripe's sandbox.",
+        _ => "The signed body is not a Stripe event this API reads.",
+    };
+    Failure::typed(reason, 400, "The webhook was refused", detail)
+}
+
+/// A webhook Billing cannot apply yet, such as a refund before its payment: Stripe delivers it
+/// again later.
+pub fn webhook_later() -> Failure {
+    Failure::typed(
+        "webhook-later",
+        409,
+        "The webhook cannot be applied yet",
+        "Billing does not know this event's payment yet. Stripe will deliver it again.",
+    )
 }
 
 /// The kitchen socket's path without `Upgrade: websocket`.
@@ -471,6 +555,25 @@ mod tests {
     }
 
     #[test]
+    fn payment_refusals_name_their_slugs() {
+        assert_eq!(stripe_key().problem.status, 503);
+        assert_eq!(stripe_key().reason, "stripe-key");
+        assert_eq!(stripe(true).retry_after, Some(5));
+        assert_eq!(stripe(false).problem.status, 502);
+        let f = order_conflict("not-payable");
+        assert_eq!(
+            (f.problem.status, f.problem.problem_type.as_str()),
+            (409, "https://bakery.ihaveasegway.com/problems/order")
+        );
+        for reason in ["signature", "timestamp", "body", "livemode"] {
+            let f = webhook(reason);
+            assert_eq!(f.problem.status, 400);
+            assert_eq!(f.reason, reason);
+            assert!(f.problem.problem_type.ends_with(reason));
+        }
+    }
+
+    #[test]
     fn the_guest_rule_is_named() {
         let f = guest_scope();
         assert_eq!(f.problem.status, 403);
@@ -499,6 +602,17 @@ mod tests {
             order("something-new", None),
             menu("nothing-to-publish"),
             clock("too-far"),
+            stripe_key(),
+            stripe(true),
+            stripe(false),
+            order_conflict("not-payable"),
+            order_conflict("no-stripe-payment"),
+            order("refund-exceeds-paid", None),
+            webhook("signature"),
+            webhook("timestamp"),
+            webhook("body"),
+            webhook("livemode"),
+            webhook_later(),
             Failure::from(ConfigError::Missing("TURNSTILE_SECRET")),
         ] {
             let detail = f.problem.detail.clone().unwrap();

@@ -2,6 +2,7 @@
 //! adapter and later work from alarms (AGENTS.md; docs/architecture.md, "The rules").
 
 pub mod account;
+pub mod billing;
 pub mod catalog;
 pub mod child;
 pub mod control;

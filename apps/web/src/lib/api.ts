@@ -12,8 +12,12 @@ import type {
   MenuEditResponse,
   MenuItemPatch,
   MenuResponse,
+  LedgerResponse,
   OrderRequest,
   OrderResponse,
+  PaymentResponse,
+  RefundRequest,
+  RefundResponse,
   SandboxResponse,
   SessionResponse,
   TrafficResponse,
@@ -145,6 +149,38 @@ export async function getMenu(id: string, etag: string | null = null): Promise<M
  */
 export const placeOrder = (id: string, req: OrderRequest, key: string) =>
   request<OrderResponse>('POST', `${sandboxPath(id)}/orders`, { body: req, key });
+
+export const getOrder = (id: string, orderId: string) =>
+  request<OrderResponse>('GET', `${sandboxPath(id)}/orders/${encodeURIComponent(orderId)}`);
+
+/**
+ * `POST .../orders/{oid}/payment`: the PaymentIntent's client secret for the Payment Element. The
+ * order's own id is the idempotency key, so a remount or a retry gets the same intent back.
+ */
+export const createPayment = (id: string, orderId: string) =>
+  request<PaymentResponse>(
+    'POST',
+    `${sandboxPath(id)}/orders/${encodeURIComponent(orderId)}/payment`,
+    {
+      key: orderId,
+    },
+  );
+
+/** The sandbox with the synthetic persona the Element's billing details come from. */
+export const getSandboxPersona = (id: string) => request<SandboxResponse>('GET', sandboxPath(id));
+
+/** `POST .../orders/{oid}/refund`, staff only. A fresh key per click: each click is its own intent. */
+export const refundOrder = (id: string, orderId: string, req: RefundRequest) =>
+  request<RefundResponse>(
+    'POST',
+    `${sandboxPath(id)}/orders/${encodeURIComponent(orderId)}/refund`,
+    {
+      body: req,
+    },
+  );
+
+export const getLedger = (id: string) =>
+  request<LedgerResponse>('GET', `${sandboxPath(id)}/billing/ledger`);
 
 export const heartbeat = (id: string) => request<void>('POST', `${sandboxPath(id)}/heartbeat`);
 

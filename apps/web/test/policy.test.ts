@@ -3,6 +3,7 @@ import {
   CHALLENGE_PATHS,
   DEFAULT_API_ORIGIN,
   ISLAND_PATHS,
+  PAYMENT_PATHS,
   RULE_PATHS,
   csp,
   directives,
@@ -58,6 +59,33 @@ describe('page classes', () => {
     expect(island['connect-src']).toEqual(directives('every', DEFAULT_API_ORIGIN)['connect-src']);
   });
 
+  test('the payment class adds exactly Stripe’s three origins to the island class', () => {
+    const island = directives('island', DEFAULT_API_ORIGIN);
+    const payment = directives('payment', DEFAULT_API_ORIGIN);
+    expect(payment['script-src']).toEqual(["'self'", 'https://js.stripe.com']);
+    expect(payment['frame-src']).toEqual(['https://js.stripe.com', 'https://hooks.stripe.com']);
+    expect(payment['connect-src']).toEqual([...island['connect-src']!, 'https://api.stripe.com']);
+    // Everything else is the island class, unchanged.
+    for (const name of Object.keys(island)) {
+      if (['script-src', 'frame-src', 'connect-src'].includes(name)) continue;
+      expect(payment[name], name).toEqual(island[name]);
+    }
+    expect(csp('payment', DEFAULT_API_ORIGIN)).not.toContain('cloudflare');
+  });
+
+  test('no other class names a Stripe origin', () => {
+    for (const pageClass of ['every', 'challenge', 'island'] as const) {
+      expect(csp(pageClass, DEFAULT_API_ORIGIN)).not.toContain('stripe.com');
+    }
+  });
+
+  test('the payment class keeps the page’s inline hashes', () => {
+    const hashes = { script: ["'sha256-AAAA'"], style: ["'sha256-BBBB'"] };
+    const payment = directives('payment', DEFAULT_API_ORIGIN, hashes);
+    expect(payment['script-src']).toEqual(["'self'", 'https://js.stripe.com', "'sha256-AAAA'"]);
+    expect(payment['style-src']).toEqual(["'self'", "'sha256-BBBB'"]);
+  });
+
   test('the island class carries the page’s inline hashes, and the other classes can too', () => {
     const hashes = { script: ["'sha256-AAAA'"], style: ["'sha256-BBBB'"] };
     const island = directives('island', DEFAULT_API_ORIGIN, hashes);
@@ -66,7 +94,7 @@ describe('page classes', () => {
   });
 
   test('nothing is unsafe in any class', () => {
-    for (const pageClass of ['every', 'challenge', 'island'] as const) {
+    for (const pageClass of ['every', 'challenge', 'island', 'payment'] as const) {
       expect(csp(pageClass, DEFAULT_API_ORIGIN)).not.toMatch(/unsafe-|sha256-|\*/);
     }
   });
@@ -81,21 +109,24 @@ describe('headersFile', () => {
     expect(body.toLowerCase()).not.toContain('strict-transport-security');
   });
 
-  test('the menu and the checkout get an island rule: detach, then their own policy and hashes', () => {
-    expect(ISLAND_PATHS).toEqual(['/menu/*', '/checkout/*']);
-    expect(RULE_PATHS).toEqual([...CHALLENGE_PATHS, ...ISLAND_PATHS]);
+  test('the menu gets an island rule and the checkout a payment rule: detach, then their own policy and hashes', () => {
+    expect(ISLAND_PATHS).toEqual(['/menu/*']);
+    expect(PAYMENT_PATHS).toEqual(['/checkout/*']);
+    expect(RULE_PATHS).toEqual([...CHALLENGE_PATHS, ...ISLAND_PATHS, ...PAYMENT_PATHS]);
     const hashes = { script: ["'sha256-AAAA'"], style: ["'sha256-BBBB'"] };
     const file = headersFile(DEFAULT_API_ORIGIN, { '/menu/*': hashes, '/checkout/*': hashes });
-    for (const path of ISLAND_PATHS) {
+    for (const path of [...ISLAND_PATHS, ...PAYMENT_PATHS]) {
       const at = file.split('\n').indexOf(path);
       expect(at).toBeGreaterThan(0);
       const lines = file.split('\n').slice(at + 1, at + 3);
       expect(lines[0]).toBe('  ! Content-Security-Policy');
-      expect(lines[1]).toContain("script-src 'self' 'sha256-AAAA';");
+      expect(lines[1]).toContain("'sha256-AAAA';");
       expect(lines[1]).not.toContain('challenges.cloudflare.com');
     }
     // Turnstile is named exactly by the challenge rules: two paths, script-src and frame-src each.
     expect(file.split('challenges.cloudflare.com').length - 1).toBe(CHALLENGE_PATHS.length * 2);
+    // Stripe: script-src, two frame-src origins, connect-src; only in the checkout's rule.
+    expect(file.split('stripe.com').length - 1).toBe(4);
   });
 
   test('puts the given API origin in every policy', () => {

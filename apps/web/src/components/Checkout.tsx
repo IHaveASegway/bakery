@@ -12,7 +12,6 @@ import {
   totals,
 } from '../lib/cart';
 import { type Message as Text } from '../lib/messages';
-import { findVariant } from '../lib/menu';
 import { dollars, DEFAULT_TAX_BP } from '../lib/money';
 import { describeOrderError } from '../lib/order-errors';
 import { ZONES, byDate, deliveryWindows, pickupSlots, type Zone } from '../lib/slots';
@@ -22,6 +21,7 @@ import { useSandboxPhase } from '../lib/use-session';
 import CartLines from './CartLines';
 import HowThisWorks from './HowThisWorks';
 import Message from './Message';
+import PaymentStep from './PaymentStep';
 import StatusLine from './StatusLine';
 
 /** The /checkout/ island: the cart, how to receive it, a note, and the order's result. */
@@ -34,7 +34,7 @@ export default function Checkout() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Text | null>(null);
   const [retry, setRetry] = useState(false);
-  const [result, setResult] = useState<OrderResponse | null>(null);
+  const [result, setResult] = useState<{ order: OrderResponse; sandboxId: string } | null>(null);
   const attempt = useRef<Attempt | null>(null);
 
   // The slot lists are computed from the clock, so refresh it while the page is open.
@@ -95,7 +95,7 @@ export default function Checkout() {
       attempt.current = null;
       setRetry(false);
       update(() => EMPTY_CART);
-      setResult(order);
+      setResult({ order, sandboxId: phase.id });
     } catch (e) {
       const keep = keepKeyAfter(e);
       if (!keep) attempt.current = null;
@@ -106,7 +106,9 @@ export default function Checkout() {
     }
   }
 
-  if (result !== null) return <Receipt order={result} menu={menu} />;
+  if (result !== null) {
+    return <PaymentStep sandboxId={result.sandboxId} order={result.order} menu={menu} />;
+  }
 
   return (
     <>
@@ -276,66 +278,5 @@ export default function Checkout() {
 
       <HowThisWorks menu={menu} />
     </>
-  );
-}
-
-/** What the API answered: its numbers, not the page's. */
-function Receipt({ order, menu }: { order: OrderResponse; menu: ReturnType<typeof useLiveMenu> }) {
-  return (
-    <section aria-labelledby="receipt-heading" aria-live="polite">
-      <h2 id="receipt-heading">Order placed</h2>
-      <dl>
-        <dt>Order</dt>
-        <dd>
-          <code>{order.id}</code>
-        </dd>
-        <dt>Status</dt>
-        <dd>{order.status}</dd>
-        <dt>{order.kind === 'pickup' ? 'Pickup' : `Delivery, zone ${order.zone ?? ''}`}</dt>
-        <dd>
-          <time dateTime={order.slot}>{order.slot}</time>
-        </dd>
-        <dt>Held until</dt>
-        <dd>
-          <time dateTime={order.held_until}>{order.held_until}</time>
-        </dd>
-        <dt>Menu version</dt>
-        <dd>{order.menu_version}</dd>
-      </dl>
-      <ul className="cart-lines">
-        {order.lines.map((line) => (
-          <li key={line.variant}>
-            <span className="line-name">
-              {findVariant(menu.menu, line.variant)?.item.name ?? line.variant}
-              {' × '}
-              {line.qty}
-            </span>
-            <span className="price">{dollars(line.unit_cents * line.qty)}</span>
-          </li>
-        ))}
-      </ul>
-      <dl className="totals">
-        <dt>Subtotal</dt>
-        <dd>{dollars(order.subtotal_cents)}</dd>
-        <dt>Tax</dt>
-        <dd>{dollars(order.tax_cents)}</dd>
-        <dt>Total</dt>
-        <dd>
-          <strong>{dollars(order.total_cents)}</strong>
-        </dd>
-      </dl>
-      <p>
-        An unpaid order is held for 15 minutes of bakery time and then expires. Payment arrives in a
-        later release.
-      </p>
-      <p className="actions">
-        <a className="action" href="/app/">
-          Watch it on the kitchen board
-        </a>
-        <a className="action" href="/menu/">
-          Order something else
-        </a>
-      </p>
-    </section>
   );
 }

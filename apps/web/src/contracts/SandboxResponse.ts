@@ -45,6 +45,11 @@ export interface SandboxResponse {
    * places are this customer's.
    */
   persona: string;
+  persona_address: PersonaAddress;
+  /**
+   * The persona's synthetic display name, from the seed: the Payment Element's billing name.
+   */
+  persona_name: string;
   /**
    * The seed the sandbox was generated from. A JSON number: JavaScript reads it exactly only
    * below 2^53, so the router mints seeds in that range.
@@ -68,4 +73,24 @@ export interface SandboxResponse {
 export interface Faults {
   inbox: boolean;
   kitchen: boolean;
+}
+/**
+ * The persona's synthetic address, from the seed: the Payment Element's billing address,
+ * so the visitor types none (ADR 0007, decision 6).
+ */
+export interface PersonaAddress {
+  city: string;
+  /**
+   * An ISO 3166-1 alpha-2 code.
+   */
+  country: string;
+  /**
+   * `<place label>, unit <n> (synthetic)`, such as `p17, unit 3 (synthetic)`.
+   */
+  line1: string;
+  postal_code: string;
+  /**
+   * A two-letter state code.
+   */
+  state: string;
 }
