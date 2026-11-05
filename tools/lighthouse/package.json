@@ -1,0 +1,9 @@
+{
+  "name": "bakery-lighthouse",
+  "private": true,
+  "description": "Lighthouse CI for the lighthouse job only, with its own lockfile outside the workspace, so its dependency tree never reaches the storefront's install or its audit.",
+  "packageManager": "pnpm@11.28.6",
+  "devDependencies": {
+    "@lhci/cli": "0.15.1"
+  }
+}

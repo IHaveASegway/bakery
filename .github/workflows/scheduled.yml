@@ -1,0 +1,281 @@
+# The scheduled jobs (docs/delivery.md, "From launch"; docs/operations.md, "The nightly wipe"):
+# bakery-objects, the morning object check after the 10:00 UTC wipe, and audit, the Monday audit.
+#
+# DORMANT UNTIL LAUNCH DAY. A scheduled run does nothing unless the repository variable LAUNCHED
+# is 'true' (Settings, Secrets and variables, Actions, Variables); it does not exist yet. A run
+# started by hand (workflow_dispatch) runs the chosen job whatever LAUNCHED says, so either can be
+# tried before launch: audit needs no secret; bakery-objects needs CLOUDFLARE_READ_TOKEN and
+# CLOUDFLARE_ACCOUNT_ID and stops with an error without them. Against an account where the API
+# was never deployed it answers "nothing listed holds data", which is also what a wiped account
+# answers: the dry run proves the token and the listing, not the wipe.
+#
+# Secrets, by name only, in the env of the one step that uses them (rule 2):
+#   CLOUDFLARE_READ_TOKEN, CLOUDFLARE_ACCOUNT_ID (docs/operations.md, step 8): bakery-objects'
+#     listing. The read token is its own, so a scheduled job never holds write access: Account,
+#     Workers Scripts Read (Durable Object namespaces and their objects are listed under it;
+#     confirm the name on launch day). Account Analytics Read, which step 8 also names, is for
+#     the dead-letter query this file does not run yet.
+# The GitHub token: issues: write for both jobs' issues, actions: read for bakery-objects to fetch
+# the 09:47 listing from that run, pull-requests: read and security-events: read for audit's
+# Dependabot state.
+#
+# The times are off the hour (delivery.md: GitHub delays and drops runs at the top of it).
+name: scheduled
+
+on:
+  schedule:
+    - cron: '47 9 * * *' # bakery-objects: what holds data before the 10:00 UTC wipe
+    - cron: '17 12 * * *' # bakery-objects: what still holds data after the wipe and its retries
+    - cron: '17 7 * * 1' # audit: Monday
+  workflow_dispatch:
+    inputs:
+      job:
+        description: The job to run now
+        type: choice
+        options: [bakery-objects, audit]
+        required: true
+
+permissions: {} # rule 1
+
+concurrency:
+  group: scheduled # delivery.md: the scheduled jobs share one group, and none is cancelled
+  cancel-in-progress: false
+
+jobs:
+  bakery-objects:
+    # Each Durable Object namespace of bakery-api, listed through the account API with the read
+    # token (scripts/bakery-objects.mjs). The API gives an object's id and whether it holds data,
+    # never its age, so the 09:47 run keeps a listing and the 12:17 run compares with it: an
+    # object that held data before the wipe and still does after it survived the wipe. Objects
+    # holding data at 12:17 that were not in the 09:47 listing are visitors' new sandboxes. Ids
+    # never reach a log, an artifact or an issue, which are public here: only classes, counts and
+    # hashes do.
+    if: >-
+      (vars.LAUNCHED == 'true' &&
+      (github.event.schedule == '47 9 * * *' || github.event.schedule == '17 12 * * *')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.job == 'bakery-objects')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10 # rule 9
+    permissions:
+      contents: read
+      actions: read # the 09:47 listing, an artifact of that run
+      issues: write # "Objects survived the wipe"
+    env:
+      PHASE: ${{ github.event.schedule == '47 9 * * *' && 'before' || 'after' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # rule 7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false # the script has no dependencies
+      - name: Today's 09:47 listing, from the run that made it
+        id: before
+        if: env.PHASE == 'after'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          day="$(date -u +%F)"
+          found=false
+          for run in $(gh run list --repo "$REPO" --workflow scheduled.yml --event schedule \
+            --status success --created ">=$day" --limit 20 --json databaseId --jq '.[].databaseId'); do
+            if gh run download "$run" --repo "$REPO" --name "objects-before-$day" --dir "$RUNNER_TEMP/before" 2> /dev/null; then
+              found=true
+              break
+            fi
+          done
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+          if [ "$found" != true ]; then
+            echo "::warning::No 09:47 listing for $day: an object holding data now cannot be told from a sandbox made after the wipe."
+          fi
+      - name: List every namespace's objects (the read token)
+        id: list
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }} # rule 2: this step only
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BEFORE_FOUND: ${{ steps.before.outputs.found }}
+        run: |
+          args=(--out "$RUNNER_TEMP/listing.json")
+          if [ "$BEFORE_FOUND" = true ]; then args+=(--before "$RUNNER_TEMP/before/listing.json"); fi
+          set +e
+          node scripts/bakery-objects.mjs "${args[@]}" > "$RUNNER_TEMP/summary.json"
+          code=$?
+          set -e
+          if [ "$code" -eq 2 ]; then exit 1; fi # the listing failed: never read as a clean wipe
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT" # the 12:17 run looks for this day's listing
+          {
+            echo "Phase: $PHASE (UTC $(date -u +%H:%M))"
+            echo
+            echo '```json'
+            cat "$RUNNER_TEMP/summary.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the listing for the 12:17 run (hashes and counts only)
+        if: env.PHASE == 'before'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: objects-before-${{ steps.list.outputs.day }}
+          path: ${{ runner.temp }}/listing.json
+          retention-days: 2
+      - name: Open or update the issue when an object survived the wipe
+        if: env.PHASE == 'after' && steps.list.outputs.code == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BEFORE_FOUND: ${{ steps.before.outputs.found }}
+        run: |
+          title="Objects survived the wipe"
+          survivors="$(jq -r '.survivors | to_entries | map("\(.key): \(.value)") | join(", ")' "$RUNNER_TEMP/summary.json")"
+          {
+            echo "$(date -u +%F), the 12:17 UTC check ($RUN):"
+            echo
+            if [ "$BEFORE_FOUND" = true ]; then
+              echo "Objects that held data at 09:47 UTC and still do after the 10:00 wipe, by class: $survivors."
+            else
+              echo "No 09:47 listing to compare with, so every object holding data is counted, by class: $survivors."
+              echo "Some may be sandboxes made after the wipe."
+            fi
+            echo
+            echo "Runbook: docs/operations.md, \"The nightly wipe\". The objects' ids are in the dashboard, not here."
+          } > "$RUNNER_TEMP/body.md"
+          number="$(gh issue list --repo "$REPO" --state open --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title == \"$title\")) | first | .number // empty")"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$REPO" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh issue create --repo "$REPO" --title "$title" --body-file "$RUNNER_TEMP/body.md"
+          fi
+          echo "::error::an object survived the wipe: $survivors"
+          exit 1
+
+  audit:
+    # The Monday audit (delivery.md, the `scheduled` row): RustSec through cargo audit and cargo
+    # deny against the newest database, pnpm audit against the lockfile, the Dependabot state, and
+    # both Workers' compatibility_date age. Any finding opens (or updates) one issue, and the job
+    # fails; it is green otherwise. Holds no secret.
+    if: >-
+      (vars.LAUNCHED == 'true' && github.event.schedule == '17 7 * * 1') ||
+      (github.event_name == 'workflow_dispatch' && inputs.job == 'audit')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25 # rule 9: two cargo installs, cold
+    permissions:
+      contents: read
+      issues: write # "Weekly audit"
+      pull-requests: read # Dependabot's open pull requests
+      security-events: read # Dependabot's alerts, if this token may read them
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # rule 7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Rust, from rust-toolchain.toml
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          cargo --version
+      - name: Cargo tool versions, read from Cargo.toml's [workspace.metadata.tools]
+        id: tools
+        run: |
+          meta="$(cargo metadata --no-deps --format-version 1 --locked)"
+          for tool in cargo-audit cargo-deny; do
+            version="$(jq -r --arg t "$tool" '.metadata.tools[$t] // empty' <<<"$meta")"
+            if ! printf '%s' "$version" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+'; then
+              echo "::error::cannot read an exact version for $tool from [workspace.metadata.tools]"
+              exit 1
+            fi
+            echo "$tool=$version" >> "$GITHUB_OUTPUT"
+          done
+      - name: Install cargo-audit and cargo-deny (rule 12, --locked and pinned)
+        env:
+          AUDIT: ${{ steps.tools.outputs.cargo-audit }}
+          DENY: ${{ steps.tools.outputs.cargo-deny }}
+        run: |
+          cargo install cargo-audit --locked --version "$AUDIT"
+          cargo install cargo-deny --locked --version "$DENY"
+      - name: Audit, each check writing what it found
+        run: |
+          out="$RUNNER_TEMP/findings"
+          mkdir -p "$out"
+          set +e
+          cargo audit > "$out/cargo-audit.txt" 2>&1 || echo "cargo audit" >> "$out/failed"
+          cargo deny check advisories > "$out/cargo-deny.txt" 2>&1 || echo "cargo deny check advisories" >> "$out/failed"
+          pnpm audit --audit-level moderate > "$out/pnpm-audit.txt" 2>&1 || echo "pnpm audit (moderate and above)" >> "$out/failed"
+          # compatibility_date older than 180 days, per Worker (operations.md, the quarterly bump).
+          for config in apps/web/wrangler.jsonc workers/api/wrangler.jsonc; do
+            date="$(grep -oE '"compatibility_date": *"[0-9-]{10}"' "$config" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}')"
+            age=$(( ($(date -u +%s) - $(date -u -d "$date" +%s)) / 86400 ))
+            echo "$config: compatibility_date $date, $age days old" >> "$out/compat.txt"
+            if [ "$age" -gt 180 ]; then echo "compatibility_date of $config is $age days old" >> "$out/failed"; fi
+          done
+          exit 0
+      - name: The Dependabot state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          out="$RUNNER_TEMP/findings"
+          # Dependabot's pull requests open for more than 14 days: a security update merges when CI
+          # passes, and majors wait 14 days (delivery.md, "Dependency policy").
+          cutoff="$(date -u -d '14 days ago' +%FT%TZ)"
+          gh pr list --repo "$REPO" --author 'app/dependabot' --state open --limit 100 \
+            --json number,title,createdAt > "$RUNNER_TEMP/dependabot.json"
+          stale="$(jq -r --arg c "$cutoff" '[.[] | select(.createdAt < $c)] | map("#\(.number) \(.title)") | join("\n")' "$RUNNER_TEMP/dependabot.json")"
+          if [ -n "$stale" ]; then
+            printf 'Dependabot pull requests open for more than 14 days:\n%s\n' "$stale" > "$out/dependabot.txt"
+            echo "Dependabot pull requests open for more than 14 days" >> "$out/failed"
+          fi
+          if gh api "repos/$REPO/dependabot/alerts?state=open&per_page=100" > "$RUNNER_TEMP/alerts.json" 2> /dev/null; then
+            count="$(jq 'length' "$RUNNER_TEMP/alerts.json")"
+            echo "Open Dependabot alerts: $count" >> "$out/dependabot.txt"
+            if [ "$count" -gt 0 ]; then echo "$count open Dependabot alerts" >> "$out/failed"; fi
+          else
+            echo "::warning::this token cannot read Dependabot alerts; their state is in the Security tab"
+            echo "Dependabot alerts: not readable with the workflow token" >> "$out/dependabot.txt"
+          fi
+      - name: Open or update the issue on a finding
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          out="$RUNNER_TEMP/findings"
+          cat "$out/compat.txt" >> "$GITHUB_STEP_SUMMARY"
+          if [ ! -s "$out/failed" ]; then
+            echo "No finding." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          title="Weekly audit"
+          {
+            echo "$(date -u +%F) ($RUN). Findings:"
+            echo
+            sed 's/^/- /' "$out/failed"
+            for f in cargo-audit cargo-deny pnpm-audit dependabot; do
+              if [ -s "$out/$f.txt" ]; then
+                echo
+                echo "<details><summary>$f</summary>"
+                echo
+                echo '```text'
+                tail -n 60 "$out/$f.txt"
+                echo '```'
+                echo "</details>"
+              fi
+            done
+            echo
+            echo "Procedure: docs/operations.md, \"Dependency update\"."
+          } > "$RUNNER_TEMP/body.md"
+          number="$(gh issue list --repo "$REPO" --state open --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title == \"$title\")) | first | .number // empty")"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$REPO" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh issue create --repo "$REPO" --title "$title" --body-file "$RUNNER_TEMP/body.md"
+          fi
+          echo "::error::the audit found: $(paste -sd ';' "$out/failed")"
+          exit 1
