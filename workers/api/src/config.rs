@@ -193,6 +193,27 @@ pub fn traffic_minutes_cap(env: &Env) -> u16 {
         .unwrap_or(DEFAULT_TRAFFIC_MINUTES_CAP)
 }
 
+/// `SANDBOX_SEED`, a local run's fixed seed for every new sandbox, so two sandboxes born from it
+/// can be compared (scripts/smoke-crm.sh). Honored only when `API_ORIGIN` is this machine's, as
+/// the provider overrides are, and only for a value a sandbox may hold (below 2^53); otherwise
+/// every sandbox draws its own.
+pub fn fixed_seed(env: &Env) -> Option<u64> {
+    let value = read(env, "SANDBOX_SEED")?;
+    let origin = read(env, "API_ORIGIN").unwrap_or_default();
+    let seed = seed_override(&value, &origin);
+    if seed.is_none() {
+        console_log!("{{\"event\":\"seed_override_refused\"}}");
+    }
+    seed
+}
+
+fn seed_override(value: &str, api_origin: &str) -> Option<u64> {
+    if !is_local_override(api_origin) {
+        return None;
+    }
+    value.trim().parse::<u64>().ok().filter(|s| *s < 1 << 53)
+}
+
 /// The daily caps from the vars, each falling back to its default (docs/cost.md, "Guardrails").
 pub fn caps_from_env(env: &Env) -> Caps {
     let d = Caps::default();
@@ -243,6 +264,21 @@ mod tests {
                 "{refused}"
             );
         }
+    }
+
+    #[test]
+    fn a_fixed_seed_only_on_this_machine_and_only_below_2_to_the_53() {
+        assert_eq!(seed_override("42", "http://127.0.0.1:8788"), Some(42));
+        assert_eq!(seed_override(" 7 ", "http://localhost:8788"), Some(7));
+        assert_eq!(
+            seed_override("42", "https://api.bakery.ihaveasegway.com"),
+            None
+        );
+        assert_eq!(
+            seed_override("9007199254740992", "http://127.0.0.1:8788"),
+            None
+        );
+        assert_eq!(seed_override("x", "http://127.0.0.1:8788"), None);
     }
 
     #[test]

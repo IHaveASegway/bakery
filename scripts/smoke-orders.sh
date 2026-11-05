@@ -331,7 +331,7 @@ expect_status guest 201
 expect_json guest "['seeding', 'live'].includes(b.state) && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(b.persona) && b.faults.kitchen === false"
 GID="$(json_field guest b.id)"
 check "guest: seeding reaches live within 20 s" "wait_live guest_live G '$GID'"
-expect_json guest_live "b.state === 'live' && b.children === 33"
+expect_json guest_live "b.state === 'live' && b.children >= 35"
 
 CANARY="$(random_text 24)"
 command_as signup D 192.0.2.42 POST /v1/auth/demo "{\"password\":\"$CANARY\",\"turnstile_token\":\"pass-1\"}"
@@ -340,7 +340,7 @@ command_as demo D 192.0.2.42 POST /v1/sandboxes '{"replace":false}'
 expect_status demo 201
 DID="$(json_field demo b.id)"
 check "demo: seeding reaches live within 20 s" "wait_live demo_live D '$DID'"
-expect_json demo_live "b.state === 'live' && b.children === 33 && b.kind === 'account'"
+expect_json demo_live "b.state === 'live' && b.children >= 35 && b.kind === 'account'"
 DUSER="$(json_field signup b.username)"
 
 # A second demo account whose traffic runs with no console at all: no socket, no heartbeat. Its

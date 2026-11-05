@@ -26,6 +26,9 @@
       { "name": "BILLING", "class_name": "Billing" },
       { "name": "SCHEDULE", "class_name": "Schedule" },
       { "name": "CATERING", "class_name": "CateringEvent" },
+      { "name": "CUSTOMER", "class_name": "Customer" },
+      { "name": "CRM", "class_name": "Crm" },
+      { "name": "INBOX", "class_name": "Inbox" },
     ],
   },
   // Declarative class lifecycle: each change is a deploy and a rollback boundary.
@@ -40,6 +43,9 @@
     "Billing": { "type": "durable-object", "storage": "sqlite" },
     "Schedule": { "type": "durable-object", "storage": "sqlite" },
     "CateringEvent": { "type": "durable-object", "storage": "sqlite" },
+    "Customer": { "type": "durable-object", "storage": "sqlite" },
+    "Crm": { "type": "durable-object", "storage": "sqlite" },
+    "Inbox": { "type": "durable-object", "storage": "sqlite" },
   },
 
   "queues": {
