@@ -304,8 +304,15 @@ pub enum OrderError {
     ZoneRequired,
     #[error("a pickup has no zone")]
     ZoneOnPickup,
-    #[error("the slot is less than {needed_minutes} minutes away")]
-    LeadTimeNotMet { needed_minutes: u32 },
+    /// `item` is the slug of the line that needs the longest lead, `name` its menu name, and
+    /// `away_minutes` how far the slot is from now (negative once it has passed).
+    #[error("{}", lead_time_text(.name, *.needed_minutes, *.away_minutes))]
+    LeadTimeNotMet {
+        item: String,
+        name: String,
+        needed_minutes: u32,
+        away_minutes: i64,
+    },
     #[error("the note was refused: {}", .0.slug())]
     Note(FreeTextError),
     #[error("the order is already placed")]
@@ -341,6 +348,28 @@ pub enum OrderError {
     },
     #[error("amount out of range")]
     Overflow,
+}
+
+/// "Chocolate layer cake needs 48 h; the slot is 22 h away": whole hours as hours, anything
+/// else as hours and minutes, so the 409's detail names the rule as the menu states it.
+fn lead_time_text(name: &str, needed_minutes: u32, away_minutes: i64) -> String {
+    let away = if away_minutes < 0 {
+        "the slot has passed".to_owned()
+    } else {
+        format!("the slot is {} away", duration_text(away_minutes))
+    };
+    format!(
+        "{name} needs {}; {away}",
+        duration_text(i64::from(needed_minutes))
+    )
+}
+
+fn duration_text(minutes: i64) -> String {
+    match (minutes / 60, minutes % 60) {
+        (0, m) => format!("{m} min"),
+        (h, 0) => format!("{h} h"),
+        (h, m) => format!("{h} h {m} min"),
+    }
 }
 
 impl OrderError {
@@ -585,6 +614,8 @@ fn place_order(p: &PlaceOrder, ctx: &DecideContext) -> Result<OrderEvent, OrderE
     // lines split it.
     let mut per_variant: BTreeMap<&str, u32> = BTreeMap::new();
     let mut needed_minutes = 0u32;
+    // The first line that needs the longest lead, named in the refusal.
+    let mut needed_by: Option<(String, String)> = None;
     for input in &p.lines {
         if !(1..=MAX_QTY).contains(&input.qty) {
             return Err(OrderError::QtyOutOfRange {
@@ -618,7 +649,11 @@ fn place_order(p: &PlaceOrder, ctx: &DecideContext) -> Result<OrderEvent, OrderE
             Some(b) if *qty > b.over_qty => b.lead_minutes,
             _ => 0,
         };
-        needed_minutes = needed_minutes.max(variant.lead_minutes).max(bulk);
+        let line_needs = variant.lead_minutes.max(bulk);
+        if line_needs > needed_minutes || needed_by.is_none() {
+            needed_minutes = needed_minutes.max(line_needs);
+            needed_by = Some((item.slug.clone(), item.name.clone()));
+        }
         lines.push(Line {
             item: item.slug.clone(),
             variant: variant.slug.clone(),
@@ -629,7 +664,14 @@ fn place_order(p: &PlaceOrder, ctx: &DecideContext) -> Result<OrderEvent, OrderE
     // The slot's start is at least the longest lead time after placement, in business time.
     let ahead_ms = i128::from(p.slot.unix_ms()) - i128::from(ctx.now.unix_ms());
     if ahead_ms < i128::from(needed_minutes) * 60_000 {
-        return Err(OrderError::LeadTimeNotMet { needed_minutes });
+        let (item, name) = needed_by.unwrap_or_default();
+        return Err(OrderError::LeadTimeNotMet {
+            item,
+            name,
+            needed_minutes,
+            // Whole minutes, rounded down; a slot seconds away reads as 0 min.
+            away_minutes: i64::try_from(ahead_ms.div_euclid(60_000)).unwrap_or(i64::MIN),
+        });
     }
     let note = match &p.note {
         None => None,
@@ -1045,8 +1087,18 @@ mod tests {
         assert_eq!(
             Order::decide(&OrderState::default(), &placed_cmd(cake.clone()), &ctx),
             Err(OrderError::LeadTimeNotMet {
-                needed_minutes: 2_880
+                item: "thyme-cake".into(),
+                name: "Thyme cake".into(),
+                needed_minutes: 2_880,
+                away_minutes: 2_879,
             })
+        );
+        let refused =
+            Order::decide(&OrderState::default(), &placed_cmd(cake.clone()), &ctx).unwrap_err();
+        assert_eq!(refused.rule(), "lead-time");
+        assert_eq!(
+            refused.to_string(),
+            "Thyme cake needs 48 h; the slot is 47 h 59 min away"
         );
         cake.slot = at("2026-11-07T08:00:00-07:00");
         assert!(Order::decide(&OrderState::default(), &placed_cmd(cake), &ctx).is_ok());
@@ -1064,8 +1116,21 @@ mod tests {
                 &six_hours_before
             ),
             Err(OrderError::LeadTimeNotMet {
-                needed_minutes: 720
+                item: "fern-loaf".into(),
+                name: "Fern loaf".into(),
+                needed_minutes: 720,
+                away_minutes: 360,
             })
+        );
+        assert_eq!(
+            Order::decide(
+                &OrderState::default(),
+                &placed_cmd(loaves.clone()),
+                &six_hours_before
+            )
+            .unwrap_err()
+            .to_string(),
+            "Fern loaf needs 12 h; the slot is 6 h away"
         );
         loaves.lines[1].qty = 1;
         assert!(
@@ -1079,7 +1144,14 @@ mod tests {
         // A drink needs no lead, but the slot cannot be in the past.
         let mut late = place(OrderKind::Pickup, &[("moss-tea/small", 1)]);
         late.slot = at("2026-11-03T07:59:59-07:00");
-        assert_eq!(place_err(late).rule(), "lead-time");
+        let e = place_err(late);
+        assert_eq!(e.rule(), "lead-time");
+        assert_eq!(e.to_string(), "Moss tea needs 0 min; the slot has passed");
+        // A lead that is not whole hours reads in hours and minutes.
+        assert_eq!(
+            lead_time_text("Scone", 90, 45),
+            "Scone needs 1 h 30 min; the slot is 45 min away"
+        );
     }
 
     #[test]

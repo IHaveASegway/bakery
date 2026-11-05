@@ -1,17 +1,21 @@
 //! Civil-date arithmetic for the seed: the day of the week, the birth date and business times
 //! at the bakery's Mountain standard offset.
 //!
-//! `bakery-domain` keeps its own copy of the day-count functions private to its time module,
-//! so the seed carries a small one of its own (Howard Hinnant's `days_from_civil` and
-//! `civil_from_days`) and tests it against known dates.
+//! The day-count functions (Howard Hinnant's `days_from_civil` and `civil_from_days`, and the
+//! weekday) live in `bakery_domain::calendar`, the one copy, and are re-exported here.
+//!
+//! The seed's business times use the standard offset, `-07:00`, all year, while the domain's
+//! calendar is daylight-aware. Its pinned ULIDs take their time parts from these times, so
+//! moving the seed to the calendar's offset would change every pin for a birth date in summer.
 
 use std::fmt;
 
+pub use bakery_domain::calendar::{civil_from_days, days_from_civil, weekday};
 use bakery_domain::{BusinessTime, MS_PER_DAY};
 use serde::{Serialize, Serializer};
 
-/// Mountain standard time, minutes east of UTC. The zone's summer rules arrive with the first
-/// rule that needs them (docs/domain.md, "Money and time"); the seed uses `-07:00` throughout.
+/// Mountain standard time, minutes east of UTC. The seed uses `-07:00` throughout; the domain's
+/// calendar (`bakery_domain::calendar`) applies the zone's summer rule.
 pub const OFFSET_MINUTES: i16 = -420;
 
 /// Short names, Monday first, as `days_baked` lists them.
@@ -19,36 +23,6 @@ pub const WEEKDAY_NAMES: [&str; 7] = ["mon", "tue", "wed", "thu", "fri", "sat", 
 pub const MONDAY: u8 = 0;
 pub const SATURDAY: u8 = 5;
 pub const SUNDAY: u8 = 6;
-
-/// Days since 1970-01-01 of a proleptic Gregorian date.
-pub fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let mp = (m + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
-}
-
-/// The `(year, month, day)` of a day count from 1970-01-01.
-pub fn civil_from_days(z: i64) -> (i64, i64, i64) {
-    let z = z + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    (yoe + era * 400 + i64::from(m <= 2), m, d)
-}
-
-/// The day of the week of a day count, Monday 0 to Sunday 6. 1970-01-01 was a Thursday.
-pub fn weekday(days: i64) -> u8 {
-    // The remainder is 0 to 6, so it fits.
-    (days + 3).rem_euclid(7) as u8
-}
 
 /// `YYYY-MM-DD` for a day count.
 pub fn date_string(days: i64) -> String {

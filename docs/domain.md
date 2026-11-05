@@ -269,10 +269,13 @@ Every event, past tense, by producer. Types: `id` is a ULID string, `cents` an `
 | `OrderPickedUp`, `OrderDelivered` | Order | `at_stop: u16?` | Kitchen; Crm | clears the card; timeline |
 | `OrderRefunded` | Order | `refund: id, amount_cents, full: bool` | Crm; Customer; Inbox | timeline; reverses loyalty; refund notice |
 | `OrderClosed` | Order; the seed for history | `total_cents, refunded_cents, lines (history only)` | Schedule; Crm | fulfils the reservation; customer stats |
-| `SlotReserved` | Schedule | `kind: slot, window or catering, date, start: time, ref: id` | Kitchen | bake list totals |
+| `SlotHeld` | Schedule | `kind: slot, window or catering, date, start: time, ref: id, zone: string?, lines: [{item, qty: u32}], expires_at: time` | none | the hold, in the Schedule's own log; its timer is armed for `expires_at` |
+| `SlotReserved` | Schedule | `kind: slot, window or catering, date, start: time, ref: id, revived: bool?` | Kitchen | bake list totals |
 | `SlotReleased` | Schedule | `kind, date, start: time, ref: id, reason: string` | Kitchen | bake list totals |
+| `SlotFulfilled` | Schedule | `kind, date, start: time, ref: id` | none | the place is spent; it still counts against capacity |
 | `CapacityChanged` | Schedule | `target: string, capacity: u16` | Crm | logs it |
-| `BakeListChanged` | Schedule | `date, version: u32, lines: [{item, qty: u16, start: time}]` | Kitchen | redraws the bake list |
+| `CapsRefreshed` | Schedule | `menu_version: u32, caps: [{item, daily_cap: u32}]` | none | the day's item caps, from the published menu |
+| `BakeListChanged` | Schedule | `date, version: u32, lines: [{item, qty: u32, start: time}]` | Kitchen | redraws the bake list |
 | `CateringInquiryReceived` | CateringEvent | `catering: id, customer: id, date, headcount: u16, package: string, venue: string, brief: string?` | Crm; Inbox | lead pipeline; acknowledgement |
 | `CateringQuoteSent` | CateringEvent | `total_cents, deposit_cents, valid_until: time` | Crm; Inbox | pipeline stage; the quote message |
 | `CateringQuoteAccepted` | CateringEvent | `{}` | Crm | pipeline stage |

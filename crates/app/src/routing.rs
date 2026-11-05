@@ -130,9 +130,12 @@ pub const ROUTES: &[(&str, &[Route])] = &[
     ("OrderDelivered", &[all(Kitchen), all(Crm)]),
     ("OrderRefunded", &[all(Crm), all(Customer), all(Inbox)]),
     ("OrderClosed", &[all(Schedule), all(Crm)]),
+    ("SlotHeld", &[]),
     ("SlotReserved", &[all(Kitchen)]),
     ("SlotReleased", &[all(Kitchen)]),
+    ("SlotFulfilled", &[]),
     ("CapacityChanged", &[all(Crm)]),
+    ("CapsRefreshed", &[]),
     ("BakeListChanged", &[all(Kitchen)]),
     ("CateringInquiryReceived", &[all(Crm), all(Inbox)]),
     ("CateringQuoteSent", &[all(Crm), all(Inbox)]),
@@ -252,6 +255,7 @@ mod tests {
     use super::*;
     use bakery_domain::catalog::CatalogEvent;
     use bakery_domain::order::OrderEvent;
+    use bakery_domain::schedule::ScheduleEvent;
     use bakery_domain::{DomainEvent, Ulid, WallTime};
     use serde_json::json;
     use std::collections::BTreeSet;
@@ -351,12 +355,16 @@ mod tests {
         assert_eq!(in_table, in_doc);
         assert_eq!(ROUTES.len(), in_table.len(), "an event is listed twice");
         // The table has as many rows as the catalog has events.
-        assert_eq!(in_doc.len(), 57);
+        assert_eq!(in_doc.len(), 60);
     }
 
     #[test]
     fn every_domain_event_is_routed() {
-        for name in OrderEvent::NAMES.iter().chain(CatalogEvent::NAMES) {
+        for name in OrderEvent::NAMES
+            .iter()
+            .chain(CatalogEvent::NAMES)
+            .chain(ScheduleEvent::NAMES)
+        {
             assert!(routes(name).is_some(), "{name} has no row");
         }
     }

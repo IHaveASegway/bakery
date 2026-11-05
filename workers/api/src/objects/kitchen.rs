@@ -827,6 +827,7 @@ impl Kitchen {
         let (label, changed) = match &change {
             BoardChange::Upserted(_) => ("upserted", true),
             BoardChange::Removed(_) => ("removed", true),
+            BoardChange::BakeList(_) => ("bake-list", true),
             BoardChange::Unchanged(Ignored::Duplicate) => ("duplicate", false),
             BoardChange::Unchanged(Ignored::Stale) => ("stale", false),
             BoardChange::Unchanged(Ignored::NotForBoard) => ("not-for-board", false),

@@ -26,5 +26,8 @@ pub mod wipe;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 
+#[cfg(test)]
+mod scheduling_flow;
+
 pub use health::{BuildInfo, Health, HealthStatus, health};
 pub use ports::{Clock, EventStore, IdGen, Mailbox, Outbox, PaymentGateway, PortError};
