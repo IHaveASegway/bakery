@@ -346,7 +346,7 @@ mod tests {
         Ulid::from_parts(1_793_819_530_318, n)
     }
 
-    const SECRET: &str = "sk_test_fake000000000000000000000000";
+    const SECRET: &str = "sk_test_not_a_key";
 
     #[test]
     fn idempotency_keys_follow_the_domain_doc() {

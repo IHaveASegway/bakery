@@ -91,10 +91,10 @@ mod tests {
     #[test]
     fn classifies_by_prefix() {
         for key in [
-            "sk_test_fake000000000000000000000000",
-            "rk_test_fake000000000000000000000000",
-            "pk_test_fake000000000000000000000000",
-            "whsec_fake0000000000000000000000000000",
+            "sk_test_not_a_key",
+            "rk_test_not_a_key",
+            "pk_test_not_a_key",
+            "whsec_not_a_secret",
         ] {
             assert_eq!(KeyKind::classify(key), KeyKind::Test, "{key}");
         }
@@ -114,7 +114,7 @@ mod tests {
             "sk_test_fake 000",
             "SK_TEST_fake000",
             "sk_demo_fake000",
-            "Bearer sk_test_fake000",
+            "Bearer sk_test_not_a_key",
         ] {
             assert_eq!(KeyKind::classify(key), KeyKind::Other, "{key:?}");
         }
@@ -122,28 +122,17 @@ mod tests {
 
     #[test]
     fn the_secret_key_guard_takes_sandbox_secret_and_restricted_keys_only() {
-        assert!(is_sandbox_secret_key(
-            "sk_test_fake000000000000000000000000"
-        ));
-        assert!(is_sandbox_secret_key(
-            "rk_test_fake000000000000000000000000"
-        ));
-        assert!(!is_sandbox_secret_key(
-            "pk_test_fake000000000000000000000000"
-        ));
-        assert!(!is_sandbox_secret_key(
-            "whsec_fake0000000000000000000000000000"
-        ));
+        assert!(is_sandbox_secret_key("sk_test_not_a_key"));
+        assert!(is_sandbox_secret_key("rk_test_not_a_key"));
+        assert!(!is_sandbox_secret_key("pk_test_not_a_key"));
+        assert!(!is_sandbox_secret_key("whsec_not_a_secret"));
         assert!(!is_sandbox_secret_key(&other_mode("sk")));
         assert!(!is_sandbox_secret_key(&other_mode("rk")));
         assert!(!is_sandbox_secret_key(""));
-        assert!(is_webhook_secret("whsec_fake0000000000000000000000000000"));
-        assert!(!is_webhook_secret("sk_test_fake000000000000000000000000"));
-        assert_eq!(
-            key_role("rk_test_fake000000000000000000000000"),
-            Some(KeyRole::Restricted)
-        );
-        assert_eq!(key_role("pk_test_fake0"), Some(KeyRole::Publishable));
+        assert!(is_webhook_secret("whsec_not_a_secret"));
+        assert!(!is_webhook_secret("sk_test_not_a_key"));
+        assert_eq!(key_role("rk_test_not_a_key"), Some(KeyRole::Restricted));
+        assert_eq!(key_role("pk_test_not_a_key"), Some(KeyRole::Publishable));
         assert_eq!(key_role("nope"), None);
     }
 }

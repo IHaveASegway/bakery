@@ -3,7 +3,7 @@ import { checkPublishableKey } from '../src/lib/publishable-key';
 
 // A live-looking key is assembled here, never written out: CI greps the tree for the live prefixes.
 const liveShaped = ['pk', 'live', 'fake000'].join('_');
-const testShaped = 'pk_test_fake000000000000000000000000';
+const testShaped = 'pk_test_not_a_key';
 
 describe('checkPublishableKey', () => {
   test('an empty or missing key is fine: the checkout then says payments are not configured', () => {
@@ -16,7 +16,13 @@ describe('checkPublishableKey', () => {
     expect(() => checkPublishableKey(testShaped)).not.toThrow();
   });
 
-  test.each([liveShaped, 'sk_test_fake000', 'rk_test_fake000', 'whsec_fake000', 'nonsense'])(
+  test.each([
+    liveShaped,
+    'sk_test_not_a_key',
+    'rk_test_not_a_key',
+    'whsec_not_a_secret',
+    'nonsense',
+  ])(
     'anything else fails the build with one sentence that does not repeat the value (%s)',
     (value) => {
       let message = '';

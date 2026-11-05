@@ -196,7 +196,7 @@ impl StripeEvent {
 mod tests {
     use super::*;
 
-    const SECRET: &str = "whsec_fake0000000000000000000000000000";
+    const SECRET: &str = "whsec_not_a_secret";
     const NOW: i64 = 1_793_900_000;
     const BODY: &[u8] = br#"{"id":"evt_fake_1","object":"event","type":"payment_intent.succeeded","livemode":false,"created":1793900000,"data":{"object":{"id":"pi_fake_1","object":"payment_intent","amount":2090,"currency":"usd","status":"succeeded","metadata":{"sandbox":"01JC8YV2D4QK7S1M9E3PZ6W8AN","purpose":"order"},"livemode":false}}}"#;
 
@@ -223,7 +223,7 @@ mod tests {
         // `1793900000.{"id":"evt_fake_1"}`, so the payload's shape is pinned as well as the MAC.
         assert_eq!(
             signature_header(SECRET, NOW, br#"{"id":"evt_fake_1"}"#),
-            "t=1793900000,v1=66f122a56bb68e2f54f00112ed40f405f50826e6f4d016574cd239b33d8875ff"
+            "t=1793900000,v1=959be08f93fc4c286ccb557dbce36e79b675375e7022b79c3724c1d93e90da32"
         );
         assert_eq!(
             verify_signature(&header, BODY, SECRET, NOW, TOLERANCE_S),

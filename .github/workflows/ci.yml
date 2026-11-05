@@ -107,10 +107,13 @@ jobs:
       # storefront's bundle (apps/web/dist) and the API's (workers/api/dist) are searched too.
       # The pattern is put together from parts, so this step's text never matches it, and the
       # step's own file and docs/ (whose two sentences name the rule) are left out.
-      - name: No live Stripe key in the tree or the bundles
+      - name: No Stripe key or signing secret in the tree or the bundles
         run: |
-          mode="li""ve"
-          pattern="(sk|rk|pk)_${mode}_"
+          # Any string shaped like a Stripe key or endpoint secret, test mode included: a
+          # placeholder of that shape is what secret scanners flag, so none may exist here.
+          mode="(li""ve|te""st)"
+          tail="[0-9A-Za-z]{16,}"
+          pattern="((sk|rk|pk)_${mode}_${tail}|wh""sec_${tail})"
           for bundle in apps/web/dist workers/api/dist; do
             if [ ! -d "$bundle" ]; then
               echo "::error::$bundle is missing, so it cannot be searched"
@@ -119,15 +122,15 @@ jobs:
           done
           if grep -rIlE "$pattern" . \
             --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=target --exclude-dir=.wrangler \
-            --exclude-dir=docs --exclude=ci.yml; then
-            echo "::error::a Stripe key prefix of the mode the bakery never uses is in the files above"
+            --exclude=ci.yml; then
+            echo "::error::a Stripe key or signing secret shape is in the files above"
             exit 1
           fi
           if grep -rlaE "$pattern" apps/web/dist workers/api/dist; then
-            echo "::error::a built bundle holds a Stripe key prefix of the mode the bakery never uses"
+            echo "::error::a built bundle holds a Stripe key or signing secret shape"
             exit 1
           fi
-          echo "no such prefix in the tree (but docs/ and this file) or in apps/web/dist and workers/api/dist"
+          echo "no Stripe key or secret shape in the tree (but this file) or in apps/web/dist and workers/api/dist"
       - run: pnpm test
       - run: pnpm typecheck
       - run: pnpm lint

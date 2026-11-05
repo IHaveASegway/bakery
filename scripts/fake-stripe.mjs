@@ -17,8 +17,8 @@
 // override is honored only for 127.0.0.1 and localhost hosts:
 //
 //   STRIPE_API_BASE=http://127.0.0.1:8791
-//   STRIPE_SECRET_KEY=rk_test_fake000000000000000000000000
-//   STRIPE_WEBHOOK_SECRET=whsec_fake0000000000000000000000000000
+//   STRIPE_SECRET_KEY=rk_test_not_a_key
+//   STRIPE_WEBHOOK_SECRET=whsec_not_a_secret
 //
 // These environment variables of this process change what it expects and where it sends; the
 // defaults are the values above and the Worker's webhook route:
@@ -76,9 +76,8 @@ const RETRY_DELAY_MS = 500;
 const DELIVERY_TIMEOUT_MS = 5000;
 const OLD_TIMESTAMP_SKEW_S = 360;
 const MAX_REPLAY = 50;
-const SECRET_KEY = process.env.FAKE_STRIPE_SECRET_KEY || 'rk_test_fake000000000000000000000000';
-const WEBHOOK_SECRET =
-  process.env.FAKE_STRIPE_WEBHOOK_SECRET || 'whsec_fake0000000000000000000000000000';
+const SECRET_KEY = process.env.FAKE_STRIPE_SECRET_KEY || 'rk_test_not_a_key';
+const WEBHOOK_SECRET = process.env.FAKE_STRIPE_WEBHOOK_SECRET || 'whsec_not_a_secret';
 const WEBHOOK_URL =
   process.env.FAKE_STRIPE_WEBHOOK_URL || 'http://127.0.0.1:8788/v1/stripe/webhook';
 const FAULTS = ['bad_signature', 'old_timestamp', 'tamper_body', 'livemode'];
