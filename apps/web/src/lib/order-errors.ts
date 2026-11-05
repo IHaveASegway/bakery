@@ -20,6 +20,10 @@ const SENTENCES: Record<string, string> = {
   'zone-required': 'A delivery needs a zone. Choose one.',
   'zone-on-pickup': 'A pickup has no delivery zone.',
   'lead-time': 'Something in the cart needs more notice than that. Choose a later time.',
+  'no-such-slot':
+    'That is not a time the bakery takes orders for: pickup slots run on the quarter hour, delivery windows start at 9, 11 and 1. Choose one from the list.',
+  'closed-day': 'The bakery is closed that day: it opens Tuesday to Sunday. Choose another day.',
+  'unknown-zone': 'The bakery does not deliver to that zone. Choose zone 1, 2 or 3.',
   'note-email':
     'The note looks like an email address. The bakery keeps no personal details, so leave it out.',
   'note-phone':
@@ -42,8 +46,22 @@ export function ruleOf(detail: string | null): string | null {
   );
 }
 
-/** A message for a failed checkout: the rule's sentence for a 422, the general words otherwise. */
+/**
+ * A message for a failed checkout: the rule's sentence for a 422, the API's own words for a 409
+ * (`slot-full`, `item-cap`: its detail names the item and the next free time), the general words
+ * otherwise.
+ */
 export function describeOrderError(error: unknown): Message {
+  if (error instanceof ApiError && error.status === 409) {
+    return {
+      title: error.title,
+      detail:
+        error.detail ??
+        (error.slug === 'slot-full'
+          ? 'That time is full. Choose another.'
+          : 'The kitchen cannot take that much of an item that day. Lower the quantity or choose another day.'),
+    };
+  }
   if (error instanceof ApiError && error.status === 422) {
     const rule = ruleOf(error.detail);
     if (rule !== null) {

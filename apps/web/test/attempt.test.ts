@@ -5,7 +5,13 @@ import { describeOrderError, ruleOf } from '../src/lib/order-errors';
 
 const problem = (status: number, detail: string | null = null) =>
   new ApiError(
-    { status, type: 'https://example.test/problems/order', title: 'Order', detail },
+    {
+      status,
+      type: 'https://example.test/problems/order',
+      title: 'Order',
+      detail,
+      next_free: null,
+    },
     null,
   );
 

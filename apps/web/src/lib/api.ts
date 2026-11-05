@@ -1,6 +1,8 @@
 // The storefront's whole contact with the API. The session is a cookie on the API's host, so
 // every call sends credentials and no script ever sees a token.
 import type {
+  CapacityRequest,
+  ClockRequest,
   ClockResponse,
   CreateSandboxRequest,
   DeadLetter,
@@ -19,6 +21,7 @@ import type {
   RefundRequest,
   RefundResponse,
   SandboxResponse,
+  ScheduleResponse,
   SessionResponse,
   TrafficResponse,
   WipedResponse,
@@ -36,6 +39,8 @@ export class ApiError extends Error {
   readonly type: string;
   readonly title: string;
   readonly detail: string | null;
+  /** The next free slot a `slot-full` problem names (RFC 9457 extension member), else null. */
+  readonly next_free: string | null;
   /** Seconds from a Retry-After header, when there is one. */
   readonly retryAfter: number | null;
 
@@ -46,6 +51,7 @@ export class ApiError extends Error {
     this.type = problem.type;
     this.title = problem.title;
     this.detail = problem.detail;
+    this.next_free = problem.next_free;
     this.retryAfter = retryAfter;
   }
 
@@ -208,9 +214,28 @@ export const redrive = (id: string, eventId: string) =>
     `${sandboxPath(id)}/dead-letters/${encodeURIComponent(eventId)}/redrive`,
   );
 
-/** Moves the sandbox's business clock forward; the offset only ever grows. */
-export const advanceClock = (id: string, minutes: number) =>
-  request<ClockResponse>('POST', `${sandboxPath(id)}/clock`, { body: { minutes } });
+/**
+ * Moves the sandbox's business clock forward; the offset only ever grows. Give a named step
+ * (`{ step: '1d' }`) or, as before, a plain count of minutes. The caller may own the
+ * idempotency key (one per click, see lib/clock.ts); without one the call mints its own.
+ */
+export const advanceClock = (id: string, advance: ClockRequest | number, key?: string) =>
+  request<ClockResponse>('POST', `${sandboxPath(id)}/clock`, {
+    body: typeof advance === 'number' ? { minutes: advance } : advance,
+    ...(key === undefined ? {} : { key }),
+  });
+
+/** One bakery day's places, caps and bake list (`date` is `YYYY-MM-DD`). */
+export const getSchedule = (id: string, date: string) =>
+  request<ScheduleResponse>('GET', `${sandboxPath(id)}/schedule/${encodeURIComponent(date)}`);
+
+/** Staff set one capacity for a day; the answer is the day's schedule. Signed-in sessions only. */
+export const setCapacity = (id: string, date: string, req: CapacityRequest) =>
+  request<ScheduleResponse>(
+    'PATCH',
+    `${sandboxPath(id)}/schedule/${encodeURIComponent(date)}/capacity`,
+    { body: req },
+  );
 
 /** The sign-in links are navigations through the API, not fetches (security.md, "Sign-in"). */
 export const signinUrl = (provider: 'google' | 'github') =>
