@@ -134,6 +134,37 @@ jobs:
             | [.seen[] | $name[.] | select(. as $n | $platform | index($n))] as $hits
             | if ($hits | length) == 0 then true
               else ("platform crates reachable from domain or app: " + ($hits | join(", ")) | halt_error(1)) end'
+      - name: The seed is deterministic, two runs give identical bytes (docs/domain.md, "The seed")
+        run: |
+          cargo run -q --locked -p bakery-seed -- 42 2026-11-07 > "$RUNNER_TEMP/seed-a.json"
+          cargo run -q --locked -p bakery-seed -- 42 2026-11-07 > "$RUNNER_TEMP/seed-b.json"
+          cmp "$RUNNER_TEMP/seed-a.json" "$RUNNER_TEMP/seed-b.json"
+          echo "seed 42, born 2026-11-07: $(wc -c < "$RUNNER_TEMP/seed-a.json") bytes, the same twice"
+      - name: No timers or wall clock in the domain, the app or any object (workers/api/src/clock.rs is the one adapter)
+        run: |
+          # clock.rs sits outside these paths on purpose: it is the Clock port's only adapter.
+          if grep -rnE 'setTimeout|setInterval|Date::now|SystemTime|Instant::now|js_sys::Date' \
+            crates/domain crates/app workers/api/src/objects; then
+            echo "::error::a timer or a wall-clock read where only the Clock port and alarms may supply time (AGENTS.md)"
+            exit 1
+          fi
+      - name: Every Durable Object class is SQLite-backed and exported (wrangler.jsonc)
+        run: |
+          classes="$(grep -rh -A1 '#\[durable_object\]' workers/api/src | sed -nE 's/^pub struct ([A-Za-z0-9_]+).*/\1/p' | sort -u)"
+          # Trailing line comments are dropped first, as in the cache check, then trailing commas.
+          sed -E 's#(^|[[:space:]])//.*$##' workers/api/wrangler.jsonc | CLASSES="$classes" node -e '
+            const text = require("fs").readFileSync(0, "utf8").replace(/,(\s*[}\]])/g, "$1");
+            const config = JSON.parse(text);
+            const exported = config.exports ?? {};
+            const bound = (config.durable_objects?.bindings ?? []).map((b) => b.class_name);
+            const classes = process.env.CLASSES.split("\n").filter(Boolean);
+            const sqlite = (c) => exported[c]?.type === "durable-object" && exported[c]?.storage === "sqlite";
+            const bad = [...new Set([...classes, ...bound])].filter((c) => !sqlite(c));
+            if (classes.length === 0) bad.push("(no #[durable_object] found)");
+            for (const c of bad) console.log(`::error file=workers/api/wrangler.jsonc::${c} is not exported with "storage": "sqlite"`);
+            console.log(`classes: ${classes.join(", ")}; bindings: ${bound.join(", ")}`);
+            process.exit(bad.length ? 1 : 0);
+          '
       - name: Keep the build (firewall scans these bytes, never a rebuild)
         uses: actions/upload-artifact@v7
         with:

@@ -2,7 +2,7 @@
 
 How Proof of Concept Bakery, the made-up bakery, is set up, watched and repaired by one person: access setup, observability, alerting, runbooks and the maintenance calendar. It follows the site's [operations.md](https://github.com/IHaveASegway/website/blob/main/docs/operations.md), and the two share an account, a zone and a time budget. Each runbook is a short numbered list for use under stress. The pipeline these runbooks drive is in [delivery.md](delivery.md); the secrets inventory, the wipe's design and the privacy rules are in [security.md](security.md); prices and the kill switch's design are in [cost.md](cost.md).
 
-Status: Draft for review in PR 1 · 2026-11-04
+Status: Updated in PR 3 · 2026-11-05
 
 Prices, limits and versions are as of 2026-11-04, with sources. Steps that depend on a console's current labels say "confirm when building". A Durable Object (DO) is the unit that holds state; every DO class here is SQLite-backed.
 
@@ -45,14 +45,14 @@ Created in PR 2, because local development needs the keys; the production webhoo
 
 ### 4. The Google OAuth client
 
-[ADR 0006](adr/0006-sign-in-that-learns-nothing.md): the `openid` scope alone, so the API receives `sub` and no email. Spike S2 confirms Google accepts it; if not, the fallback is `openid email` with the claim dropped before storage, and this step changes.
+[ADR 0006](adr/0006-sign-in-that-learns-nothing.md): the `openid` scope alone, so the API receives `sub` and no email. [S2](roadmap.md#spikes) passed on 2026-11-05: Google accepts it. Google's docs still describe `openid` alone as invalid, so the callback also drops `email`, `email_verified`, `name` and `picture` if they ever appear. A client in production status was not tested; check it on launch day.
 
 Created in PR 2 in testing status, with Joseph as its test user, for local development; published on launch day.
 
 1. A Google Cloud project named Proof of Concept Bakery. Console labels move; confirm when building.
 2. Consent screen: External; the app name; privacy page `https://bakery.ihaveasegway.com/privacy/`; authorized domain `ihaveasegway.com`; `hello@ihaveasegway.com` as the developer contact. The user support email offers only the signed-in account's own address or a Google Group it manages (as of 2026-11-04), so in testing status it is that account's address, which only test users see. Before publishing, it moves to `hello@ihaveasegway.com`, because the screen then shows it to every visitor: a Google account on that address, verified through Email Routing, can select itself (Joseph's decision of 2026-11-04). A free Google Group would end in `@googlegroups.com` and would not match.
 3. Scopes: `openid` only. No sensitive scope is requested, so no verification review is needed ([Google](https://developers.google.com/identity/openid-connect/openid-connect), as of 2026-11-04; confirm the current rule). Publish the screen to production at launch, once the privacy page is live, so any Google account can sign in.
-4. An OAuth client of type Web application, redirect URIs `http://127.0.0.1:8788/v1/auth/google/callback` for local development and `https://api.bakery.ihaveasegway.com/v1/auth/google/callback`, both registered on 2026-11-04 (paths assumed until ADR 0013, written in PR 10). The client secret becomes `GOOGLE_CLIENT_SECRET`; the client id is public and goes in `vars`.
+4. An OAuth client of type Web application, redirect URIs `http://127.0.0.1:8788/v1/auth/google/callback` for local development and `https://api.bakery.ihaveasegway.com/v1/auth/google/callback`, both registered on 2026-11-04 (paths assumed until ADR 0013, written in PR 10). The client secret becomes `GOOGLE_CLIENT_SECRET`; the client id is public and goes in `vars`. The local URI is what PR 3's Worker sends when `API_ORIGIN` is `http://127.0.0.1:8788`.
 5. Validate ID tokens locally against the `jwks_uri` keys; `tokeninfo` is for debugging only.
 
 ### 5. Turnstile
@@ -70,6 +70,8 @@ Locally they live in `.dev.vars`, git-ignored, with names in `.dev.vars.example`
 | `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_SECRET`, `TURNSTILE_SECRET` | The Google client secret; the GitHub OAuth app's client secret (its client id is public and goes in `vars`); Turnstile's server secret | Yearly or on exposure |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | The restricted sandbox key; the endpoint secret | Yearly, at a reset, or on exposure |
 | `BREAKER_API_TOKEN` | The cron breaker's Cloudflare token | With the deploy token |
+
+The local-only provider overrides (`GOOGLE_ISSUER`, `GITHUB_AUTHORIZE_URL`, `GITHUB_TOKEN_URL`, `GITHUB_USER_URL`, `TURNSTILE_SITEVERIFY_URL`) are not secrets and are never set as Worker secrets or in `wrangler.jsonc`; they live in `.dev.vars` for `wrangler dev` against the fake provider. Beside `ALLOWED_ORIGIN` (`http://127.0.0.1:8787` locally), `.dev.vars` also sets the public var `API_ORIGIN` (`http://127.0.0.1:8788` locally; `https://api.bakery.ihaveasegway.com` in `wrangler.jsonc`), the base of the OAuth redirect URIs. [security.md](security.md#secrets-inventory) owns the rule.
 
 The daily IP salt is not a variable: `Control` generates it each day and discards it, so an IP hash cannot be linked across days.
 
@@ -93,7 +95,7 @@ Created in PR 2 for local development (Q23 · Q-auth, [ADR 0006](adr/0006-sign-i
 
 1. GitHub → Settings → Developer settings → OAuth Apps → New OAuth App, named Proof of Concept Bakery (local). Labels move; confirm when building.
 2. Homepage `https://bakery.ihaveasegway.com/`; authorization callback `http://127.0.0.1:8788/v1/auth/github/callback` (path assumed until ADR 0013).
-3. The client id is public and goes in `vars`; the client secret becomes `GITHUB_CLIENT_SECRET`, in `.dev.vars` locally.
+3. The client id is public and goes in `vars`; the client secret becomes `GITHUB_CLIENT_SECRET`, in `.dev.vars` locally. The local callback is what PR 3's Worker sends when `API_ORIGIN` is `http://127.0.0.1:8788`.
 4. A second app named Proof of Concept Bakery, with the callback `https://api.bakery.ihaveasegway.com/v1/auth/github/callback`, created on 2026-11-04 with no secret yet. GitHub's form now takes up to 10 redirect URIs per app (as of 2026-11-04); two apps stay, so the production secret never sits on a laptop. At launch, generate its secret for the Worker. No scope is requested, and the Worker's test asserts it.
 
 ### 11. The Email Service sender (later)
@@ -185,7 +187,7 @@ The wipe is the privacy promise ([ADR 0005](adr/0005-a-private-sandbox-per-visit
 
 **When it fails halfway.** The wipe is idempotent and the registry keeps children until the end, so a retry resumes. Wait two 15-minute sweeps, read the sandbox's `wipe_error` in the log, fix the cause, then request it by hand. If a class cannot delete, set `read-only` with L1 so no new data arrives, and fix forward.
 
-**Before launch** there is no cron: the scheduled handler runs on `wrangler dev --test-scheduled`, and the morning check does not exist until PR 11.
+**Before launch** there is no cron. On `wrangler dev` the scheduled handler runs when asked, with no `--test-scheduled` flag (Wrangler 4.157.0, checked on 2026-11-05; [cron triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/#test-cron-triggers-locally)): `curl "http://127.0.0.1:8788/cdn-cgi/local/scheduled?cron=0+10+*+*+*"` runs the wipe, and `cron=*/15+*+*+*+*` the sweep. The morning check does not exist until PR 11; its local half is `node scripts/list-objects.mjs <persist-dir>`, which exits 1 if a sandbox-scoped object holds data, and `scripts/smoke-auth.sh` runs both.
 
 **By hand.** Set `wipe_due` in `Control`'s `flags` table in Data Studio; the next sweep runs the full wipe. (The table and column names are an assumption for [architecture.md](architecture.md) to confirm.)
 

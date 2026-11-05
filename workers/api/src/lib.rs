@@ -1,14 +1,18 @@
-//! The Worker `bakery-api`: every Durable Object class, the Queue consumer and the cron handler
-//! (docs/architecture.md). PR 2 is the walking skeleton: health, today's status from `Control`,
-//! CORS, and placeholders for the cron and the Queue.
+//! The Worker `bakery-api`: the router, every Durable Object class, the Queue consumer and the
+//! cron handler (docs/architecture.md). PR 3 adds sign-in, sandboxes and the nightly wipe to
+//! PR 2's walking skeleton.
 
 mod clock;
+mod config;
 mod cron;
 mod http;
 mod objects;
 mod queue;
+mod random;
 
+pub use objects::account::Account;
 pub use objects::control::Control;
+pub use objects::sandbox::Sandbox;
 
 use worker::{Context, Env, Request, Response, Result, event};
 

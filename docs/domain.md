@@ -2,7 +2,7 @@
 
 The made-up bakery's language and rules: the terms every doc, screen and type uses, the aggregates and the Durable Object (DO) that hosts each, their commands, events, invariants and state machines, the event catalog and its envelope, how money, time and identifiers are represented, how idempotency works at every boundary, what a sandbox is born with, and which of the site's Lab principles runs where. The code that implements it is `crates/domain` (aggregates as `decide` and `evolve`, events, value objects) and `crates/seed`; how objects, the Queue and the Workers fit together is [architecture.md](architecture.md). Why the bakery exists is [product.md](product.md).
 
-Status: Draft for review in PR 1 · 2026-11-04
+Status: Updated in PR 3 · 2026-11-05
 
 Prices, limits and versions are as of 2026-11-04, with sources. Every menu price, package price and tax rate on this page is the made-up bakery's demo data, not a platform price.
 
@@ -354,7 +354,7 @@ Every boundary that can repeat a message has a key and a table.
 
 | Boundary | Key | Kept in | On a repeat |
 |---|---|---|---|
-| HTTP command | `Idempotency-Key` header, a ULID, required on every POST | the target object's `commands_seen`, with the stored result; creation keys in the Sandbox's registry | the stored result again, with `Idempotent-Replayed: true`; a reused key with a different body gets 422 problem+json |
+| HTTP command | `Idempotency-Key` header, a ULID, required on every POST | the target object's `commands_seen`, with the stored result; creation keys in `Control`, checked at admission | the stored result again, with `Idempotent-Replayed: true`; a reused key with a different body gets 422 problem+json |
 | Socket command | the `cmd` frame's ULID `id` | the Kitchen's last 64 ids, then the Order's `commands_seen` | `ack` again, as in the site's protocol v1 |
 | Call to Stripe | Stripe's `Idempotency-Key` header: `<ref>:<purpose>:<attempt>` | Stripe | Stripe returns the first result[^brandur] |
 | Stripe webhook | the Stripe event id | Billing's `webhooks_seen` | 200, no effect |

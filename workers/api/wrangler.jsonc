@@ -15,11 +15,17 @@
   "observability": { "enabled": true, "logs": { "invocation_logs": false } }, // invocation logs record location fields
 
   "durable_objects": {
-    "bindings": [{ "name": "CONTROL", "class_name": "Control" }],
+    "bindings": [
+      { "name": "CONTROL", "class_name": "Control" },
+      { "name": "ACCOUNT", "class_name": "Account" },
+      { "name": "SANDBOX", "class_name": "Sandbox" },
+    ],
   },
   // Declarative class lifecycle: each change is a deploy and a rollback boundary.
   "exports": {
     "Control": { "type": "durable-object", "storage": "sqlite" },
+    "Account": { "type": "durable-object", "storage": "sqlite" },
+    "Sandbox": { "type": "durable-object", "storage": "sqlite" },
   },
 
   "queues": {
@@ -34,11 +40,30 @@
     ],
   },
 
-  // The wipe at 10:00 UTC (PR 3) and the breaker and retry sweep (PR 11); placeholders for now.
+  // The wipe at 10:00 UTC, and the sweep that retries any sandbox the wipe missed (the breaker
+  // joins it in PR 11). Each only asks Control to start; Control's alarm does the work.
   "triggers": { "crons": ["0 10 * * *", "*/15 * * * *"] },
+
+  // The free layer of admission, before Control (docs/architecture.md, "Creating a sandbox"):
+  // per IP hash on POST /v1/sandboxes, per session on other commands. The namespace ids are
+  // the account's own labels for the two limits, not secrets.
+  "ratelimits": [
+    {
+      "name": "SANDBOX_CREATE_LIMIT",
+      "namespace_id": "1001",
+      "simple": { "limit": 1, "period": 60 },
+    },
+    { "name": "COMMAND_LIMIT", "namespace_id": "1002", "simple": { "limit": 60, "period": 60 } },
+  ],
 
   "vars": {
     "ALLOWED_ORIGIN": "https://bakery.ihaveasegway.com",
+    // The API's own origin, for the OAuth redirect URIs, which must match the registered ones
+    // exactly. Not read from the request: `wrangler dev` rewrites its host to the route's.
+    "API_ORIGIN": "https://api.bakery.ihaveasegway.com",
     "SANDBOX_CAP": "300",
+    "GUEST_SANDBOX_CAP": "100",
+    "DEMO_ACCOUNT_CAP": "100",
+    "ACCOUNT_SANDBOX_CAP": "3",
   },
 }

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DemoSignupRequest",
+  "description": "`POST /v1/auth/demo`. The password never reaches an object, a log or this type's `Debug`.",
+  "type": "object",
+  "properties": {
+    "password": {
+      "description": "12 to 128 characters, no composition rules.",
+      "type": "string"
+    },
+    "turnstile_token": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "password",
+    "turnstile_token"
+  ]
+}

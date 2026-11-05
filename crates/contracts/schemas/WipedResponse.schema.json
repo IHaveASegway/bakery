@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WipedResponse",
+  "description": "`DELETE /v1/sandboxes/{id}`, \"Wipe now\": the sandbox is gone when this answers.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "state": {
+      "description": "Always `wiped`.",
+      "$ref": "#/$defs/SandboxState"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "state"
+  ],
+  "$defs": {
+    "SandboxState": {
+      "description": "A sandbox's lifecycle (docs/domain.md, \"Sandbox\").",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "seeding",
+            "live",
+            "wiped"
+          ]
+        },
+        {
+          "description": "Every command gets 410 from here on.",
+          "type": "string",
+          "const": "wiping"
+        }
+      ]
+    }
+  }
+}

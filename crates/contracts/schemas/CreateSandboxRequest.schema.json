@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CreateSandboxRequest",
+  "description": "`POST /v1/sandboxes`. A guest needs `turnstile_token`; an account that already has a live\nsandbox gets it back unless `replace` is true.",
+  "type": "object",
+  "properties": {
+    "replace": {
+      "type": "boolean",
+      "default": false
+    },
+    "turnstile_token": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    }
+  },
+  "additionalProperties": false
+}

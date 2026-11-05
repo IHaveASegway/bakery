@@ -1,31 +1,53 @@
-//! `Control`, one per account, named `control`: the demo's flags and the daily ledger
-//! (docs/architecture.md, "Durable Object topology"). SQLite-backed; its alarm prunes the ledger
-//! at 00:00 UTC. Nothing here is billed per sandbox, so the router asks it only after the free
-//! checks.
+//! `Control`, one per account, named `control`: the demo's flags, the daily ledger, the day's
+//! sandboxes and the wipe's fan-out (docs/architecture.md, "Durable Object topology"; "The
+//! nightly wipe"). SQLite-backed. Nothing here is billed per sandbox, so the router asks it
+//! only after the free checks.
+//!
+//! One alarm serves two timers: the ledger prune at 00:00 UTC, and the wipe's fan-out, which
+//! wipes up to 50 sandboxes a run and re-arms while rows remain (docs/security.md, "The wipe").
+//! The daily IP salt lives in memory only and is never stored, so yesterday's IP hashes cannot
+//! be recomputed (docs/security.md, "Privacy and data inventory").
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use bakery_app::Clock;
-use bakery_contracts::{Flag, StatusResponse};
-use bakery_domain::WallTime;
+use bakery_app::admission::{self, Caps, Counts, Refusal};
+use bakery_app::auth::hex;
+use bakery_app::names::{CONTROL, sandbox_object_name};
+use bakery_contracts::{Flag, SandboxKind, StatusResponse};
+use bakery_domain::{Ulid, WallTime};
 use serde::{Deserialize, Serialize};
-use worker::js_sys::{Function, Reflect};
-use worker::wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use worker::{
-    DurableObject, Env, Error, Method, Request, RequestInit, Response, Result, SqlStorage, State,
-    Storage, console_log, durable_object,
+    DurableObject, Env, Error, Method, Request, Response, Result, SqlStorage, State, console_log,
+    durable_object,
 };
 
+use super::sandbox::{self, WipeRequest};
+use super::sql::{self, exec, first, rows, transaction_sync};
 use crate::clock::{SystemClock, alarm_time};
+use crate::config::caps_from_env;
+use crate::random;
 
-/// The object's one name; a client never names an object.
-pub const NAME: &str = "control";
-const BINDING: &str = "CONTROL";
-/// The daily cap on new sandboxes, unless the `SANDBOX_CAP` var says otherwise.
-const DEFAULT_SANDBOX_CAP: u32 = 300;
-/// Ledger rows older than this many days are pruned.
+pub const BINDING: &str = "CONTROL";
+/// Ledger rows and creation keys older than this many days are pruned.
 const LEDGER_DAYS: i64 = 35;
+/// Sandboxes one alarm run wipes (docs/security.md, "The wipe"): one subrequest each, far
+/// inside the 1,000 a Free invocation and the 10,000 a Paid one may make (Workers limits,
+/// https://developers.cloudflare.com/workers/platform/limits/, as of 2026-11-05).
+const WIPES_PER_RUN: usize = 50;
+/// An alarm-driven re-arm a day past this many stops and logs `alarm_guard` (docs/architecture.md,
+/// "The rules, restated for Rust", rule 4). 300 sandboxes at 50 a run need 6.
+const REARM_GUARD: u32 = 100;
+/// The pause between fan-out runs, so a run's own subrequests have finished.
+const FANOUT_GAP_MS: i64 = 1_000;
+
 const SANDBOXES: &str = "sandboxes";
+const GUEST_SANDBOXES: &str = "guest_sandboxes";
+const DEMO_ACCOUNTS: &str = "demo_accounts";
+const ALARM_REARMS: &str = "alarm_rearms";
+
+const PRUNE: &str = "prune";
+const FANOUT: &str = "fanout";
 
 const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS flags (
@@ -37,15 +59,79 @@ const SCHEMA: &[&str] = &[
        meter TEXT NOT NULL,
        value INTEGER NOT NULL,
        PRIMARY KEY (day, meter))",
+    // One row per sandbox admitted, until the ledger's retention. `wipe_attempted_at` is
+    // the fan-out's cursor: a row is tried once per `wipe_due`, so a sandbox that fails to
+    // wipe waits for the sweep instead of looping the alarm.
+    "CREATE TABLE IF NOT EXISTS sandboxes (
+       id TEXT PRIMARY KEY,
+       kind TEXT NOT NULL CHECK (kind IN ('guest','account')),
+       created_at TEXT NOT NULL,
+       wipe_due TEXT,
+       wiped_at TEXT,
+       wipe_requested_at TEXT,
+       wipe_attempted_at TEXT,
+       objects INTEGER,
+       rows_deleted INTEGER)",
+    // The Idempotency-Key of every admitted creation, with its answer, so a retry gets the
+    // first answer and does not take a second place (docs/domain.md, "Idempotency").
+    "CREATE TABLE IF NOT EXISTS creations_seen (
+       key TEXT PRIMARY KEY,
+       day TEXT NOT NULL,
+       result TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS timers (
+       id TEXT PRIMARY KEY,
+       purpose TEXT NOT NULL,
+       due_wall TEXT NOT NULL)",
 ];
 
-/// `/admit`'s answer: the day's count after this request, and whether this one got in.
+/// `POST /admit`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Admission {
-    pub day: String,
-    pub sandboxes_today: u32,
-    pub sandbox_cap: u32,
+pub struct AdmitRequest {
+    pub key: String,
+    pub kind: SandboxKind,
+    pub sandbox_id: Ulid,
+}
+
+/// `/admit`'s answer. On a replay, `sandbox_id` is the first request's, not this one's.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdmitAnswer {
     pub admitted: bool,
+    pub sandbox_id: Option<Ulid>,
+    pub replayed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// `POST /admit-demo`. The username is stored with the key so a replay names the same account;
+/// it never reaches a log line.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdmitDemoRequest {
+    pub key: String,
+    pub username: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdmitDemoAnswer {
+    pub admitted: bool,
+    pub username: Option<String>,
+    pub replayed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// `GET /salt`: the day's salt, hex. The router caches it for 30 s.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Salt {
+    pub day: String,
+    pub salt: String,
+}
+
+/// `POST /wiped`, from a Sandbox as it finishes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Wiped {
+    pub id: Ulid,
+    pub objects: u32,
+    pub rows_deleted: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,12 +140,21 @@ pub struct Pruned {
     pub deleted: u32,
 }
 
+/// `POST /wipe` and `POST /sweep`: how many rows were stamped for the fan-out.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Stamped {
+    pub stamped: u32,
+}
+
 #[durable_object]
 pub struct Control {
     state: State,
     env: Env,
     /// Set once this instance has created its tables and checked its alarm.
     ready: Cell<bool>,
+    /// The day's IP salt, in memory only: replaced when the UTC day changes, lost (and
+    /// redrawn) when the object is evicted.
+    salt: RefCell<Option<(String, [u8; 32])>>,
 }
 
 impl DurableObject for Control {
@@ -68,15 +163,31 @@ impl DurableObject for Control {
             state,
             env,
             ready: Cell::new(false),
+            salt: RefCell::new(None),
         }
     }
 
-    async fn fetch(&self, req: Request) -> Result<Response> {
+    async fn fetch(&self, mut req: Request) -> Result<Response> {
         self.ensure_ready().await?;
         let now = SystemClock::new().now_wall();
         match (req.method(), req.path().as_str()) {
             (Method::Get, "/status") => Response::from_json(&self.status(now)?),
-            (Method::Post, "/admit") => Response::from_json(&self.admit(now)?),
+            (Method::Post, "/admit") => {
+                let body: AdmitRequest = sql::body(&mut req).await?;
+                Response::from_json(&self.admit(body, now)?)
+            }
+            (Method::Post, "/admit-demo") => {
+                let body: AdmitDemoRequest = sql::body(&mut req).await?;
+                Response::from_json(&self.admit_demo(body, now)?)
+            }
+            (Method::Get, "/salt") => Response::from_json(&self.salt(now)?),
+            (Method::Post, "/wiped") => {
+                let body: Wiped = sql::body(&mut req).await?;
+                self.wiped(&body, now)?;
+                Response::from_json(&serde_json::json!({ "ok": true }))
+            }
+            (Method::Post, "/wipe") => Response::from_json(&self.stamp_wipe(now).await?),
+            (Method::Post, "/sweep") => Response::from_json(&self.sweep(now).await?),
             (Method::Post, "/prune") => Response::from_json(&self.prune(now)?),
             _ => Response::error("Not Found", 404),
         }
@@ -85,16 +196,62 @@ impl DurableObject for Control {
     async fn alarm(&self) -> Result<Response> {
         self.ensure_ready().await?;
         let now = SystemClock::new().now_wall();
-        let pruned = self.prune(now)?;
-        // The next midnight is always later than now, so this alarm cannot loop.
-        self.arm(now.next_utc_midnight()).await?;
-        console_log!(
-            "{{\"event\":\"control_alarm\",\"pruned\":{},\"before\":{:?}}}",
-            pruned.deleted,
-            pruned.before
-        );
+        let due: Vec<TimerRow> = rows(
+            &self.sql(),
+            "SELECT id, purpose, due_wall FROM timers WHERE due_wall <= ?",
+            vec![now.to_string().into()],
+        )?;
+        for timer in due {
+            match timer.purpose.as_str() {
+                PRUNE => {
+                    let pruned = self.prune(now)?;
+                    // The next midnight is always later than now, so this timer cannot loop.
+                    self.set_timer(PRUNE, now.next_utc_midnight())?;
+                    console_log!(
+                        "{{\"event\":\"control_alarm\",\"pruned\":{},\"before\":{:?}}}",
+                        pruned.deleted,
+                        pruned.before
+                    );
+                }
+                FANOUT => {
+                    exec(
+                        &self.sql(),
+                        "DELETE FROM timers WHERE id = ?",
+                        vec![FANOUT.into()],
+                    )?;
+                    self.fan_out(now).await?;
+                }
+                other => {
+                    console_log!("{{\"event\":\"timer_unknown\",\"purpose\":{other:?}}}");
+                    exec(
+                        &self.sql(),
+                        "DELETE FROM timers WHERE id = ?",
+                        vec![timer.id.into()],
+                    )?;
+                }
+            }
+        }
+        self.arm_earliest(now).await?;
         Response::empty()
     }
+}
+
+#[derive(Deserialize)]
+struct TimerRow {
+    id: String,
+    purpose: String,
+    #[allow(dead_code)]
+    due_wall: String,
+}
+
+#[derive(Deserialize)]
+struct IdRow {
+    id: String,
+}
+
+#[derive(Deserialize)]
+struct ResultRow {
+    result: String,
 }
 
 impl Control {
@@ -102,7 +259,11 @@ impl Control {
         self.state.storage().sql()
     }
 
-    /// Creates the tables and the flag row on first use, and arms the prune alarm on first start.
+    fn caps(&self) -> Caps {
+        caps_from_env(&self.env)
+    }
+
+    /// Creates the tables and the flag row on first use, and the prune timer on first start.
     async fn ensure_ready(&self) -> Result<()> {
         if self.ready.get() {
             return Ok(());
@@ -112,61 +273,304 @@ impl Control {
             sql.exec(statement, None)?;
         }
         let now = SystemClock::new().now_wall();
-        sql.exec(
+        exec(
+            &sql,
             "INSERT OR IGNORE INTO flags (demo, mode, changed_at) VALUES ('bakery', 'live', ?)",
             vec![now.to_string().into()],
         )?;
+        exec(
+            &sql,
+            "INSERT OR IGNORE INTO timers (id, purpose, due_wall) VALUES (?, ?, ?)",
+            vec![
+                PRUNE.into(),
+                PRUNE.into(),
+                now.next_utc_midnight().to_string().into(),
+            ],
+        )?;
         if self.state.storage().get_alarm().await?.is_none() {
-            self.arm(now.next_utc_midnight()).await?;
+            self.arm_earliest(now).await?;
         }
         self.ready.set(true);
         Ok(())
     }
 
-    async fn arm(&self, at: WallTime) -> Result<()> {
-        self.state.storage().set_alarm(alarm_time(at)).await
+    fn set_timer(&self, id: &str, at: WallTime) -> Result<()> {
+        exec(
+            &self.sql(),
+            "INSERT INTO timers (id, purpose, due_wall) VALUES (?, ?, ?)
+             ON CONFLICT (id) DO UPDATE SET due_wall = excluded.due_wall",
+            vec![id.into(), id.into(), at.to_string().into()],
+        )?;
+        Ok(())
     }
 
-    fn cap(&self) -> u32 {
-        sandbox_cap(&self.env)
+    /// One alarm, for the earliest timer. A due timer arms for now, which fires at once.
+    async fn arm_earliest(&self, now: WallTime) -> Result<()> {
+        #[derive(Deserialize)]
+        struct Due {
+            due_wall: Option<String>,
+        }
+        let due: Option<Due> = first(
+            &self.sql(),
+            "SELECT min(due_wall) AS due_wall FROM timers",
+            vec![],
+        )?;
+        match due
+            .and_then(|d| d.due_wall)
+            .and_then(|t| t.parse::<WallTime>().ok())
+        {
+            Some(at) => {
+                let at = if at < now { now } else { at };
+                self.state.storage().set_alarm(alarm_time(at)).await
+            }
+            None => self.state.storage().delete_alarm().await,
+        }
     }
 
     fn status(&self, now: WallTime) -> Result<StatusResponse> {
         let sql = self.sql();
         let day = now.utc_day();
+        let caps = self.caps();
         Ok(StatusResponse {
             sandboxes_today: read_meter(&sql, &day, SANDBOXES)?,
-            sandbox_cap: self.cap(),
+            sandbox_cap: caps.sandboxes,
+            guests_today: read_meter(&sql, &day, GUEST_SANDBOXES)?,
+            guest_cap: caps.guests,
+            demo_accounts_today: read_meter(&sql, &day, DEMO_ACCOUNTS)?,
+            demo_account_cap: caps.demo_accounts,
             flag: read_flag(&sql)?,
             day,
         })
     }
 
-    /// Counts one more sandbox for today if the cap allows it: the read, the check and the write
-    /// are one SQL transaction, so two requests can never both take the last place.
-    fn admit(&self, now: WallTime) -> Result<Admission> {
+    /// Admits one sandbox if the flag and the caps allow it: the replay check, the read, the
+    /// decision and the writes are one SQL transaction, so two requests can never both take
+    /// the last place and a retried key never takes a second.
+    fn admit(&self, req: AdmitRequest, now: WallTime) -> Result<AdmitAnswer> {
         let sql = self.sql();
         let day = now.utc_day();
-        let cap = self.cap();
-        let tx_day = day.clone();
-        let (sandboxes_today, admitted) = transaction_sync(&self.state.storage(), move || {
-            let current = read_meter(&sql, &tx_day, SANDBOXES)?;
-            if current >= cap {
-                return Ok((current, false));
+        let caps = self.caps();
+        let key = format!("sandbox:{}", req.key);
+        transaction_sync(&self.state.storage(), move || {
+            if let Some(seen) = seen(&sql, &key)? {
+                let mut answer: AdmitAnswer = serde_json::from_str(&seen)?;
+                answer.replayed = true;
+                return Ok(answer);
             }
-            sql.exec(
-                "INSERT INTO ledger (day, meter, value) VALUES (?, ?, 1)
-                 ON CONFLICT (day, meter) DO UPDATE SET value = value + 1",
-                vec![tx_day.as_str().into(), SANDBOXES.into()],
+            let counts = counts(&sql, &day)?;
+            if let Err(refusal) = admission::admit_sandbox(req.kind, counts, read_flag(&sql)?, caps)
+            {
+                return Ok(refused(refusal));
+            }
+            bump(&sql, &day, SANDBOXES)?;
+            if req.kind == SandboxKind::Guest {
+                bump(&sql, &day, GUEST_SANDBOXES)?;
+            }
+            let kind = match req.kind {
+                SandboxKind::Guest => "guest",
+                SandboxKind::Account => "account",
+            };
+            exec(
+                &sql,
+                "INSERT INTO sandboxes (id, kind, created_at) VALUES (?, ?, ?)",
+                vec![
+                    req.sandbox_id.to_string().into(),
+                    kind.into(),
+                    now.to_string().into(),
+                ],
             )?;
-            Ok((current + 1, true))
-        })?;
-        Ok(Admission {
-            day,
-            sandboxes_today,
-            sandbox_cap: cap,
-            admitted,
+            let answer = AdmitAnswer {
+                admitted: true,
+                sandbox_id: Some(req.sandbox_id),
+                replayed: false,
+                reason: None,
+            };
+            remember(&sql, &key, &day, &serde_json::to_string(&answer)?)?;
+            Ok(answer)
         })
+    }
+
+    /// Counts one more demo account for today if the flag and the cap allow it, in one
+    /// transaction with the replay check, as `admit` does.
+    fn admit_demo(&self, req: AdmitDemoRequest, now: WallTime) -> Result<AdmitDemoAnswer> {
+        let sql = self.sql();
+        let day = now.utc_day();
+        let caps = self.caps();
+        let key = format!("demo:{}", req.key);
+        transaction_sync(&self.state.storage(), move || {
+            if let Some(seen) = seen(&sql, &key)? {
+                let mut answer: AdmitDemoAnswer = serde_json::from_str(&seen)?;
+                answer.replayed = true;
+                return Ok(answer);
+            }
+            let counts = counts(&sql, &day)?;
+            if let Err(refusal) = admission::admit_demo_account(counts, read_flag(&sql)?, caps) {
+                return Ok(AdmitDemoAnswer {
+                    admitted: false,
+                    username: None,
+                    replayed: false,
+                    reason: Some(refusal.slug().to_owned()),
+                });
+            }
+            bump(&sql, &day, DEMO_ACCOUNTS)?;
+            let answer = AdmitDemoAnswer {
+                admitted: true,
+                username: Some(req.username),
+                replayed: false,
+                reason: None,
+            };
+            remember(&sql, &key, &day, &serde_json::to_string(&answer)?)?;
+            Ok(answer)
+        })
+    }
+
+    /// The day's salt, drawn on the first request of a UTC day and never written down.
+    fn salt(&self, now: WallTime) -> Result<Salt> {
+        let day = now.utc_day();
+        let mut slot = self.salt.borrow_mut();
+        let fresh = !matches!(&*slot, Some((d, _)) if *d == day);
+        if fresh {
+            *slot = Some((day.clone(), random::bytes::<32>()?));
+        }
+        let (_, salt) = slot.as_ref().expect("filled above");
+        Ok(Salt {
+            day,
+            salt: hex(salt),
+        })
+    }
+
+    /// A Sandbox reports its own wipe. A row already marked keeps its first time.
+    fn wiped(&self, w: &Wiped, now: WallTime) -> Result<()> {
+        exec(
+            &self.sql(),
+            "UPDATE sandboxes SET wiped_at = coalesce(wiped_at, ?), objects = ?, rows_deleted = ?
+             WHERE id = ?",
+            vec![
+                now.to_string().into(),
+                i64::from(w.objects).into(),
+                i64::try_from(w.rows_deleted).unwrap_or(i64::MAX).into(),
+                w.id.to_string().into(),
+            ],
+        )?;
+        console_log!(
+            "{{\"event\":\"sandbox_wiped\",\"objects\":{},\"rows_deleted\":{}}}",
+            w.objects,
+            w.rows_deleted
+        );
+        Ok(())
+    }
+
+    /// The 10:00 UTC cron: every sandbox not yet wiped is due now, and the fan-out starts.
+    /// The cron returns at once; the alarm does the work.
+    async fn stamp_wipe(&self, now: WallTime) -> Result<Stamped> {
+        let stamped = exec(
+            &self.sql(),
+            "UPDATE sandboxes SET wipe_due = ? WHERE wiped_at IS NULL",
+            vec![now.to_string().into()],
+        )?;
+        self.start_fan_out(now).await?;
+        console_log!("{{\"event\":\"wipe_stamped\",\"rows\":{stamped}}}");
+        Ok(Stamped {
+            stamped: u32::try_from(stamped).unwrap_or(u32::MAX),
+        })
+    }
+
+    /// The 15-minute cron: rows whose wipe came due and did not finish, and rows an operator
+    /// asked to wipe, are due again. With nothing outstanding it writes nothing.
+    async fn sweep(&self, now: WallTime) -> Result<Stamped> {
+        let stamped = exec(
+            &self.sql(),
+            "UPDATE sandboxes SET wipe_due = ?
+             WHERE wiped_at IS NULL
+               AND ((wipe_due IS NOT NULL AND wipe_due <= ?) OR wipe_requested_at IS NOT NULL)",
+            vec![now.to_string().into(), now.to_string().into()],
+        )?;
+        if stamped > 0 {
+            self.start_fan_out(now).await?;
+        }
+        console_log!("{{\"event\":\"sweep\",\"rows\":{stamped}}}");
+        Ok(Stamped {
+            stamped: u32::try_from(stamped).unwrap_or(u32::MAX),
+        })
+    }
+
+    async fn start_fan_out(&self, now: WallTime) -> Result<()> {
+        self.set_timer(FANOUT, now)?;
+        self.arm_earliest(now).await
+    }
+
+    /// One run: up to 50 due sandboxes, one `Sandbox /_wipe` each. Each row is tried once per
+    /// `wipe_due`; a failure waits for the sweep. The run re-arms only while a full batch
+    /// suggests more remain, and never past the daily guard.
+    async fn fan_out(&self, now: WallTime) -> Result<()> {
+        let sql = self.sql();
+        let due: Vec<IdRow> = rows(
+            &sql,
+            "SELECT id FROM sandboxes
+             WHERE wiped_at IS NULL AND wipe_due IS NOT NULL AND wipe_due <= ?
+               AND (wipe_attempted_at IS NULL OR wipe_attempted_at < wipe_due)
+             ORDER BY created_at LIMIT ?",
+            vec![now.to_string().into(), (WIPES_PER_RUN as i64).into()],
+        )?;
+        let mut wiped = 0u32;
+        let mut failed = 0u32;
+        for row in &due {
+            exec(
+                &sql,
+                "UPDATE sandboxes SET wipe_attempted_at = ? WHERE id = ?",
+                vec![now.to_string().into(), row.id.as_str().into()],
+            )?;
+            match self.wipe_one(&row.id).await {
+                Ok(()) => {
+                    exec(
+                        &sql,
+                        "UPDATE sandboxes SET wiped_at = coalesce(wiped_at, ?) WHERE id = ?",
+                        vec![now.to_string().into(), row.id.as_str().into()],
+                    )?;
+                    wiped += 1;
+                }
+                Err(e) => {
+                    failed += 1;
+                    console_log!("{{\"event\":\"wipe_error\",\"error\":{:?}}}", e.to_string());
+                }
+            }
+        }
+        console_log!(
+            "{{\"type\":\"wipe\",\"event\":\"wipe_summary\",\"wiped\":{wiped},\"failed\":{failed}}}"
+        );
+        if due.len() == WIPES_PER_RUN {
+            let day = now.utc_day();
+            if read_meter(&sql, &day, ALARM_REARMS)? >= REARM_GUARD {
+                console_log!("{{\"event\":\"alarm_guard\",\"object\":\"control\"}}");
+                return Ok(());
+            }
+            bump(&sql, &day, ALARM_REARMS)?;
+            let next = WallTime::from_unix_ms(now.unix_ms() + FANOUT_GAP_MS)
+                .map_err(|e| Error::RustError(e.to_string()))?;
+            self.set_timer(FANOUT, next)?;
+        }
+        Ok(())
+    }
+
+    async fn wipe_one(&self, id: &str) -> Result<()> {
+        let id: Ulid = id
+            .parse()
+            .map_err(|_| Error::RustError("bad sandbox id".into()))?;
+        let res = sql::call(
+            &self.env,
+            sandbox::BINDING,
+            &sandbox_object_name(id),
+            Method::Post,
+            "/_wipe",
+            Some(&WipeRequest {
+                cause: "nightly".into(),
+            }),
+        )
+        .await?;
+        match res.status_code() {
+            200 => Ok(()),
+            code => Err(Error::RustError(format!("sandbox /_wipe answered {code}"))),
+        }
     }
 
     fn prune(&self, now: WallTime) -> Result<Pruned> {
@@ -174,13 +578,70 @@ impl Control {
             .plus_days(-LEDGER_DAYS)
             .map_err(|e| Error::RustError(e.to_string()))?
             .utc_day();
-        let cursor = self.sql().exec(
+        let sql = self.sql();
+        let deleted = exec(
+            &sql,
             "DELETE FROM ledger WHERE day < ?",
             vec![before.as_str().into()],
+        )? + exec(
+            &sql,
+            "DELETE FROM creations_seen WHERE day < ?",
+            vec![before.as_str().into()],
+        )? + exec(
+            &sql,
+            "DELETE FROM sandboxes WHERE created_at < ? AND wiped_at IS NOT NULL",
+            vec![before.as_str().into()],
         )?;
-        let deleted = u32::try_from(cursor.rows_written()).unwrap_or(u32::MAX);
-        Ok(Pruned { before, deleted })
+        Ok(Pruned {
+            before,
+            deleted: u32::try_from(deleted).unwrap_or(u32::MAX),
+        })
     }
+}
+
+fn refused(refusal: Refusal) -> AdmitAnswer {
+    AdmitAnswer {
+        admitted: false,
+        sandbox_id: None,
+        replayed: false,
+        reason: Some(refusal.slug().to_owned()),
+    }
+}
+
+fn seen(sql: &SqlStorage, key: &str) -> Result<Option<String>> {
+    let row: Option<ResultRow> = first(
+        sql,
+        "SELECT result FROM creations_seen WHERE key = ?",
+        vec![key.into()],
+    )?;
+    Ok(row.map(|r| r.result))
+}
+
+fn remember(sql: &SqlStorage, key: &str, day: &str, result: &str) -> Result<()> {
+    exec(
+        sql,
+        "INSERT INTO creations_seen (key, day, result) VALUES (?, ?, ?)",
+        vec![key.into(), day.into(), result.into()],
+    )?;
+    Ok(())
+}
+
+fn counts(sql: &SqlStorage, day: &str) -> Result<Counts> {
+    Ok(Counts {
+        sandboxes_today: read_meter(sql, day, SANDBOXES)?,
+        guests_today: read_meter(sql, day, GUEST_SANDBOXES)?,
+        demo_accounts_today: read_meter(sql, day, DEMO_ACCOUNTS)?,
+    })
+}
+
+fn bump(sql: &SqlStorage, day: &str, meter: &str) -> Result<()> {
+    exec(
+        sql,
+        "INSERT INTO ledger (day, meter, value) VALUES (?, ?, 1)
+         ON CONFLICT (day, meter) DO UPDATE SET value = value + 1",
+        vec![day.into(), meter.into()],
+    )?;
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -195,82 +656,64 @@ struct ModeRow {
 
 /// A missing row counts as 0.
 fn read_meter(sql: &SqlStorage, day: &str, meter: &str) -> Result<u32> {
-    let rows: Vec<ValueRow> = sql
-        .exec(
-            "SELECT value FROM ledger WHERE day = ? AND meter = ?",
-            vec![day.into(), meter.into()],
-        )?
-        .to_array()?;
-    let value = rows.first().map_or(0, |r| r.value);
-    Ok(u32::try_from(value).unwrap_or(u32::MAX))
+    let row: Option<ValueRow> = first(
+        sql,
+        "SELECT value FROM ledger WHERE day = ? AND meter = ?",
+        vec![day.into(), meter.into()],
+    )?;
+    Ok(u32::try_from(row.map_or(0, |r| r.value)).unwrap_or(u32::MAX))
 }
 
 /// A missing or unreadable flag reads as `off`: fail closed.
 fn read_flag(sql: &SqlStorage) -> Result<Flag> {
-    let rows: Vec<ModeRow> = sql
-        .exec("SELECT mode FROM flags WHERE demo = 'bakery'", None)?
-        .to_array()?;
-    Ok(rows
-        .first()
-        .and_then(|r| Flag::parse(&r.mode))
-        .unwrap_or(Flag::Off))
+    let row: Option<ModeRow> = first(sql, "SELECT mode FROM flags WHERE demo = 'bakery'", vec![])?;
+    Ok(row.and_then(|r| Flag::parse(&r.mode)).unwrap_or(Flag::Off))
 }
 
-pub fn sandbox_cap(env: &Env) -> u32 {
-    env.var("SANDBOX_CAP")
-        .ok()
-        .and_then(|v| v.to_string().parse().ok())
-        .unwrap_or(DEFAULT_SANDBOX_CAP)
-}
+// The router's and the cron's handles on the one `Control` object.
 
-/// Runs `body` inside `storage.transactionSync()`, which workers-rs 0.8.7 does not bind:
-/// `Storage::transaction` is the asynchronous key-value transaction. An error from `body` throws
-/// inside the callback, so the runtime rolls every write back.
-fn transaction_sync<T: 'static>(
-    storage: &Storage,
-    body: impl FnOnce() -> Result<T> + 'static,
+async fn ask<B: Serialize, T: serde::de::DeserializeOwned>(
+    env: &Env,
+    method: Method,
+    path: &str,
+    body: Option<&B>,
 ) -> Result<T> {
-    let raw: &JsValue = storage.as_raw().as_ref();
-    let method: Function = Reflect::get(raw, &JsValue::from_str("transactionSync"))?
-        .dyn_into()
-        .map_err(|_| Error::RustError("storage.transactionSync is not a function".into()))?;
-    let out = std::rc::Rc::new(Cell::new(None));
-    let slot = out.clone();
-    let callback = Closure::once(move || -> std::result::Result<JsValue, JsValue> {
-        match body() {
-            Ok(value) => {
-                slot.set(Some(value));
-                Ok(JsValue::UNDEFINED)
-            }
-            Err(e) => Err(JsValue::from_str(&e.to_string())),
-        }
-    });
-    method.call1(raw, callback.as_ref().unchecked_ref())?;
-    out.take()
-        .ok_or_else(|| Error::RustError("transaction returned no value".into()))
-}
-
-/// The router's handle on the one `Control` object.
-async fn call(env: &Env, method: Method, path: &str) -> Result<Response> {
-    let stub = env.durable_object(BINDING)?.get_by_name(NAME)?;
-    let mut init = RequestInit::new();
-    init.with_method(method);
-    // The host is never resolved: a stub's fetch goes to the object, by name.
-    let req = Request::new_with_init(&format!("https://{NAME}.internal{path}"), &init)?;
-    let res = stub.fetch_with_request(req).await?;
+    let mut res = sql::call(env, BINDING, CONTROL, method, path, body).await?;
     if res.status_code() != 200 {
         return Err(Error::RustError(format!(
             "control {path} answered {}",
             res.status_code()
         )));
     }
-    Ok(res)
+    res.json().await
 }
 
 pub async fn status(env: &Env) -> Result<StatusResponse> {
-    call(env, Method::Get, "/status").await?.json().await
+    ask::<(), _>(env, Method::Get, "/status", None).await
 }
 
-pub async fn prune(env: &Env) -> Result<Pruned> {
-    call(env, Method::Post, "/prune").await?.json().await
+pub async fn salt(env: &Env) -> Result<Salt> {
+    ask::<(), _>(env, Method::Get, "/salt", None).await
+}
+
+pub async fn admit(env: &Env, req: &AdmitRequest) -> Result<AdmitAnswer> {
+    ask(env, Method::Post, "/admit", Some(req)).await
+}
+
+pub async fn admit_demo(env: &Env, req: &AdmitDemoRequest) -> Result<AdmitDemoAnswer> {
+    ask(env, Method::Post, "/admit-demo", Some(req)).await
+}
+
+pub async fn wiped(env: &Env, w: &Wiped) -> Result<()> {
+    ask::<_, serde_json::Value>(env, Method::Post, "/wiped", Some(w))
+        .await
+        .map(|_| ())
+}
+
+pub async fn wipe(env: &Env) -> Result<Stamped> {
+    ask::<(), _>(env, Method::Post, "/wipe", None).await
+}
+
+pub async fn sweep(env: &Env) -> Result<Stamped> {
+    ask::<(), _>(env, Method::Post, "/sweep", None).await
 }

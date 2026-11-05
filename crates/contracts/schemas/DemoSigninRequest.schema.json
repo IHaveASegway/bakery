@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DemoSigninRequest",
+  "description": "`POST /v1/auth/demo/signin`.",
+  "type": "object",
+  "properties": {
+    "password": {
+      "type": "string"
+    },
+    "username": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "username",
+    "password"
+  ]
+}

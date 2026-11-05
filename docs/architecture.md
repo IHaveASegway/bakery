@@ -2,7 +2,7 @@
 
 How the bakery demo fits together: the systems around it, the two Workers and the fourteen Durable Object (DO) classes inside the API, how events move between objects, who owns each datum, how the main requests flow, and what each failure takes down. The made-up bakery, Proof of Concept Bakery (Q2 · Q-name), is a running business system built so a visitor can watch the site's Lab principles run in production code. The why is in [product.md](product.md), the language and event catalog in [domain.md](domain.md), pins in [stack.md](stack.md), threats in [security.md](security.md), prices in [cost.md](cost.md), the pipeline in [delivery.md](delivery.md), runbooks in [operations.md](operations.md), decisions in [adr/](adr/README.md). Nothing is built yet; spike S1 (a Rust DO on Workers: size, startup, SQL) runs before anything depends on this design, and nothing is deployed before the launch pull request (PR 11); until then every pull request runs on `wrangler dev` (Q44 · Q-posture, [roadmap.md](roadmap.md)).
 
-Status: Draft for review in PR 1 · 2026-11-04
+Status: Updated in PR 3 · 2026-11-05
 
 Limits and prices on this page are as of 2026-11-04. Sources are in the footnotes.
 
@@ -329,8 +329,9 @@ sequenceDiagram
 ```
 
 - Only `sub` is used: always present, "unique among all Google Accounts and never reused"; `email` appears only with the `email` scope.[^google] Tokens are verified locally against the discovery document's `jwks_uri`, never `tokeninfo`.
-- Whether `scope=openid` alone works is spike S2; the docs say the scope "must begin with openid and then include profile, email, or both". The fallback is `openid email` with the claim dropped before storage, the weaker design ([ADR 0006](adr/0006-sign-in-that-learns-nothing.md)).
+- `scope=openid` alone works: [S2](roadmap.md#spikes) passed on 2026-11-05, and the ID token carried `sub` and no `email`, `email_verified`, `name` or `picture`, although Google's docs still describe the scope as needing `profile`, `email`, or both. The callback drops those four claims if they ever appear, which is the fallback design too ([ADR 0006](adr/0006-sign-in-that-learns-nothing.md)); the token response's `access_token` is dropped as well.
 - The cookie is host-only on the API: the web origin never sees it and asks `GET /v1/session`. The two hostnames are one site and two origins, so `SameSite=Strict` still rides credentialed fetches; CORS allows exactly `https://bakery.ihaveasegway.com` with credentials.
+- The redirect URI sent to Google (and to GitHub) is `API_ORIGIN` plus the callback path, not the request's host: `wrangler dev` rewrites the host to the route's, and the URI must match the registered one exactly.
 - **GitHub has the same shape** (Q23 · Q-auth): `GET /v1/auth/github/start`, a 302 to GitHub with `state` and PKCE (S256) and no scope requested, so no `user:email`; the callback exchanges the code, makes one `GET /user` with the token and discards it. Only the numeric `id` is kept, the durable one (a login can change), and the account is `HMAC(ACCOUNT_HMAC_KEY, "github:" + id)`.[^github] [security.md](security.md#github-with-the-numeric-user-id-alone) owns the details.
 - **Demo account:** after Turnstile, the router generates a username such as `baker-7f3k`, the visitor sets a password, and the `Account` stores an argon2 hash. No email, no recovery. [security.md](security.md) owns the parameters.
 
@@ -362,6 +363,7 @@ sequenceDiagram
 
 - Turnstile, free and unlimited,[^turnstile] guards every guest sandbox and demo sign-up (Q24 · Q-guest). A signed-in account may create 3 sandboxes a day.
 - **Guest scope** (Q45 · Q-guest-scope): a guest sandbox can browse, order and pay with a test card. Sign-in unlocks the console's writes (menu edits, campaigns, publishing a route), the API token, simulated traffic, and a sandbox that follows the account across devices. Guests are capped at 100 of the 300 sandboxes a day in `Control`, so bots creating sandboxes hit a wall before the paid-for meters do.
+- `Control` also keeps the creation's `Idempotency-Key` with its result for the ledger's retention, so a retried creation does not take a second place. The key is checked in `Control` at admission because that is the one request a creation already makes.
 - `Control` costs one exact DO request, so it runs after the free checks: admission in layers. Its cap of 300 sandboxes a day bounds a bot ([cost.md](cost.md)).
 - About 2,000 rows in about 2 s. Closed history goes into Crm's log and Billing's daily summaries; only open orders and the 8 catering jobs become live objects ([domain.md](domain.md#the-seed)). Personas and later days materialize on first touch.
 

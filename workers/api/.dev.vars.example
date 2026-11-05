@@ -1,17 +1,45 @@
 # Names only. Copy to .dev.vars (git-ignored, never committed) and fill in sandbox or test values
 # locally; in production each is a Worker secret (docs/security.md, "Secrets inventory").
 
-# Signs the session cookie and API tokens (HMAC-SHA256). PR 3.
+# Signs the session and OAuth cookies (HMAC-SHA256); at least 32 bytes of any text. PR 3.
 SESSION_HMAC_KEY=
+# Optional: the previous signing key, accepted for verification only during a rotation
+# (docs/operations.md, "Rotate secrets"). Leave unset otherwise. PR 3.
+SESSION_HMAC_KEY_PREV=
 # Derives account ids from provider ids, so no raw id is stored. PR 3.
 ACCOUNT_HMAC_KEY=
 # The Stripe sandbox's restricted key; the Worker refuses any key that is not a sandbox key. PR 5.
 STRIPE_SECRET_KEY=
 # Verifies Stripe webhook signatures. PR 5.
 STRIPE_WEBHOOK_SECRET=
+# The Google OAuth client's id. Public by nature, but it moves into wrangler.jsonc only at launch
+# (PR 11). PR 3.
+GOOGLE_CLIENT_ID=
 # The Google OAuth client's secret, for the code exchange. PR 3.
 GOOGLE_CLIENT_SECRET=
+# The GitHub OAuth app's client id; as GOOGLE_CLIENT_ID. PR 3.
+GITHUB_CLIENT_ID=
 # The GitHub OAuth app's secret, for the code exchange. PR 3.
 GITHUB_CLIENT_SECRET=
 # Turnstile's secret for siteverify; Turnstile's documented test secret locally. PR 3.
 TURNSTILE_SECRET=
+
+# Local overrides of public vars. A var set here wins over wrangler.jsonc on `wrangler dev`.
+# The storefront on `astro dev`, so the Origin check and the redirects after sign-in match it:
+# ALLOWED_ORIGIN=http://127.0.0.1:8787
+# This API on `wrangler dev`, the base of the OAuth redirect URIs a local client registers:
+# API_ORIGIN=http://127.0.0.1:8788
+
+# Local fake provider (scripts/fake-providers.mjs); loopback hosts only. The Worker honors these
+# only when the host is 127.0.0.1 or localhost, logs provider_override_refused for anything
+# else, and never reads them from wrangler.jsonc. With the fake running on its default port:
+# GOOGLE_ISSUER=http://127.0.0.1:8790/google
+# GITHUB_AUTHORIZE_URL=http://127.0.0.1:8790/github/login/oauth/authorize
+# GITHUB_TOKEN_URL=http://127.0.0.1:8790/github/login/oauth/access_token
+# GITHUB_USER_URL=http://127.0.0.1:8790/github/user
+# TURNSTILE_SITEVERIFY_URL=http://127.0.0.1:8790/turnstile/siteverify
+# and the fake's own client ids and secrets, which are not secrets:
+# GOOGLE_CLIENT_ID=fake-google-client
+# GOOGLE_CLIENT_SECRET=fake-google-client-secret
+# GITHUB_CLIENT_ID=fake-github-client
+# GITHUB_CLIENT_SECRET=fake-github-client-secret

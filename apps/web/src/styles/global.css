@@ -41,3 +41,205 @@ a:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+
+/* Forms and the console. Colors come from tokens.css only. */
+h2 {
+  margin: 2.5rem 0 0.75rem;
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+
+h3 {
+  margin: 1.75rem 0 0.5rem;
+  font-size: 1.125rem;
+}
+
+main {
+  overflow-wrap: anywhere;
+}
+
+label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-weight: 600;
+}
+
+label.check {
+  display: inline-block;
+  font-weight: 400;
+}
+
+input[type='text'],
+input[type='password'] {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-md);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+}
+
+input[type='checkbox'] {
+  width: 1.25rem;
+  height: 1.25rem;
+  vertical-align: -0.2em;
+}
+
+input:focus-visible,
+button:focus-visible,
+.action:focus-visible,
+[tabindex='0']:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+button,
+.action {
+  display: inline-block;
+  box-sizing: border-box;
+  min-height: 2.75rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-md);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+button:disabled {
+  background: transparent;
+  color: var(--muted-foreground);
+  border-style: dashed;
+  border-color: var(--border);
+  cursor: not-allowed;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+form,
+section > section {
+  margin-top: 2.5rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.hint,
+.note {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.9375rem;
+}
+
+.problem {
+  margin: 0.75rem 0;
+  padding: 0.25rem 0 0.25rem 0.75rem;
+  border-left: 4px solid var(--destructive);
+}
+
+.draft {
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed var(--border);
+}
+
+.lead {
+  font-size: 1.25rem;
+}
+
+.username {
+  font-size: 1.25rem;
+  user-select: all;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+}
+
+dt {
+  color: var(--muted-foreground);
+}
+
+dd {
+  margin: 0;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9375rem;
+}
+
+th,
+td {
+  padding: 0.5rem 0.5rem 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.asof {
+  margin-top: 2.5rem;
+  color: var(--muted-foreground);
+}
+
+/* On a phone the table's rows become blocks, so nothing scrolls sideways at 320 px. */
+@media (max-width: 40rem) {
+  table,
+  thead,
+  tbody,
+  tr,
+  th,
+  td {
+    display: block;
+  }
+  thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  tr {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  th,
+  td {
+    border: 0;
+    padding: 0 0 0.25rem;
+  }
+  dl {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  button,
+  .action {
+    transition: background-color 120ms;
+  }
+}

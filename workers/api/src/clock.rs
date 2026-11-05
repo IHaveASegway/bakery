@@ -40,3 +40,9 @@ impl Clock for SystemClock {
 pub fn alarm_time(at: WallTime) -> ScheduledTime {
     ScheduledTime::new(Date::new(&JsValue::from_f64(at.unix_ms() as f64)))
 }
+
+/// Wall time as the bakery's business time, with no sandbox offset: a sandbox's birth date.
+/// Pure arithmetic on a time already read, not a clock read.
+pub fn business(at: WallTime) -> BusinessTime {
+    BusinessTime::new(at.unix_ms(), BAKERY_UTC_OFFSET_MINUTES).expect("business time in range")
+}

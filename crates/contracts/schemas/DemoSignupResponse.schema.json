@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DemoSignupResponse",
+  "description": "`201` from `POST /v1/auth/demo`: the generated username, shown once.",
+  "type": "object",
+  "properties": {
+    "username": {
+      "description": "`baker-` and four characters, such as `baker-7f3k`.",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "username"
+  ]
+}

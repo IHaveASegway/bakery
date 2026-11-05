@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SandboxResponse",
+  "description": "`POST /v1/sandboxes` (201 or 200) and `GET /v1/sandboxes/{id}`.",
+  "type": "object",
+  "properties": {
+    "born": {
+      "description": "A wall time.",
+      "type": "string"
+    },
+    "children": {
+      "description": "Registered child objects; none in PR 3.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "clock_offset_s": {
+      "description": "Business time minus wall time, in seconds (docs/architecture.md, \"Time travel\").",
+      "type": "integer",
+      "format": "int64"
+    },
+    "clock_v": {
+      "description": "Bumped by every clock advance.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "faults": {
+      "$ref": "#/$defs/Faults"
+    },
+    "id": {
+      "description": "The sandbox's ULID.",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/SandboxKind"
+    },
+    "seed": {
+      "description": "The seed the sandbox was generated from. A JSON number: JavaScript reads it exactly only\nbelow 2^53, so the router mints seeds in that range.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "state": {
+      "$ref": "#/$defs/SandboxState"
+    },
+    "token_v": {
+      "description": "Bumped by every API token rotation.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "wipe_at": {
+      "description": "The first 10:00 UTC after `born`, a wall time.",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "kind",
+    "state",
+    "born",
+    "wipe_at",
+    "seed",
+    "clock_offset_s",
+    "clock_v",
+    "token_v",
+    "faults",
+    "children"
+  ],
+  "$defs": {
+    "Faults": {
+      "description": "The sandbox's fault switches. `inbox` makes the broken-subscriber demo's Inbox fail (PR 4).",
+      "type": "object",
+      "properties": {
+        "inbox": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "inbox"
+      ]
+    },
+    "SandboxKind": {
+      "description": "Whose a sandbox is: a guest's, behind Turnstile, or a signed-in account's.",
+      "type": "string",
+      "enum": [
+        "guest",
+        "account"
+      ]
+    },
+    "SandboxState": {
+      "description": "A sandbox's lifecycle (docs/domain.md, \"Sandbox\").",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "seeding",
+            "live",
+            "wiped"
+          ]
+        },
+        {
+          "description": "Every command gets 410 from here on.",
+          "type": "string",
+          "const": "wiping"
+        }
+      ]
+    }
+  }
+}

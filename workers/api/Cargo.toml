@@ -1,6 +1,6 @@
 [package]
 name = "bakery-api"
-description = "The Worker bakery-api: the router, the Control object, the cron and Queue handlers."
+description = "The Worker bakery-api: the router, the Durable Objects, the cron and Queue handlers."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,6 +15,7 @@ crate-type = ["cdylib", "rlib"]
 bakery-app = { workspace = true }
 bakery-contracts = { workspace = true }
 bakery-domain = { workspace = true }
+bakery-seed = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 wasm-bindgen = { workspace = true }
