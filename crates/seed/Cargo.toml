@@ -9,6 +9,7 @@ publish.workspace = true
 
 # A seeded PRNG and no clock, no network, no input but the seed (docs/domain.md, "The seed").
 [dependencies]
+bakery-domain = { workspace = true }
 rand_chacha = { workspace = true }
 rand_core = { workspace = true }
 serde = { workspace = true }
