@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ActivityResponse",
+  "description": "`GET /v1/sandboxes/{id}/crm/activity`: the sandbox's logged events (clock moves, faults,\nmenu and capacity changes, payment intents, routes, traffic), in business-time order.",
+  "type": "object",
+  "properties": {
+    "entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ActivityEntry"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "entries"
+  ],
+  "$defs": {
+    "ActivityEntry": {
+      "description": "One line of the activity log.",
+      "type": "object",
+      "properties": {
+        "at": {
+          "type": "string"
+        },
+        "summary": {
+          "description": "A short fixed sentence from the event's named fields.",
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "at",
+        "type",
+        "summary"
+      ]
+    }
+  }
+}

@@ -1038,6 +1038,330 @@ pub struct CateringListResponse {
     pub events: Vec<CateringResponse>,
 }
 
+// ---------------------------------------------------------------------------------------------
+// CRM, campaigns and the inbox (PR 8; docs/domain.md, "Campaign"; docs/architecture.md, "A
+// campaign send"). Reads are open to any session of the sandbox; every staff action answers a
+// guest 403 `guest-scope`. A path naming a customer, a campaign or a message the sandbox does not
+// hold is 404.
+// ---------------------------------------------------------------------------------------------
+
+/// `GET /v1/sandboxes/{id}/customers/{cid}`, and the answer to a consent change: one persona as
+/// Crm's projection holds it. Every field is synthetic; there is no contact of any kind.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CustomerResponse {
+    /// The customer's ULID.
+    pub customer: String,
+    /// Two generic words, such as `Drizzle Trowel`.
+    pub display_name: String,
+    /// One to three item slugs.
+    pub preferences: Vec<String>,
+    /// `z1` to `z3`.
+    pub home_zone: String,
+    /// `p1` to `p64`, a map label: the only address there is.
+    pub place: String,
+    /// Consent to marketing: a campaign goes only to customers for whom it is true at the send.
+    pub marketing: bool,
+    /// Loyalty points: one per whole dollar paid, less refunds; never below zero.
+    pub loyalty_points: i64,
+    /// Orders paid, or closed in the seed's history, and not cancelled.
+    pub orders: u32,
+    /// The latest such order's slot, a business time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_order_at: Option<String>,
+    /// Catering inquiries.
+    pub catering: u32,
+}
+
+/// `GET /v1/sandboxes/{id}/customers`: the 60 personas, by id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CustomerListResponse {
+    pub customers: Vec<CustomerResponse>,
+}
+
+/// One line of a timeline.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TimelineEntry {
+    /// The event's business time.
+    pub at: String,
+    /// The event's catalog name, such as `OrderPaid`.
+    #[serde(rename = "type")]
+    pub event_type: String,
+    /// The ULID of the order, catering event, message or customer the line is about.
+    #[serde(rename = "ref")]
+    pub reference: String,
+    /// A short fixed sentence with the event's own figures, such as `Paid $22.00`.
+    pub label: String,
+}
+
+/// `GET /v1/sandboxes/{id}/customers/{cid}/timeline`: the customer's events in business-time
+/// order. While a rebuild runs the timeline is partial; `GET .../crm/rebuild` says so.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TimelineResponse {
+    pub customer: String,
+    pub entries: Vec<TimelineEntry>,
+}
+
+/// `POST /v1/sandboxes/{id}/customers/{cid}/consent`, by that customer's persona or by staff:
+/// `200` with the `CustomerResponse`; the same value again changes nothing and answers `200`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConsentRequest {
+    pub marketing: bool,
+}
+
+/// A segment: a fixed rule over Crm's projection, evaluated at the business time asked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub enum Segment {
+    /// Every persona.
+    #[serde(rename = "everyone")]
+    Everyone,
+    /// An order with a cake line in the last 30 days of business time.
+    #[serde(rename = "cake-last-30-days")]
+    CakeLast30Days,
+    /// Any delivery order.
+    #[serde(rename = "delivery-customers")]
+    DeliveryCustomers,
+    /// No order in the last 60 days of business time.
+    #[serde(rename = "lapsed-60-days")]
+    Lapsed60Days,
+    /// A catering inquiry still open: an inquiry, a quote or an accepted quote.
+    #[serde(rename = "catering-leads")]
+    CateringLeads,
+}
+
+/// `GET /v1/sandboxes/{id}/segments/{segment}`: how many customers the rule holds now, and a
+/// few of their ids. Consent is not applied here; a send applies it. An unknown segment is
+/// `404`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SegmentResponse {
+    pub segment: Segment,
+    pub members: u32,
+    /// Up to five member ULIDs, smallest first.
+    pub sample: Vec<String>,
+}
+
+/// `GET /v1/sandboxes/{id}/segments`: every segment, in the fixed order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SegmentListResponse {
+    pub segments: Vec<SegmentResponse>,
+}
+
+/// A campaign's subject, chosen from a fixed list; staff never type one (Q14).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum SubjectTemplate {
+    WeekendBake,
+    CakeWeek,
+    NewSeason,
+    WeMissYou,
+    CateringSeason,
+    ThankYou,
+}
+
+/// A campaign's body, chosen from a fixed list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum BodyTemplate {
+    Announcement,
+    FreshBread,
+    CakeOrders,
+    SeasonalMenu,
+    ComeBack,
+    CateringInvite,
+}
+
+/// `POST /v1/sandboxes/{id}/campaigns`, staff only: a draft, `201` with the `CampaignResponse`
+/// (`200` with `Idempotent-Replayed: true` for the same key again).
+/// `PATCH /v1/sandboxes/{id}/campaigns/{cid}` takes the same body and edits a draft: `200`, or
+/// `409` problem of type `campaign` naming the rule (`out-of-order`) once it is scheduled, sent
+/// or cancelled. A guest gets `403` `guest-scope` on both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CampaignRequest {
+    pub subject: SubjectTemplate,
+    pub body: BodyTemplate,
+    pub segment: Segment,
+}
+
+/// `POST /v1/sandboxes/{id}/campaigns/{cid}/schedule`, staff only: `200` with the
+/// `CampaignResponse`, now `scheduled`. A `send_at` less than 15 minutes of business time after
+/// now is `422` problem naming `schedule-too-soon`, its detail the earliest time allowed; a
+/// campaign not in `draft` is `409` `campaign` naming `out-of-order`.
+/// `POST .../campaigns/{cid}/cancel` (no body) takes a scheduled campaign back to `draft` and a
+/// draft to `cancelled`; a sent one is `409` `campaign` naming `out-of-order`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ScheduleRequest {
+    /// A business time, such as `2026-11-08T09:00:00-07:00`.
+    pub send_at: String,
+}
+
+/// Where a campaign is (docs/domain.md, "Campaign", the diagram).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CampaignState {
+    Draft,
+    Scheduled,
+    Sent,
+    Cancelled,
+}
+
+/// `GET /v1/sandboxes/{id}/campaigns/{cid}`, and the answer to every campaign command.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CampaignResponse {
+    /// The campaign's ULID.
+    pub campaign: String,
+    pub state: CampaignState,
+    pub subject: SubjectTemplate,
+    pub body: BodyTemplate,
+    pub segment: Segment,
+    /// While scheduled, and after the send: the business time it is due or was sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_at: Option<String>,
+    /// The frozen recipients' count: the segment's members with marketing consent at the send.
+    pub recipients: u32,
+    /// Messages the Inbox delivered, opened and clicked, from its events.
+    pub delivered: u32,
+    pub opened: u32,
+    pub clicked: u32,
+}
+
+/// `GET /v1/sandboxes/{id}/campaigns`: every campaign, by id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CampaignListResponse {
+    pub campaigns: Vec<CampaignResponse>,
+}
+
+/// What a message is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageKind {
+    Receipt,
+    Ready,
+    OnItsWay,
+    Refund,
+    Declined,
+    Acknowledgement,
+    Quote,
+    Notice,
+    Reminder,
+    Invoice,
+    Campaign,
+}
+
+/// One message in the sandbox's inbox.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MessageResponse {
+    /// The message's ULID.
+    pub message: String,
+    /// The customer's ULID: the only recipient there is.
+    pub to: String,
+    pub kind: MessageKind,
+    /// The ULID of the order, catering event or campaign it is about.
+    #[serde(rename = "ref")]
+    pub reference: String,
+    /// From a fixed template, filled with the event's own figures; never free text.
+    pub subject: String,
+    pub body: String,
+    /// Business times.
+    pub delivered_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opened_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clicked_at: Option<String>,
+}
+
+/// `GET /v1/sandboxes/{id}/inbox`: the newest messages first, and how many there are in all.
+/// The customer persona sees its own; staff see every customer's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct InboxResponse {
+    pub messages: Vec<MessageResponse>,
+    pub total: u32,
+}
+
+/// A catering lead's stage in Crm's pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LeadStage {
+    Inquiry,
+    Quoted,
+    Accepted,
+    /// The deposit is paid.
+    Won,
+    /// Declined, expired or cancelled.
+    Lost,
+    Closed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LeadStageView {
+    pub stage: LeadStage,
+    pub count: u32,
+    /// The catering events' ULIDs.
+    pub events: Vec<String>,
+}
+
+/// `GET /v1/sandboxes/{id}/crm/leads`: every stage, in order, with its catering events.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LeadPipelineResponse {
+    pub stages: Vec<LeadStageView>,
+}
+
+/// One line of the activity log.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ActivityEntry {
+    pub at: String,
+    #[serde(rename = "type")]
+    pub event_type: String,
+    /// A short fixed sentence from the event's named fields.
+    pub summary: String,
+}
+
+/// `GET /v1/sandboxes/{id}/crm/activity`: the sandbox's logged events (clock moves, faults,
+/// menu and capacity changes, payment intents, routes, traffic), in business-time order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ActivityResponse {
+    pub entries: Vec<ActivityEntry>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RebuildState {
+    Idle,
+    Rebuilding,
+    Finished,
+}
+
+/// `GET /v1/sandboxes/{id}/crm/rebuild`, and `202` from `POST` to it, staff only (a guest gets
+/// `403` `guest-scope`): "Rebuild projections" drops Crm's projections and replays its log, 200
+/// events per alarm. A `POST` while one runs answers `202` with its progress and starts nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RebuildResponse {
+    pub state: RebuildState,
+    /// Log entries replayed so far.
+    pub applied: u32,
+    /// The log's length.
+    pub total: u32,
+    /// Once finished: the wall-clock milliseconds the rebuild took.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ms: Option<u32>,
+}
+
 /// Every exported schema as `(file name, pretty JSON with a trailing newline)`, in a fixed
 /// order. The binary writes these bytes and the test compares them.
 pub fn schemas() -> Vec<(&'static str, String)> {
@@ -1107,6 +1431,32 @@ pub fn schemas() -> Vec<(&'static str, String)> {
             "CateringListResponse.schema.json",
             render::<CateringListResponse>(),
         ),
+        ("CustomerResponse.schema.json", render::<CustomerResponse>()),
+        (
+            "CustomerListResponse.schema.json",
+            render::<CustomerListResponse>(),
+        ),
+        ("TimelineResponse.schema.json", render::<TimelineResponse>()),
+        ("ConsentRequest.schema.json", render::<ConsentRequest>()),
+        ("SegmentResponse.schema.json", render::<SegmentResponse>()),
+        (
+            "SegmentListResponse.schema.json",
+            render::<SegmentListResponse>(),
+        ),
+        ("CampaignRequest.schema.json", render::<CampaignRequest>()),
+        ("ScheduleRequest.schema.json", render::<ScheduleRequest>()),
+        ("CampaignResponse.schema.json", render::<CampaignResponse>()),
+        (
+            "CampaignListResponse.schema.json",
+            render::<CampaignListResponse>(),
+        ),
+        ("InboxResponse.schema.json", render::<InboxResponse>()),
+        (
+            "LeadPipelineResponse.schema.json",
+            render::<LeadPipelineResponse>(),
+        ),
+        ("ActivityResponse.schema.json", render::<ActivityResponse>()),
+        ("RebuildResponse.schema.json", render::<RebuildResponse>()),
     ]
 }
 
@@ -1609,5 +1959,75 @@ mod tests {
             serde_json::to_value(&list).unwrap()["events"][1]["balance_cents"],
             43_500
         );
+    }
+
+    #[test]
+    fn crm_shapes() {
+        let customer = CustomerResponse {
+            customer: "01M6TCX5C0VKKM7M86WYN7SBR2".into(),
+            display_name: "Drizzle Trowel".into(),
+            preferences: vec!["croissant".into()],
+            home_zone: "z2".into(),
+            place: "p9".into(),
+            marketing: true,
+            loyalty_points: 41,
+            orders: 12,
+            last_order_at: None,
+            catering: 0,
+        };
+        assert_eq!(
+            serde_json::to_string(&customer).unwrap(),
+            r#"{"customer":"01M6TCX5C0VKKM7M86WYN7SBR2","display_name":"Drizzle Trowel","preferences":["croissant"],"home_zone":"z2","place":"p9","marketing":true,"loyalty_points":41,"orders":12,"catering":0}"#
+        );
+        let entry = TimelineEntry {
+            at: "2026-11-07T09:00:00-07:00".into(),
+            event_type: "OrderPaid".into(),
+            reference: "01M6TCX5C0VKKM7M86WYN7SBR2".into(),
+            label: "Paid $22.00".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(&entry).unwrap(),
+            json!({ "at": "2026-11-07T09:00:00-07:00", "type": "OrderPaid",
+                    "ref": "01M6TCX5C0VKKM7M86WYN7SBR2", "label": "Paid $22.00" })
+        );
+        let request: CampaignRequest = serde_json::from_str(
+            r#"{"subject":"cake-week","body":"cake-orders","segment":"cake-last-30-days"}"#,
+        )
+        .unwrap();
+        assert_eq!(request.segment, Segment::CakeLast30Days);
+        assert_eq!(request.subject, SubjectTemplate::CakeWeek);
+        // Free text is not a template.
+        assert!(
+            serde_json::from_str::<CampaignRequest>(
+                r#"{"subject":"Hello there","body":"cake-orders","segment":"everyone"}"#
+            )
+            .is_err()
+        );
+        for (segment, text) in [
+            (Segment::Everyone, "everyone"),
+            (Segment::CakeLast30Days, "cake-last-30-days"),
+            (Segment::DeliveryCustomers, "delivery-customers"),
+            (Segment::Lapsed60Days, "lapsed-60-days"),
+            (Segment::CateringLeads, "catering-leads"),
+        ] {
+            assert_eq!(serde_json::to_value(segment).unwrap(), json!(text));
+        }
+        assert_eq!(
+            serde_json::to_value(RebuildResponse {
+                state: RebuildState::Rebuilding,
+                applied: 200,
+                total: 742,
+                ms: None
+            })
+            .unwrap(),
+            json!({ "state": "rebuilding", "applied": 200, "total": 742 })
+        );
+        assert_eq!(
+            serde_json::to_value(MessageKind::OnItsWay).unwrap(),
+            json!("on_its_way")
+        );
+        let consent: ConsentRequest = serde_json::from_str(r#"{"marketing":false}"#).unwrap();
+        assert!(!consent.marketing);
+        assert!(serde_json::from_str::<ConsentRequest>(r#"{"marketing":false,"to":"x"}"#).is_err());
     }
 }

@@ -112,7 +112,12 @@ pub const ROUTES: &[(&str, &[Route])] = &[
     ("MenuPublished", &[scoped(Schedule, TodayOn)]),
     (
         "OrderPlaced",
-        &[all(Kitchen), all(Crm), scoped(Dispatch, DeliveryOrders)],
+        &[
+            all(Kitchen),
+            all(Crm),
+            scoped(Dispatch, DeliveryOrders),
+            all(Inbox),
+        ],
     ),
     (
         "OrderPaid",
@@ -195,8 +200,11 @@ pub const ROUTES: &[(&str, &[Route])] = &[
     ("RouteProposed", &[all(Crm)]),
     ("RoutePublished", &[scoped(Order, EachStop), all(Kitchen)]),
     ("StopCompleted", &[all(Order)]),
+    ("CustomerRegistered", &[]),
     ("ConsentChanged", &[all(Crm)]),
     ("LoyaltyPointsEarned", &[all(Crm)]),
+    ("CampaignDrafted", &[]),
+    ("CampaignEdited", &[]),
     ("CampaignScheduled", &[all(Crm)]),
     ("CampaignCancelled", &[all(Crm)]),
     ("CampaignSent", &[all(Inbox)]),
@@ -280,6 +288,9 @@ mod tests {
     use bakery_domain::billing::BillingEvent;
     use bakery_domain::catalog::CatalogEvent;
     use bakery_domain::catering::CateringEvent as CateringEvents;
+    use bakery_domain::crm::CrmEvent;
+    use bakery_domain::customer::CustomerEvent;
+    use bakery_domain::inbox::InboxEvent;
     use bakery_domain::order::OrderEvent;
     use bakery_domain::schedule::ScheduleEvent;
     use bakery_domain::{DomainEvent, Ulid, WallTime};
@@ -381,7 +392,7 @@ mod tests {
         assert_eq!(in_table, in_doc);
         assert_eq!(ROUTES.len(), in_table.len(), "an event is listed twice");
         // The table has as many rows as the catalog has events.
-        assert_eq!(in_doc.len(), 63);
+        assert_eq!(in_doc.len(), 66);
     }
 
     #[test]
@@ -392,6 +403,9 @@ mod tests {
             .chain(ScheduleEvent::NAMES)
             .chain(BillingEvent::NAMES)
             .chain(CateringEvents::NAMES)
+            .chain(CustomerEvent::NAMES)
+            .chain(CrmEvent::NAMES)
+            .chain(InboxEvent::NAMES)
         {
             assert!(routes(name).is_some(), "{name} has no row");
         }
@@ -457,11 +471,11 @@ mod tests {
             "OrderPlaced",
             json!({ "kind": "pickup", "note": "Slice it" }),
         );
-        assert_eq!(classes(routes_for(&pickup)), ["Kitchen", "Crm"]);
+        assert_eq!(classes(routes_for(&pickup)), ["Kitchen", "Crm", "Inbox"]);
         let delivery = envelope("OrderPlaced", json!({ "kind": "delivery" }));
         assert_eq!(
             classes(routes_for(&delivery)),
-            ["Kitchen", "Crm", "Dispatch"]
+            ["Kitchen", "Crm", "Dispatch", "Inbox"]
         );
         let order_payment = envelope("PaymentSucceeded", json!({ "purpose": "order" }));
         assert_eq!(classes(routes_for(&order_payment)), ["Order"]);
@@ -570,6 +584,7 @@ mod tests {
         assert_eq!(strip_for(&placed, Kitchen).data["note"], "Slice it");
         let for_crm = strip_for(&placed, Crm);
         assert!(for_crm.data.get("note").is_none());
+        assert!(strip_for(&placed, Inbox).data.get("note").is_none());
         assert_eq!(for_crm.data["kind"], "pickup");
         let inquiry = envelope(
             "CateringInquiryReceived",

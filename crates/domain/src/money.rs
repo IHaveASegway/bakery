@@ -45,6 +45,22 @@ impl Cents {
             .map_err(|_| DomainError::Overflow)
     }
 
+    /// Dollars for people to read, `$1,234.56` (`-$5.00` below zero): what the inbox's
+    /// templates and the timeline's labels print. Never parsed back.
+    pub fn dollars(self) -> String {
+        let sign = if self.0 < 0 { "-" } else { "" };
+        let abs = self.0.unsigned_abs();
+        let whole = (abs / 100).to_string();
+        let mut grouped = String::with_capacity(whole.len() + whole.len() / 3);
+        for (i, c) in whole.chars().enumerate() {
+            if i > 0 && (whole.len() - i).is_multiple_of(3) {
+                grouped.push(',');
+            }
+            grouped.push(c);
+        }
+        format!("{sign}${grouped}.{:02}", abs % 100)
+    }
+
     /// Splits `self` into a part of `bp` basis points, rounded half-up, and the remainder.
     ///
     /// The remainder is computed, not rounded, so the two always sum to the total: a deposit and
@@ -75,6 +91,20 @@ fn round_half_away(n: i128, d: i128) -> i128 {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    #[test]
+    fn dollars_group_thousands() {
+        for (cents, text) in [
+            (0, "$0.00"),
+            (5, "$0.05"),
+            (2_090, "$20.90"),
+            (123_456, "$1,234.56"),
+            (100_000_000, "$1,000,000.00"),
+            (-500, "-$5.00"),
+        ] {
+            assert_eq!(Cents(cents).dollars(), text);
+        }
+    }
 
     #[test]
     fn checked_add_refuses_overflow() {

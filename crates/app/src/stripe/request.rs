@@ -806,8 +806,7 @@ mod tests {
         );
         assert_eq!(Method::Delete.as_str(), "DELETE");
         assert_eq!(
-            del.headers("sk_test_not_a_key", None)
-                .len(),
+            del.headers("sk_test_not_a_key", None).len(),
             1,
             "no content type and no key on a delete"
         );

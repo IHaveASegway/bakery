@@ -13,6 +13,7 @@
 
 mod calendar;
 mod catering;
+mod crm;
 mod menu;
 mod words;
 
@@ -27,6 +28,10 @@ use serde::Serialize;
 
 pub use calendar::{BirthDate, BirthDateError};
 pub use catering::seed_commands;
+pub use crm::{
+    SEED_MESSAGES, SeedMessage, closed_at, directory, history_envelopes, history_event_id,
+    register, seed_messages,
+};
 pub use menu::{ALLERGENS, CATEGORIES, ITEMS, ItemSpec, PACKAGES, PackageSpec, VariantSpec};
 
 use calendar::{
@@ -962,7 +967,7 @@ fn local_day(t: BusinessTime) -> i64 {
 }
 
 /// The item slug of a variant slug, `<item>/<suffix>`.
-fn item_of(variant: &str) -> &str {
+pub(crate) fn item_of(variant: &str) -> &str {
     variant.split_once('/').map_or(variant, |(item, _)| item)
 }
 

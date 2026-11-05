@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CampaignRequest",
+  "description": "`POST /v1/sandboxes/{id}/campaigns`, staff only: a draft, `201` with the `CampaignResponse`\n(`200` with `Idempotent-Replayed: true` for the same key again).\n`PATCH /v1/sandboxes/{id}/campaigns/{cid}` takes the same body and edits a draft: `200`, or\n`409` problem of type `campaign` naming the rule (`out-of-order`) once it is scheduled, sent\nor cancelled. A guest gets `403` `guest-scope` on both.",
+  "type": "object",
+  "properties": {
+    "body": {
+      "$ref": "#/$defs/BodyTemplate"
+    },
+    "segment": {
+      "$ref": "#/$defs/Segment"
+    },
+    "subject": {
+      "$ref": "#/$defs/SubjectTemplate"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "subject",
+    "body",
+    "segment"
+  ],
+  "$defs": {
+    "BodyTemplate": {
+      "description": "A campaign's body, chosen from a fixed list.",
+      "type": "string",
+      "enum": [
+        "announcement",
+        "fresh-bread",
+        "cake-orders",
+        "seasonal-menu",
+        "come-back",
+        "catering-invite"
+      ]
+    },
+    "Segment": {
+      "description": "A segment: a fixed rule over Crm's projection, evaluated at the business time asked.",
+      "oneOf": [
+        {
+          "description": "Every persona.",
+          "type": "string",
+          "const": "everyone"
+        },
+        {
+          "description": "An order with a cake line in the last 30 days of business time.",
+          "type": "string",
+          "const": "cake-last-30-days"
+        },
+        {
+          "description": "Any delivery order.",
+          "type": "string",
+          "const": "delivery-customers"
+        },
+        {
+          "description": "No order in the last 60 days of business time.",
+          "type": "string",
+          "const": "lapsed-60-days"
+        },
+        {
+          "description": "A catering inquiry still open: an inquiry, a quote or an accepted quote.",
+          "type": "string",
+          "const": "catering-leads"
+        }
+      ]
+    },
+    "SubjectTemplate": {
+      "description": "A campaign's subject, chosen from a fixed list; staff never type one (Q14).",
+      "type": "string",
+      "enum": [
+        "weekend-bake",
+        "cake-week",
+        "new-season",
+        "we-miss-you",
+        "catering-season",
+        "thank-you"
+      ]
+    }
+  }
+}

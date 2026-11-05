@@ -430,6 +430,10 @@ mod tests {
                 total_cents: Cents(2_090),
                 refunded_cents: Cents::ZERO,
                 lines: None,
+                customer: None,
+                kind: None,
+                slot: None,
+                zone: None,
             },
         ]
         .iter()

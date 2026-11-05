@@ -291,14 +291,67 @@ pub trait PaymentGateway {
     ) -> Result<InvoiceSnapshot, PortError>;
 }
 
-/// A note to the operator's own verified address. Visitors never get email.
+/// Who a [`Note`] is for: one customer of one sandbox, by their ids, and nothing else.
+///
+/// There is no address type in this port and no string a recipient could be made from: the
+/// fields are private and [`Recipient::new`] takes two ULIDs. So no `Mailbox` implementation can
+/// be handed a visitor's address, and none can address a recipient outside its own sandbox
+/// without [`Mailbox::admits`] seeing it (docs/product.md, Q22: the system holds no addresses).
+///
+/// ```compile_fail,E0277
+/// use bakery_app::ports::Recipient;
+/// // A recipient cannot be built from text, of any shape.
+/// let to = Recipient::from("someone");
+/// ```
+///
+/// ```compile_fail,E0451
+/// use bakery_app::ports::Recipient;
+/// use bakery_domain::Ulid;
+/// // Nor assembled field by field from outside the port.
+/// let id = Ulid::from_parts(0, 1);
+/// let to = Recipient { sandbox: id, customer: id };
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Recipient {
+    sandbox: Ulid,
+    customer: Ulid,
+}
+
+impl Recipient {
+    pub fn new(sandbox: Ulid, customer: Ulid) -> Recipient {
+        Recipient { sandbox, customer }
+    }
+
+    pub fn sandbox(self) -> Ulid {
+        self.sandbox
+    }
+
+    pub fn customer(self) -> Ulid {
+        self.customer
+    }
+}
+
+/// A message for one sandbox customer: a subject and a body from the Inbox's fixed templates.
+/// Visitors never get email. The Inbox adapter lands it in the sandbox's inbox; the real-send
+/// adapter, later and off by default (Q22), also sends a copy to the operator's own verified
+/// address, which is that adapter's configuration and never part of this port.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Note {
+    pub to: Recipient,
     pub subject: String,
     pub body: String,
 }
 
 #[allow(async_fn_in_trait)]
 pub trait Mailbox {
+    /// The one sandbox this mailbox delivers into.
+    fn sandbox(&self) -> Ulid;
+
+    /// Whether `to` is inside this mailbox's sandbox. Every implementation refuses a note that
+    /// fails it with [`PortError::Rejected`], before anything is sent.
+    fn admits(&self, to: Recipient) -> bool {
+        to.sandbox() == self.sandbox()
+    }
+
     async fn send(&self, note: Note) -> Result<(), PortError>;
 }

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ScheduleRequest",
+  "description": "`POST /v1/sandboxes/{id}/campaigns/{cid}/schedule`, staff only: `200` with the\n`CampaignResponse`, now `scheduled`. A `send_at` less than 15 minutes of business time after\nnow is `422` problem naming `schedule-too-soon`, its detail the earliest time allowed; a\ncampaign not in `draft` is `409` `campaign` naming `out-of-order`.\n`POST .../campaigns/{cid}/cancel` (no body) takes a scheduled campaign back to `draft` and a\ndraft to `cancelled`; a sent one is `409` `campaign` naming `out-of-order`.",
+  "type": "object",
+  "properties": {
+    "send_at": {
+      "description": "A business time, such as `2026-11-08T09:00:00-07:00`.",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "send_at"
+  ]
+}

@@ -35,6 +35,6 @@ pub use health::{BuildInfo, Health, HealthStatus, health};
 pub use ports::{
     CancelRequest, Clock, ConfirmRequest, CustomerCreated, CustomerRequest, EventStore, IdGen,
     IntentCreated, IntentRequest, IntentSnapshot, IntentStatus, InvoiceCreated, InvoiceRequest,
-    InvoiceSnapshot, InvoiceStatus, Mailbox, Outbox, PaymentGateway, PortError, RefundCreated,
-    RefundIntentRequest, TestCard,
+    InvoiceSnapshot, InvoiceStatus, Mailbox, Note, Outbox, PaymentGateway, PortError, Recipient,
+    RefundCreated, RefundIntentRequest, TestCard,
 };

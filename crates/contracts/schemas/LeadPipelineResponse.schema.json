@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LeadPipelineResponse",
+  "description": "`GET /v1/sandboxes/{id}/crm/leads`: every stage, in order, with its catering events.",
+  "type": "object",
+  "properties": {
+    "stages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/LeadStageView"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "stages"
+  ],
+  "$defs": {
+    "LeadStage": {
+      "description": "A catering lead's stage in Crm's pipeline.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "inquiry",
+            "quoted",
+            "accepted",
+            "closed"
+          ]
+        },
+        {
+          "description": "The deposit is paid.",
+          "type": "string",
+          "const": "won"
+        },
+        {
+          "description": "Declined, expired or cancelled.",
+          "type": "string",
+          "const": "lost"
+        }
+      ]
+    },
+    "LeadStageView": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "events": {
+          "description": "The catering events' ULIDs.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "stage": {
+          "$ref": "#/$defs/LeadStage"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "stage",
+        "count",
+        "events"
+      ]
+    }
+  }
+}

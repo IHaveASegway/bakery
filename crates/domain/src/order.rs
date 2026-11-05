@@ -241,12 +241,23 @@ pub enum OrderEvent {
         /// True when this refund brings the refunded total to the amount paid.
         full: bool,
     },
-    /// `lines` is for the seed's history only; a live order's close leaves it out.
+    /// `lines`, `customer`, `kind`, `slot` and `zone` are for the seed's history only, which
+    /// has no `OrderPlaced` for Crm to learn them from (docs/domain.md, "Seed history versus
+    /// `OrderClosed`"); a live order's close leaves them out.
     OrderClosed {
         total_cents: Cents,
         refunded_cents: Cents,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         lines: Option<Vec<Line>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        customer: Option<Ulid>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<OrderKind>,
+        /// The pickup slot's or the delivery window's start.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        slot: Option<BusinessTime>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        zone: Option<String>,
     },
 }
 
@@ -905,6 +916,10 @@ fn decide_placed(
                 total_cents: r.total_cents,
                 refunded_cents: r.refunded,
                 lines: None,
+                customer: None,
+                kind: None,
+                slot: None,
+                zone: None,
             }]),
             S::Closed => none,
             _ => Err(OrderError::NotFulfilled),
@@ -1326,7 +1341,11 @@ mod tests {
             [OrderEvent::OrderClosed {
                 total_cents: Cents(2_090),
                 refunded_cents: Cents::ZERO,
-                lines: None
+                lines: None,
+                customer: None,
+                kind: None,
+                slot: None,
+                zone: None,
             }]
         );
         assert_eq!(

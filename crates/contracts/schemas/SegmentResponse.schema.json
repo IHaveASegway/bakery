@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SegmentResponse",
+  "description": "`GET /v1/sandboxes/{id}/segments/{segment}`: how many customers the rule holds now, and a\nfew of their ids. Consent is not applied here; a send applies it. An unknown segment is\n`404`.",
+  "type": "object",
+  "properties": {
+    "members": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "sample": {
+      "description": "Up to five member ULIDs, smallest first.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "segment": {
+      "$ref": "#/$defs/Segment"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "segment",
+    "members",
+    "sample"
+  ],
+  "$defs": {
+    "Segment": {
+      "description": "A segment: a fixed rule over Crm's projection, evaluated at the business time asked.",
+      "oneOf": [
+        {
+          "description": "Every persona.",
+          "type": "string",
+          "const": "everyone"
+        },
+        {
+          "description": "An order with a cake line in the last 30 days of business time.",
+          "type": "string",
+          "const": "cake-last-30-days"
+        },
+        {
+          "description": "Any delivery order.",
+          "type": "string",
+          "const": "delivery-customers"
+        },
+        {
+          "description": "No order in the last 60 days of business time.",
+          "type": "string",
+          "const": "lapsed-60-days"
+        },
+        {
+          "description": "A catering inquiry still open: an inquiry, a quote or an accepted quote.",
+          "type": "string",
+          "const": "catering-leads"
+        }
+      ]
+    }
+  }
+}
