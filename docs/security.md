@@ -268,6 +268,7 @@ Never in the repository, a log or a doc. `.dev.vars` is git-ignored; `.dev.vars.
 | `GOOGLE_CLIENT_ID` | Public in the authorization URL, so not a secret, but out of the repository until launch (PR 11): `.dev.vars` locally, then a Worker variable | Sign-in routes | Public | With the client |
 | `GOOGLE_CLIENT_SECRET` | Worker secret | The code exchange | Exchanges codes for this client | Yearly; on suspicion |
 | `GITHUB_CLIENT_ID` | Public in the authorization URL, so not a secret, but out of the repository until launch (PR 11): `.dev.vars` locally, then a Worker variable | Sign-in routes | Public | With the OAuth app |
+| `API_ORIGIN` | A public variable: `https://api.bakery.ihaveasegway.com` in `wrangler.jsonc`, `http://127.0.0.1:8788` in `.dev.vars` | The OAuth redirect URIs | Public; the base of the redirect URIs, which must match the registered ones exactly. A var and not read from the request, because `wrangler dev` rewrites the request's host to the route's (checked 2026-11-05, Wrangler 4.157.0) | With the hostname |
 | `GITHUB_CLIENT_SECRET` | Worker secret | The code exchange | Exchanges codes for this OAuth app | Yearly; on suspicion |
 | `TURNSTILE_SECRET`, and the site key | Worker secret; the site key public in the page | Siteverify | Skips challenges | Yearly; on suspicion |
 | `SESSION_HMAC_KEY`, `SESSION_HMAC_KEY_PREV` | Worker secrets | Authenticated routes; the oauth cookie; API tokens; email sign-in links, later | Forges any session or API token | Yearly, `_PREV` for 24 h |
