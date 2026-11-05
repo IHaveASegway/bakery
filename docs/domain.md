@@ -2,7 +2,7 @@
 
 The made-up bakery's language and rules: the terms every doc, screen and type uses, the aggregates and the Durable Object (DO) that hosts each, their commands, events, invariants and state machines, the event catalog and its envelope, how money, time and identifiers are represented, how idempotency works at every boundary, what a sandbox is born with, and which of the site's Lab principles runs where. The code that implements it is `crates/domain` (aggregates as `decide` and `evolve`, events, value objects) and `crates/seed`; how objects, the Queue and the Workers fit together is [architecture.md](architecture.md). Why the bakery exists is [product.md](product.md).
 
-Status: Updated in PR 5 · 2026-11-05
+Status: Updated in PR 8 · 2026-11-05
 
 Prices, limits and versions are as of 2026-11-04, with sources. Every menu price, package price and tax rate on this page is the made-up bakery's demo data, not a platform price.
 
@@ -187,6 +187,15 @@ stateDiagram-v2
   sent --> [*]
   cancelled --> [*]
 ```
+
+**As built in PR 8 (2026-11-05, `crates/domain/src/crm.rs`).** The aggregate is `Campaigns` over a table of `Campaign {subject, body, segment, state, send_at, recipients}`. Its rules, each with a test in `crates/domain/src/crm/tests.rs` or in `workers/api/src/objects/crm.rs`:
+
+- **Draft and edit.** `DraftCampaign` with the same content under the same id again is a no-op; other content under that id is refused as `campaign-exists`. `EditCampaign` works on a draft only. Both events, `CampaignDrafted` and `CampaignEdited`, carry the subject, body and segment and are routed nowhere: they are Crm's own record, as `PaymentIntentRecorded` is Billing's.
+- **Schedule and cancel.** `ScheduleCampaign` needs a `send_at` at least 15 minutes after now, else `schedule-too-soon`, which names the earliest time allowed (the Worker rounds it up to a whole minute). `CancelCampaign` takes a scheduled campaign back to draft, makes a draft cancelled, does nothing to a cancelled one and is refused on a sent one as `out-of-order`.
+- **Send.** `SendCampaign` takes an `Audience`, and `Audience::of(projection, segment, now)` is the only way to build one: the segment's members whose `marketing` is true at that moment, in a type whose fields are private, so a send cannot skip consent. Sent when the campaign is not scheduled, a second firing included, it emits nothing; before `send_at` it is `not-due`, which the Worker re-arms on; with the wrong segment it is `audience`. `CampaignSent` freezes the recipients and carries the subject and the body, since the Inbox has no other way to learn the body. The refusal slugs are `unknown-campaign`, `campaign-exists`, `out-of-order`, `schedule-too-soon`, `not-due`, `audience` and `overflow`.
+- **Templates, never typed.** Six subjects (`weekend-bake`, `cake-week`, `new-season`, `we-miss-you`, `catering-season`, `thank-you`) and six bodies (`announcement`, `fresh-bread`, `cake-orders`, `seasonal-menu`, `come-back`, `catering-invite`) are enums in the domain, with their text in the domain. Every body starts "Hello from Proof of Concept." and none uses a customer's name, an address or a link; a test renders every template and passes the free-text check on each. A request names a template by its slug, so a campaign carries no free text at all.
+- **Segments**, as rules over Crm's projection at the send's business time, none applying consent (the campaign does): `everyone`; `cake-last-30-days`, a counted order with a cake line whose slot is on or after now minus 30 days, with no upper bound, so a future cake order counts; `delivery-customers`, any counted delivery order; `lapsed-60-days`, no counted order with a slot on or after now minus 60 days, those who never ordered included; and `catering-leads`, a lead at inquiry, quoted or accepted. A counted order is a paid one, or one closed in the seed's history, and not cancelled, and its date is its slot's.
+- **Stats** are sets of message ids (delivered, opened, clicked) learned from the Inbox's events, so a rebuild reproduces them from the log.
 
 ### Sandbox
 
@@ -375,6 +384,8 @@ Object names are derived by the server only ([architecture.md](architecture.md#o
 | Order, CateringEvent, Customer | `order:<sandbox>:<ulid>`, `catering:<sandbox>:<ulid>`, `customer:<sandbox>:<ulid>` |
 | Schedule, Dispatch | `schedule:<sandbox>:<date>`, `dispatch:<sandbox>:<date>` |
 
+**Message ids (PR 8, 2026-11-05).** An Inbox message's id is a function of its cause and its recipient, so a redelivered event makes the same message and not a second one: it keeps the time part of the cause's ULID, which is the event's id (a campaign's id for a campaign message), and takes 80 bits mixed from both ids and the recipient's. A campaign message is keyed by (campaign, customer); every other message by (event id, customer). The function is `message_id` in `crates/domain/src/inbox.rs`, and the seed uses the same one over the history event's id.
+
 **Why a client never names an object.** A name is an object: any string the client could choose would create one, with its own storage and its own bill, and nothing would list it for the wipe. The sandbox id in every name comes from the signed session, so one visitor cannot address another's bakery. An aggregate's ULID is accepted only if the Sandbox's registry holds it. And because the registry is the one list of children, the wipe can delete everything a sandbox made. The site's lab wrote the same rule for the same reasons ([lab.md](https://github.com/IHaveASegway/website/blob/main/docs/lab.md#durable-object-rules), rule 8).
 
 ## Idempotency
@@ -444,6 +455,15 @@ All of them live and die with the sandbox, so none needs pruning. A command and 
 That is close to the 2,000 rows [cost.md](cost.md) starts from; spike S5 measures the real figure, wipe included.
 
 **As built in PR 5 (2026-11-05).** A sandbox seeds 15 children in three batches of 7 (`workers/api/src/objects/sandbox.rs`, and its test that the plan is the Catalog, the Kitchen and `Billing` first, then the 12 open orders), where PR 4 seeded 14 in two. `Billing`'s seed is the 90 daily totals, in its `history` table (day, orders, cents); the 16 deposits and balances arrive with the catering PR. Those totals appear in no response yet.
+
+**As built in PR 8 (2026-11-05).** The tables above were written before the code, and these are the differences it showed (`bakery_seed` and `workers/api/src/objects/sandbox.rs`):
+
+- **35 children in five batches of 7,** where the diagram and the table say 34 objects: the Catalog, the Kitchen, `Billing`, `Crm` and the `Inbox`, then the 7 `Schedule` days, the 12 open orders, the 8 catering events and the 3 catering days. Crm and the Inbox are seeded before the orders, not last, because a seeded paid order's `LoyaltyPointsEarned` would otherwise reach a Crm that does not exist yet and be lost. The `Customer` objects are still created on first touch, and seeding touches some (a seeded paid order's `OrderPaid` reaches its customer), so `children` ends above 35; the smoke scripts assert `>= 35` where they asserted 33, and the count at the end is not a constant of the seed.
+- **The history is 722 `OrderClosed` events for seed 42** (714 for seed 8), as the pin `PINNED_HISTORY_LEN` says, where the text above says about 720. `history_envelopes` writes them with the event at the slot's end, as the paragraph above says. The 240 messages are the receipts of the 240 most recent history orders by slot, delivered at the payment's time and not at placement as that paragraph says; their ids come from the Inbox's rule ([identifiers](#identifiers)).
+- **What is kept in Crm:** the roster, which is the 60 personas' display names, home zones, consent flags and opening points, as reference data no event carries, so that a rebuild keeps it; the log of applied events; and the projection. A persona's loyalty balance is its opening points plus every `LoyaltyPointsEarned`, and Crm does not recount the history.
+- **Seeded engagement:** an open or a click of a seeded message that falls before the sandbox's birth is written into the message; one still ahead would get a timer in the Inbox. For seeds 42 and 8 none is ahead, so the Inbox's seeding armed no timer, and `scripts/smoke-crm.sh` counted 111 of 240 opened and 38 clicked for seed 8, the same in two sandboxes. The Rows column above for Crm (942) and the Inbox (241) is the estimate; the real counts were not measured in this pull request (spike S5 measures them).
+- **A catering event's events** are not relayed by an outbox in the seed, so each seeded event's log is read right after it is seeded and handed to Crm and, for its facts only, to the Inbox. The seed's 240 messages are its history, so the seeded catering events make no new messages.
+
 
 ## The principle map
 

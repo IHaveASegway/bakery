@@ -2,7 +2,7 @@
 
 How Proof of Concept Bakery, the made-up bakery, is set up, watched and repaired by one person: access setup, observability, alerting, runbooks and the maintenance calendar. It follows the site's [operations.md](https://github.com/IHaveASegway/website/blob/main/docs/operations.md), and the two share an account, a zone and a time budget. Each runbook is a short numbered list for use under stress. The pipeline these runbooks drive is in [delivery.md](delivery.md); the secrets inventory, the wipe's design and the privacy rules are in [security.md](security.md); prices and the kill switch's design are in [cost.md](cost.md).
 
-Status: Updated in PR 5 · 2026-11-05
+Status: Updated in PR 8 · 2026-11-05
 
 Prices, limits and versions are as of 2026-11-04, with sources. Steps that depend on a console's current labels say "confirm when building". A Durable Object (DO) is the unit that holds state; every DO class here is SQLite-backed.
 
@@ -143,6 +143,8 @@ A page view runs no Worker code, so the signals are about the API. As of 2026-11
 
 **Log lines.** One JSON object per request, queue batch, cron run, alarm and wipe: `type`, `route`, `status`, `ms`, `ip_hash`, `country`, `continent`, `sandbox`. `ip_hash` is `HMAC(daily salt, IP)`; never city or coordinates, as in the site's lab. Automatic invocation logs are off because they record location fields ([delivery.md](delivery.md#quality-gates-as-fitness-functions) enforces it). Never a body, cookie, token, note or brief. Since PR 4 (2026-11-05) the kitchen socket writes `kitchen_wake`, `kitchen_socket_open`, `kitchen_socket_closed`, `kitchen_socket_refused`, `kitchen_sockets_closed` and `kitchen_cmd`, the Simulator writes `sim_started`, `sim_tick`, `sim_rate`, `sim_refused`, `sim_cap` and `sim_stopped`, and a failed settlement writes `settle_error`.
 
+**Log lines added in PR 8 (2026-11-05).** All carry ids, counts and rule slugs, never a body, a subject, a note or a brief. Crm writes `crm_seeded` (`logged`, `refused`), `crm_ingest_skipped` (`skipped`), `crm_event_refused` (event id, type, `rule`), `campaign_sent` (`campaign`, `recipients`), `campaign_send_skipped` (`reason: not-scheduled`, the second firing of a timer), `campaign_send_refused` (`rule`), `sends_deferred` (`sends`, while a rebuild runs), and the rebuild's `rebuild_started` (`total`), `rebuild_step` (`applied`, `total`), `rebuild_finished` (`events`, `ms`, `identical`) and `rebuild_error` (`rule`, `position`). The Inbox writes `inbox_seeded` (`messages`, `timers`), `messages_delivered` (`cause`, `messages`, `kinds`), `engagement` (`opened`, `clicked`) and `inbox_event_refused`; the Customer writes `customer_event_refused`. The consumer writes `subscriber_unborn` when Crm or the Inbox answers 410, and the Sandbox writes `fault_push_error` when it cannot push the `inbox` switch to the Inbox and `seed_override_refused` when `SANDBOX_SEED` is set on a non-loopback API. The line to look for in a rebuild is `rebuild_finished` with `"identical":false`.
+
 **Data points.** One per event: `sandbox_created`, `order_placed`, `payment_succeeded`, `payment_failed`, `refund_issued`, `wipe` (sandboxes, objects, milliseconds) and `dlq`. Nothing identifies a visitor.
 
 **Kept queries** (Analytics Engine SQL, saved as text): sandboxes a day against the cap of 300; orders and payments an hour; payment failures; the last wipe; `dlq` points in 24 hours.
@@ -221,6 +223,12 @@ The wipe is the privacy promise ([ADR 0005](adr/0005-a-private-sandbox-per-visit
 **By hand.** Set `wipe_due` in `Control`'s `flags` table in Data Studio; the next sweep runs the full wipe. (The table and column names are an assumption for [architecture.md](architecture.md) to confirm.)
 
 Deleted rows count as writes ([DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/), as of 2026-11-04; spike S5 measures it). SQLite-backed objects keep 30 days of point-in-time recovery ([SQLite storage API](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/)), so Cloudflare can restore wiped rows for a month; [security.md](security.md) owns how the privacy page words that.
+
+### Rebuild Crm's projections
+
+A signed-in session (a guest gets 403) starts it from the console's "Rebuild projections" button or with `POST /v1/sandboxes/{id}/rebuild` (202; a second start while one runs is 409 `rebuild`). It is safe to run at any time: the log is never touched, and a delivery that arrives meanwhile is appended to the log and replayed too. Watch `GET /v1/sandboxes/{id}/rebuild`: `state` is `rebuilding` with `applied` climbing to `total` at 200 log entries per alarm, then `finished` with `ms` (and `idle` before the first run in a sandbox). Reads in the meantime answer the partial projection with `Projection-State: rebuilding`, and a campaign that falls due waits (`sends_deferred`). When it ends, `rebuild_finished` is logged with `identical`. `true` means the replay gave back, byte for byte, the projection it replaced. `false` means the stored projection had drifted from its log, which is a defect to report; the replayed projection is the one kept, because the log is the truth. On 2026-11-05 `scripts/smoke-crm.sh` ran this on a log of 1,033 entries and read `identical: true`. Nothing here rebuilds the Inbox or the Customers, which hold their own state and have no log to replay from.
+
+**Real sends (Q22) are off and unbuilt.** No `Mailbox` adapter exists, so nothing in the Worker can send mail; every campaign message is a row in the Inbox. When the adapter is built for Joseph's own verified address it will be off by default, and its switch and its sender setup will be written here then ([security.md](security.md#privacy-and-data-inventory) says why the port can name no one else).
 
 ### Wipe now
 

@@ -181,6 +181,16 @@ hold is live for 15 business minutes) and the 3 days that hold the accepted and 
 places, each registered before its first write. Then it is `live` and appends `SandboxSeeded`. Later days are born on
 first touch. The wipe calls `/_wipe` on every registered child by class.
 
+Since PR 8 (2026-11-05) the count is 35, not 33, in five batches of 7: `Crm` (`crm:<sandbox>`) and the
+`Inbox` (`inbox:<sandbox>`) join the first group, seeded before the orders so that a seeded paid
+order's events find them born. `Customer` objects (`customer:<sandbox>:<persona>`) are made on
+first touch and some are touched while seeding, so `children` ends above 35; the smoke scripts
+assert at least 35. Alongside the routes above the consumer now also delivers to Crm, the Inbox
+and the order's `Customer` (see the CRM section below), and `bakery-events` carries no note or
+brief to the first two. New problems: `campaign` (422 `schedule-too-soon` with the earliest time,
+or 409 naming the rule, such as `out-of-order`), `rebuild` (409, one already running) and `filter`
+(400, an inbox filter the Worker does not know).
+
 Every object that writes events (Sandbox, Catalog, Order, Billing, Schedule, CateringEvent) commits them with their outbox rows and
 the command's key in one transaction, sends the rows to `bakery-events` as JSON strings under
 `wait_until`, and keeps an `outbox` timer 30 s out for whatever the send left. The consumer in
