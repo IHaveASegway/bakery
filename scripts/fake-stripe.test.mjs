@@ -9,8 +9,8 @@ import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 // The fake's own test-shaped defaults, not secrets.
-const KEY = 'rk_test_fake000000000000000000000000';
-const WEBHOOK_SECRET = 'whsec_fake0000000000000000000000000000';
+const KEY = 'rk_test_not_a_key';
+const WEBHOOK_SECRET = 'whsec_not_a_secret';
 const SANDBOX = '01JC8YV2D4QK7S1M9E3PZ6W8AN';
 
 let fake;
