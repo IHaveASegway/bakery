@@ -210,6 +210,9 @@ pub struct Refused {
     pub rule: Option<String>,
     #[serde(default)]
     pub class: Option<String>,
+    /// A lead time's sentence, naming the hours (the menu's item name and the rule's numbers).
+    #[serde(default)]
+    pub message: Option<String>,
 }
 
 /// The sandbox is still being seeded: the console polls `GET /v1/sandboxes/{id}` until `live`.
@@ -434,11 +437,16 @@ pub fn menu(rule: &str) -> Failure {
     }
 }
 
-/// A refused clock advance.
+/// A refused clock advance: the domain's `offset-cap` or `not-positive`, the latter also for a
+/// request with both `step` and `minutes`, or neither.
 pub fn clock(rule: &str) -> Failure {
     let sentence = match rule {
-        "too-far" => "Business time moves at most 14 days ahead in all, and only forward.",
-        _ => "Advance the clock by a positive number of minutes.",
+        "offset-cap" | "too-far" => {
+            "Business time moves at most 14 days ahead in all, and only forward."
+        }
+        _ => {
+            "Advance the clock by one step (15m, 1h, 1d or next-opening) or a positive number of minutes, not both."
+        }
     };
     Failure {
         problem: Box::new(Problem::typed(
@@ -450,6 +458,118 @@ pub fn clock(rule: &str) -> Failure {
         retry_after: None,
         reason: "clock",
     }
+}
+
+/// An order whose slot is sooner than its longest lead time: 409, with the sentence naming the
+/// hours, such as "Chocolate layer cake needs 48 h; the slot is 25 h away".
+pub fn lead_time(message: Option<&str>) -> Failure {
+    let sentence = message
+        .map(|m| format!("{m}."))
+        .unwrap_or_else(|| "The slot is sooner than the longest lead time among the lines.".into());
+    Failure {
+        problem: Box::new(Problem::typed(
+            "lead-time",
+            409,
+            "That time is too soon for this order",
+            format!("{sentence} Choose a later day or time. The rule is lead-time."),
+        )),
+        retry_after: None,
+        reason: "lead-time",
+    }
+}
+
+/// A Schedule rule a hold or a capacity change broke, by its slug
+/// (`ScheduleError::rule()`): 409 for a full slot (with `next_free`, RFC 9457 section 3.2) or an
+/// item over its cap, 422 for a time or a target the day does not have.
+pub fn schedule(
+    rule: &str,
+    next_free: Option<&str>,
+    item: Option<&str>,
+    free: Option<u32>,
+) -> Failure {
+    let (slug, status, title, detail): (&'static str, u16, &str, String) = match rule {
+        "slot-full" => (
+            "slot-full",
+            409,
+            "That time is full",
+            match next_free {
+                Some(t) => format!("That time is full; the next free start that day is {t}."),
+                None => "That time is full, and nothing later that day is free.".into(),
+            },
+        ),
+        "item-cap" => (
+            "item-cap",
+            409,
+            "The kitchen cannot make that many that day",
+            match (item, free) {
+                (Some(i), Some(0)) => format!("No more {i} can be made that day."),
+                (Some(i), Some(n)) => format!("Only {n} more {i} can be made that day."),
+                _ => "An item in the order is over its daily cap that day.".into(),
+            },
+        ),
+        "no-such-slot" => (
+            "no-such-slot",
+            422,
+            "That is not a time the bakery takes orders for",
+            "Pickup slots start every 15 minutes from 07:00 to 14:45 and delivery windows at 09:00, 11:00 and 13:00, on days from the sandbox's first to 30 days ahead.".into(),
+        ),
+        "closed-day" => (
+            "closed-day",
+            422,
+            "The bakery is closed that day",
+            "The bakery opens Tuesday to Sunday.".into(),
+        ),
+        "unknown-zone" => (
+            "unknown-zone",
+            422,
+            "That is not a delivery zone",
+            "The bakery delivers to zones z1, z2 and z3.".into(),
+        ),
+        "zone-required" => (
+            "zone-required",
+            422,
+            "A delivery needs a zone",
+            "A delivery needs a zone: z1, z2 or z3.".into(),
+        ),
+        "bad-target" => (
+            "bad-target",
+            422,
+            "That is not a capacity target",
+            "A target is slot:HH:MM (a pickup slot start), zone:z1 to zone:z3, item:<slug> or catering.".into(),
+        ),
+        "ref-held" => (
+            "ref-held",
+            409,
+            "This order holds another place already",
+            "The order already holds a different time.".into(),
+        ),
+        _ => (
+            "schedule",
+            422,
+            "The schedule refused the change",
+            "The change does not fit the day's schedule.".into(),
+        ),
+    };
+    let mut problem = Problem::typed(slug, status, title, format!("{detail} The rule is {slug}."));
+    if slug == "slot-full" {
+        problem.next_free = next_free.map(str::to_owned);
+    }
+    Failure {
+        problem: Box::new(problem),
+        retry_after: None,
+        reason: slug,
+    }
+}
+
+/// A day with no `Schedule`: before the sandbox's birth day, more than 30 days after business
+/// today, or not a date.
+pub fn no_such_day() -> Failure {
+    Failure::typed(
+        "no-such-day",
+        404,
+        "No schedule for that day",
+        "A day's schedule exists from the sandbox's first day to 30 days after today, as YYYY-MM-DD.",
+    )
 }
 
 /// A cap or the flag, with `Retry-After` to the next 00:00 UTC for a cap.
@@ -574,6 +694,38 @@ mod tests {
     }
 
     #[test]
+    fn schedule_refusals_name_their_rule_and_the_next_free_start() {
+        let full = schedule("slot-full", Some("2026-11-07T10:15:00-07:00"), None, None);
+        assert_eq!(full.problem.status, 409);
+        assert!(full.problem.problem_type.ends_with("/slot-full"));
+        assert_eq!(
+            full.problem.next_free.as_deref(),
+            Some("2026-11-07T10:15:00-07:00")
+        );
+        assert!(full.problem.detail.unwrap().contains("10:15:00"));
+        let cap = schedule("item-cap", None, Some("croissant"), Some(2));
+        assert_eq!(cap.problem.status, 409);
+        assert!(cap.problem.next_free.is_none());
+        assert_eq!(schedule("closed-day", None, None, None).problem.status, 422);
+        assert_eq!(
+            schedule("bad-target", None, None, None).reason,
+            "bad-target"
+        );
+        let lead = lead_time(Some(
+            "Chocolate layer cake needs 48 h; the slot is 25 h away",
+        ));
+        assert_eq!(lead.problem.status, 409);
+        assert!(lead.problem.detail.unwrap().contains("48 h"));
+        assert!(
+            clock("offset-cap")
+                .problem
+                .detail
+                .unwrap()
+                .contains("offset-cap")
+        );
+    }
+
+    #[test]
     fn the_guest_rule_is_named() {
         let f = guest_scope();
         assert_eq!(f.problem.status, 403);
@@ -602,6 +754,20 @@ mod tests {
             order("something-new", None),
             menu("nothing-to-publish"),
             clock("too-far"),
+            clock("offset-cap"),
+            clock("not-positive"),
+            lead_time(Some(
+                "Chocolate layer cake needs 48 h; the slot is 25 h away",
+            )),
+            lead_time(None),
+            schedule("slot-full", Some("2026-11-07T10:15:00-07:00"), None, None),
+            schedule("slot-full", None, None, None),
+            schedule("item-cap", None, Some("croissant"), Some(2)),
+            schedule("no-such-slot", None, None, None),
+            schedule("closed-day", None, None, None),
+            schedule("bad-target", None, None, None),
+            schedule("something-new", None, None, None),
+            no_such_day(),
             stripe_key(),
             stripe(true),
             stripe(false),

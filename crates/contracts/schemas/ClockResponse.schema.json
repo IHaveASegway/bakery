@@ -18,6 +18,13 @@
       "type": "integer",
       "format": "uint32",
       "minimum": 0
+    },
+    "step": {
+      "description": "The step applied, in its wire form: `15m`, `1h`, `1d`, `next-opening`, or `<n>m` for the\nolder `minutes` form.",
+      "type": [
+        "string",
+        "null"
+      ]
     }
   },
   "additionalProperties": false,

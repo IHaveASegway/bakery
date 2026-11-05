@@ -628,6 +628,10 @@ pub struct ClockResponse {
     /// Business time now, such as `2026-11-07T09:42:10-07:00`, shown at America/Denver's offset
     /// at that instant (`-06:00` in summer).
     pub business_now: String,
+    /// The step applied, in its wire form: `15m`, `1h`, `1d`, `next-opening`, or `<n>m` for the
+    /// older `minutes` form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<String>,
 }
 
 /// One pickup slot of a day's schedule.

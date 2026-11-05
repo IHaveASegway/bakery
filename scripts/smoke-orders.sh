@@ -278,26 +278,34 @@ list_objects() {
   set -e
 }
 
-# order_body NAME SLOT_MINUTES [NOTE_JSON] [LINES_JSON]: a pickup order JSON for a variant the
-# menu in NAME.body sells at a slot SLOT_MINUTES from now, written to stdout. Picks an
-# available item baked on the slot's day, in season, with a lead time the slot meets.
+# pickable NAME SLOT_MINUTES [SKIP]: the item and variant the menu in NAME.body sells at the first
+# slot SLOT_MINUTES or more from now that the day's Schedule takes (07:00 to 14:45 on the quarter
+# hour, closed Mondays, in America/Denver: PR 6 holds the slot first), and the slot, as JSON on
+# stdout. Picks an available item baked on the slot's day, in season, with a lead time the slot
+# meets. The clock offset is 0 here.
 pickable() {
   node -e "
+    const TZ = 'America/Denver';
+    const parts = (ms) => { const o = {}; for (const p of new Intl.DateTimeFormat('en-US', { timeZone: TZ, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short' }).formatToParts(new Date(ms))) o[p.type] = p.value; return o; };
+    const offsetMin = (ms) => { const p = parts(ms); return Math.round((Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - Math.floor(ms / 1000) * 1000) / 60000); };
+    const iso = (ms) => { const p = parts(ms), o = offsetMin(ms), a = Math.abs(o); return p.year + '-' + p.month + '-' + p.day + 'T' + p.hour + ':' + p.minute + ':' + p.second + (o < 0 ? '-' : '+') + String(Math.floor(a / 60)).padStart(2, '0') + ':' + String(a % 60).padStart(2, '0'); };
+    const wd = (ms) => parts(ms).weekday.toLowerCase().slice(0, 3);
+    const minuteOf = (ms) => { const p = parts(ms); return +p.hour * 60 + +p.minute; };
+    const isSlot = (ms) => wd(ms) !== 'mon' && minuteOf(ms) >= 420 && minuteOf(ms) <= 885 && minuteOf(ms) % 15 === 0;
     const menu = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'));
     const minutes = Number(process.argv[2]);
     const skip = process.argv[3] || '';
-    // Business time at the bakery's Mountain standard offset; the clock offset is 0 here.
-    const slot = new Date(Math.ceil((Date.now() + minutes * 60000) / 900000) * 900000);
-    const local = new Date(slot.getTime() - 7 * 3600000);
-    const day = ['sun','mon','tue','wed','thu','fri','sat'][local.getUTCDay()];
-    const md = String(local.getUTCMonth() + 1).padStart(2, '0') + '-' + String(local.getUTCDate()).padStart(2, '0');
+    let slot = Math.ceil((Date.now() + minutes * 60000) / 900000) * 900000;
+    while (!isSlot(slot)) slot += 900000;
+    const p = parts(slot);
+    const md = p.month + '-' + p.day;
     const inSeason = (s) => !s || (s.from <= s.to ? s.from <= md && md <= s.to : md >= s.from || md <= s.to);
+    const lead = Math.floor((slot - Date.now()) / 60000) - 30;
     for (const c of menu.categories) for (const i of c.items) {
-      if (i.slug === skip || i.status !== 'available' || !i.days_baked.includes(day) || !inSeason(i.season)) continue;
-      const v = i.variants.find((v) => v.lead_minutes <= minutes - 30);
+      if (i.slug === skip || i.status !== 'available' || !i.days_baked.includes(wd(slot)) || !inSeason(i.season)) continue;
+      const v = i.variants.find((v) => v.lead_minutes <= lead);
       if (!v) continue;
-      const iso = local.toISOString().slice(0, 19) + '-07:00';
-      console.log(JSON.stringify({ item: i.slug, variant: v.slug, slot: iso }));
+      console.log(JSON.stringify({ item: i.slug, variant: v.slug, slot: iso(slot) }));
       process.exit(0);
     }
     process.exit(1);" "$TMP/$1.body" "$2" "${3:-}"
@@ -323,7 +331,7 @@ expect_status guest 201
 expect_json guest "['seeding', 'live'].includes(b.state) && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(b.persona) && b.faults.kitchen === false"
 GID="$(json_field guest b.id)"
 check "guest: seeding reaches live within 20 s" "wait_live guest_live G '$GID'"
-expect_json guest_live "b.state === 'live' && b.children === 15"
+expect_json guest_live "b.state === 'live' && b.children === 22"
 
 CANARY="$(random_text 24)"
 command_as signup D 192.0.2.42 POST /v1/auth/demo "{\"password\":\"$CANARY\",\"turnstile_token\":\"pass-1\"}"
@@ -332,7 +340,7 @@ command_as demo D 192.0.2.42 POST /v1/sandboxes '{"replace":false}'
 expect_status demo 201
 DID="$(json_field demo b.id)"
 check "demo: seeding reaches live within 20 s" "wait_live demo_live D '$DID'"
-expect_json demo_live "b.state === 'live' && b.children === 15 && b.kind === 'account'"
+expect_json demo_live "b.state === 'live' && b.children === 22 && b.kind === 'account'"
 DUSER="$(json_field signup b.username)"
 
 # A second demo account whose traffic runs with no console at all: no socket, no heartbeat. Its
@@ -495,7 +503,9 @@ expect_json demo_clock "b.clock_offset_s === 960 && b.clock_v === 2"
 command_as fault_on D 192.0.2.42 POST "/v1/sandboxes/$DID/faults" '{"fault":"kitchen","on":true}'
 expect_status fault_on 200
 expect_json fault_on "b.faults.kitchen === true"
-FSLOT="$(node -e "const t = new Date(Math.ceil((Date.now() + 960000 + 240 * 60000) / 900000) * 900000 - 7 * 3600000); process.stdout.write(t.toISOString().slice(0, 19) + '-07:00')")"
+# The paused-item check's slot: a start the day's Schedule takes (PR 6), still about four hours
+# ahead of a business clock 16 minutes on.
+FSLOT="$DSLOT"
 command_as faulted D 192.0.2.42 POST "/v1/sandboxes/$DID/orders" "{\"kind\":\"pickup\",\"slot\":\"$FSLOT\",\"lines\":[{\"variant\":\"$DVARIANT\",\"qty\":1}]}"
 expect_status faulted 201
 FID="$(json_field faulted b.id)"

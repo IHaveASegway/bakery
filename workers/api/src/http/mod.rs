@@ -15,6 +15,7 @@ mod payments;
 mod problem;
 mod routes;
 mod sandboxes;
+mod schedule;
 mod traffic;
 mod webhook;
 
@@ -296,6 +297,8 @@ async fn checked(
         RouteId::Pay => payments::pay(cx, id.as_deref(), sub).await,
         RouteId::Refund => payments::refund(cx, req, id.as_deref(), sub).await,
         RouteId::Ledger => payments::ledger(cx, id.as_deref()).await,
+        RouteId::GetSchedule => schedule::get(cx, id.as_deref(), sub).await,
+        RouteId::SetCapacity => schedule::set_capacity(cx, req, id.as_deref(), sub).await,
         // Answered before the checks above.
         RouteId::StripeWebhook => Err(problem::internal()),
     }

@@ -318,23 +318,31 @@ list_objects() {
 }
 
 # order_json MENU_NAME SANDBOX_OFFSET_MIN [QTY]: a pickup order the menu in MENU_NAME.body sells,
-# its slot about four hours out (plus the sandbox's clock offset, in minutes).
+# at the first slot about four hours out (plus the sandbox's clock offset, in minutes) that the
+# day's Schedule takes: 07:00 to 14:45 on the quarter hour, closed Mondays, in America/Denver
+# (PR 6 holds the slot before the Order decides).
 order_json() {
   node -e "
+    const TZ = 'America/Denver';
+    const parts = (ms) => { const o = {}; for (const p of new Intl.DateTimeFormat('en-US', { timeZone: TZ, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short' }).formatToParts(new Date(ms))) o[p.type] = p.value; return o; };
+    const offsetMin = (ms) => { const p = parts(ms); return Math.round((Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - Math.floor(ms / 1000) * 1000) / 60000); };
+    const iso = (ms) => { const p = parts(ms), o = offsetMin(ms), a = Math.abs(o); return p.year + '-' + p.month + '-' + p.day + 'T' + p.hour + ':' + p.minute + ':' + p.second + (o < 0 ? '-' : '+') + String(Math.floor(a / 60)).padStart(2, '0') + ':' + String(a % 60).padStart(2, '0'); };
+    const wd = (ms) => parts(ms).weekday.toLowerCase().slice(0, 3);
+    const minuteOf = (ms) => { const p = parts(ms); return +p.hour * 60 + +p.minute; };
+    const isSlot = (ms) => wd(ms) !== 'mon' && minuteOf(ms) >= 420 && minuteOf(ms) <= 885 && minuteOf(ms) % 15 === 0;
     const menu = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'));
-    const offset = Number(process.argv[2]) * 60000;
-    const minutes = 240;
-    const slot = new Date(Math.ceil((Date.now() + offset + minutes * 60000) / 900000) * 900000);
-    const local = new Date(slot.getTime() - 7 * 3600000);
-    const day = ['sun','mon','tue','wed','thu','fri','sat'][local.getUTCDay()];
-    const md = String(local.getUTCMonth() + 1).padStart(2, '0') + '-' + String(local.getUTCDate()).padStart(2, '0');
+    const now = Date.now() + Number(process.argv[2]) * 60000;
+    let slot = Math.ceil((now + 240 * 60000) / 900000) * 900000;
+    while (!isSlot(slot)) slot += 900000;
+    const p = parts(slot);
+    const md = p.month + '-' + p.day;
     const inSeason = (s) => !s || (s.from <= s.to ? s.from <= md && md <= s.to : md >= s.from || md <= s.to);
+    const lead = Math.floor((slot - now) / 60000) - 30;
     for (const c of menu.categories) for (const i of c.items) {
-      if (i.status !== 'available' || !i.days_baked.includes(day) || !inSeason(i.season)) continue;
-      const v = i.variants.find((v) => v.lead_minutes <= minutes - 30);
+      if (i.status !== 'available' || !i.days_baked.includes(wd(slot)) || !inSeason(i.season)) continue;
+      const v = i.variants.find((v) => v.lead_minutes <= lead);
       if (!v) continue;
-      const iso = local.toISOString().slice(0, 19) + '-07:00';
-      console.log(JSON.stringify({ kind: 'pickup', slot: iso, lines: [{ variant: v.slug, qty: Number(process.argv[3] || 1) }] }));
+      console.log(JSON.stringify({ kind: 'pickup', slot: iso(slot), lines: [{ variant: v.slug, qty: Number(process.argv[3] || 1) }] }));
       process.exit(0);
     }
     process.exit(1);" "$TMP/$1.body" "$2" "${3:-1}"
@@ -365,7 +373,7 @@ command_as guest G 192.0.2.51 POST /v1/sandboxes '{"turnstile_token":"pass-1","r
 expect_status guest 201
 GID="$(json_field guest b.id)"
 check "guest: seeding reaches live within 20 s" "wait_live guest_live G '$GID'"
-expect_json guest_live "b.state === 'live' && b.children === 15 && typeof b.persona_name === 'string' && b.persona_name.length > 0 && b.persona_address.line1.endsWith('(synthetic)') && b.persona_address.city === 'Salt Lake City' && b.persona_address.country === 'US'"
+expect_json guest_live "b.state === 'live' && b.children === 22 && typeof b.persona_name === 'string' && b.persona_name.length > 0 && b.persona_address.line1.endsWith('(synthetic)') && b.persona_address.city === 'Salt Lake City' && b.persona_address.country === 'US'"
 
 get_as menu G "/v1/sandboxes/$GID/menu"
 ORDER="$(order_json menu 0 2)" || { fail "no item on the seeded menu fits a slot 4 h out"; ORDER='{}'; }
