@@ -66,3 +66,7 @@ opt-level = "s" # size first: size drives startup
 lto = true
 codegen-units = 1
 panic = "abort"
+# The wasm name section was 24% of the module (1,005,312 of 4,113,149 B at PR 7, measured
+# 2026-11-05) and does nothing at run time; worker-build keeps it unless rustc never emits it.
+# A trap then shows wasm-function[N] frames; the exports and imports keep their names.
+strip = "symbols"
