@@ -2,7 +2,7 @@
 
 What the system of the made-up bakery, Proof of Concept Bakery, protects, from whom, and how. This doc owns the threat model, the headers, the Content Security Policy (CSP) and CORS, sign-in and sessions, sandbox isolation, the privacy and data inventory, the wipe as a privacy control, payments safety, the secrets inventory, the content firewall here, commit identities, the supply chain and account continuity. Money and denial of wallet are in [cost.md](cost.md); how the Durable Object (DO) classes fit together is in [architecture.md](architecture.md); rotation, leak response and the Stripe sandbox reset are runbooks in [operations.md](operations.md). The decisions are [ADR 0005](adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md) (sandbox), 0006 (sign-in), 0007 (Stripe) and 0009 (the API hostname) ([ADR index](adr/README.md)).
 
-Status: Draft for review in PR 1 · 2026-11-04
+Status: Updated in PR 3 · 2026-11-05
 
 Prices, limits and versions are as of 2026-11-04, with sources.
 
@@ -123,7 +123,7 @@ sequenceDiagram
 - **ID token validation, locally, in Rust.** Google says to validate against the keys at the discovery document's `jwks_uri`, with `tokeninfo` for debugging only. The Worker checks `alg` is `RS256` only, `kid` is known, the signature, `iss` is `https://accounts.google.com` or `accounts.google.com`, `aud` (and `azp`) is the client id, `exp` and `iat` with 60 s of skew, and `nonce`. Keys and discovery document are cached in memory and in the Cache API for their `Cache-Control` lifetime; an unknown `kid` refetches at most once a minute.
 - **A hand-rolled RS256 check on `rsa` and `sha2`:** pure Rust, built for `wasm32-unknown-unknown`, tested natively, short enough to review. `ring` has limited wasm32 support, and `jsonwebtoken`'s backends are one more build choice for [stack.md](stack.md) to police. `cargo audit` flags RUSTSEC-2023-0071 (Marvin) in `rsa`; it concerns private-key operations, and the Worker only verifies, so `deny.toml` ignores it with that reason.
 - **Only `sub` is used.** It is "unique among all Google Accounts and never reused", and `email` appears only with the `email` scope ([Google](https://developers.google.com/identity/openid-connect/openid-connect)). The account id is `HMAC-SHA256(ACCOUNT_HMAC_KEY, "google:" + sub)` and names the `Account` object. The tokens and `sub` are dropped once it is computed, never stored or logged.
-- **If `openid` alone is refused** (spike S2; the docs say the scope "must begin with openid and then include profile, email, or both"), the fallback is `openid email` with the claim dropped before anything is stored: weaker, since the consent screen then says an email is shared and an address passes through memory.
+- **`openid` alone works** ([S2](roadmap.md#spikes), passed on 2026-11-05), although Google's docs still say the scope "must begin with openid and then include profile, email, or both". The callback still drops `email`, `email_verified`, `name` and `picture` before anything is stored or logged if they ever appear, and drops the token response's `access_token`. That is the old fallback's protection kept as a defence; the weaker design it replaced would have had the consent screen say an email is shared and an address pass through memory. A client in production status was not tested and arrives at launch.
 - The consent screen's developer contact is `hello@ihaveasegway.com`. Its support email can only be the signed-in account's address or a Google Group the account manages (as of 2026-11-04), so a Google account on `hello@ihaveasegway.com`, which forwards through Email Routing, takes over the field before the screen is published ([operations.md](operations.md#4-the-google-oauth-client)).
 
 ### GitHub, with the numeric user id alone
@@ -265,9 +265,9 @@ Never in the repository, a log or a doc. `.dev.vars` is git-ignored; `.dev.vars.
 | `STRIPE_SECRET_KEY` (sandbox, restricted) | Worker secret | Payment routes; the wipe | Four resources in the sandbox | Yearly; at the reset; on suspicion |
 | `STRIPE_WEBHOOK_SECRET` | Worker secret | The webhook route | Forges events | With the endpoint; at the reset |
 | `STRIPE_PUBLISHABLE_KEY` | Build variable, public in the page | The Payment Element | Public; `pk_test_` only | With the sandbox |
-| `GOOGLE_CLIENT_ID` | Worker variable, public in the authorization URL | Sign-in routes | Public | With the client |
+| `GOOGLE_CLIENT_ID` | Public in the authorization URL, so not a secret, but out of the repository until launch (PR 11): `.dev.vars` locally, then a Worker variable | Sign-in routes | Public | With the client |
 | `GOOGLE_CLIENT_SECRET` | Worker secret | The code exchange | Exchanges codes for this client | Yearly; on suspicion |
-| `GITHUB_CLIENT_ID` | Worker variable, public in the authorization URL | Sign-in routes | Public | With the OAuth app |
+| `GITHUB_CLIENT_ID` | Public in the authorization URL, so not a secret, but out of the repository until launch (PR 11): `.dev.vars` locally, then a Worker variable | Sign-in routes | Public | With the OAuth app |
 | `GITHUB_CLIENT_SECRET` | Worker secret | The code exchange | Exchanges codes for this OAuth app | Yearly; on suspicion |
 | `TURNSTILE_SECRET`, and the site key | Worker secret; the site key public in the page | Siteverify | Skips challenges | Yearly; on suspicion |
 | `SESSION_HMAC_KEY`, `SESSION_HMAC_KEY_PREV` | Worker secrets | Authenticated routes; the oauth cookie; API tokens; email sign-in links, later | Forges any session or API token | Yearly, `_PREV` for 24 h |
@@ -275,6 +275,8 @@ Never in the repository, a log or a doc. `.dev.vars` is git-ignored; `.dev.vars.
 | `STRIPE_E2E_SECRET_KEY` | Actions secret | The `e2e` job's one step | A second restricted key in the same sandbox, because Stripe refuses another until the business is verified | Yearly |
 | `CLOUDFLARE_READ_TOKEN` | Actions secret | The morning object check | Workers Scripts Read | With the deploy token |
 | `BREAKER_API_TOKEN` | Worker secret | The 15-minute breaker | Analytics read; this zone's WAF custom rules edit; can block the site | With the deploy token; alerts on 401 or 403 |
+
+**Local-only provider overrides.** PR 3 adds no secret, but five variables in `.dev.vars` point the API at the local fake provider (`scripts/fake-providers.mjs`) for `wrangler dev`: `GOOGLE_ISSUER`, `GITHUB_AUTHORIZE_URL`, `GITHUB_TOKEN_URL`, `GITHUB_USER_URL` and `TURNSTILE_SITEVERIFY_URL`. Each is honored only when its host is `127.0.0.1` or `localhost`; it is never set in `wrangler.jsonc`; and for any other value the Worker logs `provider_override_refused` and uses the default, so a stray value cannot send a code or a secret to another host.
 
 Stored nowhere: Global API Keys, live Stripe keys, tokens in git config or remote URLs, real values in committed files ([site security.md](https://github.com/IHaveASegway/website/blob/main/docs/security.md#secrets-inventory)).
 

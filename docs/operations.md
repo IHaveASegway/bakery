@@ -2,7 +2,7 @@
 
 How Proof of Concept Bakery, the made-up bakery, is set up, watched and repaired by one person: access setup, observability, alerting, runbooks and the maintenance calendar. It follows the site's [operations.md](https://github.com/IHaveASegway/website/blob/main/docs/operations.md), and the two share an account, a zone and a time budget. Each runbook is a short numbered list for use under stress. The pipeline these runbooks drive is in [delivery.md](delivery.md); the secrets inventory, the wipe's design and the privacy rules are in [security.md](security.md); prices and the kill switch's design are in [cost.md](cost.md).
 
-Status: Draft for review in PR 1 · 2026-11-04
+Status: Updated in PR 3 · 2026-11-05
 
 Prices, limits and versions are as of 2026-11-04, with sources. Steps that depend on a console's current labels say "confirm when building". A Durable Object (DO) is the unit that holds state; every DO class here is SQLite-backed.
 
@@ -45,7 +45,7 @@ Created in PR 2, because local development needs the keys; the production webhoo
 
 ### 4. The Google OAuth client
 
-[ADR 0006](adr/0006-sign-in-that-learns-nothing.md): the `openid` scope alone, so the API receives `sub` and no email. Spike S2 confirms Google accepts it; if not, the fallback is `openid email` with the claim dropped before storage, and this step changes.
+[ADR 0006](adr/0006-sign-in-that-learns-nothing.md): the `openid` scope alone, so the API receives `sub` and no email. [S2](roadmap.md#spikes) passed on 2026-11-05: Google accepts it. Google's docs still describe `openid` alone as invalid, so the callback also drops `email`, `email_verified`, `name` and `picture` if they ever appear. A client in production status was not tested; check it on launch day.
 
 Created in PR 2 in testing status, with Joseph as its test user, for local development; published on launch day.
 
@@ -70,6 +70,8 @@ Locally they live in `.dev.vars`, git-ignored, with names in `.dev.vars.example`
 | `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_SECRET`, `TURNSTILE_SECRET` | The Google client secret; the GitHub OAuth app's client secret (its client id is public and goes in `vars`); Turnstile's server secret | Yearly or on exposure |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | The restricted sandbox key; the endpoint secret | Yearly, at a reset, or on exposure |
 | `BREAKER_API_TOKEN` | The cron breaker's Cloudflare token | With the deploy token |
+
+The local-only provider overrides (`GOOGLE_ISSUER`, `GITHUB_AUTHORIZE_URL`, `GITHUB_TOKEN_URL`, `GITHUB_USER_URL`, `TURNSTILE_SITEVERIFY_URL`) are not secrets and are never set as Worker secrets or in `wrangler.jsonc`; they live in `.dev.vars` for `wrangler dev` against the fake provider. [security.md](security.md#secrets-inventory) owns the rule.
 
 The daily IP salt is not a variable: `Control` generates it each day and discards it, so an IP hash cannot be linked across days.
 
