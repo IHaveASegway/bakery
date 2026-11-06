@@ -72,7 +72,7 @@
       },
       "ActivityResponse": {
         "additionalProperties": false,
-        "description": "`GET /v1/sandboxes/{id}/activity`: the sandbox's logged events (clock moves, faults,\nmenu and capacity changes, payment intents, routes, traffic, token rotations), newest first;\n`?limit=` keeps the newest that many.",
+        "description": "`GET /v1/sandboxes/{id}/activity`: the sandbox's logged events (clock moves, faults,\nmenu and capacity changes, payment intents, routes, traffic, token rotations), newest first\nby business time (ties by event id); `?limit=` keeps the newest that many (50 when left out,\nat most 500). Any session of the sandbox reads it.",
         "properties": {
           "entries": {
             "items": {
@@ -1146,7 +1146,7 @@
       },
       "InboxResponse": {
         "additionalProperties": false,
-        "description": "`GET /v1/sandboxes/{id}/inbox`: the newest messages first, and how many there are in all.\n`?kind=` keeps one kind, `?to=` one customer's, `?limit=` the newest that many (50 when left\nout).\nThe customer persona sees its own; staff see every customer's.",
+        "description": "`GET /v1/sandboxes/{id}/inbox`: the newest messages first, and how many there are in all.\n`?kind=` keeps one kind, `?to=` one customer's, `?limit=` the newest that many (50 when left\nout, at most 500). Any session of the sandbox, a guest's included, sees every customer's\nmessages: the persona is not filtered to its own, and `?to=` is how a reader narrows to one.",
         "properties": {
           "messages": {
             "items": {
@@ -2322,7 +2322,7 @@
       },
       "RebuildResponse": {
         "additionalProperties": false,
-        "description": "`GET /v1/sandboxes/{id}/rebuild`, which any session of the sandbox reads, and `202` from\n`POST` to it, staff only (a guest gets `403` `guest-scope`): \"Rebuild projections\" drops\nCrm's projections and replays its log, 200 events per alarm. A `POST` while one runs is `409`\nproblem of type `rebuild` and starts nothing; `GET` says how far the running one is.",
+        "description": "`GET /v1/sandboxes/{id}/rebuild`, which any session of the sandbox reads, and `202` from\n`POST` to it, staff only (a guest gets `403` `guest-scope`): \"Rebuild projections\" drops\nCrm's projections and replays its log, 200 events per alarm. A second `POST` (with a new\n`Idempotency-Key`) while one runs is `409` problem of type `rebuild` and starts nothing; the\nsame key again replays the first `202`. Nothing else is refused during a rebuild: other\ncommands run, reads answer the partial projection with `Projection-State: rebuilding`, and a\ncampaign send that falls due is deferred (logged as `sends_deferred`) until it ends. `GET`\nsays how far the running one is, and `finished` with its `ms` until the next start.",
         "properties": {
           "applied": {
             "description": "Log entries replayed so far.",
@@ -11615,7 +11615,7 @@
                 }
               }
             },
-            "description": "`rebuild`: one is already running",
+            "description": "`rebuild`: a second start while one is running; other commands still run",
             "x-problems": [
               "rebuild"
             ]

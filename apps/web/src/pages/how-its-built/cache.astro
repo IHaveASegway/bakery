@@ -1,0 +1,231 @@
+---
+import Base from '../../layouts/Base.astro';
+import { ESSAYS, HOW_PATH, SITE_LAB, adrUrl, howUrl, labUrl } from '../../lib/links';
+
+// The essay the Cache Lab maps to (docs/domain.md, "The principle map"; Q33 · Q-principles). Static,
+// no island. Every claim about Cloudflare's behaviour is as its documentation stated it on the
+// date in READ, and every number from the code names its file. What the lab shows is the lab page
+// as read that day.
+const READ = '2026-11-06';
+const { title } = ESSAYS.cache;
+const SOURCES = [
+  {
+    href: 'https://developers.cloudflare.com/workers/runtime-apis/cache/',
+    title: 'Cache',
+    by: 'Cloudflare’s Workers documentation',
+    for: 'the contents of the cache do not replicate outside the data center they were written in, and a delete purges only that data center',
+  },
+  {
+    href: 'https://developers.cloudflare.com/workers/reference/how-the-cache-works/',
+    title: 'How the Cache works',
+    by: 'Cloudflare’s Workers documentation',
+    for: 'the Cache API is local to a data center and does not support tiered caching',
+  },
+  {
+    href: 'https://developers.cloudflare.com/workers/cache/',
+    title: 'Workers Cache',
+    by: 'Cloudflare’s Workers documentation',
+    for: 'with caching enabled, every request to the Worker is charged at the standard request rate, static asset requests included',
+  },
+  {
+    href: 'https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/',
+    title: 'Billing and Limitations',
+    by: 'Cloudflare’s documentation on static assets',
+    for: 'requests to static assets are free and unlimited',
+  },
+  {
+    href: 'https://www.rfc-editor.org/rfc/rfc9110.html',
+    title: 'RFC 9110, HTTP Semantics',
+    by: 'R. Fielding, M. Nottingham and J. Reschke, IETF, 2022',
+    for: 'ETag, If-None-Match and 304 Not Modified',
+  },
+  {
+    href: 'https://www.rfc-editor.org/rfc/rfc9111.html',
+    title: 'RFC 9111, HTTP Caching',
+    by: 'R. Fielding, M. Nottingham and J. Reschke, IETF, 2022',
+    for: 'what private and no-cache ask of a browser’s cache',
+  },
+  {
+    href: labUrl('Cache Lab') as string,
+    title: 'The Cache Lab',
+    by: 'the Cache Lab on ihaveasegway.com',
+    for: 'a cached menu expiring under load, with coalescing, stale serving, early refresh and invalidation on write, simulated in your browser',
+  },
+];
+---
+
+<Base
+  title={`${title} | Proof of Concept Bakery`}
+  description="How Proof of Concept Bakery caches each sandbox's menu under a key that names its version, why nothing is ever invalidated, what the ETag adds, and what the cache does not save."
+>
+  <article class="essay prose">
+    <p class="hint">
+      <a href={HOW_PATH}>How it’s built</a>
+    </p>
+    <h1>{title}</h1>
+    <p class="lead">
+      The menu is read far more often than it changes. The bakery caches it under a key that names
+      its version, so a new price is served from the first read after it is published and an old one
+      is never served again, with no expiry to wait for and nothing to delete. This is how, what it
+      leaves out, and what it costs.
+    </p>
+
+    <h2>A price, and when people see it</h2>
+    <p>
+      The seed’s menu has 24 items, and the country loaf costs $9.50 (
+      <code>crates/seed/src/menu.rs</code>). A member of staff in the console sets it to $10.00.
+      That is a draft: the Catalog object, one per sandbox, holds it as pending, and every reader
+      still gets $9.50. Pressing Publish makes the drafts the menu, adds one to the menu’s version
+      and records <code>MenuPublished</code>. From the next read on, everyone gets $10.00. The
+      question for a cache is what happens between those two moments, and the bakery’s answer is
+      that nothing does: there is no between.
+    </p>
+
+    <h2>What the Cache Lab shows, and what it cannot</h2>
+    <p>
+      The{' '}
+      <a href={labUrl('Cache Lab')} rel="noopener">
+        Cache Lab
+      </a>
+      , as read on {READ}, sends about 300 reads a second at a menu held in four cache nodes in
+      front of a database with eight connections. Every entry has a time to live, and when the
+      menu’s runs out the readers pile onto the database at once. Its switches are the usual
+      answers: coalesce the misses, serve the stale copy while one fetch refreshes it, refresh
+      early, jitter the expiry. Its writes either invalidate the entry or leave it, and it asks you
+      to count the readers who get the old version until it expires.
+    </p>
+    <p>
+      The lab has no versioned keys and no ETag, and its cache is one place. Each of those is where
+      the bakery differs, and the third is where the real platform differs from any simulation of
+      one cache.
+    </p>
+
+    <h2>How a read works</h2>
+    <p>
+      <code>GET /v1/sandboxes/…/menu</code> (<code>workers/api/src/http/menu.rs</code>) first asks
+      the Catalog for its version, a small read that the one object answering it makes strongly
+      consistent: a publish that has committed is the version the next read sees. Then:
+    </p>
+    <ul>
+      <li>
+        If the browser sent <code>If-None-Match</code> with the ETag of that version, such as{' '}
+        <code>"v2"</code>, the answer is 304 with no body, and nothing else is asked.
+      </li>
+      <li>
+        Otherwise the Worker looks in the Cache API under{' '}
+        <code>&lt;API origin&gt;/_cache/menu/&lt;sandbox&gt;/v&lt;version&gt;</code>, a URL no route
+        answers. A hit is served with <code>Bakery-Cache: hit</code>.
+      </li>
+      <li>
+        A miss asks the Catalog for the menu, stores it under the key of the version the body itself
+        carries, in case a publish landed between the two reads, and serves it with{' '}
+        <code>Bakery-Cache: miss</code>.
+      </li>
+    </ul>
+
+    <h2>Nothing to invalidate</h2>
+    <p>
+      Invalidation is the work of finding every copy of something that changed and removing it in
+      time. With the version in the key there is no such work. After the publish, every read asks
+      for <code>v2</code>; the entry for <code>v1</code> is still in the cache and is never asked
+      for again. Correctness does not depend on anything being deleted, so nothing has to be deleted
+      on time, and a delete that fails costs nothing but space.
+    </p>
+    <p>
+      The bakery does delete the old entry, as housekeeping: the consumer of{' '}
+      <code>MenuPublished</code> removes the previous version’s key (
+      <code>workers/api/src/queue.rs</code>). Cloudflare’s documentation, read on {READ}, says a
+      delete purges only the data center the Worker ran in, so this frees the space where the
+      consumer happened to run and nowhere else. Elsewhere the old entry ages out on its own: the
+      code stores every entry with <code>max-age=86400</code>, a day, because no sandbox outlives
+      the next 10:00 UTC. That is the only time-based rule in the menu’s cache, and it decides when
+      space is freed, never what a reader sees.
+    </p>
+
+    <h2>The browser’s cache has a rule of its own</h2>
+    <p>
+      The menu’s answer carries <code>Cache-Control: private, no-cache</code>, the one route allowed
+      something other than <code>no-store</code> (<code>workers/api/src/http/headers.rs</code>).
+      Under RFC 9111 that lets the browser keep its copy, and only its own, but never use it without
+      asking first. The menu screen sends the ETag back each time, and an unchanged menu costs a 304
+      and no body. That is a second cache with a second key: the Cache API is keyed by the version
+      on the server, the browser’s by the ETag it holds, and both are the same number. A 304 carries
+      no <code>Bakery-Cache</code> header, because the Cache API was never asked.
+    </p>
+
+    <h2>One miss for every data center</h2>
+    <p>
+      Cloudflare’s pages, read on {READ}, are plain that the Cache API is local to a data center:
+      what one stores does not replicate outside it, and the Cache API does not use tiered caching.
+      So <code>v2</code> misses once in every data center that serves the sandbox, not once in the
+      world. A visitor’s requests usually reach one data center, so in practice it is one miss a
+      publish. Two reads that miss at the same moment in one data center both build the menu,
+      because nothing coalesces them; at one visitor’s traffic that is rare and cheap.
+    </p>
+
+    <h2>What the bakery does not use</h2>
+    <p>
+      No Workers Cache on <code>bakery-web</code>, the Worker that serves the storefront’s pages. As
+      Cloudflare’s documentation stated it on {READ}, requests to static assets are free, and with
+      Workers Cache on, every request is billed at the standard rate, static assets included. CI
+      fails any <code>wrangler.jsonc</code> that names the key (
+      <code>.github/workflows/ci.yml</code>). The public <code>/menu/</code> page, before a sandbox
+      exists, is the seed’s menu built into the HTML, so it costs nothing to serve and has nothing
+      to cache. And no expiry on the menu besides the day-long <code>max-age</code>: a time to live
+      is how a cache guesses when its copy has gone stale, and a key that names the version never
+      has to guess.
+    </p>
+
+    <h2>What it costs</h2>
+    <ul>
+      <li>
+        <strong>Every read still asks the Catalog.</strong> The version check is a Durable Object
+        request on every read, hit or miss, and a miss adds the menu read. What the cache saves is
+        that second request and the menu’s body, not the first; the first is the price of never
+        serving an old menu. The bakery’s cost model (<code>docs/cost.md</code>, as of 2026-11-04)
+        prices Durable Object requests at 1,000,000 a month included on Paid, then $0.15 a million.
+      </li>
+      <li>
+        <strong>One miss a publish, per data center.</strong> Each publish makes the next read in
+        each data center build the menu again.
+      </li>
+      <li>
+        <strong>A new price nobody sees until it is published.</strong> A draft lives in the
+        Catalog, and the menu a visitor reads is only ever a published version.
+      </li>
+    </ul>
+
+    <h2>Try it</h2>
+    <p>
+      Open <a href="/menu/">the menu</a> with a sandbox: its “How this works” line names the
+      version, the <code>Bakery-Cache</code> header and the ETag. Press Ask again and the answer is
+      a 304. Sign in, change a price in <a href="/app/">the console</a>, and ask again: still the
+      old version, since a draft is not the menu. Publish it and ask once more: a new version, a new
+      ETag and <code>Bakery-Cache: miss</code>, then a hit, or a 304, from then on.
+    </p>
+
+    <h2>Sources</h2>
+    <ul class="sources">
+      {SOURCES.map((s) => (
+        <li>
+          <a href={s.href} rel="noopener">
+            {s.title}
+          </a>
+          , {s.by}, read on {READ}: {s.for}.
+        </li>
+      ))}
+    </ul>
+    <p class="hint">
+      Back to <a href={howUrl('cache')}>the Cache principle on How it’s built</a>, to the decision
+      that chose it,{' '}
+      <a href={adrUrl('0003')} rel="noopener">
+        ADR 0003
+      </a>
+      , or to{' '}
+      <a href={SITE_LAB} rel="noopener">
+        the lab
+      </a>
+      .
+    </p>
+  </article>
+</Base>

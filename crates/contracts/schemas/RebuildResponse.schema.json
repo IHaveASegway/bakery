@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "RebuildResponse",
-  "description": "`GET /v1/sandboxes/{id}/rebuild`, which any session of the sandbox reads, and `202` from\n`POST` to it, staff only (a guest gets `403` `guest-scope`): \"Rebuild projections\" drops\nCrm's projections and replays its log, 200 events per alarm. A `POST` while one runs is `409`\nproblem of type `rebuild` and starts nothing; `GET` says how far the running one is.",
+  "description": "`GET /v1/sandboxes/{id}/rebuild`, which any session of the sandbox reads, and `202` from\n`POST` to it, staff only (a guest gets `403` `guest-scope`): \"Rebuild projections\" drops\nCrm's projections and replays its log, 200 events per alarm. A second `POST` (with a new\n`Idempotency-Key`) while one runs is `409` problem of type `rebuild` and starts nothing; the\nsame key again replays the first `202`. Nothing else is refused during a rebuild: other\ncommands run, reads answer the partial projection with `Projection-State: rebuilding`, and a\ncampaign send that falls due is deferred (logged as `sends_deferred`) until it ends. `GET`\nsays how far the running one is, and `finished` with its `ms` until the next start.",
   "type": "object",
   "properties": {
     "applied": {

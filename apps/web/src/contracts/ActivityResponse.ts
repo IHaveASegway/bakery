@@ -6,8 +6,9 @@
 
 /**
  * `GET /v1/sandboxes/{id}/activity`: the sandbox's logged events (clock moves, faults,
- * menu and capacity changes, payment intents, routes, traffic, token rotations), newest first;
- * `?limit=` keeps the newest that many.
+ * menu and capacity changes, payment intents, routes, traffic, token rotations), newest first
+ * by business time (ties by event id); `?limit=` keeps the newest that many (50 when left out,
+ * at most 500). Any session of the sandbox reads it.
  */
 export interface ActivityResponse {
   entries: ActivityEntry[];

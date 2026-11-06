@@ -27,7 +27,16 @@ import {
 import { check, type Document, type Json, type Schema } from '../src/lib/schema-check';
 import { HOW } from '../src/tour/how';
 import { PRINCIPLES, PRINCIPLE_TABLE } from '../src/lib/how-its-built';
-import { LAB_SLUGS, NO_LAB, adrFile, adrUrl, labUrl, type LabName } from '../src/lib/links';
+import {
+  ESSAYS,
+  LAB_SLUGS,
+  NO_LAB,
+  adrFile,
+  adrUrl,
+  essayOf,
+  labUrl,
+  type LabName,
+} from '../src/lib/links';
 import { RAFT } from '../src/tour/principles';
 import { TOURS } from '../src/tour';
 
@@ -254,14 +263,28 @@ describe('events, principles and targets', () => {
     );
   });
 
-  test('every principle links its own section of How it’s built, and the Raft one the essay', () => {
+  test('every principle links its own section of How it’s built, and a lab principle its essay', () => {
     for (const step of allSteps) {
       expect(step.principle.howUrl, step.id).toBe(`/how-its-built/#${step.principle.id}`);
-      expect(step.principle.essayUrl !== undefined, step.id).toBe(
-        step.principle.lab === 'Raft Lab',
+      expect(step.principle.essay !== undefined, step.id).toBe(step.principle.lab !== 'none yet');
+      const essay = essayOf(step.principle.id);
+      expect(step.principle.essay, step.id).toEqual(
+        essay === undefined ? undefined : { url: essay.path, title: essay.title },
       );
     }
-    expect(RAFT.essayUrl).toBe('/how-its-built/single-writer/');
+    expect(RAFT.essay).toEqual({
+      url: '/how-its-built/single-writer/',
+      title: 'Why a single-writer object needs no consensus',
+    });
+    // Every essay is reached from at least one tour step.
+    const reached = new Set(
+      allSteps.flatMap((s) => (s.principle.essay ? [s.principle.essay.url] : [])),
+    );
+    expect([...reached].sort()).toEqual(
+      Object.values(ESSAYS)
+        .map((e) => e.path)
+        .sort(),
+    );
   });
 
   test('every principle is used by at least one tour step', () => {

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "InboxResponse",
-  "description": "`GET /v1/sandboxes/{id}/inbox`: the newest messages first, and how many there are in all.\n`?kind=` keeps one kind, `?to=` one customer's, `?limit=` the newest that many (50 when left\nout).\nThe customer persona sees its own; staff see every customer's.",
+  "description": "`GET /v1/sandboxes/{id}/inbox`: the newest messages first, and how many there are in all.\n`?kind=` keeps one kind, `?to=` one customer's, `?limit=` the newest that many (50 when left\nout, at most 500). Any session of the sandbox, a guest's included, sees every customer's\nmessages: the persona is not filtered to its own, and `?to=` is how a reader narrows to one.",
   "type": "object",
   "properties": {
     "messages": {

@@ -1,6 +1,6 @@
 ---
 import Base from '../../layouts/Base.astro';
-import { HOW_PATH, SITE_LAB, howUrl, labUrl } from '../../lib/links';
+import { HOW_PATH, SITE_LAB, adrUrl, howUrl, labUrl } from '../../lib/links';
 
 // The essay the Raft Lab maps to (docs/domain.md, "The principle map"; Q33 · Q-principles). Static,
 // no island. Every claim about Cloudflare's behaviour is as its documentation stated it on the
@@ -184,7 +184,12 @@ const SOURCES = [
       ))}
     </ul>
     <p class="hint">
-      Back to <a href={howUrl('raft')}>the Raft principle on How it’s built</a>, or to{' '}
+      Back to <a href={howUrl('raft')}>the Raft principle on How it’s built</a>, to the decision
+      that chose it,{' '}
+      <a href={adrUrl('0003')} rel="noopener">
+        ADR 0003
+      </a>
+      , or to{' '}
       <a href={SITE_LAB} rel="noopener">
         the lab
       </a>
