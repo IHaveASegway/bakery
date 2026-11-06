@@ -1,0 +1,234 @@
+---
+import Base from '../../layouts/Base.astro';
+import { HOW_PATH, SITE_LAB, adrUrl, howUrl, labUrl } from '../../lib/links';
+
+// The essay the Backfill Lab maps to (docs/domain.md, "The principle map"; Q33 · Q-principles).
+// Static, no island. Every claim about Cloudflare’s behaviour is as its documentation stated it on
+// the date in READ, and each source carries that date. The lab is described as it was read that
+// day. The numbers about the bakery are the code’s and the roadmap’s, with their files named.
+const READ = '2026-11-06';
+const SOURCES = [
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/api/alarms/',
+    title: 'Durable Objects alarms',
+    by: 'Cloudflare’s documentation',
+    for: 'one alarm at a time for an object, at-least-once execution, retries with exponential backoff from 2 seconds, up to 6',
+  },
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/concepts/what-are-durable-objects/',
+    title: 'What are Durable Objects?',
+    by: 'Cloudflare’s documentation',
+    for: 'an object is single-threaded and cooperatively multi-tasked',
+  },
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/platform/limits/',
+    title: 'Durable Objects limits',
+    by: 'Cloudflare’s documentation',
+    for: 'an alarm handler’s wall time of 15 minutes, and 30 seconds of CPU a request by default',
+  },
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/platform/pricing/',
+    title: 'Durable Objects pricing',
+    by: 'Cloudflare’s documentation',
+    for: '25 billion rows read a month included on the paid plan, then $0.001 per million',
+  },
+  {
+    href: adrUrl('0003'),
+    title: 'ADR 0003, SQLite-backed Durable Objects as the system of record',
+    by: 'the bakery’s decision record',
+    for: 'projections live in their own objects and can be dropped and rebuilt from a log',
+  },
+  {
+    href: labUrl('Backfill Lab') as string,
+    title: 'Backfill a week of reports',
+    by: 'the Backfill Lab on ihaveasegway.com',
+    for: 'a nightly job backfilled in your browser, with a failed load and a rerun to try',
+  },
+];
+---
+
+<Base
+  title="Why the CRM can be thrown away and rebuilt | Proof of Concept Bakery"
+  description="Why Proof of Concept Bakery can drop its CRM's customer list and statistics and compute them again from a log, what makes that safe, and what it costs."
+>
+  <article class="essay prose">
+    <p class="hint">
+      <a href={HOW_PATH}>How it’s built</a>
+    </p>
+    <h1>Why the CRM can be thrown away and rebuilt</h1>
+    <p class="lead">
+      The bakery’s customer list, timelines and campaign statistics can be emptied and computed
+      again from a log while orders keep arriving, and the result is the same bytes as before. This
+      is what has to be true for that to work, how the rebuild is paced, and what the lab shows of
+      it.
+    </p>
+
+    <h2>The problem</h2>
+    <p>
+      On Monday morning someone finds that the rule counting a customer’s orders was wrong. Every
+      customer row, timeline and campaign statistic derived with it is wrong too, and none can be
+      edited into the right number; each has to be worked out again from what happened. Orders are
+      arriving all the while.
+    </p>
+
+    <h2>What the lab shows, and what it cannot</h2>
+    <p>
+      The Backfill Lab, as read on {READ}, is a week of a nightly job counting a made-up bakery’s
+      orders. A load fails halfway, and each day’s report is checked against the source. Its result
+      is that a run which replaces its day’s rows in one step can run any number of times and leave
+      the same report, while one that appends leaves 275 where the source has 179. That is the first
+      half of this essay.
+    </p>
+    <p>
+      The lab replays nothing from its event log, has no cursor or batch size, and has no object
+      answering other requests meanwhile. It cannot show an alarm, a transaction in one object’s
+      database, or a campaign send that has to wait. The bakery adds those.
+    </p>
+
+    <h2>What makes a projection disposable</h2>
+    <p>
+      The Crm object keeps two things apart. The projection is the customer list, timelines,
+      activity feed, lead pipeline and campaign statistics, held as one stored row. The log is a
+      table of every event that changed the projection, in the order applied. A projection is
+      disposable only if folding the log again gives the same projection. Two rules make that so.
+    </p>
+    <p>
+      <strong>Applying an event is idempotent.</strong> The projection remembers the id of every
+      event it has applied, and a second delivery is answered <code>duplicate</code> and changes
+      nothing. Every application adds a line to a customer’s timeline, so a redelivered event would
+      write its line twice, and the Queue delivers at least once. The count of a customer’s orders
+      would survive, because it is worked out afresh from a table of orders on each change. The
+      timeline and the bytes would not.
+    </p>
+    <p>
+      <strong>Applying an event is ordered per stream.</strong> For the streams of one order, one
+      catering inquiry or one customer, the projection keeps the newest sequence number it has
+      applied and ignores any event not newer. The Crm receives only some of each stream, so gaps
+      are not waited for, but a late event with a lower number is answered <code>stale</code>. It is
+      neither applied nor logged. That is what lets a replay reproduce the projection: the log is in
+      applied order, and applying an entry depends only on what the projection holds at that point.
+      Without the rule a late event would be applied and logged, and a timeline could move
+      backwards, with an order shown as placed after it was shown as ready.
+    </p>
+    <p>
+      Streams that carry many things, such as the inbox, need no sequence rule: their events add to
+      sets and time-sorted lists, which come out the same in any order.
+    </p>
+
+    <h2>How the rebuild runs</h2>
+    <p>
+      A rebuild starts from the console’s Rebuild projections button, or the rebuild route of the
+      API. The object keeps the projection as it stood, called the shadow, resets the live one to
+      the roster, sets a cursor at the start of the log and arms an alarm. Each alarm replays the
+      next 200 log entries in one transaction, saves the cursor and sets the next alarm 300
+      milliseconds on. The batch size is <code>REBUILD_BATCH</code> in{' '}
+      <code>crates/domain/src/crm.rs</code>, and the gap is <code>REBUILD_GAP_MS</code> in the
+      object.
+    </p>
+    <p>
+      The batches keep the object usable. Cloudflare’s documentation said on {READ} that Durable
+      Objects are single-threaded and cooperatively multi-tasked, like code in a browser. The
+      bakery’s reading, in ADR 0012, is that long work in one piece holds an object’s other requests
+      behind it. Between runs of 200 entries the object answers them. Each run is also its own
+      alarm, and an alarm handler had 15 minutes of wall time on {READ}, which a run of 200 entries
+      does not approach.
+    </p>
+    <p>While a rebuild runs, four things hold.</p>
+    <ul>
+      <li>
+        <strong>Reads answer the partial projection</strong> and say so with the header{' '}
+        <code>Projection-State: rebuilding</code>.
+      </li>
+      <li>
+        <strong>A delivery is decided against the shadow,</strong> and if applied is appended to the
+        log without touching the partial projection. The replay reaches it in its turn, and the
+        cursor’s total grows to match.
+      </li>
+      <li>
+        <strong>A campaign send waits.</strong> It reads the projection to choose its recipients,
+        and a partial projection would choose the wrong ones. The alarm logs{' '}
+        <code>sends_deferred</code> and the send goes on the first alarm after the rebuild.
+      </li>
+      <li>
+        <strong>
+          A second rebuild is refused with 409 <code>rebuild</code>.
+        </strong>{' '}
+        It is the one command that cannot run during a rebuild. The same key again is a replay.
+      </li>
+    </ul>
+
+    <h2>The proof is the bytes</h2>
+    <p>
+      At the end the object appends <code>ProjectionRebuildFinished</code> with the count of entries
+      and the milliseconds taken, drops the shadow, and logs <code>rebuild_finished</code> with{' '}
+      <code>identical</code>: whether the new projection’s serialized form equals the shadow’s,
+      character for character. On 2026-11-05 the roadmap records the smoke script reading the
+      customers, a timeline, the segments, the campaigns, the leads, the activity feed and the
+      stored projection row before and after a rebuild of a 1,033-entry log, in batches of 200, and
+      finding them byte-identical, with <code>identical: true</code> in the Worker’s log. The seed’s
+      history is 722 closed-order events for seed 42 (
+      <a href="https://github.com/IHaveASegway/bakery/blob/main/docs/roadmap.md">docs/roadmap.md</a>
+      , PR 8, as of 2026-11-05). A property test of 256 cases delivers events in any order, with
+      duplicates, and compares the projection with a fold of the log it applied.
+    </p>
+    <p>
+      That shows the replay agrees with what it replaced, not that the rule is right: a bug in the
+      rule is reproduced faithfully.
+    </p>
+
+    <h2>What it costs</h2>
+    <p>
+      A rebuild reads each log entry once: 1,033 rows for the log above, in 6 runs, five of 200 and
+      one of 33 (as of 2026-11-05). Each run also reads and writes the one row holding the
+      projection. The bakery has not measured the rows Cloudflare bills for a rebuild, and the
+      pricing page does not say whether a query that skips earlier rows counts them, so 1,033 is the
+      least. For scale, on {READ} the paid plan included 25 billion rows read a month, and 1,033 is
+      about four millionths of one percent of that. The wait is at least five gaps of 300 ms, 1.5
+      seconds, before the work itself.
+    </p>
+    <p>
+      The bound is the loop guard. An object that re-arms its own alarm more than 100 times in a UTC
+      day stops arming until the wipe and logs <code>alarm_guard</code> with <code>rearm-cap</code>{' '}
+      (<code>REARM_GUARD</code> in <code>stream.rs</code>; docs/operations.md, as of 2026-11-05).
+      Each run is one re-arm, so at 200 entries a run the guard allows about 20,000 entries a day,
+      less the outbox’s own re-arms. A longer log would, as the code reads, stall the rebuild
+      partway until the wipe. A sandbox, wiped nightly, does not come near it.
+    </p>
+    <p>
+      The cost to a reader is the window: during a rebuild the customer list is partial, and the API
+      says so with a header.
+    </p>
+
+    <h2>What to try</h2>
+    <p>
+      Open the{' '}
+      <a href={labUrl('Backfill Lab')} rel="noopener">
+        Backfill Lab
+      </a>
+      , choose Overwrite the day, fail a load, and rerun it; then choose Append rows and see the
+      total pass the source. Then press Rebuild projections in the <a href="/app/">console</a>,
+      watch the cursor climb in steps of 200, read the stats before and after, and try to start a
+      second rebuild while the first runs. The{' '}
+      <a href={howUrl('backfill')}>summary on How it’s built</a> says the same in short.
+    </p>
+
+    <h2>Sources</h2>
+    <ul class="sources">
+      {SOURCES.map((s) => (
+        <li>
+          <a href={s.href} rel="noopener">
+            {s.title}
+          </a>
+          , {s.by}, read on {READ}: {s.for}.
+        </li>
+      ))}
+    </ul>
+    <p class="hint">
+      Back to <a href={howUrl('backfill')}>the rebuild principle on How it’s built</a>, or to{' '}
+      <a href={SITE_LAB} rel="noopener">
+        the lab
+      </a>
+      .
+    </p>
+  </article>
+</Base>

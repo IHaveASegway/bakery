@@ -1,0 +1,248 @@
+---
+import Base from '../../layouts/Base.astro';
+import { ESSAYS, HOW_PATH, SITE_LAB, adrUrl, essayUrl, howUrl, labUrl } from '../../lib/links';
+
+// The essay the Queue Lab maps to (docs/domain.md, "The principle map"; Q33 · Q-principles). Static,
+// no island. Every claim about Cloudflare's behaviour is as its documentation stated it on the
+// date in READ, and every number from the code names its file. What the lab shows is the lab page
+// as read that day.
+const READ = '2026-11-06';
+const { title } = ESSAYS.queue;
+const SOURCES = [
+  {
+    href: 'https://developers.cloudflare.com/queues/reference/delivery-guarantees/',
+    title: 'Delivery guarantees',
+    by: 'Cloudflare’s Queues documentation',
+    for: 'at least once by default, rarely more than once, and a unique id per message as the idempotency key',
+  },
+  {
+    href: 'https://developers.cloudflare.com/queues/configuration/batching-retries/',
+    title: 'Batching, Retries and Delays',
+    by: 'Cloudflare’s Queues documentation',
+    for: 'ack and retry per message, three retries by default, batches of up to 100',
+  },
+  {
+    href: 'https://developers.cloudflare.com/queues/configuration/dead-letter-queues/',
+    title: 'Dead Letter Queues',
+    by: 'Cloudflare’s Queues documentation',
+    for: 'a message moves to the dead-letter queue at the retry limit, and without one it is deleted permanently',
+  },
+  {
+    href: 'https://developers.cloudflare.com/queues/platform/pricing/',
+    title: 'Queues pricing',
+    by: 'Cloudflare’s Queues documentation',
+    for: 'three operations to deliver a message, a read for each retry, 10,000 a day on Free and 1,000,000 a month on Paid, then $0.40 a million',
+  },
+  {
+    href: 'https://microservices.io/patterns/data/transactional-outbox.html',
+    title: 'Pattern: Transactional outbox',
+    by: 'Chris Richardson, after his Microservices Patterns (2018)',
+    for: 'the message stored in the same transaction as the change, and a relay that might publish it more than once',
+  },
+  {
+    href: 'https://www.enterpriseintegrationpatterns.com/patterns/messaging/IdempotentReceiver.html',
+    title: 'Idempotent Receiver',
+    by: 'Gregor Hohpe and Bobby Woolf, Enterprise Integration Patterns (2003)',
+    for: 'a receiver that can safely receive the same message several times',
+  },
+  {
+    href: 'https://www.enterpriseintegrationpatterns.com/patterns/messaging/DeadLetterChannel.html',
+    title: 'Dead Letter Channel',
+    by: 'Gregor Hohpe and Bobby Woolf, Enterprise Integration Patterns (2003)',
+    for: 'where a messaging system puts a message it cannot deliver',
+  },
+  {
+    href: labUrl('Queue Lab') as string,
+    title: 'Crash the workers behind a queue',
+    by: 'the Queue Lab on ihaveasegway.com',
+    for: 'workers crashed between the work and the acknowledgement, an idempotency switch and a dead-letter queue, simulated in your browser',
+  },
+];
+---
+
+<Base
+  title={`${title} | Proof of Concept Bakery`}
+  description="How Proof of Concept Bakery gets a paid order to the kitchen, the CRM and the inbox with no transaction between them: the outbox, a queue that delivers at least once, receivers that remember, and the dead letters."
+>
+  <article class="essay prose">
+    <p class="hint">
+      <a href={HOW_PATH}>How it’s built</a>
+    </p>
+    <h1>{title}</h1>
+    <p class="lead">
+      When a visitor pays for an order, six other objects have to hear about it, and none of them
+      can share a transaction with the order. This is how each hears once in effect, though the
+      message may travel twice, what happens when it cannot travel, and where the retrying stops.
+    </p>
+
+    <h2>A paid order, and who has to hear</h2>
+    <p>
+      Two cardamom buns and a country loaf, paid by test card. Stripe’s webhook reaches the Billing
+      object, which records <code>PaymentSucceeded</code>; that event reaches the Order, which
+      records <code>OrderPaid</code>. As built on {READ}, the routing table in
+      <code>crates/app/src/routing.rs</code> sends <code>OrderPaid</code> to six subscribers: the
+      day’s Schedule, which turns the hold into a reservation; the Kitchen, which moves the card to
+      confirmed; the Crm; the order’s Customer; the Inbox, which writes the receipt; and the day’s
+      Dispatch, which confirms a delivery’s stop.
+    </p>
+    <p>
+      Each is a Durable Object with storage of its own, and{' '}
+      <a href={essayUrl('raft')}>no transaction spans two objects</a>. So the Order cannot record
+      the payment and move the card in one step. It writes its own state and then tells the others,
+      and everything below is about that word “then”.
+    </p>
+
+    <h2>What the Queue Lab shows, and what it cannot</h2>
+    <p>
+      The{' '}
+      <a href={labUrl('Queue Lab')} rel="noopener">
+        Queue Lab
+      </a>
+      , as read on {READ}, has three workers take orders from a broker and print oven tickets. Crash
+      one after it prints and before it acknowledges, and another worker prints the same order
+      again. Its page concludes that a queue “delivers at least once. It cannot promise exactly
+      once”, and exactly once “is something the worker builds on top”, with a record of the ids
+      already printed. Orders that keep failing go to a dead-letter queue after four tries.
+    </p>
+    <p>
+      Two things are outside it. It starts at the broker, so getting a message there with the write
+      that caused it is not drawn. And it says it writes the record and the ticket “together, in one
+      atomic step”, which a real printer could not join. In the bakery the first is the hard part,
+      and the second is true: every ticket is a row.
+    </p>
+
+    <h2>Two steps, and the gap between them</h2>
+    <p>
+      The Order’s write and the send to the Queue are two operations on two systems, with a moment
+      between them whichever comes first. Send first and fail before the commit, and the board shows
+      a paid card for an unpaid order. Commit first and fail before the send, and the kitchen never
+      hears.
+    </p>
+    <p>
+      The bakery commits first and treats the send as something that may happen more than once. In
+      one synchronous transaction (<code>workers/api/src/objects/stream.rs</code>) the Order appends{' '}
+      <code>OrderPaid</code> to its <code>events</code> table, copies the envelope into its
+      <code>outbox</code> table, writes its new state and records the command’s key. That is Chris
+      Richardson’s transactional outbox: the message is stored with the change, so it exists exactly
+      when the change does. After the commit the object sets an outbox timer 30 seconds out, arms
+      its alarm for it, and, while the visitor already has the answer, sends up to 100 outbox rows
+      to the
+      <code>bakery-events</code> Queue in one batch, deleting the rows the Queue accepted.
+    </p>
+    <p>
+      The gap is still there, but the only failure left in it is a duplicate. If the isolate stops
+      after the Queue took the batch and before the delete, the rows go again. If two commands reach
+      one object in quick succession, the second send can read rows the first has not yet deleted.
+      Richardson’s page says as much: the relay “might publish a message more than once”.
+    </p>
+
+    <h2>What happens to a row the Queue refused</h2>
+    <p>
+      As the code reads on {READ}: when the batch send fails, every row stays, each row’s
+      <code>attempts</code> count goes up by one (nothing reads it yet), and the object logs
+      <code>relay_error</code>. Two things send the rows again. The outbox timer fires 30 seconds
+      after the commit, and the alarm sends what is left, setting the timer another 30 seconds out
+      while rows remain. And the object’s next command sends the whole outbox after its own commit,
+      oldest row first. The 15-minute cron is not involved: it retries unfinished wipes and never
+      reads an outbox.
+    </p>
+    <p>
+      Each alarm run that arms the alarm again is counted by the loop guard,
+      <code>REARM_GUARD</code> in <code>stream.rs</code>: 100 a UTC day for one object. At one every
+      30 seconds, a Queue that refuses everything for 50 minutes uses up the day; the 101st re-arm
+      is refused and logged <code>alarm_guard</code>, and the rows wait for the object’s next
+      command, which may always arm, or for the wipe at 10:00 UTC. Past the guard a row waits; it is
+      never dropped.
+    </p>
+
+    <h2>At least once, applied once</h2>
+    <p>
+      Cloudflare’s Queues documentation, read on {READ}, promises delivery at least once and rarely
+      more, and recommends a unique id per message as the key to drop repeats. The bakery adds
+      repeats of its own: its consumer, <code>workers/api/src/queue.rs</code>, acknowledges a
+      message only when every subscriber answered 2xx, so when the Kitchen fails,
+      <code>OrderPaid</code> goes again to the five that already applied it.
+    </p>
+    <p>
+      So the receiving end remembers: Hohpe and Woolf’s idempotent receiver. Each subscriber stores
+      an applied event’s id in the same write as the change: the Schedule and the Dispatch in a{' '}
+      <code>seen</code> table, the Kitchen in a set inside the board’s one row, the Order in its
+      <code>commands_seen</code>. A second delivery finds the id and changes nothing. At-least-once
+      delivery and a receiver that remembers is the only exactly once there is, and it holds here
+      for the reason the lab gives as its simplification: every effect the bakery has is a write to
+      an object it owns, or a call to Stripe with the order’s id as the key.
+    </p>
+
+    <h2>Where the retries stop</h2>
+    <p>
+      The consumer takes batches of up to 10 and allows 3 retries, with the dead-letter queue
+      <code>bakery-events-dlq</code> (<code>workers/api/wrangler.jsonc</code>). Cloudflare’s page on
+      dead-letter queues, read on {READ}, says a message at the retry limit with no such queue is
+      deleted permanently. The bakery’s is read by the same handler, which writes each message, with
+      the last error recorded for it, into the owning Sandbox’s <code>dead_letters</code>, keyed by
+      the event’s id, until a redrive or the wipe at 10:00 UTC.
+    </p>
+    <p>
+      A redrive sends the stored envelope to the Queue again with the same id and deletes the row
+      after the send, so a failure between the two can send it twice and never lose it, and the
+      subscribers’ records make the repeat harmless.
+    </p>
+
+    <h2>What it costs</h2>
+    <ul>
+      <li>
+        <strong>Three Queue operations an event.</strong> Cloudflare’s pricing page, read on {READ}:
+        a write, a read and a delete per message, and a read per retry. The bakery’s cost model (
+        <code>docs/cost.md</code>, as of 2026-11-04) assumes 50 events a session, 150 operations,
+        against 10,000 a day on Free and 1,000,000 a month on Paid, then $0.40 a million.
+      </li>
+      <li>
+        <strong>Twelve for an event that dead-letters and is redriven,</strong> by the same count: 3
+        and 3 retries on <code>bakery-events</code>, 3 on the dead-letter queue, 3 for the redrive.
+      </li>
+      <li>
+        <strong>An alarm run for every commit that wrote events.</strong> The timer is set whether
+        or not the first send worked, so 30 seconds later the alarm finds an empty outbox and
+        deletes it.
+      </li>
+      <li>
+        <strong>A person.</strong> Until someone fixes the cause and redrives a dead letter, the
+        kitchen does not have that card.
+      </li>
+    </ul>
+
+    <h2>Try it</h2>
+    <p>
+      Sign in, open <a href="/app/">the console</a>, and under Faults tick “Kitchen refuses
+      deliveries”. Order from <a href="/menu/">the menu</a> and pay with the test card. The order is
+      paid, and after three retries the Dead letters list holds the Kitchen’s events, each with the
+      error “Kitchen answered 503”. Untick the fault and redrive the <code>OrderPlaced</code> first:
+      an <code>OrderPaid</code> redriven before it finds no card, is refused with 409, and can come
+      back as a dead letter. The card appears once.
+    </p>
+
+    <h2>Sources</h2>
+    <ul class="sources">
+      {SOURCES.map((s) => (
+        <li>
+          <a href={s.href} rel="noopener">
+            {s.title}
+          </a>
+          , {s.by}, read on {READ}: {s.for}.
+        </li>
+      ))}
+    </ul>
+    <p class="hint">
+      Back to <a href={howUrl('queue')}>the Queue principle on How it’s built</a>, to the decision
+      that chose it,{' '}
+      <a href={adrUrl('0004')} rel="noopener">
+        ADR 0004
+      </a>
+      , or to{' '}
+      <a href={SITE_LAB} rel="noopener">
+        the lab
+      </a>
+      .
+    </p>
+  </article>
+</Base>

@@ -1151,7 +1151,11 @@ pub const ROUTES: &[RouteSpec] = &[
         Some("RebuildResponse"),
         &[
             ok(202, "the rebuild, started"),
-            no(409, "rebuild", "one is already running"),
+            no(
+                409,
+                "rebuild",
+                "a second start while one is running; other commands still run",
+            ),
         ],
     ),
     r(

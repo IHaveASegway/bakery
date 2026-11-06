@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { SCREENS } from '../src/lib/tour';
 import { PRINCIPLE_TABLE, PRINCIPLES } from '../src/lib/how-its-built';
+import { ESSAYS, HOW_PATH, adrUrl, labUrl } from '../src/lib/links';
 import { RULE_PATHS } from '../src/policy';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
@@ -13,6 +14,10 @@ import { readLock, verifyFolder } from '../../../scripts/fetch-solver.mjs';
 // Run after `pnpm build`.
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
+// The essays, one per lab principle, from the one table of them (src/lib/links.ts): a page added
+// there is checked here without a test of its own.
+const essays = Object.entries(ESSAYS).map(([id, essay]) => ({ id, ...essay }));
+const essayFile = (path: string) => `${path.slice(1)}index.html`;
 const page = (path: string) => readFileSync(`${dist}${path}`, 'utf8');
 const rule = (path: string) => {
   const lines = page('_headers').split('\n');
@@ -32,7 +37,7 @@ describe('dist', () => {
     '404.html',
     'about/index.html',
     'how-its-built/index.html',
-    'how-its-built/single-writer/index.html',
+    ...essays.map((e) => essayFile(e.path)),
   ])('%s carries no React or script', (file) => {
     const html = page(file);
     expect(html).not.toContain('<script');
@@ -88,7 +93,7 @@ describe('dist', () => {
   const matches = (rulePath: string, path: string) =>
     rulePath.endsWith('*') ? path.startsWith(rulePath.slice(0, -1)) : rulePath === path;
 
-  test.each(['/about/', '/how-its-built/', '/how-its-built/single-writer/'])(
+  test.each(['/about/', '/how-its-built/', ...essays.map((e) => e.path)])(
     '%s is in the dist and takes the strict policy of every page, with no rule of its own',
     (path) => {
       expect(existsSync(`${dist}${path.slice(1)}index.html`), path).toBe(true);
@@ -168,32 +173,101 @@ describe('dist', () => {
       }
     });
 
-    test('links the essay from the Raft section, and the contents link every section', () => {
-      const start = html().indexOf('id="raft"');
-      expect(html().slice(start, html().indexOf('</section>', start))).toContain(
-        'href="/how-its-built/single-writer/"',
-      );
+    test('links each essay from its own section, by its title, lists all five, and the contents link every section', () => {
+      for (const { id, path, title } of essays) {
+        const start = html().indexOf(`id="${id}"`);
+        expect(start, id).toBeGreaterThan(-1);
+        expect(html().slice(start, html().indexOf('</section>', start)), id).toContain(
+          `<a href="${path}">${title}</a>`,
+        );
+      }
+      const contents = html().split('id="contents-title"')[1]!.split('</nav>')[0]!;
+      for (const { path, title } of essays) {
+        expect(contents, path).toContain(`<a href="${path}">${title}</a>`);
+      }
       for (const { id } of PRINCIPLE_TABLE) expect(html()).toContain(`href="#${id}"`);
+      // A principle with no essay links none.
+      for (const { id } of PRINCIPLE_TABLE.filter((p) => !Object.hasOwn(ESSAYS, p.id))) {
+        const start = html().indexOf(`id="${id}"`);
+        expect(html().slice(start, html().indexOf('</section>', start)), id).not.toMatch(
+          /href="\/how-its-built\/[a-z-]+\/"/,
+        );
+      }
     });
   });
 
-  describe('the essay', () => {
-    const html = () => page('how-its-built/single-writer/index.html');
+  // Each essay's words between its h1 and its sources: the first was held to 700 to 1,000 in PR
+  // 12, the four of PR 14 to 900 to 1,300.
+  const WORDS: Record<string, [number, number]> = {
+    raft: [700, 1_000],
+    queue: [900, 1_300],
+    cache: [900, 1_300],
+    backfill: [900, 1_300],
+    routes: [900, 1_300],
+  };
+
+  describe.each(essays)('the essay $path', ({ id, path, title }) => {
+    const file = essayFile(path);
+    const html = () => page(file);
     const text = () =>
       html()
         .replace(/<(script|style)[\s\S]*?<\/\1>/g, '')
         .replace(/<[^>]+>/g, ' ')
         .replace(/\s+/g, ' ');
+    const principle = PRINCIPLES[id]!;
 
-    test('is about 700 to 1,000 words, between its title and its sources', () => {
-      const body = text()
-        .split('Why a single-writer object needs no consensus')
-        .at(-1)!
-        .split(' Sources ')[0]!;
-      const words = body.trim().split(' ').length;
-      expect(words).toBeGreaterThanOrEqual(700);
-      expect(words).toBeLessThanOrEqual(1_000);
+    test('is in the dist, on the Base layout, with the hint back to How it’s built', () => {
+      expect(existsSync(`${dist}${file}`), file).toBe(true);
+      expect(html()).toContain('class="site-name" href="/"');
+      expect(html()).toContain('Everything here is made up');
+      expect(html()).toMatch(
+        new RegExp(`<p class="hint"[^>]*>\\s*<a href="${HOW_PATH}"[^>]*>How it’s built</a>`),
+      );
     });
+
+    test('has its title as its one h1, then a lead', () => {
+      expect(html().match(/<h1[^>]*>/g)).toHaveLength(1);
+      expect(html()).toMatch(new RegExp(`<h1[^>]*>${title}</h1>\\s*<p class="lead"[^>]*>`));
+      expect(html()).toContain(`<title>${title} | Proof of Concept Bakery</title>`);
+    });
+
+    test('links its lab page and its ADR', () => {
+      expect(html()).toContain(`href="${labUrl(principle.lab)}"`);
+      expect(html()).toContain(`href="${adrUrl(principle.adr)}"`);
+    });
+
+    test('lists at least five sources, each linked with the date it was read, or saying it was not', () => {
+      const sources = html().split('<h2>Sources</h2>')[1]?.split('</ul>')[0] ?? '';
+      expect(sources).toMatch(/^\s*<ul class="sources"/);
+      const items = sources.split('<li>').slice(1);
+      const read = items.filter(
+        (item) =>
+          /<a href="https?:\/\/[^"]+" rel="noopener"/.test(item) &&
+          /read on \d{4}-\d{2}-\d{2}/.test(item),
+      );
+      expect(read.length).toBeGreaterThanOrEqual(5);
+      // A work cited without being read online (a paper in print) says so, with the date.
+      for (const item of items.filter((i) => !read.includes(i))) {
+        expect(item).toMatch(/not read on \d{4}-\d{2}-\d{2}/);
+      }
+    });
+
+    test('is the length its brief sets, between its title and its sources', () => {
+      const body = text().split(title).at(-1)!.split(' Sources ')[0]!;
+      const words = body.trim().split(' ').length;
+      const [least, most] = WORDS[id]!;
+      expect(words).toBeGreaterThanOrEqual(least);
+      expect(words).toBeLessThanOrEqual(most);
+    });
+
+    test('names no coordinates and no email address', () => {
+      expect(text()).not.toMatch(/-?\d{1,3}\.\d{3,},\s*-?\d{1,3}\.\d{3,}/);
+      expect(text()).not.toMatch(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i);
+    });
+  });
+
+  describe('the essay on single-writer objects', () => {
+    const html = () => page('how-its-built/single-writer/index.html');
 
     test('cites Cloudflare’s documentation, the Raft paper and the Raft Lab, each with the date it was read', () => {
       for (const href of [
