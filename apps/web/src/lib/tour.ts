@@ -4,6 +4,7 @@
 // Nothing here touches the page, storage or the network, so each part has a plain test. The steps
 // themselves are data in src/tour/, checked in test/tour.test.ts against the OpenAPI document.
 import type { ActivityEntry } from '../contracts';
+import type { LabOrNone } from './links';
 import type { Json } from './schema-check';
 
 /** The screens that carry a tour: one island on each, mounted by the layout. */
@@ -21,13 +22,27 @@ export const SCREENS = [
 ] as const;
 export type ScreenId = (typeof SCREENS)[number];
 
-/** The principle a step teaches, by name. The links to the lab page and the ADR arrive in PR 12. */
+/**
+ * The principle a step teaches, with where it is explained (Q32 · Q-links). One per section of the
+ * How it's built page, which is where they are written (lib/how-its-built.ts); the URLs are derived
+ * there from the lab's name and the ADR's number (lib/links.ts), never typed.
+ */
 export interface Principle {
+  /** The section's id on the How it's built page, such as "queue". */
+  id: string;
   name: string;
   /** The lab page's name, or "none yet" for a principle with no lab page. */
-  lab: string;
+  lab: LabOrNone;
   /** The ADR's number, such as "0004". */
   adr: string;
+  /** The lab page on the site; absent for "none yet". */
+  labUrl?: string;
+  /** The ADR on GitHub. */
+  adrUrl: string;
+  /** The principle's section on the How it's built page, a path on this site. */
+  howUrl: string;
+  /** The essay that goes with it, a path on this site: the Raft principle's alone. */
+  essayUrl?: string;
 }
 
 /** The request that does what the step's element does, as the contracts name it. */

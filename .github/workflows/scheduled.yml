@@ -239,6 +239,27 @@ jobs:
             echo "::warning::this token cannot read Dependabot alerts; their state is in the Security tab"
             echo "Dependabot alerts: not readable with the workflow token" >> "$out/dependabot.txt"
           fi
+      - name: The storefront's external links (scripts/check-links.mjs, PR 12)
+        # The external-link check the old calendar promised: build the storefront, then fetch every
+        # link that leaves it (the lab pages, the ADRs, the essay's sources) and record each one
+        # that does not answer 2xx as a finding. No secret; the job's contents: read is enough.
+        run: |
+          out="$RUNNER_TEMP/findings"
+          set +e
+          if ! { pnpm install --frozen-lockfile && pnpm --filter web build; } > "$RUNNER_TEMP/web-build.log" 2>&1; then
+            tail -n 40 "$RUNNER_TEMP/web-build.log"
+            echo "the storefront did not build, so its external links were not checked" >> "$out/failed"
+            exit 0
+          fi
+          node scripts/check-links.mjs > "$out/links.txt" 2>&1
+          status=$?
+          cat "$out/links.txt"
+          if [ "$status" -eq 1 ]; then
+            grep -E '^- https?://' "$out/links.txt" | sed 's/^- /external link: /' >> "$out/failed"
+          elif [ "$status" -ne 0 ]; then
+            echo "the external-link check could not run (exit $status)" >> "$out/failed"
+          fi
+          exit 0
       - name: Open or update the issue on a finding
         env:
           GH_TOKEN: ${{ github.token }}

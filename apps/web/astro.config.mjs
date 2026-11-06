@@ -3,6 +3,7 @@ import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'astro/config';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { adrFilesPlugin } from './scripts/adr-files.mjs';
 import { hashesByRule } from './scripts/inline-hashes.mjs';
 import { checkPublishableKey } from './src/lib/publishable-key.ts';
 import { DEFAULT_API_ORIGIN, RULE_PATHS, headersFile } from './src/policy.ts';
@@ -55,7 +56,8 @@ export default defineConfig({
     inlineStylesheets: 'never',
   },
   vite: {
-    plugins: [tailwindcss()],
+    // adrFilesPlugin: the ADR file names as `virtual:adr-files` (src/lib/links.ts).
+    plugins: [tailwindcss(), adrFilesPlugin()],
     // No asset becomes a data: URI, which img-src and font-src 'self' would refuse.
     build: { assetsInlineLimit: 0 },
   },
