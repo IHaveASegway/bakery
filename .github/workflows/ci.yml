@@ -541,6 +541,9 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Lighthouse against the preview's pages
         working-directory: apps/web
+        # The container's default shell is sh, which has no arrays: the first run, 2026-11-06, died
+        # on `urls=()` with "Syntax error: ( unexpected" before Lighthouse started.
+        shell: bash
         env:
           URL: ${{ needs.preview.outputs.url }}
         run: |
