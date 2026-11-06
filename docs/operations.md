@@ -2,9 +2,9 @@
 
 How Proof of Concept Bakery, the made-up bakery, is set up, watched and repaired by one person: access setup, observability, alerting, runbooks and the maintenance calendar. It follows the site's [operations.md](https://github.com/IHaveASegway/website/blob/main/docs/operations.md), and the two share an account, a zone and a time budget. Each runbook is a short numbered list for use under stress. The pipeline these runbooks drive is in [delivery.md](delivery.md); the secrets inventory, the wipe's design and the privacy rules are in [security.md](security.md); prices and the kill switch's design are in [cost.md](cost.md).
 
-Status: Updated in PR 8 · 2026-11-05
+Status: Updated in PR 11, launch preparation (draft) · 2026-11-06
 
-Prices, limits and versions are as of 2026-11-04, with sources. Steps that depend on a console's current labels say "confirm when building". A Durable Object (DO) is the unit that holds state; every DO class here is SQLite-backed.
+Prices, limits and versions are as of 2026-11-04, with sources. The runbooks that drive the pipeline (Launch, Deploy, Rollback, the kill switch and the nightly wipe) were checked on 2026-11-06 against `.github/workflows/ci.yml` and `scheduled.yml` as written on the launch branch at d778ff7, and against `scripts/bakery-objects.mjs`; none of those jobs has run against the account yet. Steps that depend on a console's current labels say "confirm when building". A Durable Object (DO) is the unit that holds state; every DO class here is SQLite-backed.
 
 ## Access setup
 
@@ -102,7 +102,7 @@ Locally they live in `.dev.vars`, git-ignored, with names in `.dev.vars.example`
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | The restricted sandbox key (`rk_test_`, preferred to a secret key, which is `sk_test_`; the Worker refuses any other prefix); the endpoint's `whsec_` signing secret, which the Worker refuses otherwise. Each lives in `.dev.vars` locally and is a Worker secret from launch; neither is ever a var | Yearly, at a reset, or on exposure |
 | `BREAKER_API_TOKEN` | The cron breaker's Cloudflare token | With the deploy token |
 
-`STRIPE_PUBLISHABLE_KEY` is not a secret and not in the table: an optional public var (`pk_test_` only) in `.dev.vars` locally and `wrangler.jsonc` from launch. `STRIPE_API_BASE` and `STRIPE_API_VERSION` are public too: the first is a local-only override, honored for `127.0.0.1` and `localhost` and never set in `wrangler.jsonc`; the second, once S3 reads it, is pinned there ([security.md](security.md#secrets-inventory)).
+`STRIPE_PUBLISHABLE_KEY` is not a secret and not in the table: an optional public var (`pk_test_` only) in `.dev.vars` locally and `wrangler.jsonc` from launch. **Public vars must be in `workers/api/wrangler.jsonc` at launch, not in the dashboard.** `deploy` runs `wrangler deploy --no-bundle` without `--keep-vars` (`ci.yml` at d778ff7, checked 2026-11-06), and a deploy without that flag deletes variables set only in the dashboard ([Wrangler](https://developers.cloudflare.com/workers/wrangler/commands/#deploy), confirm the flag's current wording when building). So `GOOGLE_CLIENT_ID`, `GITHUB_CLIENT_ID` and `STRIPE_PUBLISHABLE_KEY`, with `API_ORIGIN`, are `vars` in the file PR 11 merges; secrets are unaffected, since `wrangler secret put` keeps them. `STRIPE_API_BASE` and `STRIPE_API_VERSION` are public too: the first is a local-only override, honored for `127.0.0.1` and `localhost` and never set in `wrangler.jsonc`; the second, once S3 reads it, is pinned there ([security.md](security.md#secrets-inventory)).
 
 The local-only provider overrides (`GOOGLE_ISSUER`, `GITHUB_AUTHORIZE_URL`, `GITHUB_TOKEN_URL`, `GITHUB_USER_URL`, `TURNSTILE_SITEVERIFY_URL`) are not secrets and are never set as Worker secrets or in `wrangler.jsonc`; they live in `.dev.vars` for `wrangler dev` against the fake provider. Beside `ALLOWED_ORIGIN` (`http://127.0.0.1:8787` locally), `.dev.vars` also sets the public var `API_ORIGIN` (`http://127.0.0.1:8788` locally; `https://api.bakery.ihaveasegway.com` in `wrangler.jsonc`), the base of the OAuth redirect URIs. [security.md](security.md#secrets-inventory) owns the rule.
 
@@ -110,13 +110,13 @@ The daily IP salt is not a variable: `Control` generates it each day and discard
 
 ### 7. GitHub repository settings
 
-Before launch only `FIREWALL_RULES` is a secret, in both stores. Settings → Actions → General ([GitHub](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository)): allow GitHub-created actions plus `pnpm/action-setup@*` and `lycheeverse/lychee-action@*`; tag pinning, so "require SHA" is off; read-only workflow permissions; no pull request approval by Actions. From launch day, secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `STRIPE_E2E_SECRET_KEY`, `CLOUDFLARE_READ_TOKEN`, and `FIREWALL_RULES` in both the Actions and Dependabot stores. Security: dependency graph, Dependabot alerts and updates, secret scanning with push protection.
+Before launch only `FIREWALL_RULES` is a secret, in both stores. Settings → Actions → General ([GitHub](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository)): allow GitHub-created actions plus `pnpm/action-setup@*` and `lycheeverse/lychee-action@*`; tag pinning, so "require SHA" is off; read-only workflow permissions; no pull request approval by Actions. From launch day, secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `STRIPE_E2E_SECRET_KEY`, `CLOUDFLARE_READ_TOKEN`, and `FIREWALL_RULES` in both the Actions and Dependabot stores. `STRIPE_E2E_SECRET_KEY` is named in a comment in `ci.yml` and read by no step: until S3 the `e2e` payment step pays at the fake Stripe, so storing it is harmless and not yet needed. **The variable `LAUNCHED`** (Settings → Secrets and variables → Actions → Variables) is set to `true` in [Launch](#launch) step 4. It is a variable, not a secret, and it gates every launch job: see [delivery.md](delivery.md#the-jobs-as-written). **Labels:** create one label, `incident`, once (Issues → Labels). `prod-verdict` adds it to its `Incident:` issues only if it exists, so the pipeline works without it. The "Objects survived the wipe" and "Weekly audit" issues carry no label: the jobs find their own open issue again by exact title, and open a new one if the last was closed, so close them only when the cause is fixed. Security: dependency graph, Dependabot alerts and updates, secret scanning with push protection.
 
 The repository is public from its first push, so a ruleset is available at once: require a pull request and the checks `verify`, `firewall` and `firewall-selftest` on `main`, and `e2e` once PR 11 has made it run; block force pushes and deletion; require approval before an outside contributor's workflow runs. This is the server half of "never push to `main`" ([roadmap.md](roadmap.md#how-we-work)).
 
 ### 8. The read token for the nightly object check
 
-Launch day. `bakery-objects` needs read access every night, so it has its own token and a scheduled job never holds write access. A custom account token `github-actions-bakery-read` with Workers Scripts Read and Account Analytics Read (confirm the names), expiring with the deploy token, stored as `CLOUDFLARE_READ_TOKEN`.
+Launch day. `bakery-objects` needs read access every night, so it has its own token and a scheduled job never holds write access. A custom account token `github-actions-bakery-read` with one permission, Account: Workers Scripts Read (confirm the name), expiring with the deploy token, stored as `CLOUDFLARE_READ_TOKEN`. Durable Object namespaces and their objects are listed under Workers Scripts Read; whether that is enough, and whether the objects endpoint reports `hasStoredData`, only the first run can confirm (`scheduled.yml`, 2026-11-06). Account Analytics Read, which this step named before, is for a dead-letter query that is not built, so the token does not get it (add it with that query). `bakery-objects` also reads `CLOUDFLARE_ACCOUNT_ID`, the same secret as the deploy token's (step 1.5): the account API's paths carry it, and `wrangler.jsonc` has none. The job maps the read token to `CLOUDFLARE_API_TOKEN` in one step's `env:` only, so it never holds the deploy token.
 
 ### 9. Local hooks and the private firewall file
 
@@ -153,7 +153,7 @@ A page view runs no Worker code, so the signals are about the API. As of 2026-11
 
 **Kept queries** (Analytics Engine SQL, saved as text): sandboxes a day against the cap of 300; orders and payments an hour; payment failures; the last wipe; `dlq` points in 24 hours.
 
-**The nightly object check.** `bakery-objects` runs at 12:17 UTC, after the wipe and its retries. It lists every sandbox-scoped namespace (all classes but `Control` and `Account`), opens an issue for any object still holding data, and another for a `dlq` point under 24 hours old.
+**The nightly object check.** `bakery-objects` (in `scheduled.yml`, dormant until `LAUNCHED`; as built, 2026-11-06) runs twice a day, at 09:47 and 12:17 UTC. It lists every sandbox-scoped namespace of `bakery-api` through the account API with the read token (all classes but `Control` and `Account`). The API says whether an object holds data and never how old it is, so the 09:47 run keeps its listing and the 12:17 run, after the wipe and its retries, compares: an object that held data at both times survived the wipe. It opens (or comments on) one issue, "Objects survived the wipe", and fails the job. Listings hold only SHA-256 hashes, classes and counts, because logs, artifacts and issues are public here; the objects' ids are in the dashboard. **What does not exist:** the check for a dead-lettered message. No job reads the `dlq` points or the queue, so nothing opens an issue for one. Until it is built (it needs Account Analytics Read on the read token, step 8), the `dlq` point is read by hand in the kept query and in the monthly usage review, and the Queues screen shows the queue.
 
 **The weekly reconciliation.** Compare `Control`'s ledger with the account's metered usage. Metered above the ledger means a per-sandbox ceiling is wrong; fix the ceiling, not the comparison.
 
@@ -166,8 +166,9 @@ Alerts go by email to Joseph's personal inbox, outside `ihaveasegway.com` on pur
 | Budget alert at $10, $25, $50 or $100 | Cloudflare | [Kill switch](#kill-switch-l0-to-l4) |
 | Breaker token rejected (401 or 403) | The cron handler's log, read in the weekly reconciliation | [Rotate secrets](#rotate-secrets) |
 | Nightly wipe failed or short | `wipe` data point; the morning issue | [The nightly wipe](#the-nightly-wipe) |
-| Objects surviving the wipe | `bakery-objects` issue | [The nightly wipe](#the-nightly-wipe) |
-| Dead-letter queue not empty | `dlq` point; `bakery-objects` issue | Read the message in the queue's dashboard, fix the consumer, replay |
+| Objects surviving the wipe | `bakery-objects` issue, "Objects survived the wipe" | [The nightly wipe](#the-nightly-wipe) |
+| Dead-letter queue not empty | `dlq` point, read by hand (no issue is opened: not built) | Read the message in the queue's dashboard, fix the consumer, replay |
+| Weekly audit finding | `audit` issue, "Weekly audit" | [Dependency update](#dependency-update) |
 | `prod-smoke` failed | `prod-verdict` issue | [Rollback](#rollback) |
 | Stripe webhook failures | Stripe's email for the endpoint | Read the delivery attempts; [reset](#stripe-sandbox-reset) if the secret changed |
 | Either hostname down, from launch | An uptime monitor on `https://bakery.ihaveasegway.com/` and `https://api.bakery.ihaveasegway.com/v1/health` | [Incident](#incident-the-bakery-down) |
@@ -184,20 +185,23 @@ PR 11's day. Everything before it ran locally, so this is the first time anythin
 1. Check the Launch gate ([roadmap.md](roadmap.md#decision-gates)): PRs 2 to 10 merged; spike S1 passed; Joseph's end-to-end read on `wrangler dev`; the name's business-registry and trademark check done; the privacy page's text reviewed.
 2. Merge the site's superseding ADR in the site's repository, then upgrade the account to Workers Paid and write the date in an issue ([step 2](#2-workers-paid-and-the-budget-alerts)).
 3. Set the budget alerts at $10, $25, $50 and $100 the same hour, so there is no uncovered spend.
-4. Create the deploy token and the read token ([step 1](#1-the-deploy-token), [step 8](#8-the-read-token-for-the-nightly-object-check)), store them as GitHub secrets, and finish the settings in [step 7](#7-github-repository-settings).
+4. Create the deploy token and the read token ([step 1](#1-the-deploy-token), [step 8](#8-the-read-token-for-the-nightly-object-check)), store them as GitHub secrets, and finish the settings in [step 7](#7-github-repository-settings). Then set the repository variable `LAUNCHED` to `true`, **before PR 11 merges**.
+   - **What it gates.** In `ci.yml`: `preview`, `e2e`, `lighthouse`, `preview-cleanup`, `deploy`, `rollback`, `prod-smoke` and `prod-verdict`. In `scheduled.yml`: the scheduled runs of `bakery-objects` and `audit`. `verify`, `firewall` and `firewall-selftest` do not depend on it. With it unset, or set to anything but `true`, all of those are skipped and nothing holds a credential; unsetting it is the pipeline's off switch (`ci.yml` and `scheduled.yml` headers, 2026-11-06).
+   - **Why before the merge.** `deploy` needs it on the merge's own run, and a merge with it unset deploys nothing and leaves nothing to say so but a skipped job. With it set, PR 11's own pushes start `e2e` and `lighthouse`; `preview` skips with a notice because `bakery-web` has no production yet.
+   - **The dry run.** `scheduled.yml` has a `workflow_dispatch` that runs the chosen job whatever `LAUNCHED` says: `gh workflow run scheduled.yml --ref <branch> -f job=bakery-objects` (or `-f job=audit`). `bakery-objects` needs the two secrets and stops with an error without them. On an account where the API was never deployed it prints "nothing listed holds data", which a wiped account prints too: the dry run proves the token, the account id and the listing, not the wipe. `audit` needs no secret, and its first run is expected to open a "Weekly audit" issue, because main carried one moderate pnpm advisory (minimatch, through eslint) on 2026-11-05. GitHub offers a workflow for dispatch from the branches where its file exists, and whether it lists one that is not yet on the default branch is for launch day to confirm; if it does not, run the dry run right after the merge instead.
 5. In the zone: the rate-limiting rule on the API hostname and the L3 rule, created and disabled; then `BREAKER_API_TOKEN` and the 15-minute cron breaker.
-6. Production secrets ([step 6](#6-worker-secrets)): the Stripe sandbox's webhook endpoint and a production restricted key, Turnstile's production widget, the production GitHub app's client secret, the Google client secret, and the consent screen's support email moved to `hello@ihaveasegway.com`.
+6. Production secrets ([step 6](#6-worker-secrets)): the Stripe sandbox's webhook endpoint and a production restricted key, Turnstile's production widget, the production GitHub app's client secret, the Google client secret, and the consent screen's support email moved to `hello@ihaveasegway.com`. Check that `workers/api/wrangler.jsonc` carries `GOOGLE_CLIENT_ID`, `GITHUB_CLIENT_ID` and `STRIPE_PUBLISHABLE_KEY` as `vars`: the first deploy deletes any that exist only in the dashboard (step 6).
 7. Publish the privacy page, then publish the Google consent screen and the GitHub app.
 8. Merge PR 11. The first `deploy` runs `wrangler deploy` for the API, then the web Worker, attaching both custom domains.
 9. Watch the first `prod-smoke`. If it fails, `prod-verdict` opens the issue: [Rollback](#rollback).
 10. Sign in with each provider on the production hostnames; read the first sign-in's CPU in Workers Logs against `limits.cpu_ms`; rehearse a rollback of each Worker.
-11. After the next 10:00 UTC wipe, watch the first run of the morning object check (`bakery-objects`, 12:17 UTC): green means the launch is complete. Record the date and start spike S4.
+11. After the next 10:00 UTC wipe, watch the first run of the morning object check (`bakery-objects`, 12:17 UTC): green means the launch is complete. It compares with the 09:47 listing of the same day, so the day's 09:47 run has to have happened too; if it was missed, a red 12:17 may only mean new sandboxes ([The nightly wipe](#the-nightly-wipe)). Record the date and start spike S4.
 
 ### Deploy
 
 From PR 11, deploys happen on merge ([delivery.md](delivery.md#deploy-verify-roll-back)); there is no manual path.
 
-1. Merge. `ci.yml` runs `verify`, `firewall`, `firewall-selftest`, `deploy`, `prod-smoke`. Before PR 11 only the first three exist.
+1. Merge. `ci.yml` runs `verify`, `firewall`, `firewall-selftest`, `deploy`, `prod-smoke`. The last two run only while `LAUNCHED` is `true` ([Launch](#launch) step 4); until PR 11 merges only the first three exist.
 2. Read the `deploy` summary: which Worker deployed, the version live before, the new id. The API deploys first, and only when its paths changed.
 3. Green `prod-smoke` means done. A failed web Version URL smoke changed nothing; a failed API deploy leaves the web Worker on its old version; fix forward.
 4. If `prod-smoke` failed, `prod-verdict` opened an issue with the command: [Rollback](#rollback).
@@ -206,7 +210,7 @@ From PR 11, deploys happen on merge ([delivery.md](delivery.md#deploy-verify-rol
 ### Rollback
 
 1. Find the target in the `prod-verdict` issue or the last `deploy` summary. Always pass an explicit version id.
-2. From `main`: `gh workflow run ci.yml -f worker=<web|api> -f rollback_to=<version-id>`, plus `-f reason=<why>`. The `rollback` job runs `wrangler rollback <id> --message "rollback: <reason>" --yes`, and `prod-smoke` follows.
+2. From `main`: `gh workflow run ci.yml --ref main -f worker=<web|api> -f rollback_to=<version-id> -f reason="<why>"`. The job acts only on a dispatch from `main`, so `--ref main` is not optional. All three inputs are required: `worker` is `web` or `api`; `rollback_to` is a version id, a UUID, and the job refuses anything else (a tag or a commit will not do); `reason` is one line of at most 200 printable characters and becomes the deployment's message. The `rollback` job runs `wrangler rollback <id> --name bakery-<worker> --message "rollback: <reason>" --yes`, and `prod-smoke` follows. The `prod-verdict` issue gives this command ready to paste (`ci.yml`, 2026-11-06). The job needs `LAUNCHED` and the deploy token like `deploy`, and shares its group, so it waits for a running deploy and never races it.
 3. If GitHub is down: dashboard → the Worker → Deployments → Rollback. Never from the laptop.
 4. **The DO caveat:** Cloudflare refuses a rollback across a DO class change ([Cloudflare](https://developers.cloudflare.com/workers/configuration/versions-and-deployments/rollbacks/)). If refused, set the API to `read-only` or `off` with L1 and fix forward. Class changes ship alone, so the refused target is the version before one.
 5. A rollback undoes code, not data, and sandbox data is gone by morning anyway.
@@ -222,7 +226,11 @@ The wipe is the privacy promise ([ADR 0005](adr/0005-a-private-sandbox-per-visit
 
 **When it fails halfway.** The wipe is idempotent and the registry keeps children until the end, so a retry resumes. Wait two 15-minute sweeps, read the sandbox's `wipe_error` in the log, fix the cause, then request it by hand. If a class cannot delete, set `read-only` with L1 so no new data arrives, and fix forward.
 
-**Before launch** there is no cron. On `wrangler dev` the scheduled handler runs when asked, with no `--test-scheduled` flag (Wrangler 4.157.0, checked on 2026-11-05; [cron triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/#test-cron-triggers-locally)): `curl "http://127.0.0.1:8788/cdn-cgi/local/scheduled?cron=0+10+*+*+*"` runs the wipe, and `cron=*/15+*+*+*+*` the sweep. The morning check does not exist until PR 11; its local half is `node scripts/list-objects.mjs <persist-dir>`, which exits 1 if a sandbox-scoped object holds data, and `scripts/smoke-auth.sh` runs both.
+**Before launch** there is no cron. On `wrangler dev` the scheduled handler runs when asked, with no `--test-scheduled` flag (Wrangler 4.157.0, checked on 2026-11-05; [cron triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/#test-cron-triggers-locally)): `curl "http://127.0.0.1:8788/cdn-cgi/local/scheduled?cron=0+10+*+*+*"` runs the wipe, and `cron=*/15+*+*+*+*` the sweep. The morning check is written (`scheduled.yml`, `scripts/bakery-objects.mjs`) and dormant until `LAUNCHED` is `true`; a dispatch runs it earlier ([Launch](#launch) step 4). Its local half is `node scripts/list-objects.mjs <persist-dir>`, which exits 1 if a sandbox-scoped object holds data, and `scripts/smoke-auth.sh` runs both.
+
+**When the morning check is red.** The issue, "Objects survived the wipe", names the classes and counts, not the objects; open the dashboard (Workers & Pages → `bakery-api` → Durable Objects) for the ids, then follow "When it fails halfway". The job exits 2 and fails without an issue when the listing itself failed (a bad token, an API error): that is never read as a clean wipe, so look at the run. If it finds nothing holding data it says "nothing listed holds data", which a wiped account and an account the API was never deployed to both answer.
+
+**When the 09:47 run was missed.** GitHub can delay or drop a scheduled run. Without that day's 09:47 listing, the 12:17 check cannot tell an object that survived the wipe from a sandbox a visitor made after it, so it counts every object holding data, opens the issue anyway, and says so in the issue and in a run warning ("No 09:47 listing ..."). Read that as a prompt to look, not a finding: dispatch `scheduled.yml` with `-f job=bakery-objects` before the next 10:00 wipe to make a baseline, or check `wiped_at` in `Control`'s `sandboxes` table. Close the issue if the objects are the day's new sandboxes.
 
 **By hand.** Set `wipe_due` in `Control`'s `flags` table in Data Studio; the next sweep runs the full wipe. (The table and column names are an assumption for [architecture.md](architecture.md) to confirm.)
 
@@ -246,9 +254,11 @@ Five levels, cheapest first; [cost.md](cost.md) owns the design. Use the lowest 
 |---|---|---|---|---|
 | L0 `Control`'s budgets | Automatic: a daily budget (sandboxes, requests, rows, simulated traffic) is spent. The `Simulator`'s caps (Q40): at most 6 orders a minute and 30 minutes of traffic a sandbox a day, counted in the ledger, running only while the visitor's console is open and stopped by the wipe. Guests have 100 of the 300 sandboxes a day (Q45) | None; `Control` answers `read-only` or `off`, and the `Simulator` stops at its cap | Next admission | Resets at 00:00 UTC |
 | L1 flags | A feature misbehaves or cost must stop | Set `live`, `read-only` or `off` in `Control`'s `flags` table in Data Studio; there is no admin endpoint | New requests at once; sockets end at their next message | Set `live` |
-| L2 redeploy | Running sessions must end | `gh workflow run ci.yml -f redeploy_api=true`: every object restarts, every socket drops | Seconds once it runs | None; admission applies L0 and L1 on reconnect |
+| L2 redeploy | Running sessions must end | **Not built as a dispatch** (see below). Use L1 `off`, or ship a change under `workers/api/` through the pipeline: every deploy restarts every object and drops every socket | L1: new requests at once, sockets at their next message. A deploy: minutes | None; admission applies L0 and L1 on reconnect |
 | L3 WAF rule | A flood must stop before the Worker | Enable the pre-built, disabled custom rule that blocks the API hostname ([WAF](https://developers.cloudflare.com/waf/custom-rules/)) | Seconds. Whether a blocked request counts as an invocation is the site's spike S2; read its result there | Disable the rule |
 | L4 detach the domain | The API should not exist for a while | Workers & Pages → `bakery-api` → Settings → Domains & Routes → remove `api.bakery.ihaveasegway.com` | Minutes | Redeploy, which re-attaches it (confirm) |
+
+**Why L2 has no `redeploy_api` dispatch (`ci.yml` at d778ff7, 2026-11-06).** The dispatch trigger carries only the rollback's three inputs. A redeploy from a button would publish the scanned API bundle without a fresh `verify` and `firewall` run, and the rule is that nothing is published unless both passed on the bytes being published; `scripts/firewall/check.sh` cannot scope a dispatch run to a commit. A rollback is the only dispatch because it re-publishes a version that already passed. So when sessions must end: set `read-only` or `off` in `Control`'s `flags` (L1), which ends sockets at their next message and needs no deploy; if every object must restart, merge a change under `workers/api/` and let `deploy` publish it (a change to `docs/` alone does not redeploy the API, which deploys only when its own paths changed). In an emergency that cannot wait for CI, L3 and L4 act at the edge in seconds and minutes.
 
 After L3 or L4, public pages still work (static assets, $0) and signed-in screens show their offline state; a WAF block answers 403. Write any change that outlasts the day back into the code.
 
@@ -270,7 +280,7 @@ Quarterly, or when the sandbox is cluttered or its keys leaked. It holds only sy
 
 1. Clear the sandbox's test data, if the dashboard offers it (confirm the control when building).
 2. Roll the Worker's key, CI's key and the webhook secret as in [step 3](#3-the-stripe-sandbox); set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and `STRIPE_E2E_SECRET_KEY`.
-3. Redeploy the API (L2's dispatch works), run `e2e`, send a signed test event.
+3. Redeploy the API (there is no L2 dispatch: merge a small change under `workers/api/`, or use [L2's alternatives](#kill-switch-l0-to-l4)), run `e2e`, send a signed test event.
 4. Do it just after 10:00 UTC: `Billing` entries then reference Stripe ids that no longer exist for under a day.
 
 ### Leak response
@@ -316,7 +326,7 @@ Nothing in this calendar recurs before launch: until PR 11 there is no productio
 | Daily | Nightly wipe and the morning `bakery-objects` check | Automatic; an issue on a finding | 0 while green |
 | Weekly | Reconciliation of `Control`'s ledger against metered usage | Dashboard, 5 minutes | 22 |
 | On each issue | Read, fix the cause, close | [The nightly wipe](#the-nightly-wipe) | 5 |
-| Monday | Zone audit and `cargo audit` | Automatic (`scheduled.yml`) | 0 while green |
+| Monday | `audit` in `scheduled.yml`: `cargo audit`, `cargo deny check advisories`, `pnpm audit`, Dependabot's old pull requests and alerts, `compatibility_date` age. A zone audit is not built | Automatic; an issue, "Weekly audit", on a finding | 0 while green |
 | Every other Monday | Grouped Dependabot pull requests, about 10 minutes beyond the site's sitting | [Dependency update](#dependency-update) | 22 |
 | Monthly | Stripe sandbox review: delivery failures, key list, changelog, one signed test event | Stripe dashboard | 10 |
 | Monthly | Usage against [cost.md](cost.md)'s meter; budget alert history; the DLQ is empty | Dashboard | 10 |
