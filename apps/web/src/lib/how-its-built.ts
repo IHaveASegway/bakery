@@ -311,7 +311,7 @@ const PROSE: Record<PrincipleId, Prose> = {
   },
   load: {
     problem:
-      'A quiet demo hides how the system behaves under load: the Queue’s backlog, the board filling up, the projections falling behind.',
+      'A quiet demo hides how the system behaves under load: the board filling up, the customer list and the activity feed trailing the orders, the retries and dead letters in the console.',
     technique:
       'Simulated traffic: made-up customers who order through the same checks as a visitor.',
     how: 'The Simulator object places orders on its own alarm, through the same API and objects as yours, so the Queue, the board and the CRM carry real load. It runs only while the console is open, at a capped rate and for capped minutes a day, and stops by itself once the console has been closed for 90 seconds. What you watch is lag: every write succeeds at once, and the views catch up.',
@@ -323,7 +323,7 @@ const PROSE: Record<PrincipleId, Prose> = {
     problem:
       'Most of what a bakery does happens later: a hold lapses in 15 minutes, a reminder fires in a week, tomorrow’s bake list starts at midnight. A visitor cannot wait for any of it.',
     technique: 'A logical clock: business time is the wall clock plus an offset you can move.',
-    how: 'The Sandbox keeps the offset and hands it to every object, and each object works out its timers in business time and sets its alarm again when the clock moves. Each step carries its own Idempotency-Key, so a repeated click moves the clock once. The platform’s alarms, the nightly wipe, cookies and Stripe’s timestamps keep the wall clock: the offset moves what the bakery decides, not what the platform does.',
+    how: 'The Sandbox keeps the offset and hands it to every object, and each object works out its timers in business time and sets its alarm again when the clock moves. Each click carries its own Idempotency-Key, so a repeated request moves the clock once. The platform’s alarms, the nightly wipe, cookies and Stripe’s timestamps keep the wall clock: the offset moves what the bakery decides, not what the platform does.',
     where: 'The Sandbox’s clock offset; every object’s timers table; the ClockAdvanced event.',
     see: 'Advance a day in the console and watch expiries, reminders and tomorrow’s bake list fire in order.',
     screen: { href: '/app/', label: 'The console' },

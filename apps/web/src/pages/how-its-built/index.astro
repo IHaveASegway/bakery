@@ -5,9 +5,10 @@ import { ESSAY_PAGES, SITE_LAB } from '../../lib/links';
 
 // How it's built (Q6 · Q-public, Q32 · Q-links, Q33 · Q-principles): one section per principle,
 // from the data the tour reads (lib/how-its-built.ts), so the page and the tour cannot drift. A
-// static page with no island and no script: the strict policy, like the 404. Each lab principle,
-// and four that have no lab page, has an essay (lib/links.ts, ESSAYS), listed once after the
-// contents and linked from its section by title; the two idempotency sections share one.
+// static page with no island and no script: the strict policy, like the 404. Every principle has
+// an essay (lib/links.ts, ESSAYS), listed once after the contents and linked from its section by
+// title. Three pairs of sections share one: the two idempotency sections, CQRS and load, and the
+// sandbox and no personal data.
 const essays = ESSAY_PAGES;
 const groups = (['lab', 'new', 'demo'] as const).map((group) => ({
   group,
@@ -57,8 +58,8 @@ const groups = (['lab', 'new', 'demo'] as const).map((group) => ({
       <h3 id="essays-title">The essays</h3>
       <p>
         One for each lab principle, on what the bakery does for real that the lab page shows in the
-        small, and one for each of four principles with no lab page yet, which the bakery explains
-        itself.
+        small; one for each principle with no lab page yet, which the bakery explains itself; and
+        two on how the demo itself is run. Where two sections tell one story, they share an essay.
       </p>
       <ul class="contents" aria-labelledby="essays-title">
         {essays.map((e) => (

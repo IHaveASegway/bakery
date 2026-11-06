@@ -60,12 +60,25 @@ const IDEMPOTENCY_ESSAY = {
   title: 'Why pressing the button twice never orders twice',
 } as const satisfies Essay;
 
+/** The lag essay, which two principles share: CQRS and the load that makes its lag visible. */
+const LAG_ESSAY = {
+  path: '/how-its-built/lag/',
+  title: 'Why the CRM trails the orders, and why you can watch it',
+} as const satisfies Essay;
+
+/** The sandbox essay, which two principles share: a private sandbox and no personal data. */
+const SANDBOX_ESSAY = {
+  path: '/how-its-built/sandbox/',
+  title: 'Why nothing here is real, by construction',
+} as const satisfies Essay;
+
 /**
  * The essays, keyed by the id of the principle's section on How it's built. A lab principle's
  * essay says what the bakery does for real that the lab page shows in the small; one with no lab
  * page explains the principle itself and links the lab's index. Two ids may share one page, as the
- * two idempotency principles do. A principle with no entry has no essay, and its section and tour
- * step link none.
+ * two idempotency principles, CQRS and load, and the sandbox and no personal data do. Every
+ * principle has one; a principle with no entry would have no essay, and its section and tour step
+ * would link none.
  */
 export const ESSAYS = {
   queue: {
@@ -98,6 +111,18 @@ export const ESSAYS = {
   admission: {
     path: '/how-its-built/admission/',
     title: 'Why a refusal is the cheapest thing the bakery does',
+  },
+  cqrs: LAG_ESSAY,
+  load: LAG_ESSAY,
+  'time-travel': {
+    path: '/how-its-built/time-travel/',
+    title: 'Why the bakery’s clock is yours to move',
+  },
+  sandbox: SANDBOX_ESSAY,
+  'no-personal-data': SANDBOX_ESSAY,
+  api: {
+    path: '/how-its-built/api/',
+    title: 'Why the console is just another client',
   },
 } as const satisfies Record<string, Essay>;
 
