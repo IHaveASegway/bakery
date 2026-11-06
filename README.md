@@ -16,7 +16,7 @@ Each visitor gets a private sandbox, seeded with synthetic history (made-up cust
 
 ## Status
 
-As of 2026-11-06 ([roadmap.md](docs/roadmap.md#phases-and-pull-requests)), the plan has 15 pull requests and 14 are built and merged: PRs 1 to 10 (the plan, the foundation, accounts and the wipe, orders, payments, scheduling, catering, the CRM, dispatch, the tour and the API) and PRs 12 to 15 (the lab links and How it's built, the status page and the essays). PR 11, the launch, is open and waits on Joseph's console steps and the decision gates in [roadmap.md](docs/roadmap.md#decision-gates): the Launch gate, Workers Paid, and the business-registry check of the name.
+As of 2026-11-06 ([roadmap.md](docs/roadmap.md#phases-and-pull-requests)), the plan has 16 pull requests and 15 are built and merged: PRs 1 to 10 (the plan, the foundation, accounts and the wipe, orders, payments, scheduling, catering, the CRM, dispatch, the tour and the API) and PRs 12 to 16 (the lab links and How it's built, the status page, and the essays for every principle). PR 11, the launch, is open and waits on Joseph's console steps and the decision gates in [roadmap.md](docs/roadmap.md#decision-gates): the Launch gate, Workers Paid, and the business-registry check of the name.
 
 **Nothing is deployed.** There is no production Worker, no custom domain and no public sandbox yet. Both Workers, `bakery-web` and `bakery-api`, run on `wrangler dev` on your machine, and CI runs the pre-launch jobs only: the launch jobs are written and dormant until the repository variable `LAUNCHED` is `true` ([delivery.md](docs/delivery.md#before-launch)). The questions Joseph has answered are in [docs/product.md](docs/product.md#decided).
 
