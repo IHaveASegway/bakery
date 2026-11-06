@@ -16,9 +16,9 @@ Each visitor gets a private sandbox, seeded with synthetic history (made-up cust
 
 ## Status
 
-As of 2026-11-06 ([roadmap.md](docs/roadmap.md#phases-and-pull-requests)), the plan has 16 pull requests and 15 are built and merged: PRs 1 to 10 (the plan, the foundation, accounts and the wipe, orders, payments, scheduling, catering, the CRM, dispatch, the tour and the API) and PRs 12 to 16 (the lab links and How it's built, the status page, and the essays for every principle). PR 11, the launch, is open and waits on Joseph's console steps and the decision gates in [roadmap.md](docs/roadmap.md#decision-gates): the Launch gate, Workers Paid, and the business-registry check of the name.
+As of 2026-11-06 ([roadmap.md](docs/roadmap.md#phases-and-pull-requests)), the plan has 17 pull requests and 16 are built and merged: PRs 1 to 16 (the plan, the foundation, accounts and the wipe, orders, payments, scheduling, catering, the CRM, dispatch, the tour and the API, the launch, the lab links and How it's built, the status page, and the essays for every principle). PR 17, the 15-minute cron breaker, is on its branch: the code, the fake and the smoke are written, and it has not run against Cloudflare ([roadmap.md](docs/roadmap.md#pr-17-the-cron-breaker)).
 
-**Nothing is deployed.** There is no production Worker, no custom domain and no public sandbox yet. Both Workers, `bakery-web` and `bakery-api`, run on `wrangler dev` on your machine, and CI runs the pre-launch jobs only: the launch jobs are written and dormant until the repository variable `LAUNCHED` is `true` ([delivery.md](docs/delivery.md#before-launch)). The questions Joseph has answered are in [docs/product.md](docs/product.md#decided).
+**Live since 2026-11-06:** the storefront at https://bakery.ihaveasegway.com and the API at https://api.bakery.ihaveasegway.com. Deploys happen on merge ([delivery.md](docs/delivery.md#before-launch)); the status page at `/status/` shows the counters and, from PR 17, the breaker's state. The questions Joseph has answered are in [docs/product.md](docs/product.md#decided).
 
 - [docs/README.md](docs/README.md) is the index and gives a reading order.
 - [docs/product.md](docs/product.md) covers why the bakery exists, who it is for, the milestones, and the open and decided questions.
@@ -34,7 +34,7 @@ As of 2026-11-06 ([roadmap.md](docs/roadmap.md#phases-and-pull-requests)), the p
 
 ## Setup
 
-Both Workers run on `wrangler dev` on your machine until the launch pull request (PR 11) lands. The tool versions below are as of 2026-11-06 and have one source each, which CI reads too; when they move, they move there.
+Both Workers run on `wrangler dev` on your machine for local work (the launch, PR 11, deployed them on 2026-11-06). The tool versions below are as of 2026-11-06 and have one source each, which CI reads too; when they move, they move there.
 
 1. **Rust**, through `rust-toolchain.toml` (stable 1.97; rustup installs it on first use), then the WebAssembly target and the two cargo tools, each `--locked` and pinned to the exact version in `Cargo.toml`'s `[workspace.metadata.tools]`, because without both `cargo install` resolves today's dependencies, not the audited ones ([delivery.md](docs/delivery.md#hardening-rules), rule 12):
    ```sh
@@ -50,6 +50,7 @@ Both Workers run on `wrangler dev` on your machine until the launch pull request
    - Stripe's sandbox: a restricted key, the webhook secret, and an optional API base and version;
    - the Google and GitHub OAuth clients (id and secret each) and Turnstile's secret (its documented test secret works locally);
    - the status page's analytics pair, `ANALYTICS_API_TOKEN` and `ANALYTICS_ACCOUNT_ID`, optional for local runs: without them the counters read `unavailable`;
+   - the breaker's token and ids (`BREAKER_API_TOKEN`, `BREAKER_ZONE_ID`, `BREAKER_RULE_ID`), optional for local runs: without them the breaker logs `breaker_unconfigured` and the status page says "not configured";
    - local-only overrides, commented out in the example: the origins, a fixed `SANDBOX_SEED`, and the base URLs that point the Worker at the fakes below. The Worker honors the overrides only for loopback hosts.
 6. Optional: `pnpm --filter web exec astro telemetry disable`. CI disables Astro's telemetry, and the Wrangler configs turn off Wrangler's.
 
@@ -74,6 +75,7 @@ All of these run locally; nothing here touches Cloudflare. CI runs the Rust chec
 | `node scripts/fake-providers.mjs`                                             | Stands in for Google's OpenID Connect, GitHub's OAuth endpoints and Turnstile's siteverify, so sign-in works with no account; port 8790           |
 | `node scripts/fake-stripe.mjs`                                                | Stands in for the parts of Stripe's API the payments and invoices use, and sends the webhooks back; port 8791                                     |
 | `node scripts/fake-analytics.mjs`                                             | Stands in for the Analytics Engine SQL API, so the status page's counters refresh locally; port 8792                                              |
+| `node scripts/fake-cloudflare.mjs`                                            | Stands in for Cloudflare's GraphQL Analytics API and Rulesets API, so the cron breaker runs locally; port 8793                                    |
 | `scripts/smoke-api.sh`                                                        | Health, and CORS from the allowed origin and from another; 56 checks                                                                              |
 | `scripts/smoke-auth.sh`                                                       | Google and GitHub sign-in, demo accounts, guest and account sandboxes, the caps, the nightly wipe and "Wipe now"; 180 checks                      |
 | `scripts/smoke-orders.sh`                                                     | The menu and its cache, orders and their idempotency, the event relay and dead letters, the kitchen socket, simulated traffic; 221 checks         |
@@ -84,6 +86,7 @@ All of these run locally; nothing here touches Cloudflare. CI runs the Rust chec
 | `scripts/smoke-dispatch.sh`                                                   | Dispatch: stops from orders, the proposal, the browser's plan and its refusals, publishing; 136 checks                                            |
 | `scripts/smoke-token.sh`                                                      | The visitor's API token: issue, use, refusals, rotation and the rate limit; 107 checks                                                            |
 | `scripts/smoke-status.sh`                                                     | The status page's counters against the fake analytics: live, stale and unavailable; 65 checks                                                     |
+| `scripts/smoke-breaker.sh`                                                    | The cron breaker against the fake Cloudflare: armed, read-only, off and the WAF rule, held, unread meters; see the script for the checks          |
 | `node scripts/list-objects.mjs <persist-dir>`                                 | Lists the Durable Objects a `wrangler dev --persist-to` run left and exits 1 if a sandbox's still holds data: the local half of the morning check |
 | `node scripts/check-links.mjs`                                                | Fetches every external link in the built storefront and exits 1 for any that does not answer 2xx; `--list` prints them instead                    |
 | `pnpm --filter web e2e`                                                       | The browser suite on both Workers and the fakes ([delivery.md](docs/delivery.md#the-e2e-suite)); build both artifacts first                       |
@@ -91,7 +94,7 @@ All of these run locally; nothing here touches Cloudflare. CI runs the Rust chec
 
 ## Deploy and roll back
 
-**Deploy:** nothing is deployed until the launch pull request (PR 11). From then on, merge the pull request. CI builds once, runs the gates, and, while the repository variable `LAUNCHED` is `true`, deploys the API Worker first and the storefront Worker second, so the page never calls an endpoint that does not exist yet, and then runs `prod-smoke` against both hostnames. The pipeline, its previews and its gates are in [delivery.md](docs/delivery.md#pipeline); the launch-day steps are in [operations.md](docs/operations.md#launch).
+**Deploy:** merge the pull request (the launch, PR 11, was deployed on 2026-11-06). CI builds once, runs the gates, and, while the repository variable `LAUNCHED` is `true`, deploys the API Worker first and the storefront Worker second, so the page never calls an endpoint that does not exist yet, and then runs `prod-smoke` against both hostnames. The pipeline, its previews and its gates are in [delivery.md](docs/delivery.md#pipeline); the launch-day steps are in [operations.md](docs/operations.md#launch).
 
 **Roll back:** per Worker, with the `rollback` job: `gh workflow run ci.yml --ref main -f worker=<web|api> -f rollback_to=<version-id> -f reason="<why>"`, to a version id the `prod-verdict` issue or the last deploy summary names. Rolling back the storefront changes only static files. Rolling back the API has one limit: a rollback cannot cross a Durable Object migration (a class added, renamed or deleted), so a release that carries one rolls forward. The steps are in [operations.md](docs/operations.md#rollback) and [delivery.md](docs/delivery.md#deploy-verify-roll-back). None of this has run against the account yet.
 

@@ -2,7 +2,7 @@
 
 What gets built, in which pull request and in what order; when each pull request counts as done; which platform questions are tested before code depends on them; and where Joseph decides before work continues. It is the plan for Proof of Concept Bakery, the made-up bakery (named on 2026-11-04, Q2 · Q-name; "Proof of Concept" from here on): its ordering, scheduling, catering, billing and CRM system, every backend in Rust on Cloudflare Workers with state in Durable Objects (DOs), modelled on the site's [roadmap](https://github.com/IHaveASegway/website/blob/main/docs/roadmap.md). Scope details live in the docs that own each topic. [product.md](product.md) holds the full table of open decisions (Q1 to Q45); this file says which of them each pull request proceeds on. Joseph answered the blocking ones on 2026-11-04.
 
-Status: Updated in PR 16 · 2026-11-06
+Status: Updated in PR 17 · 2026-11-06. 17 pull requests are planned and 16 are merged; the bakery was deployed on 2026-11-06, and PR 17 (the cron breaker) is on its branch.
 
 Prices, limits and versions are as of 2026-11-04, with sources. Estimates are estimates until the outside view corrects them.
 
@@ -65,6 +65,7 @@ At 20 hours the last pull request lands about two years out. The plan answers wi
 | 8 | [PR 15 The essays for the principles without a lab page](#pr-15-the-essays-for-the-principles-without-a-lab-page) | Four essays: idempotency (two sections), sagas, leases, admission; any principle in `ESSAYS` can carry one | 2–3 | 1 (2026-11-06, with agents) | PR 14 |
 | 8 | [PR 16 The last essays](#pr-16-the-last-essays) | Four essays: time travel, the lag between writes and projections (CQRS and load), the private sandbox and no personal data, the API as a client; every principle has one | 2–3 | 1 (2026-11-06, with agents) | PR 15 |
 | 8 | [PR 13 The status page](#pr-13-the-status-page) | `/status/` with live counters | 2–3 | 1 (2026-11-06, with agents) | PR 12 |
+| 9 | [PR 17 The cron breaker](#pr-17-the-cron-breaker) | The `*/15` breaker: five meters from the GraphQL Analytics API, `Control` decides, read-only then off, the WAF kill rule, the status line and the morning issue; no email | 2–3 | see the pull request | PR 11 (deployed 2026-11-06) |
 
 No pull request is blocked by an open decision any more. PR 3 waits for the OAuth gate, and PR 11 for the Launch gate and the Workers Paid gate ([decision gates](#decision-gates)). The rest proceed on their recommendations, each due before the pull request [product.md](product.md#open-decisions) names: Q45 · Q-guest-scope before PR 3, Q40 · Q-traffic before PR 4, Q41 · Q-tour and Q42 · Q-api-access before PR 10. Q39 · Q-template was skipped on 2026-11-04 at Joseph's request, and Q43 · Q-email-signin is explicitly later.
 
@@ -80,6 +81,7 @@ flowchart TB
   LG2{"Gate: linking from the site"} -.-> P12
   P11 --> P12["PR 12: lab links, How it's built"] --> P13["PR 13: status page"]
   P12 --> P14["PR 14: the essays"] --> P15["PR 15: the essays, no lab page"] --> P16["PR 16: the last essays"]
+  P11 --> P17["PR 17: the cron breaker"]
 ```
 
 The order is Q37 · Q-order-of-work, as renumbered on 2026-11-04: build locally, deploy when it is good. The wipe and sign-in come before any feature, because every feature stores data in a sandbox, and a sandbox that cannot be wiped must not exist. Payments come before catering, because deposits and invoices are payments. Dispatch reads confirmed orders and catering, so it comes late and is cut third. The tour comes after the screens it describes, and launch after the tour, so that the first public day shows a bakery a visitor can be shown around. The order is a two-way door; it was wrong if a pull request sits blocked on a later one's code.
@@ -511,6 +513,37 @@ Joseph's direction of 2026-11-06: "We implement specific tech to solve different
 
 **What it teaches.** **Business time is wall time plus an offset the business owns**, and the clocks that must never be mixed: the bakery decides in business time, while the platform's alarms, the wipe, cookies and Stripe's timestamps keep the wall clock. **CQRS makes the lag the design**, and the Simulator makes it visible under its caps. **A demo safe to hand to a stranger has nowhere to put personal data**: the sandbox is private, wiped nightly and refuses what looks like an address or a number. **One contract generates the schema, the TypeScript and the reference**, so the console is one client among several.
 
+### PR 17: The cron breaker
+
+Phase 9 (after launch) · estimate: 2–3 focused days · blocked by: PR 11 (merged and deployed 2026-11-06)
+
+The launch shipped without the breaker: PR 11 built the alerts, the rate limit and the disabled L3 rule, and left the breaker's code as a design ([cost.md](cost.md#guardrails), [ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md) decision 2.4). Between the budget alerts' day of lag and the $100 ceiling, nothing read the account's real usage. This pull request closes that gap.
+
+**Scope.** A scheduled step at the end of the `*/15` cron, in the Worker and never in an object, that reads the last complete 15-minute window of five meters (Worker requests, DO requests, rows written, DO duration in GB-s and Queue operations) from Cloudflare's GraphQL Analytics API, prices it at the price sheet's overage rates, and hands the reads to `Control`. `Control` keeps the state (`unconfigured`, `armed`, `read-only`, `off`) in its own table and decides with a pure function in `crates/app`: `off` when the window is priced past 4 times the dollar line ($100 ÷ 2,880 = $0.0347, so $0.1389) or when the state is already tripped and a line is still crossed; otherwise `read-only` when a meter is past its line or the price is past the dollar line; otherwise `armed`. A state never goes down by itself. A rise raises `Control`'s flag, and `off` also enables the pre-built WAF kill rule through the Rulesets API. The status page shows a Breaker line, `GET /v1/status` carries the state, a trip writes one `breaker` data point, and the morning check opens an issue, "Breaker tripped". A fake of Cloudflare's two APIs (`scripts/fake-cloudflare.mjs`) and a smoke (`scripts/smoke-breaker.sh`) prove every path locally. The arithmetic is in [cost.md](cost.md#guardrails) and the runbook in [operations.md](operations.md#breaker-tripped).
+
+**Done when:**
+- [ ] The smoke proves each path against the fake: not configured, armed, read-only, off with the rule enabled, held while tripped, a failed rule enable retried, an unread meter, a refused base, and the status line (counts: see the pull request).
+- [ ] The morning step opens or updates one "Breaker tripped" issue when `GET /v1/status` says `read-only` or `off`, and says in its summary when the state is `armed` or `unconfigured`.
+- [ ] The status page shows the Breaker line and the dist and unit tests cover it.
+- [ ] The docs say what was built, with every number dated and sourced: [operations.md](operations.md#2-workers-paid-and-the-budget-alerts), [security.md](security.md#secrets-inventory), [cost.md](cost.md#guardrails), [architecture.md](architecture.md).
+- [ ] **Not done, and listed:** the first real run. The two GraphQL field names, the token's permission names and the rule PATCH's body are unconfirmed ([cost.md](cost.md#open-on-the-first-real-run-of-the-breaker)); the launch checklist's forced trip with `BREAKER_CEILING_USD` at "0" is the proof against Cloudflare.
+
+**Decisions recorded for Joseph (the planner's, 2026-11-06).** Each is a two-way door.
+1. **GraphQL Analytics, not Analytics Engine points.** The bakery's own points are written by the code that spends, so they cannot see an alarm that loops and writes no point, which is the case the breaker exists for. The platform's own metered numbers can. Rejected: counting points.
+2. **The window is the last complete slot,** not the current one, because Cloudflare says the latest minutes arrive late ([Workers metrics](https://developers.cloudflare.com/workers/observability/metrics-and-analytics/), read 2026-11-06). The price is up to 15 minutes more before a loop is seen.
+3. **Pricing in micro-dollars,** every count priced as if past the included amounts, so the arithmetic is exact and cautious.
+4. **`Control` keeps the state and decides.** The cron is stateless and an object is single-writer, so a missed run or two runs cannot disagree. The Worker only reads, logs and calls the Rulesets API.
+5. **Read-only first, then off,** and a state never relaxes by itself. Rejected: an automatic reset after quiet windows. A person decides when the cause is fixed, because an automatic reset would let a loop run again every few hours.
+6. **The Breaker line is drawn by the status page's existing island,** from the field `GET /v1/status` already serves. Rejected: `'unsafe'` hashes or a new script source in the page's policy for it. The token, the zone id and the rule id are Worker secrets; the ceiling and the burst factor are public vars (`BREAKER_CEILING_USD`, `BREAKER_BURST_FACTOR`), so a forced trip is a one-line change.
+7. **No email on a trip,** deferred. It needs the Email Service binding and Joseph's verified address as a secret. The signals are the status page and the morning issue.
+8. **The breaker prices the whole account,** the site's lab included, which is right for the ceiling.
+
+**What it teaches.** **Circuit breakers**: stop calling a failing dependency, or here stop admitting load, before the failure spends everything, and let a person close it again (Michael Nygard, *Release It*, 2018; Martin Fowler, ["CircuitBreaker"](https://martinfowler.com/bliki/CircuitBreaker.html)). **Denial of wallet**: the attack, or the bug, that exhausts a serverless account's money and not its capacity (Kelly, Glavin and Barrett, 2021, [arXiv](https://arxiv.org/abs/2104.08031)). **Measure the platform, not yourself:** the guard you write cannot see its own failure.
+
+**Actual:** see the pull request.
+
+**Next essay:** the breaker, on How it's built, in the shape of the others: what a simpler design does and where it breaks, how the bakery does it, the nuances of the tech (GraphQL datasets and their delays, the Rulesets API, a state that never relaxes), what it costs, and what to try. Joseph's direction of 2026-11-06 is that each piece of tech is explained with its nuances and linked; the principle table in `apps/web/src/lib/how-its-built.ts` is where it would hook in, and it is not written in this pull request.
+
 ## Decision gates
 
 Six points where work stops until Joseph decides. Each is about exposure or money, not code.
@@ -520,7 +553,7 @@ Six points where work stops until Joseph decides. Each is about exposure or mone
 | The Stripe account and sandbox | Q17 · Q-psp and Q20 · Q-stripe-account are answered. The test-mode sandbox and two restricted keys were set up on 2026-11-04, in PR 2, because local development needs them ([operations.md](operations.md#3-the-stripe-sandbox)); spike S3 gates PR 5. No live key exists for this repository | Two-way: a sandbox can be deleted ([Stripe](https://docs.stripe.com/sandboxes), as of 2026-11-04) | [ADR 0007](adr/0007-stripe-sandbox-and-a-payment-element-that-collects-nothing.md) |
 | The Google and GitHub OAuth gate | Q23 · Q-auth answered, before PR 3 signs anyone in. Joseph creates the Google client and the GitHub OAuth app in PR 2, for local development. Google asks for `openid` only and GitHub for no scope; the Google screen names Proof of Concept Bakery and stays in testing status until the privacy page is live, at launch | Two-way for the clients; the screen's text is public copy | [ADR 0006](adr/0006-sign-in-that-learns-nothing.md) |
 | The name's registry check | Q2 · Q-name is decided: Proof of Concept Bakery, 2026-11-04. A web search that day found no bakery of that name; the business-registry and trademark check is still to do, before the Launch gate, because a real business of that name would be a firewall finding | One-way once linked from the site | [product.md](product.md#decided) |
-| The Launch gate | PRs 2 to 10 merged; spike S1 passed; Joseph's end-to-end read on `wrangler dev`; the name's business-registry and trademark check done; the privacy page's text reviewed. Before PR 11. State on 2026-11-06: PRs 2 to 10 are merged, and the gate's other conditions are still open (no end-to-end read, registry check or privacy-page review is recorded here), so the gate is closed and PR 11 has not started | One-way in effect: once public, the bakery is indexed and shared | [product.md](product.md#decided) |
+| The Launch gate | PRs 2 to 10 merged; spike S1 passed; Joseph's end-to-end read on `wrangler dev`; the name's business-registry and trademark check done; the privacy page's text reviewed. Before PR 11. State on 2026-11-06: launched. PR 11 merged and the bakery was deployed that day (the production hostnames answer since 17:08 UTC); the cron breaker the checklist asked for was not part of it and is built in PR 17 ([cost.md](cost.md#the-launch-checklist) item 6) | One-way in effect: once public, the bakery is indexed and shared | [product.md](product.md#decided) |
 | Workers Paid | Q27 · Q-plan and Q28 · Q-budget are answered, before PR 11. $5 a month minimum, no spend cap ([Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/), as of 2026-11-04). The account's ceiling is $100 a month, with alerts at $10, $25, $50 and $100 (Joseph, 2026-11-04). The plan is per account, so the site moves with the bakery; it fires the site's ADR 0008 "Revisit if", and the site gets a superseding ADR | Two-way: the plan can be downgraded | [ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md) |
 | Linking from the site | The site's readiness checklist ([content.md](https://github.com/IHaveASegway/website/blob/main/docs/content.md)) passes over this repository: clean, the privacy page live, 7 nights of wipes without an issue, Joseph has read it end to end. This gate was meant to open before PR 12, but PR 12 was built on 2026-11-06 without it, since its bakery-side links do not need the gate. State on 2026-11-06: closed, because the site's readiness checklist has not passed (nothing is deployed, so the privacy page is not live and no night of wipes has run), and the site's pull requests have not started | One-way: links get shared | [product.md](product.md#decided) |
 
@@ -569,6 +602,7 @@ S1, S2 and S6 ran inside PR 2, and S5 moved to launch. S3 runs before PR 5, S7 a
 | Workflows for the saga | JavaScript and TypeScript only ([Workflows pricing](https://developers.cloudflare.com/workflows/reference/pricing/), as of 2026-11-04; on 2026-11-06 that page and the [Workflows overview](https://developers.cloudflare.com/workflows/) named no languages, so the claim is as of the earlier date and unchecked since), so out of the Rust rule | A Rust binding |
 | Email sign-in as magic links | Q43 · Q-email-signin: the address is used once to send the link through Cloudflare's Email Service and never stored; Email Service sending is Workers Paid only and in beta ([Email Service pricing](https://developers.cloudflare.com/email-service/platform/pricing/), as of 2026-11-04) | Joseph moves Q43 |
 | API previews | Spike S4 runs after launch; until it passes the API has none | S4 passes, or a class change needs a rehearsal |
+| The email on a breaker trip | Needs the Email Service binding (beta, Workers Paid) and Joseph's verified address as a secret; a decision put to Joseph on 2026-11-06 and not made. Until then the signals are the status page's Breaker line and the morning issue ([operations.md](operations.md#alerting)) | Joseph decides, or a trip goes unnoticed for a day |
 
 ## Patterns and further reading
 

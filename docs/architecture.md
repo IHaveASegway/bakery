@@ -2,7 +2,7 @@
 
 How the bakery demo fits together: the systems around it, the two Workers and the fourteen Durable Object (DO) classes inside the API, how events move between objects, who owns each datum, how the main requests flow, and what each failure takes down. The made-up bakery, Proof of Concept Bakery (Q2 · Q-name), is a running business system built so a visitor can watch the site's Lab principles run in production code. The why is in [product.md](product.md), the language and event catalog in [domain.md](domain.md), pins in [stack.md](stack.md), threats in [security.md](security.md), prices in [cost.md](cost.md), the pipeline in [delivery.md](delivery.md), runbooks in [operations.md](operations.md), decisions in [adr/](adr/README.md). Nothing is built yet; spike S1 (a Rust DO on Workers: size, startup, SQL) runs before anything depends on this design, and nothing is deployed before the launch pull request (PR 11); until then every pull request runs on `wrangler dev` (Q44 · Q-posture, [roadmap.md](roadmap.md)).
 
-Status: Updated in PR 16 · 2026-11-06
+Status: Updated in PR 17 · 2026-11-06
 
 Limits and prices on this page are as of 2026-11-04. Sources are in the footnotes.
 
@@ -88,7 +88,7 @@ flowchart TB
   subgraph apiw ["bakery-api, Rust, wasm32"]
     router["Router and admission<br/>CORS, Origin, cookie,<br/>Idempotency-Key, rate limits"]
     consumer["Queue consumer"]
-    cron["Cron: 10:00 UTC wipe,<br/>15-minute breaker"]
+    cron["Cron: 10:00 UTC wipe,<br/>15-minute sweep, status refresh and breaker"]
     subgraph platform ["Platform"]
       control[("Control")]
       account[("Account")]
@@ -178,7 +178,7 @@ Isolation is a database per tenant per aggregate, not row-level security over a 
 
 | Class | One per | Holds | Who writes | Lifetime | Cleanup alarm |
 |---|---|---|---|---|---|
-| `Control` | account, `control` | flags `live`, `read-only`, `off`; daily ledger; kill switch; the daily IP salt, in memory only, never stored | router, cron, Joseph (flags, in Data Studio) | long-lived | prunes ledger rows past 35 days |
+| `Control` | account, `control` | flags `live`, `read-only`, `off`; daily ledger; kill switch; the daily IP salt, in memory only, never stored | router, cron (the breaker raises the flag, never lowers it), Joseph (flags and the breaker's reset, in Data Studio) | long-lived | prunes ledger rows past 35 days |
 | `Account` | identity | demo password hash, current sandbox id, created day | router | 30 days after last sign-in (Q23 · Q-auth) | 30 days idle, then `delete_all` |
 | `Sandbox` | sandbox | lifecycle, seed, child registry, clock offset, API token version, fault switches, dead letters | router; its alarms | to the next wipe | next 10:00 UTC; 36 h |
 | `Catalog` | sandbox | items, variants, prices, availability rules, menu version | staff; seed | to the wipe | 36 h |
@@ -292,9 +292,9 @@ Every datum the bakery touches, left to right: where it lives, who changes it, w
 | Projections and campaigns | `Crm` | CRM | consumer; rebuild; staff | console; Inbox | derived from Crm's copy of the log | eventual; rebuildable |
 | Inbox | `Inbox` | CRM | events | inbox screen | HTTPS | one hop |
 | Simulated traffic | `Simulator`: rate, running flag, minute ledger | Platform | the visitor; its alarm | console; `Control`, for the day's minutes | commands, as a visitor's | strong in the object |
-| Flags, ledger, IP salt | `Control` | Platform | router; cron; Joseph | router, through a 30 s in-isolate cache | command | flags apply within 30 s |
+| Flags, ledger, IP salt, the breaker's state (`breaker_state`, one row) | `Control` | Platform | router; cron, including the breaker; Joseph | router, through a 30 s in-isolate cache | command | flags apply within 30 s |
 | Logs | Workers Logs | Platform | the Worker: JSON lines; `HMAC(daily salt, IP)`, country, continent | Joseph | ingestion; invocation logs off | best effort; 7 days on Paid[^logs] |
-| Metrics | Analytics Engine | Platform | Worker and objects (seven points, fire-and-forget; as built 2026-11-06) | Joseph; the breaker (planned, PR 11; not built); the status page, from a snapshot that the `*/15` cron refreshes through the SQL API and `Control` stores, not from a query per view | data points; the snapshot over `GET /v1/status` | eventual; the page's counters are up to about 15 minutes old, `stale` after 20 or a failed refresh |
+| Metrics | Analytics Engine | Platform | Worker and objects (seven points, fire-and-forget; as built 2026-11-06) | Joseph; the breaker (built in PR 17, 2026-11-06; it reads the GraphQL Analytics API, not this dataset, and writes one `breaker` point when it trips); the status page, from a snapshot that the `*/15` cron refreshes through the SQL API and `Control` stores, not from a query per view | data points; the snapshot over `GET /v1/status` | eventual; the page's counters are up to about 15 minutes old, `stale` after 20 or a failed refresh |
 | Secrets | Worker secrets on `bakery-api` | Platform; Billing | Joseph, by Wrangler | the Worker | injection | one reader each ([security.md](security.md#secrets-inventory)) |
 | Deploy credential | Cloudflare | Delivery | Joseph | deploy steps in Actions | repository secret, in those steps' `env` | rotation in [operations.md](operations.md) |
 | Seed data | `crates/seed`: word lists, menu, venues, the 64 Salt Lake City places and their travel-time matrix (built in PR 9) | Platform; Presentation | Joseph, by pull request | Sandbox; the web build | compiled into both builds | per version; deterministic per seed |
@@ -687,7 +687,9 @@ Two shared resources: the account's bill on Paid, which has no spend cap,[^prici
 | GitHub outage | builds, deploys, the morning check | nothing | GitHub status | wait |
 | A fall back to Free (Q27 · Q-plan chose Paid) | every sandbox | creation refused once `Control`'s share is spent | `Control`'s ledger | rows written bind first, 100,000 a day,[^dopricing] at about 20 sandboxes a day ([cost.md](cost.md)); 10 ms CPU and 50 subrequests[^limits] push argon2 and Clarke–Wright to the browser; no Email Service sends |
 
-**Kill switch**, the site's levels adapted: L0 `Control`'s breaker, L1 flags, L2 redeploy (not built as a dispatch: use L1 `off`, or ship a change under `workers/api/` through the pipeline, which restarts every object; `ci.yml` at d778ff7, 2026-11-06), L3 the prebuilt WAF rule, L4 detach the API's Custom Domain, the switch the own hostname buys (Q8 · Q-api-host). [operations.md](operations.md) owns the runbook.
+**The breaker, as built in PR 17 (2026-11-06).** The `*/15` cron calls `breaker::run` after the sweep and the status refresh, in the Worker and never inside an object. It reads the last complete 15-minute window from Cloudflare's GraphQL Analytics API (five meters, four requests), sends the reads to `Control`, which runs the pure rules in `crates/app/src/breaker.rs` against its stored `breaker_state` and answers the verdict. A rise sets the flag (`read-only`, then `off`; never lower) and, on `off`, the Worker enables the pre-built WAF rule through the Rulesets API. The state is public as `breaker` in `GET /v1/status`. A person resets it ([operations.md](operations.md#breaker-tripped)). The levels and arithmetic are in [cost.md](cost.md#guardrails).
+
+**Kill switch**, the site's levels adapted: L0 `Control`'s budgets and the cron breaker (automatic: the budgets refuse admissions, the breaker raises the flag and, at `off`, enables L3; it never relaxes by itself), L1 flags, L2 redeploy (not built as a dispatch: use L1 `off`, or ship a change under `workers/api/` through the pipeline, which restarts every object; `ci.yml` at d778ff7, 2026-11-06), L3 the prebuilt WAF rule, L4 detach the API's Custom Domain, the switch the own hostname buys (Q8 · Q-api-host). [operations.md](operations.md) owns the runbook.
 
 ## Cross-cutting concerns
 
