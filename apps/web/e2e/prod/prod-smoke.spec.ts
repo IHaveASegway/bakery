@@ -31,6 +31,7 @@ const PAGES = [
   '/privacy/',
   '/signin/',
   '/about/',
+  '/status/',
   '/how-its-built/',
   '/how-its-built/single-writer/',
 ];

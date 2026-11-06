@@ -9,7 +9,7 @@
   reading the privacy page loads nothing from Cloudflare. Pages that create a sandbox or an account
   (/signin/ now, /app/ because it can create a sandbox too) are the challenge class: they add
   Turnstile's origin to script-src and frame-src, and nothing else. Pages with an island but no
-  third party (/menu/ and /inbox/, and since the tour the start page, /privacy/ and /docs/api/) are
+  third party (/menu/ and /inbox/, and since the tour the start page, /privacy/ and /docs/api/, and since PR 13 /status/) are
   the island class: the strict policy plus the hashes below. The checkout
   (/checkout/) and the catering page (/catering/) are the payment class, the island class plus the
   three Stripe origins the Payment Element needs: its script, its frames (3-D Secure included) and
@@ -136,7 +136,7 @@ export const SOLVER_CSP =
  * and nothing else. `/` is the start page alone: Cloudflare's rule for a path with no splat matches
  * that path only.
  */
-export const ISLAND_PATHS = ['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/'];
+export const ISLAND_PATHS = ['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/status/*', '/'];
 
 /** Pages that load Stripe: the checkout's payment step and the catering page's deposit step. */
 export const PAYMENT_PATHS = ['/checkout/*', '/catering/*'];

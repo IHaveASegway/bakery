@@ -1,12 +1,16 @@
 //! The cron handler. The 15-minute wall limit applies here, so a cron only asks `Control` to
 //! start work and returns; `Control`'s alarm does the work (docs/delivery.md, "Config as code").
+//! The 15-minute cron also refreshes the status page's counters (PR 13): the kept Analytics
+//! Engine queries run here, in the Worker, and `Control` stores the answer by command, so no
+//! object reads Analytics Engine or keeps a timer for it.
 
 use worker::{Env, ScheduleContext, ScheduledEvent, console_log, event};
 
+use crate::analytics;
 use crate::objects::control;
 
 /// The nightly wipe at 10:00 UTC, and the 15-minute sweep that retries what it missed (the
-/// breaker joins the sweep in PR 11).
+/// breaker joins the sweep in PR 11) and refreshes the status snapshot.
 const WIPE: &str = "0 10 * * *";
 const SWEEP: &str = "*/15 * * * *";
 
@@ -29,5 +33,9 @@ async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
             "{{\"event\":\"cron_error\",\"cron\":{cron:?},\"error\":{:?}}}",
             e.to_string()
         ),
+    }
+    // After the sweep, whatever it answered: a refresh that fails keeps the old snapshot.
+    if cron == SWEEP {
+        analytics::refresh(&env).await;
     }
 }

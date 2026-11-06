@@ -1,0 +1,16 @@
+---
+import Base from '../layouts/Base.astro';
+import Status from '../components/Status';
+---
+
+<Base
+  title="Status | Proof of Concept Bakery"
+  description="Today's sandboxes against the cap, and the last 24 hours of orders, payments and the nightly wipe, counted over every sandbox."
+>
+  <h1>Status</h1>
+  <p class="lead">
+    How busy the made-up bakery is today, and what the last 24 hours held. When the API cannot be
+    reached, this page shows the last answer your browser kept and says so.
+  </p>
+  <Status client:load />
+</Base>
