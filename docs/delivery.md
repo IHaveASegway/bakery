@@ -216,7 +216,7 @@ Six notes on the graph:
 
 ### The jobs as written
 
-As of 2026-11-06, from `.github/workflows/ci.yml` and `scheduled.yml` on the launch branch at d778ff7 (the PR 11 preparation, in draft PR #17). Nothing has run against the account. Every job in the second group needs `vars.LAUNCHED == 'true'`; the three before it do not. The table above says what each job does; this one says when it runs, what it holds and how long it may take. Timeouts other than `verify`'s 25 minutes are the workflow's own choices, set on 2026-11-05 and not measured.
+As of 2026-11-06, from `.github/workflows/ci.yml` and `scheduled.yml` on the launch branch at d778ff7 (the PR 11 preparation, in draft PR #17). The first runs against the account were launch day's, 2026-11-06 (run 116, PR 22's merge, and the pull requests after it); what they confirmed is in the last bullet below. Every job in the second group needs `vars.LAUNCHED == 'true'`; the three before it do not. The table above says what each job does; this one says when it runs, what it holds and how long it may take. Timeouts other than `verify`'s 25 minutes are the workflow's own choices, set on 2026-11-05 and not measured.
 
 | Job | Runs when | Secrets | GitHub token permissions | Timeout (minutes) |
 |---|---|---|---|---|
