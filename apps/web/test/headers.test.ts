@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
+import { inlineHashes } from '../scripts/inline-hashes.mjs';
 import { SOLVER_CSP } from '../src/policy';
 
 // security.md, "Headers, CSP and CORS": the storefront's headers as built by src/policy.ts. Run
@@ -45,7 +46,6 @@ describe('dist/_headers', () => {
     '/privacy/*',
     '/docs/api/*',
     '/status/*',
-    '/',
     '/checkout/*',
     '/catering/*',
     '/_astro/*',
@@ -68,8 +68,23 @@ describe('dist/_headers', () => {
   test('"/*" names no third party: a visitor reading a page loads nothing from Cloudflare', () => {
     const policy = policyOf(rule(text, '/*'));
     expect(policy).not.toContain('challenges.cloudflare.com');
+    expect(policy).not.toContain('stripe.com');
     expect(directive(policy, 'frame-src')).toEqual(["'none'"]);
-    expect(directive(policy, 'script-src')).toEqual(["'self'"]);
+    // 'self' and the start page's two inline hashes (Astro's island loader and its style), which
+    // ride here because the start page has no rule of its own (src/policy.ts, ISLAND_PATHS).
+    const scripts = directive(policy, 'script-src');
+    expect(scripts[0]).toBe("'self'");
+    expect(scripts.slice(1)).not.toHaveLength(0);
+    for (const source of scripts.slice(1)) expect(source).toMatch(/^'sha256-[A-Za-z0-9+/=]+'$/);
+    const styles = directive(policy, 'style-src');
+    expect(styles[0]).toBe("'self'");
+    for (const source of styles.slice(1)) expect(source).toMatch(/^'sha256-[A-Za-z0-9+/=]+'$/);
+  });
+
+  test('every rule path ends in a splat: on production a rule for `/` alone was applied beside `/*`, and the start page got two policies (2026-11-06)', () => {
+    const paths = text.split('\n').filter((line) => line.startsWith('/'));
+    expect(paths).toContain('/*');
+    for (const path of paths) expect(path, path).toMatch(/\/\*$/);
   });
 
   test.each(['/signin/*', '/app/*'])('%s adds Turnstile to script-src and frame-src', (path) => {
@@ -136,7 +151,7 @@ describe('dist/_headers', () => {
     }
   });
 
-  test.each(['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/status/*', '/'])(
+  test.each(['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/status/*'])(
     '%s is an island page: its own policy with hashes, and no third party',
     (path) => {
       const lines = rule(text, path);
@@ -190,11 +205,16 @@ describe('dist/_headers', () => {
     expect(text.split('stripe.com').length - 1).toBe(4 * paymentRules.length);
   });
 
-  test('no rule carries unsafe-inline, unsafe-eval or a nonce; "/*" carries no hash either', () => {
+  test('no rule carries unsafe-inline, unsafe-eval or a nonce; "/*" carries the start page’s hashes and no other source', () => {
     for (const path of rules) {
       expect(policyOf(rule(text, path))).not.toMatch(/unsafe-|nonce-/);
     }
-    expect(policyOf(rule(text, '/*'))).not.toContain('sha256-');
+    const every = policyOf(rule(text, '/*'));
+    const home = inlineHashes(
+      readFileSync(fileURLToPath(new URL('../dist/index.html', import.meta.url)), 'utf8'),
+    );
+    expect(directive(every, 'script-src')).toEqual(["'self'", ...home.script]);
+    expect(directive(every, 'style-src')).toEqual(["'self'", ...home.style]);
   });
 
   test('bundles are cached for a year, immutable, and drop the document-only headers', () => {

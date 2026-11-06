@@ -107,6 +107,19 @@ describe('page classes', () => {
     const island = directives('island', DEFAULT_API_ORIGIN, hashes);
     expect(island['script-src']).toEqual(["'self'", "'sha256-AAAA'"]);
     expect(island['style-src']).toEqual(["'self'", "'sha256-BBBB'"]);
+    // The start page has no rule of its own (ISLAND_PATHS), so its hashes ride in the `/*` rule.
+    const every = directives('every', DEFAULT_API_ORIGIN, hashes);
+    expect(every['script-src']).toEqual(["'self'", "'sha256-AAAA'"]);
+    expect(every['style-src']).toEqual(["'self'", "'sha256-BBBB'"]);
+  });
+
+  test('no rule path is without a splat: production applied a `/` rule beside `/*`, not in its place (2026-11-06)', () => {
+    for (const path of RULE_PATHS) expect(path, path).toMatch(/\/\*$/);
+    const paths = headersFile(DEFAULT_API_ORIGIN)
+      .split('\n')
+      .filter((line) => line.startsWith('/'));
+    expect(paths).not.toHaveLength(0);
+    for (const path of paths) expect(path, path).toMatch(/\/\*$/);
   });
 
   test('nothing is unsafe in any class', () => {
@@ -126,14 +139,7 @@ describe('headersFile', () => {
   });
 
   test('the menu and the inbox get an island rule, the checkout and catering pages a payment rule: detach, then their own policy and hashes', () => {
-    expect(ISLAND_PATHS).toEqual([
-      '/menu/*',
-      '/inbox/*',
-      '/privacy/*',
-      '/docs/api/*',
-      '/status/*',
-      '/',
-    ]);
+    expect(ISLAND_PATHS).toEqual(['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/status/*']);
     expect(PAYMENT_PATHS).toEqual(['/checkout/*', '/catering/*']);
     expect(RULE_PATHS).toEqual([
       ...CHALLENGE_PATHS,
@@ -148,7 +154,6 @@ describe('headersFile', () => {
       '/privacy/*': hashes,
       '/docs/api/*': hashes,
       '/status/*': hashes,
-      '/': hashes,
       '/checkout/*': hashes,
       '/catering/*': hashes,
     });
