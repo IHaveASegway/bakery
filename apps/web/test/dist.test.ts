@@ -1,5 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { SCREENS } from '../src/lib/tour';
+import { PRINCIPLE_TABLE, PRINCIPLES } from '../src/lib/how-its-built';
+import { RULE_PATHS } from '../src/policy';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import { inlineHashes } from '../scripts/inline-hashes.mjs';
@@ -26,7 +28,12 @@ const rule = (path: string) => {
 describe('dist', () => {
   expect(existsSync(dist), 'run pnpm build first').toBe(true);
 
-  test.each(['404.html'])('%s carries no React or script', (file) => {
+  test.each([
+    '404.html',
+    'about/index.html',
+    'how-its-built/index.html',
+    'how-its-built/single-writer/index.html',
+  ])('%s carries no React or script', (file) => {
     const html = page(file);
     expect(html).not.toContain('<script');
     expect(html).not.toContain('astro-island');
@@ -73,6 +80,139 @@ describe('dist', () => {
     // Closed, the island draws no card and no ring, so the server HTML has none either.
     expect(html).not.toContain('class="tour-card"');
     expect(html).not.toContain('data-tour-current');
+  });
+
+  // A Cloudflare _headers path: a splat matches anything, including nothing; a path without one
+  // matches itself alone.
+  const matches = (rulePath: string, path: string) =>
+    rulePath.endsWith('*') ? path.startsWith(rulePath.slice(0, -1)) : rulePath === path;
+
+  test.each(['/about/', '/how-its-built/', '/how-its-built/single-writer/'])(
+    '%s is in the dist and takes the strict policy of every page, with no rule of its own',
+    (path) => {
+      expect(existsSync(`${dist}${path.slice(1)}index.html`), path).toBe(true);
+      expect(RULE_PATHS.filter((rule) => matches(rule, path))).toEqual([]);
+      const every = rule('/*');
+      expect(every).toContain("Content-Security-Policy: default-src 'self'");
+      expect(every).toContain("script-src 'self';");
+      expect(every).toContain('X-Content-Type-Options: nosniff');
+      expect(every).toContain('Cross-Origin-Opener-Policy: same-origin');
+    },
+  );
+
+  const htmlFiles = () =>
+    readdirSync(dist, { recursive: true }).filter(
+      (f): f is string => typeof f === 'string' && f.endsWith('.html'),
+    );
+
+  test('no page asks not to be indexed: the production hostnames are meant to be found', () => {
+    // Previews on workers.dev carry X-Robots-Tag: noindex from Cloudflare (ci.yml requires it).
+    for (const file of htmlFiles()) expect(page(file), file).not.toMatch(/name="robots"/);
+  });
+
+  test('every page carries the shell: the name, the nav, the footer and the one line that says it is made up', () => {
+    for (const file of htmlFiles()) {
+      const html = page(file);
+      expect(html, file).toContain('class="site-name" href="/"');
+      for (const href of ['/menu/', '/catering/', '/how-its-built/', '/about/', '/signin/']) {
+        expect(html, `${file}: ${href}`).toContain(`href="${href}"`);
+      }
+      for (const href of [
+        '/privacy/',
+        '/docs/api/',
+        'https://github.com/IHaveASegway/bakery',
+        'https://ihaveasegway.com/lab/',
+      ]) {
+        expect(html, `${file}: ${href}`).toContain(`href="${href}"`);
+      }
+      expect(html, file).toContain('Everything here is made up');
+      expect(html, file).toContain('href="#main"');
+      expect(html, file).toContain('id="main"');
+    }
+    // The current page is marked, for the nav and for a screen reader.
+    expect(page('about/index.html')).toMatch(/href="\/about\/" aria-current="page"/);
+  });
+
+  describe('the How it’s built page', () => {
+    const html = () => page('how-its-built/index.html');
+
+    test('has a section for every principle, in order, each with its lab page where there is one and its ADR', () => {
+      let at = -1;
+      for (const { id } of PRINCIPLE_TABLE) {
+        const p = PRINCIPLES[id]!;
+        const start = html().indexOf(`id="${id}"`);
+        expect(start, id).toBeGreaterThan(at);
+        at = start;
+        const end = html().indexOf('</section>', start);
+        const section = html().slice(start, end);
+        expect(section, id).toContain(`href="${p.adrUrl}"`);
+        if (p.labUrl !== undefined) expect(section, id).toContain(`href="${p.labUrl}"`);
+        else expect(section, id).toContain('no lab page yet');
+        for (const name of [
+          'The problem',
+          'The technique',
+          'How it works here',
+          'Where it runs',
+          'See it yourself',
+        ]) {
+          expect(section, `${id}: ${name}`).toContain(name);
+        }
+      }
+    });
+
+    test('links the essay from the Raft section, and the contents link every section', () => {
+      const start = html().indexOf('id="raft"');
+      expect(html().slice(start, html().indexOf('</section>', start))).toContain(
+        'href="/how-its-built/single-writer/"',
+      );
+      for (const { id } of PRINCIPLE_TABLE) expect(html()).toContain(`href="#${id}"`);
+    });
+  });
+
+  describe('the essay', () => {
+    const html = () => page('how-its-built/single-writer/index.html');
+    const text = () =>
+      html()
+        .replace(/<(script|style)[\s\S]*?<\/\1>/g, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ');
+
+    test('is about 700 to 1,000 words, between its title and its sources', () => {
+      const body = text()
+        .split('Why a single-writer object needs no consensus')
+        .at(-1)!
+        .split(' Sources ')[0]!;
+      const words = body.trim().split(' ').length;
+      expect(words).toBeGreaterThanOrEqual(700);
+      expect(words).toBeLessThanOrEqual(1_000);
+    });
+
+    test('cites Cloudflare’s documentation, the Raft paper and the Raft Lab, each with the date it was read', () => {
+      for (const href of [
+        'https://developers.cloudflare.com/durable-objects/concepts/what-are-durable-objects/',
+        'https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/',
+        'https://developers.cloudflare.com/durable-objects/platform/limits/',
+        'https://www.usenix.org/conference/atc14/technical-sessions/presentation/ongaro',
+        'https://ihaveasegway.com/lab/raft/',
+      ]) {
+        expect(html()).toContain(`href="${href}"`);
+      }
+      const sources = html().split('<h2>Sources</h2>')[1]!.split('</ul>')[0]!;
+      const items = sources.split('<li>').slice(1);
+      expect(items.length).toBeGreaterThanOrEqual(7);
+      for (const item of items) expect(item).toMatch(/read on 2026-11-06/);
+    });
+
+    test('says what a single writer buys and what it gives up', () => {
+      for (const heading of [
+        'What consensus is for',
+        'What that buys',
+        'What it gives up',
+        'Where the bakery pays',
+      ]) {
+        expect(html()).toContain(`<h2>${heading}</h2>`);
+      }
+    });
   });
 
   test('no page has a style attribute or an inline event handler, which hashes would not cover', () => {

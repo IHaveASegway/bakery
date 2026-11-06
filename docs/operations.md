@@ -168,7 +168,7 @@ Alerts go by email to Joseph's personal inbox, outside `ihaveasegway.com` on pur
 | Nightly wipe failed or short | `wipe` data point; the morning issue | [The nightly wipe](#the-nightly-wipe) |
 | Objects surviving the wipe | `bakery-objects` issue, "Objects survived the wipe" | [The nightly wipe](#the-nightly-wipe) |
 | Dead-letter queue not empty | `dlq` point, read by hand (no issue is opened: not built) | Read the message in the queue's dashboard, fix the consumer, replay |
-| Weekly audit finding | `audit` issue, "Weekly audit" | [Dependency update](#dependency-update) |
+| Weekly audit finding, a broken external link included | `audit` issue, "Weekly audit" | [Dependency update](#dependency-update); for a link, the maintenance calendar's Monday row |
 | `prod-smoke` failed | `prod-verdict` issue | [Rollback](#rollback) |
 | Stripe webhook failures | Stripe's email for the endpoint | Read the delivery attempts; [reset](#stripe-sandbox-reset) if the secret changed |
 | Either hostname down, from launch | An uptime monitor on `https://bakery.ihaveasegway.com/` and `https://api.bakery.ihaveasegway.com/v1/health` | [Incident](#incident-the-bakery-down) |
@@ -337,6 +337,7 @@ Nothing in this calendar recurs before launch: until PR 11 there is no productio
 | Weekly | Reconciliation of `Control`'s ledger against metered usage | Dashboard, 5 minutes | 22 |
 | On each issue | Read, fix the cause, close | [The nightly wipe](#the-nightly-wipe) | 5 |
 | Monday | `audit` in `scheduled.yml`: `cargo audit`, `cargo deny check advisories`, `pnpm audit`, Dependabot's old pull requests and alerts, `compatibility_date` age. A zone audit is not built | Automatic; an issue, "Weekly audit", on a finding | 0 while green |
+| Monday | The external-link check, the last step of `audit` (`scripts/check-links.mjs`, from PR 12): every link that leaves the storefront (the site's lab pages, the ADRs, the essay's sources), 22 on 2026-11-06 | Automatic; a line "external link: <url>" in the same "Weekly audit" issue. A moved page: fix the link in `apps/web/src/lib/` or the page; a link that fails once from GitHub's rate limit clears the next Monday | 0 while green; 5 on a finding |
 | Every other Monday | Grouped Dependabot pull requests, about 10 minutes beyond the site's sitting | [Dependency update](#dependency-update) | 22 |
 | Monthly | Stripe sandbox review: delivery failures, key list, changelog, one signed test event | Stripe dashboard | 10 |
 | Monthly | Usage against [cost.md](cost.md)'s meter; budget alert history; the DLQ is empty | Dashboard | 10 |

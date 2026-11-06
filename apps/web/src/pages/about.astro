@@ -1,0 +1,64 @@
+---
+import Base from '../layouts/Base.astro';
+import { HOW_PATH, REPO, SITE, SITE_LAB } from '../lib/links';
+
+// About the bakery (Q6 · Q-public), from docs/domain.md, "The story". Static, no island.
+---
+
+<Base
+  title="About the bakery | Proof of Concept Bakery"
+  description="Proof of Concept Bakery is a made-up neighborhood bakery in Salt Lake City, and everything in it is synthetic."
+>
+  <div class="prose">
+    <h1>About the bakery</h1>
+    <p class="lead">
+      Proof of Concept Bakery, “Proof of Concept” for short, is a neighborhood bakery in Salt Lake
+      City. It does not exist.
+    </p>
+
+    <h2>The bakery</h2>
+    <p>
+      Its kitchen starts before dawn, and its counter is open from 07:00 to 15:00, Tuesday to
+      Sunday; it is closed on Mondays. It sells breads, pastries, cakes, savory bakes and drinks,
+      for pickup in 15-minute slots or delivery in 2-hour windows. On weekdays one van delivers a
+      handful of orders; on Saturdays four vans make 63 stops. It caters breakfasts, pastry tables,
+      lunches and celebrations at six venues, at most two events a day, booked at least a week
+      ahead. It has 60 regular customers.
+    </p>
+
+    <h2>Nothing in it is real</h2>
+    <p>
+      Every customer, venue, address and card is synthetic. The customers’ names are made from two
+      word lists and belong to nobody, the venues are invented, and the only cards it takes are
+      Stripe’s test cards, which move no money. The delivery places are 64 public places in Salt
+      Lake City from OpenStreetMap, such as parks, stations, gardens and libraries, shown by their
+      map labels: a drop-off spot, never anybody’s home, and no street address anywhere.
+    </p>
+    <p>
+      Every visitor gets a private copy of the bakery, a sandbox, and every sandbox is deleted every
+      night at 10:00 UTC. The <a href="/privacy/">privacy page</a> says what is kept until then,
+      which is nothing that names you.
+    </p>
+
+    <h2>Who built it, and why</h2>
+    <p>
+      It was built by the person behind{' '}
+      <a href={SITE} rel="noopener">
+        ihaveasegway.com
+      </a>
+      , whose{' '}
+      <a href={SITE_LAB} rel="noopener">
+        lab
+      </a>{' '}
+      shows five principles of distributed systems as simulations in your browser, each about a
+      made-up bakery: queues, caches, backfills, consensus and vehicle routing. A simulation shows
+      what its rules say and no more. This bakery is the same principles in production code, run for
+      real on infrastructure that is paid for, with every backend in Rust on Cloudflare.{' '}
+      <a href={HOW_PATH}>How it’s built</a> says which principle runs where, and{' '}
+      <a href={REPO} rel="noopener">
+        the repository
+      </a>{' '}
+      holds the code, the tests and every decision.
+    </p>
+  </div>
+</Base>

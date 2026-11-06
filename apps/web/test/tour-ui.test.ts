@@ -31,16 +31,50 @@ describe('the closed tour', () => {
 describe('the open card', () => {
   const total = TOURS.menu.length;
 
-  test('shows the progress, the title, what it is and the principle as names', () => {
+  test('shows the progress, the title, what it is and the principle', () => {
     const html = card('menu', 0);
     expect(html).toContain(`1 of ${total}`);
     expect(html).toContain('Where the menu came from');
     expect(html).toContain('This is the demo’s seed menu');
     expect(html).toContain('Cache invalidation by version');
-    expect(html).toContain('Cache Lab');
-    expect(html).toContain('0003');
-    // Names only: the links arrive in PR 12.
-    expect(html).not.toMatch(/<a [^>]*href/);
+  });
+
+  test('links the principle’s lab page and its ADR, both with rel="noopener"', () => {
+    const html = card('menu', 0);
+    expect(html).toContain('Read how it works:');
+    expect(html).toContain(
+      '<a href="https://ihaveasegway.com/lab/cache/" rel="noopener">Cache Lab</a>',
+    );
+    expect(html).toContain(
+      '<a href="https://github.com/IHaveASegway/bakery/blob/main/docs/adr/0003-durable-objects-as-the-system-of-record.md" rel="noopener">ADR 0003</a>',
+    );
+    expect(html).not.toContain('/how-its-built/');
+  });
+
+  test('a principle with no lab page links its How it’s built section and its ADR', () => {
+    const step = TOURS.checkout.findIndex((s) => s.principle.id === 'idempotency-keys');
+    const html = card('checkout', step);
+    expect(html).toContain('<a href="/how-its-built/#idempotency-keys">How it’s built</a>');
+    expect(html).toContain('/docs/adr/0004-queues-between-objects-and-alarms-for-time.md');
+    expect(html).not.toContain('ihaveasegway.com/lab/');
+  });
+
+  test('the Raft step links the lab page, the ADR and the essay', () => {
+    const step = TOURS.console.findIndex((s) => s.principle.id === 'raft');
+    const html = card('console', step);
+    expect(html).toContain('href="https://ihaveasegway.com/lab/raft/"');
+    expect(html).toContain('href="/how-its-built/single-writer/"');
+    expect(html).toContain('ADR 0003');
+  });
+
+  test('every card holds a principle link and an ADR link', () => {
+    for (const screen of SCREENS) {
+      TOURS[screen].forEach((step, i) => {
+        const html = card(screen, i);
+        expect(html, step.id).toContain(`href="${step.principle.adrUrl}"`);
+        expect(html, step.id).toContain(`href="${step.principle.labUrl ?? step.principle.howUrl}"`);
+      });
+    }
   });
 
   test('announces the step in a polite live region and lets the heading take the focus', () => {

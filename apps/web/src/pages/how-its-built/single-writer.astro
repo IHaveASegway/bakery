@@ -1,0 +1,194 @@
+---
+import Base from '../../layouts/Base.astro';
+import { HOW_PATH, SITE_LAB, howUrl, labUrl } from '../../lib/links';
+
+// The essay the Raft Lab maps to (docs/domain.md, "The principle map"; Q33 · Q-principles). Static,
+// no island. Every claim about Cloudflare's behaviour is as its documentation stated it on the
+// date in READ, and each source carries that date.
+const READ = '2026-11-06';
+const SOURCES = [
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/concepts/what-are-durable-objects/',
+    title: 'What are Durable Objects?',
+    by: 'Cloudflare’s documentation',
+    for: 'one instance per name, single-threaded, with its own transactional, strongly consistent storage that no other object can reach',
+  },
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/',
+    title: 'Rules of Durable Objects',
+    by: 'Cloudflare’s documentation',
+    for: 'an object runs in a single location; input and output gates; about 500 to 1,000 requests a second for one object',
+  },
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/',
+    title: 'SQLite-backed Durable Object Storage',
+    by: 'Cloudflare’s documentation',
+    for: 'writes with no await between them are committed together, atomically',
+  },
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/',
+    title: 'Lifecycle of a Durable Object',
+    by: 'Cloudflare’s documentation',
+    for: 'why an object is shut down and restarted, and what happens to a request in flight',
+  },
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/platform/limits/',
+    title: 'Durable Objects limits',
+    by: 'Cloudflare’s documentation',
+    for: 'a soft limit of 1,000 requests a second for one object',
+  },
+  {
+    href: 'https://www.usenix.org/conference/atc14/technical-sessions/presentation/ongaro',
+    title: 'In Search of an Understandable Consensus Algorithm',
+    by: 'the Raft paper, USENIX ATC 2014',
+    for: 'what consensus is for: one log on several servers, a leader and a majority',
+  },
+  {
+    href: labUrl('Raft Lab') as string,
+    title: 'Break a Raft cluster',
+    by: 'the Raft Lab on ihaveasegway.com',
+    for: 'Raft simulated in your browser, with crashes and partitions to try',
+  },
+];
+---
+
+<Base
+  title="Why a single-writer object needs no consensus | Proof of Concept Bakery"
+  description="Why Proof of Concept Bakery runs no consensus protocol, what a single-writer Durable Object buys and gives up, and where the bakery pays for it."
+>
+  <article class="essay prose">
+    <p class="hint">
+      <a href={HOW_PATH}>How it’s built</a>
+    </p>
+    <h1>Why a single-writer object needs no consensus</h1>
+    <p class="lead">
+      The bakery never runs a consensus protocol, and two visitors racing for the last place in a
+      pickup slot still get one place and one refusal. This is why that works, what it costs, and
+      where the bakery pays.
+    </p>
+
+    <h2>What consensus is for</h2>
+    <p>
+      Suppose the count of places in the 10:00 pickup slot were kept on three servers, so that
+      losing one loses nothing. Each server can take a hold. Two tabs press Place order at the same
+      moment; one request reaches the first server and the other the third, and each sees a free
+      place. Both say yes, and the slot is over its capacity. To stop that, the copies have to agree
+      on one order of writes before any of them answers.
+    </p>
+    <p>
+      That agreement is what a consensus protocol provides. Raft keeps one log, the ordered list of
+      every write, on several servers. One server leads: it takes every write, copies it to the
+      others, and calls it committed once a majority holds it. The paper that set it out,{' '}
+      <em>In Search of an Understandable Consensus Algorithm</em> (USENIX ATC 2014), is about making
+      that safe whatever the network does, and the price is plain in its design: a leader to elect,
+      a majority to reach on every write, and a minority that cannot make progress at all. The{' '}
+      <a href={labUrl('Raft Lab')} rel="noopener">
+        Raft Lab
+      </a>{' '}
+      lets you crash its servers, split its network and watch its safety hold.
+    </p>
+    <p>
+      Consensus answers one question: how do several copies of the same state stay one? The bakery
+      avoids the question by keeping one copy.
+    </p>
+
+    <h2>What a Durable Object is instead</h2>
+    <p>
+      A Durable Object is a named instance of a class, running on Cloudflare. As Cloudflare’s
+      documentation describes it on {READ}, there is one instance for a name in the whole world, it
+      runs in a single location, it is single-threaded, and its storage sits with it: private to
+      that instance, transactional and strongly consistent. Writes made with no wait between them
+      are committed together or not at all, the runtime holds new requests back while the object’s
+      code runs, and it holds the object’s answers back until its writes are stored.
+    </p>
+    <p>
+      So the bakery gives each thing that must never be double-booked an object of its own. The
+      places in a day are the Schedule object for that sandbox and that day. An order is its own
+      Order object, and a catering job its own CateringEvent.
+    </p>
+
+    <h2>What that buys</h2>
+    <p>
+      Every write to a day’s places goes through one object, one at a time, so the object itself is
+      the order of writes, and there is nothing to agree on. When two tabs race for the last place
+      at 10:00, both requests reach the same Schedule object. The first hold is decided and
+      committed in one step. The second runs after it, finds the slot full, and is refused, with the
+      next free slot named. One reservation and one refusal, with no lock service, no leader and no
+      quorum.
+    </p>
+    <p>
+      The same is true of an order, so two tabs pressing the same button on the kitchen board cannot
+      disagree about where the order is, and of a catering job, which moves one transaction at a
+      time.
+    </p>
+
+    <h2>What it gives up</h2>
+    <p>One copy is a choice with costs, and they are the costs consensus exists to remove.</p>
+    <ul>
+      <li>
+        <strong>No writes from several regions to one object.</strong> The object runs in one place,
+        so a visitor far from it pays the round trip on every write. A bakery in one city can afford
+        that.
+      </li>
+      <li>
+        <strong>Throughput bounded by one object.</strong> On {READ}, Cloudflare’s limits page gave
+        one object a soft limit of 1,000 requests a second, and its rules page put it at about 500
+        to 1,000 a second for simple work and fewer for heavy work. A day’s places will never come
+        near that. One object for every visitor’s bakery would.
+      </li>
+      <li>
+        <strong>A stall when the instance moves or restarts.</strong> The documentation, as read on
+        {READ}, says objects are shut down and restarted for code updates, for updates to the
+        runtime and when the runtime decides where to host them, and that a request in flight that
+        touches storage during a shutdown is stopped with an error, to keep the object unique. A
+        consensus group keeps serving when a minority of it fails; a single object pauses until its
+        next instance starts. The bakery’s commands carry idempotency keys, so a retry after that
+        error is safe.
+      </li>
+      <li>
+        <strong>Nothing crosses two objects atomically.</strong> An object’s storage is its own, and
+        no other object can reach it, so no transaction spans an order and its day’s places, or an
+        order and the kitchen board.
+      </li>
+    </ul>
+
+    <h2>Where the bakery pays</h2>
+    <p>
+      The last cost shapes the whole design. Because no transaction spans two objects, every object
+      writes its events to an outbox in the same transaction as its state, and the Queue carries
+      them to the others at least once, each subscriber skipping what it has already applied:{' '}
+      <a href={howUrl('queue')}>the outbox, the Queue and the dead letters</a>. Because a catering
+      job touches the Schedule, Billing and Stripe over weeks, it is{' '}
+      <a href={howUrl('sagas')}>a saga by alarm</a>: a chain of single-object transactions, each
+      started by an event or a timer, and undone by steps of its own rather than a rollback. And
+      because throughput is per object, the bakery divides by what it protects: a Schedule and a
+      Dispatch per sandbox and day, an Order per order, and everything per sandbox, so no object
+      carries more than one visitor’s bakery.
+    </p>
+    <p>
+      What the bakery does not do is replicate. If the object that holds a day’s places cannot be
+      reached, that day’s checkout waits; it never guesses. For a made-up bakery with one kitchen
+      that is the right trade: a few seconds of waiting, rarely, for never selling the same place
+      twice and never running a consensus protocol to make sure.
+    </p>
+
+    <h2>Sources</h2>
+    <ul class="sources">
+      {SOURCES.map((s) => (
+        <li>
+          <a href={s.href} rel="noopener">
+            {s.title}
+          </a>
+          , {s.by}, read on {READ}: {s.for}.
+        </li>
+      ))}
+    </ul>
+    <p class="hint">
+      Back to <a href={howUrl('raft')}>the Raft principle on How it’s built</a>, or to{' '}
+      <a href={SITE_LAB} rel="noopener">
+        the lab
+      </a>
+      .
+    </p>
+  </article>
+</Base>
