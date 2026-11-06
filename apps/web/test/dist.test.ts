@@ -54,6 +54,7 @@ describe('dist', () => {
     ['docs/api/index.html', '/docs/api/*'],
     ['menu/index.html', '/menu/*'],
     ['inbox/index.html', '/inbox/*'],
+    ['status/index.html', '/status/*'],
     ['checkout/index.html', '/checkout/*'],
     ['catering/index.html', '/catering/*'],
   ])('%s: every inline script and style has its hash in %s', (file, path) => {
@@ -119,7 +120,14 @@ describe('dist', () => {
     for (const file of htmlFiles()) {
       const html = page(file);
       expect(html, file).toContain('class="site-name" href="/"');
-      for (const href of ['/menu/', '/catering/', '/how-its-built/', '/about/', '/signin/']) {
+      for (const href of [
+        '/menu/',
+        '/catering/',
+        '/how-its-built/',
+        '/about/',
+        '/status/',
+        '/signin/',
+      ]) {
         expect(html, `${file}: ${href}`).toContain(`href="${href}"`);
       }
       for (const href of [
@@ -309,6 +317,38 @@ describe('dist', () => {
     expect(html).toContain('© OpenStreetMap contributors');
     expect(html).toContain('openrouteservice');
     expect(html).toContain('Free-flow times: no traffic');
+  });
+
+  describe('the status page', () => {
+    const html = () => page('status/index.html');
+    const island = () => {
+      const url = html().match(/component-url="\/_astro\/(Status\.[^"]+\.js)"/)?.[1];
+      expect(url, 'the status island’s bundle').toBeDefined();
+      return page(`_astro/${url}`);
+    };
+
+    test('is a static page with one island, the policy class island, and no third party', () => {
+      expect(html().split('<astro-island').length - 1).toBe(1);
+      expect(html()).toContain('<h1>Status</h1>');
+      expect(html()).not.toMatch(/<(link|script)[^>]+(href|src)="https?:/);
+      expect(island()).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);
+    });
+
+    // Measured 2026-11-06 with node's gzipSync at its default level: 2,248 bytes. The budget is the
+    // measured size plus a quarter, rounded up to 2,810, far under the 8 KB the roadmap allows. The
+    // bytes buy the poller, the kept answer's storage code and the page's sentences.
+    test('the island’s chunk is within its JavaScript budget: 2,810 bytes gzipped', async () => {
+      const { gzipSync } = await import('node:zlib');
+      expect(gzipSync(island()).length).toBeLessThanOrEqual(2_810);
+    });
+
+    test('the only browser storage the island names is its one key', () => {
+      const code = island();
+      expect(code).toContain('bakery.status.last-good');
+      expect(code).not.toContain('sessionStorage');
+      expect(code).not.toContain('indexedDB');
+      expect(code).not.toContain('document.cookie');
+    });
   });
 
   test('the console links to the dispatch screen', () => {

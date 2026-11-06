@@ -705,6 +705,26 @@
         "title": "ConsentRequest",
         "type": "object"
       },
+      "CountersState": {
+        "description": "How fresh `counters` are.",
+        "oneOf": [
+          {
+            "const": "live",
+            "description": "Refreshed within the last 20 minutes.",
+            "type": "string"
+          },
+          {
+            "const": "stale",
+            "description": "An older snapshot: the last refresh failed, or none has run for 20 minutes. The\nfailure's reason is in the Worker's log only.",
+            "type": "string"
+          },
+          {
+            "const": "unavailable",
+            "description": "No snapshot yet.",
+            "type": "string"
+          }
+        ]
+      },
       "CreateSandboxRequest": {
         "additionalProperties": false,
         "description": "`POST /v1/sandboxes`. A guest needs `turnstile_token`; an account that already has a live\nsandbox gets it back unless `replace` is true.",
@@ -1174,6 +1194,41 @@
         "required": [
           "item",
           "used"
+        ],
+        "type": "object"
+      },
+      "LastWipe": {
+        "additionalProperties": false,
+        "description": "One nightly wipe, as its `wipe` point recorded it.",
+        "properties": {
+          "at": {
+            "description": "When the point was written, at the wipe's end: an RFC 3339 UTC time such as\n`2026-11-06T10:00:04Z`.",
+            "type": "string"
+          },
+          "ms": {
+            "description": "Milliseconds from the 10:00 UTC cron to the wipe's last run.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "objects": {
+            "description": "Objects those sandboxes emptied, each Sandbox and its children.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sandboxes": {
+            "description": "Sandboxes the wipe ended.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "at",
+          "sandboxes",
+          "objects",
+          "ms"
         ],
         "type": "object"
       },
@@ -2728,10 +2783,95 @@
         ],
         "type": "object"
       },
+      "StatusCounters": {
+        "additionalProperties": false,
+        "description": "The status page's counters: the kept Analytics Engine queries over the last 24 hours, and\nthe last nightly wipe (docs/operations.md, \"Observability\"). Counts are sums of the points'\nsample intervals, so they stay counts when Analytics Engine samples.",
+        "properties": {
+          "dlq_24h": {
+            "description": "`dlq` points in the last 24 hours: messages the dead-letter writer kept.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "last_wipe": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastWipe"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest `wipe` point; `null` when none is in the dataset."
+          },
+          "orders_24h": {
+            "description": "`order_placed` points in the last 24 hours.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "payment_failures_24h": {
+            "description": "`payment_failed` points in the last 24 hours.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "payments_24h": {
+            "description": "`payment_succeeded` points in the last 24 hours.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "refunds_24h": {
+            "description": "`refund_issued` points in the last 24 hours.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sandboxes_24h": {
+            "description": "`sandbox_created` points in the last 24 hours, to read against the daily cap.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "orders_24h",
+          "payments_24h",
+          "payment_failures_24h",
+          "refunds_24h",
+          "sandboxes_24h",
+          "dlq_24h",
+          "last_wipe"
+        ],
+        "type": "object"
+      },
       "StatusResponse": {
         "additionalProperties": false,
-        "description": "`GET /v1/status`: today's admission state, from the `Control` object.\n\nThe field order is fixed and is the wire order: the day and the sandbox count and cap\n(PR 2), then the guest and demo-account counts and caps (PR 3), then the flag. Readers go\nby name, so PR 2's smoke check still passes; a new field is added before `flag`.",
+        "description": "`GET /v1/status`: today's admission state, from the `Control` object.\n\nThe field order is fixed and is the wire order: the day and the sandbox count and cap\n(PR 2), then the guest and demo-account counts and caps (PR 3), then the status page's\ncounters with their time and state (PR 13), then the flag. Readers go by name, so PR 2's\nsmoke check still passes; a new field is added before `flag`.\n\nThe counters are a snapshot of the kept Analytics Engine queries that the 15-minute cron\nrefreshes, never a query per request (docs/operations.md, \"Observability\").",
         "properties": {
+          "counters": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatusCounters"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The last snapshot of the kept queries; `null` until the first refresh succeeds."
+          },
+          "counters_as_of": {
+            "description": "When that snapshot was taken, an RFC 3339 UTC time such as `2026-11-06T10:15:02.114Z`;\n`null` with `counters`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "counters_state": {
+            "$ref": "#/components/schemas/CountersState",
+            "description": "Whether the counters are fresh: `live`, `stale` or `unavailable`."
+          },
           "day": {
             "description": "Today's UTC date, `YYYY-MM-DD`: the key of the daily ledger.",
             "type": "string"
@@ -2785,7 +2925,10 @@
           "guest_cap",
           "demo_accounts_today",
           "demo_account_cap",
-          "flag"
+          "counters_state",
+          "flag",
+          "counters",
+          "counters_as_of"
         ],
         "title": "StatusResponse",
         "type": "object"
@@ -12969,11 +13112,11 @@
                 }
               }
             },
-            "description": "today's sandboxes, guests and demo accounts with their caps, and the flag"
+            "description": "today's sandboxes, guests and demo accounts with their caps, the last snapshot of the kept Analytics Engine queries with `counters_as_of` and `counters_state` (`live`, `stale` or `unavailable`), and the flag"
           }
         },
         "security": [],
-        "summary": "Today's admission state, from the Control object",
+        "summary": "Today's admission state and the status page's counters, from the Control object",
         "tags": [
           "service"
         ],

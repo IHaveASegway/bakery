@@ -11,6 +11,7 @@ const PAGES = [
   '/privacy/',
   '/signin/',
   '/about/',
+  '/status/',
   '/how-its-built/',
   '/how-its-built/outbox/',
   '/how-its-built/cache/',

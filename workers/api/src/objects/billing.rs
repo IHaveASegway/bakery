@@ -49,6 +49,7 @@
 use std::cell::Cell;
 
 use bakery_app::Clock;
+use bakery_app::analytics::{Event, Point};
 use bakery_app::ports::{
     CancelRequest, ConfirmRequest, CustomerRequest, IntentRequest, InvoiceRequest, PaymentGateway,
     PortError, RefundIntentRequest, TestCard,
@@ -77,8 +78,8 @@ use super::child::{self, Birth, ClockUpdate};
 use super::sql::{self, exec, gone, has_table, json, refuse, transaction_sync};
 use super::stream::{self, BACKSTOP, OUTBOX};
 use crate::clock::SystemClock;
-use crate::random;
 use crate::stripe::{self, Stripe, Unavailable};
+use crate::{metrics, random};
 
 pub const BINDING: &str = "BILLING";
 pub const CLASS: &str = "Billing";
@@ -413,6 +414,16 @@ impl Billing {
             }
             Ok(())
         })?;
+        // Committed: one point per payment outcome and refund, after the commit.
+        for event in events {
+            let point = match event {
+                BillingEvent::PaymentSucceeded { .. } => Event::PaymentSucceeded,
+                BillingEvent::PaymentFailed { .. } => Event::PaymentFailed,
+                BillingEvent::RefundIssued { .. } => Event::RefundIssued,
+                _ => continue,
+            };
+            metrics::write(&self.env, &Point::one(point));
+        }
         if loud {
             stream::relay_soon(&self.state, &self.env, now, CLASS).await?;
         }
