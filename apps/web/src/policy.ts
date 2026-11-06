@@ -9,8 +9,13 @@
   reading the privacy page loads nothing from Cloudflare. Pages that create a sandbox or an account
   (/signin/ now, /app/ because it can create a sandbox too) are the challenge class: they add
   Turnstile's origin to script-src and frame-src, and nothing else. Pages with an island but no
-  third party (/menu/ and /inbox/, and since the tour the start page, /privacy/ and /docs/api/, and since PR 13 /status/) are
-  the island class: the strict policy plus the hashes below. The checkout
+  third party (/menu/ and /inbox/, and since the tour /privacy/ and /docs/api/, and since PR 13
+  /status/) are the island class: the strict policy plus the hashes below. The start page carries
+  the tour too, but it has no rule of its own: it is the one page whose rule would have no splat
+  (`/`), and on launch day, 2026-11-06, production applied both that rule's policy and `/*`'s to it,
+  the detach notwithstanding, while wrangler dev applied the file as written. So the start page's
+  hashes ride in the `/*` rule, which hashesByRule gives the pages no other rule claims, and no
+  rule in the file is without a splat (test/headers.test.ts). The checkout
   (/checkout/) and the catering page (/catering/) are the payment class, the island class plus the
   three Stripe origins the Payment Element needs: its script, its frames (3-D Secure included) and
   its API. No other page names a Stripe origin, and these two load Stripe.js only once an order has
@@ -132,11 +137,12 @@ export const SOLVER_CSP =
 
 /**
  * Pages with a hydrated island and no third party: the menu and the inbox, and since PR 10 the
- * start page, the privacy page and the API reference, which carry the guided tour (components/Tour.tsx)
- * and nothing else. `/` is the start page alone: Cloudflare's rule for a path with no splat matches
- * that path only.
+ * privacy page and the API reference, which carry the guided tour (components/Tour.tsx) and nothing
+ * else. The start page carries the tour as well but is not here: its rule would be `/`, the one
+ * path without a splat, which production applied beside `/*` instead of in its place (2026-11-06,
+ * the header comment above), so its hashes go to the `/*` rule.
  */
-export const ISLAND_PATHS = ['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/status/*', '/'];
+export const ISLAND_PATHS = ['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/status/*'];
 
 /** Pages that load Stripe: the checkout's payment step and the catering page's deposit step. */
 export const PAYMENT_PATHS = ['/checkout/*', '/catering/*'];
@@ -152,7 +158,9 @@ export const RULE_PATHS = [
 /**
  * The contents of dist/_headers. Cloudflare applies every matching rule in file order; a header a
  * later rule sets again is appended, which for the policy would mean two policies, both enforced.
- * So a challenge or island rule first detaches the policy and then sets its own.
+ * So a challenge or island rule first detaches the policy and then sets its own. Every rule's path
+ * ends in a splat: the start page, whose rule would not, got both policies on production
+ * (2026-11-06), so the `/*` rule carries its hashes instead.
  */
 export function headersFile(apiOrigin: string, hashes: Record<string, Hashes> = {}): string {
   const of = (path: string) => hashes[path] ?? NO_HASHES;
