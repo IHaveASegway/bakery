@@ -37,7 +37,8 @@ export function hashesByRule(dir, rules) {
     if (typeof file !== 'string' || !file.endsWith('.html')) continue;
     const url = `/${file.replaceAll('\\', '/')}`;
     // The longest matching prefix wins: /app/dispatch/* is under /app/*. A rule with no splat
-    // (`/`) is that page alone, as Cloudflare reads it.
+    // (`/`) would be that page alone; since 2026-11-06 no rule has one, and the start page's
+    // hashes go to `/*` (src/policy.ts, ISLAND_PATHS).
     const rule =
       rules.filter((r) => matches(r, url)).sort((x, y) => y.length - x.length)[0] ?? '/*';
     const found = inlineHashes(readFileSync(join(dir, file), 'utf8'));
