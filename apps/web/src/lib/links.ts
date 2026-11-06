@@ -46,5 +46,47 @@ export function adrUrl(number: string, files: readonly string[] = adrFiles): str
 
 /** The storefront's own explanation pages. */
 export const HOW_PATH = '/how-its-built/';
-export const ESSAY_PATH = '/how-its-built/single-writer/';
 export const howUrl = (id: string): string => `${HOW_PATH}#${id}`;
+
+/** An essay of How it's built: its path on this site and its title, which is also its h1. */
+export interface Essay {
+  path: string;
+  title: string;
+}
+
+/**
+ * The essays, one for each lab principle, keyed by the id of its section on How it's built: each
+ * says what the bakery does for real that the lab page shows in the small. A principle with no
+ * entry has no essay, and its section and tour step link none.
+ */
+export const ESSAYS = {
+  queue: {
+    path: '/how-its-built/outbox/',
+    title: 'Why a paid order is never lost and never doubled',
+  },
+  cache: { path: '/how-its-built/cache/', title: 'Why the menu is cached by version, not by time' },
+  backfill: {
+    path: '/how-its-built/rebuild/',
+    title: 'Why the CRM can be thrown away and rebuilt',
+  },
+  routes: {
+    path: '/how-its-built/routes/',
+    title: 'Why the browser plans the route and the object decides',
+  },
+  raft: {
+    path: '/how-its-built/single-writer/',
+    title: 'Why a single-writer object needs no consensus',
+  },
+} as const satisfies Record<string, Essay>;
+
+export type EssayId = keyof typeof ESSAYS;
+
+export const hasEssay = (id: string): id is EssayId => Object.hasOwn(ESSAYS, id);
+
+/** The essay that goes with a principle, by its section's id, or undefined for one with none. */
+export function essayOf(id: string): Essay | undefined {
+  return hasEssay(id) ? ESSAYS[id] : undefined;
+}
+
+/** The essay's path on this site, or undefined for a principle with none. */
+export const essayUrl = (id: string): string | undefined => essayOf(id)?.path;

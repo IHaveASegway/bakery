@@ -41,8 +41,8 @@ export interface Principle {
   adrUrl: string;
   /** The principle's section on the How it's built page, a path on this site. */
   howUrl: string;
-  /** The essay that goes with it, a path on this site: the Raft principle's alone. */
-  essayUrl?: string;
+  /** The essay that goes with it, a path on this site and its title; absent for one with none. */
+  essay?: { url: string; title: string };
 }
 
 /** The request that does what the step's element does, as the contracts name it. */

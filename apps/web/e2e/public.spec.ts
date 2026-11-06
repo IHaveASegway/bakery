@@ -12,6 +12,10 @@ const PAGES = [
   '/signin/',
   '/about/',
   '/how-its-built/',
+  '/how-its-built/outbox/',
+  '/how-its-built/cache/',
+  '/how-its-built/rebuild/',
+  '/how-its-built/routes/',
   '/how-its-built/single-writer/',
 ];
 
