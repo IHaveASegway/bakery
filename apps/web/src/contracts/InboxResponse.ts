@@ -23,8 +23,8 @@ export type MessageKind =
 /**
  * `GET /v1/sandboxes/{id}/inbox`: the newest messages first, and how many there are in all.
  * `?kind=` keeps one kind, `?to=` one customer's, `?limit=` the newest that many (50 when left
- * out).
- * The customer persona sees its own; staff see every customer's.
+ * out, at most 500). Any session of the sandbox, a guest's included, sees every customer's
+ * messages: the persona is not filtered to its own, and `?to=` is how a reader narrows to one.
  */
 export interface InboxResponse {
   messages: MessageResponse[];
