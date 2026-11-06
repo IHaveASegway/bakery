@@ -2,15 +2,16 @@
 //! start work and returns; `Control`'s alarm does the work (docs/delivery.md, "Config as code").
 //! The 15-minute cron also refreshes the status page's counters (PR 13): the kept Analytics
 //! Engine queries run here, in the Worker, and `Control` stores the answer by command, so no
-//! object reads Analytics Engine or keeps a timer for it.
+//! object reads Analytics Engine or keeps a timer for it. Then the breaker (PR 17) reads the
+//! last window's usage the same way and hands it to `Control`, which keeps its state.
 
 use worker::{Env, ScheduleContext, ScheduledEvent, console_log, event};
 
-use crate::analytics;
 use crate::objects::control;
+use crate::{analytics, breaker};
 
-/// The nightly wipe at 10:00 UTC, and the 15-minute sweep that retries what it missed (the
-/// breaker joins the sweep in PR 11) and refreshes the status snapshot.
+/// The nightly wipe at 10:00 UTC, and the 15-minute sweep that retries what it missed,
+/// refreshes the status snapshot and runs the breaker.
 const WIPE: &str = "0 10 * * *";
 const SWEEP: &str = "*/15 * * * *";
 
@@ -34,8 +35,10 @@ async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
             e.to_string()
         ),
     }
-    // After the sweep, whatever it answered: a refresh that fails keeps the old snapshot.
+    // After the sweep, whatever it answered: a refresh that fails keeps the old snapshot, and
+    // the breaker reads its own requests, so neither waits on the other's answer.
     if cron == SWEEP {
         analytics::refresh(&env).await;
+        breaker::run(&env).await;
     }
 }

@@ -34,8 +34,8 @@ pub enum HealthStatus {
 ///
 /// The field order is fixed and is the wire order: the day and the sandbox count and cap
 /// (PR 2), then the guest and demo-account counts and caps (PR 3), then the status page's
-/// counters with their time and state (PR 13), then the flag. Readers go by name, so PR 2's
-/// smoke check still passes; a new field is added before `flag`.
+/// counters with their time and state (PR 13), then the breaker's state (PR 17), then the flag.
+/// Readers go by name, so PR 2's smoke check still passes; a new field is added before `flag`.
 ///
 /// The counters are a snapshot of the kept Analytics Engine queries that the 15-minute cron
 /// refreshes, never a query per request (docs/operations.md, "Observability").
@@ -64,6 +64,8 @@ pub struct StatusResponse {
     pub counters_as_of: Option<String>,
     /// Whether the counters are fresh: `live`, `stale` or `unavailable`.
     pub counters_state: CountersState,
+    /// The 15-minute cron breaker's state and its last run, kept in `Control`.
+    pub breaker: BreakerStatus,
     /// The demo's flag.
     pub flag: Flag,
 }
@@ -1943,11 +1945,18 @@ mod tests {
             counters: None,
             counters_as_of: None,
             counters_state: CountersState::Unavailable,
+            breaker: BreakerStatus {
+                state: BreakerState::Unconfigured,
+                since: None,
+                last_run: None,
+                last_usd: None,
+                unread: vec![],
+            },
             flag: Flag::ReadOnly,
         };
         assert_eq!(
             serde_json::to_string(&status).unwrap(),
-            r#"{"day":"2026-11-04","sandboxes_today":0,"sandbox_cap":300,"guests_today":0,"guest_cap":100,"demo_accounts_today":0,"demo_account_cap":100,"counters":null,"counters_as_of":null,"counters_state":"unavailable","flag":"read-only"}"#
+            r#"{"day":"2026-11-04","sandboxes_today":0,"sandbox_cap":300,"guests_today":0,"guest_cap":100,"demo_accounts_today":0,"demo_account_cap":100,"counters":null,"counters_as_of":null,"counters_state":"unavailable","breaker":{"state":"unconfigured","since":null,"last_run":null,"last_usd":null,"unread":[]},"flag":"read-only"}"#
         );
         let live = StatusResponse {
             counters: Some(StatusCounters {
@@ -1966,10 +1975,27 @@ mod tests {
             }),
             counters_as_of: Some("2026-11-04T10:15:02.114Z".into()),
             counters_state: CountersState::Live,
+            breaker: BreakerStatus {
+                state: BreakerState::ReadOnly,
+                since: Some("2026-11-04T10:15:01.204Z".into()),
+                last_run: Some("2026-11-04T10:30:01.377Z".into()),
+                last_usd: Some("0.1000".into()),
+                unread: vec!["rows_written".into(), "do_gb_s".into()],
+            },
             ..status
         };
         let wire = serde_json::to_value(&live).unwrap();
         assert_eq!(wire["counters_state"], "live");
+        assert_eq!(
+            wire["breaker"],
+            json!({
+                "state": "read-only",
+                "since": "2026-11-04T10:15:01.204Z",
+                "last_run": "2026-11-04T10:30:01.377Z",
+                "last_usd": "0.1000",
+                "unread": ["rows_written", "do_gb_s"]
+            })
+        );
         assert_eq!(wire["counters"]["last_wipe"]["objects"], 133);
         assert_eq!(
             serde_json::from_value::<StatusResponse>(wire).unwrap(),
@@ -1977,9 +2003,31 @@ mod tests {
         );
         let schema = serde_json::to_value(schemars::schema_for!(StatusResponse)).unwrap();
         let required = schema["required"].as_array().unwrap();
-        for name in ["counters", "counters_as_of", "counters_state"] {
+        for name in ["counters", "counters_as_of", "counters_state", "breaker"] {
             assert!(required.iter().any(|r| r == name), "{name} is required");
         }
+        let breaker = &schema["$defs"]["BreakerStatus"];
+        for name in ["state", "since", "last_run", "last_usd", "unread"] {
+            assert!(
+                breaker["required"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|r| r == name),
+                "breaker.{name} is required"
+            );
+        }
+        for state in [
+            BreakerState::Unconfigured,
+            BreakerState::Armed,
+            BreakerState::ReadOnly,
+            BreakerState::Off,
+        ] {
+            assert_eq!(BreakerState::parse(state.as_str()), Some(state));
+            assert_eq!(serde_json::to_value(state).unwrap(), state.as_str());
+        }
+        assert!(BreakerState::Armed < BreakerState::ReadOnly);
+        assert!(BreakerState::ReadOnly < BreakerState::Off);
 
         let problem = Problem::status(404, "Not Found").with_instance("/v1/nope");
         assert_eq!(
