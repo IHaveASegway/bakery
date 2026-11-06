@@ -1,0 +1,235 @@
+---
+import Base from '../../layouts/Base.astro';
+import { ESSAYS, HOW_PATH, SITE_LAB, adrUrl, essayUrl, howUrl, labUrl } from '../../lib/links';
+
+// The essay for the two idempotency principles, keys on commands and keys at Stripe (docs/domain.md,
+// "The principle map" and "Idempotency"; Q33 · Q-principles). No lab page shows them, so the essay
+// explains them itself and links the lab's index. Static, no island. Every claim about Stripe's
+// or Cloudflare's behaviour is as its documentation stated it on the date in READ, and every
+// number from the code names its file.
+const READ = '2026-11-06';
+const { title } = ESSAYS['idempotency-keys'];
+const SOURCES = [
+  {
+    href: 'https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/',
+    title: 'The Idempotency-Key HTTP Header Field',
+    by: 'an Internet-Draft of the IETF’s HTTPAPI working group, version 08 of 2026-10-22',
+    for: '400 for a missing key, 422 for a key reused with another payload, 409 for a repeat while the first is still running, and an expiry policy each server publishes',
+  },
+  {
+    href: 'https://docs.stripe.com/api/idempotent_requests',
+    title: 'Idempotent requests',
+    by: 'Stripe’s API reference',
+    for: 'the status and body of the first request saved and returned to every retry, 500s included; keys that may be pruned once 24 hours old; parameters compared and a mismatch refused',
+  },
+  {
+    href: 'https://docs.stripe.com/webhooks',
+    title: 'Receive Stripe events in your webhook endpoint',
+    by: 'Stripe’s documentation',
+    for: 'the same event delivered more than once, guarded by logging event ids; no promise of order; sandbox retries three times over a few hours, live mode for up to three days; a five-minute tolerance on the signature’s timestamp',
+  },
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/',
+    title: 'SQLite-backed Durable Object Storage',
+    by: 'Cloudflare’s Durable Objects documentation',
+    for: 'transactionSync() rolls back when its callback throws, and takes only synchronous storage operations',
+  },
+  {
+    href: 'https://www.enterpriseintegrationpatterns.com/patterns/messaging/IdempotentReceiver.html',
+    title: 'Idempotent Receiver',
+    by: 'Gregor Hohpe and Bobby Woolf, Enterprise Integration Patterns (2003)',
+    for: 'a receiver that can safely receive the same message several times',
+  },
+  {
+    href: SITE_LAB,
+    title: 'The lab',
+    by: 'ihaveasegway.com',
+    for: 'five lab pages, none of them on idempotency keys; the Queue Lab’s workers check a message’s id before printing',
+  },
+];
+---
+
+<Base
+  title={`${title} | Proof of Concept Bakery`}
+  description="How Proof of Concept Bakery makes a repeated request harmless: an Idempotency-Key stored in the same transaction as the command's events, a replay that returns the first answer, and the same idea again at Stripe and its webhooks."
+>
+  <article class="essay prose">
+    <p class="hint">
+      <a href={HOW_PATH}>How it’s built</a>
+    </p>
+    <h1>{title}</h1>
+    <p class="lead">
+      A request that may have arrived is sent again, and the bakery has to tell a retry from a new
+      order. This is how a key does that, why it only works when it is written with the order, and
+      how the same idea meets Stripe, which keeps its own clock.
+    </p>
+
+    <h2>Place order, pressed twice</h2>
+    <p>
+      A visitor on a train orders three morning buns for a 09:15 pickup and presses Place order. A
+      tunnel takes the signal, and the page says the API is unreachable. The order may never have
+      arrived, or it may be placed and holding three buns while the answer was lost on the way back.
+      The visitor presses again.
+    </p>
+    <p>
+      A server that runs every request it receives places a second order, and the day’s count of
+      morning buns drops by six. Only the server can tell the two apart, and only if they carry
+      something that says they are one intent.
+    </p>
+
+    <h2>What a simpler design does, and where it breaks</h2>
+    <p>
+      The usual first answer is a key the client makes and a table of keys the server has seen,
+      checked before the work and written after it. That works until the process stops between the
+      two. If the order commits and the key is lost, the retry finds no key and places the order
+      again. If the key is written first and the order then fails, the retry finds the key and
+      answers for an order that does not exist. A key kept in another store, a cache or a second
+      database, has the same gap.
+    </p>
+    <p>
+      Replying “already done” to a seen key breaks the client too: the retry needs what the first
+      attempt returned, the order’s id, its total and its hold.
+    </p>
+    <p>
+      No lab page shows this one yet. The{' '}
+      <a href={labUrl('Queue Lab')} rel="noopener">
+        Queue Lab
+      </a>{' '}
+      shows the receiving half, workers that check a message’s id before printing, and{' '}
+      <a href={SITE_LAB} rel="noopener">
+        the lab
+      </a>{' '}
+      is where the family of techniques is explained.
+    </p>
+
+    <h2>The key is written with the order</h2>
+    <p>
+      Every POST to the API needs an <code>Idempotency-Key</code> header holding a ULID. A missing
+      or malformed one is refused with 400 <code>idempotency-key</code> before anything else runs (
+      <code>workers/api/src/http/mod.rs</code>), the status the IETF’s draft gives for a missing
+      key. The storefront makes the key once per attempt (<code>apps/web/src/lib/attempt.ts</code>):
+      the same key while the cart and the form are unchanged and the last failure was the network or
+      a 5xx, which may have been applied, and a new one after a 4xx, which applied nothing, or after
+      any change.
+    </p>
+    <p>
+      Placing an order passes the key through three objects, each of which remembers it. The Sandbox
+      maps it to one order id in its <code>order_keys</code> table, so a retry addresses the same
+      Order object. The day’s Schedule holds the places under <code>hold:</code> and the key. The
+      Order records it last. The Schedule and the Order each keep a<code>commands_seen</code> table
+      of the key, a SHA-256 hash of the request body, the answer they gave and the time (
+      <code>workers/api/src/objects/stream.rs</code>), as every aggregate class does.
+    </p>
+    <p>
+      The nuance is where that row is written. The Order appends its events, copies them to its
+      outbox, sets its expiry timer and inserts the <code>commands_seen</code> row inside one
+      <code>transactionSync</code>, which Cloudflare’s documentation says is rolled back if its
+      callback throws. There is no moment when the order exists and its key does not, or the other
+      way round. A key is only as good as the transaction it is stored in.
+    </p>
+
+    <h2>A replay is the first answer</h2>
+    <p>
+      When a command arrives, the object reads its row for the key before it decides anything (
+      <code>check_command</code> in <code>crates/domain/src/outbox.rs</code>). No row: the command
+      is decided and committed. A row with the same body hash: the stored answer goes back as it
+      was, with <code>Idempotent-Replayed: true</code>, and 200 where the first answer was 201.
+      Nothing is decided again and no event is appended, so the buns are counted once.
+    </p>
+    <p>
+      A row with a different hash means the client sent one key with two bodies, which is the
+      client’s bug, not a retry. It is refused with 422 <code>idempotency-key</code>, reason{' '}
+      <code>key-reused</code>, the status the IETF draft gives for that case. Guessing which body
+      was meant would place an order nobody asked for.
+    </p>
+    <p>
+      A replay can be out of date. A hold released by its timer, or given back after the Order
+      refused, would replay a stale “held”. Since the hardening of 2026-11-06 the day decides such a
+      key again, as <code>Retake</code>: the same place is held again with the retry’s own 15
+      minutes when there is room, or the retry is refused with 409 <code>hold-lost</code>, naming
+      the next free slot.
+    </p>
+
+    <h2>The second edge: Stripe’s keys and Stripe’s clock</h2>
+    <p>
+      Stripe is a second system with its own state, so the same problem returns at the edge. The
+      Billing object commits its decision first, then calls Stripe with a key the committed state
+      names: <code>&lt;sandbox&gt;:&lt;ref&gt;:&lt;purpose&gt;:&lt;attempt&gt;</code> to create an
+      intent, the purpose suffixed with the call for the others, such as <code>-refund</code> (
+      <code>crates/app/src/stripe/request.rs</code>). The order’s id is the reference. The sandbox
+      leads because two sandboxes born from one seed share their seeded ids, and Stripe’s reference,
+      read on {READ}, says it saves the first status and body for a key, 500s included, keeps the
+      key for at least 24 hours, and refuses a retry whose parameters differ. Without the sandbox, a
+      second visitor’s payment would get the first one’s answer.
+    </p>
+    <p>
+      The order is paid only when Stripe’s signed webhook says so. Stripe’s documentation says an
+      event can arrive more than once and in no promised order, and tells you to log the event ids
+      you have processed. Billing records each id inside the event it produced, and its state keeps
+      them as <code>webhooks_seen</code>, so a redelivery is answered 200 and changes nothing (
+      <code>crates/domain/src/billing.rs</code>). Order is handled by refusing what cannot apply
+      yet: a refund that arrives before its payment is answered 409, and Stripe delivers it again
+      later. A payment that succeeds after its hold expired is recorded anyway, because the money
+      moved, and the Order refunds it as late. It is the header’s idea with someone else’s clock: a
+      webhook that comes twice or late changes nothing it should not.
+    </p>
+
+    <h2>What it costs</h2>
+    <ul>
+      <li>
+        <strong>A row per key per object.</strong> A placement writes three: the Sandbox’s mapping,
+        and a <code>commands_seen</code> row in the Schedule and in the Order. Nothing prunes them:
+        they live until the sandbox is wiped at 10:00 UTC, or until an object’s 36-hour backstop
+        deletes it (<code>docs/domain.md</code>, “Idempotency”). The draft asks each server to
+        publish its expiry, and this is the bakery’s: under a day and a half.
+      </li>
+      <li>
+        <strong>A 422 a client can earn.</strong> A client that reuses a key for a changed cart gets
+        422, not an order. The storefront avoids it by minting a key for every changed attempt.
+      </li>
+      <li>
+        <strong>A body hash on every command</strong>, and the answer stored beside it.
+      </li>
+      <li>
+        <strong>One key for every distinct call to Stripe</strong>, which is why the keys carry
+        suffixes and an attempt number: Stripe refuses one key on two different requests.
+      </li>
+    </ul>
+
+    <h2>Try it</h2>
+    <p>
+      Sign in, issue a token in <a href="/app/">the console</a>, and start the tour on{' '}
+      <a href="/checkout/">the checkout</a>. The step for placing an order shows its request as a
+      curl with an <code>Idempotency-Key</code>. Run it once and the answer is 201 with a new order;
+      run it again unchanged and the answer is 200, the same order, with
+      <code>Idempotent-Replayed: true</code>. Change a quantity and keep the key, and the answer is
+      422. Then pay for an order with the test card 4242 4242 4242 4242, and find the payment once
+      in <a href="/app/">the console’s</a> ledger.
+    </p>
+
+    <h2>Sources</h2>
+    <ul class="sources">
+      {SOURCES.map((s) => (
+        <li>
+          <a href={s.href} rel="noopener">
+            {s.title}
+          </a>
+          , {s.by}, read on {READ}: {s.for}.
+        </li>
+      ))}
+    </ul>
+    <p class="hint">
+      Back to <a href={howUrl('idempotency-keys')}>idempotency keys</a> and{' '}
+      <a href={howUrl('payment-keys')}>idempotency keys on payments and webhooks</a> on How it’s
+      built, to the decisions that chose them,{' '}
+      <a href={adrUrl('0004')} rel="noopener">
+        ADR 0004
+      </a>{' '}
+      and{' '}
+      <a href={adrUrl('0007')} rel="noopener">
+        ADR 0007
+      </a>
+      , or to <a href={essayUrl('raft')}>why a single writer needs no consensus</a>.
+    </p>
+  </article>
+</Base>

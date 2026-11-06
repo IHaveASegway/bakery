@@ -1,0 +1,206 @@
+---
+import Base from '../../layouts/Base.astro';
+import { ESSAYS, HOW_PATH, SITE_LAB, adrUrl, howUrl } from '../../lib/links';
+
+// The essay the API as a first-class client principle maps to (docs/domain.md, "The principle
+// map"; ADR 0013). The principle has no lab page yet, so the bakery explains it itself. Static,
+// no island. Every claim about a specification is as the document stated it on the date in READ,
+// and every number from the code names its file.
+const READ = '2026-11-06';
+const { title } = ESSAYS.api;
+const SOURCES = [
+  {
+    href: 'https://spec.openapis.org/oas/v3.1.0',
+    title: 'OpenAPI Specification v3.1.0',
+    by: 'the OpenAPI Initiative, dated 15 February 2021',
+    for: 'a standard, programming-language-agnostic description of an HTTP API, so that people and software can understand a service without reading its source',
+  },
+  {
+    href: 'https://www.rfc-editor.org/rfc/rfc6750',
+    title: 'The OAuth 2.0 Authorization Framework: Bearer Token Usage',
+    by: 'RFC 6750, M. Jones and D. Hardt, October 2012',
+    for: 'any party in possession of a bearer token can use it, so it must be protected in storage and transport; it is sent in the Authorization header, should be short-lived, and should not be passed in page URLs',
+  },
+  {
+    href: 'https://www.rfc-editor.org/rfc/rfc9457',
+    title: 'Problem Details for HTTP APIs',
+    by: 'RFC 9457, 2023',
+    for: 'a problem details object serialised as JSON uses the media type application/problem+json, which is the shape of every error the API gives',
+  },
+  {
+    href: 'https://martinfowler.com/bliki/TolerantReader.html',
+    title: 'Tolerant Reader',
+    by: 'Martin Fowler’s bliki, 9 May 2011',
+    for: 'a consumer reads only the data it needs and assumes little else about the payload, so a provider can add to it without breaking the consumer, which additive-only versions rely on',
+  },
+  {
+    href: 'https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/',
+    title: 'Rate Limiting binding',
+    by: 'Cloudflare’s Workers documentation',
+    for: 'a period of 10 or 60 seconds, a count kept separately in each Cloudflare location, and counts that are approximate',
+  },
+];
+---
+
+<Base
+  title={`${title} | Proof of Concept Bakery`}
+  description="How Proof of Concept Bakery gives its console and a visitor’s terminal one API: a contract written once in Rust, an OpenAPI document and TypeScript generated from it, and a bearer token that reaches one sandbox for 24 hours."
+>
+  <article class="essay prose">
+    <p class="hint">
+      <a href={HOW_PATH}>How it’s built</a>
+    </p>
+    <h1>{title}</h1>
+    <p class="lead">
+      A demo you can only click proves that the screens work. This is how the bakery lets an
+      engineer do the same thing from a terminal: one contract that the console, the reference and
+      the tour all come from, a token that reaches one sandbox and nobody else’s, and the page
+      weight that the generated reference costs.
+    </p>
+
+    <h2>A visitor who wants a terminal</h2>
+    <p>
+      A visitor changes a pickup slot’s capacity in the console and wonders what the browser sent.
+      They would like to send it again from a shell, with a different number, and see the same thing
+      happen on the board. If the console used private routes, that is impossible, and if the public
+      ones were written up by hand, it works until the day the two drift apart. Three readers depend
+      on one description: the console, the visitor’s script and the tour’s copyable requests (
+      <code>docs/adr/0013</code>).
+    </p>
+
+    <h2>What a simpler design does, and where it breaks</h2>
+    <p>
+      The usual design writes the API reference by hand, or from comments, after the routes exist.
+      The types in the browser are written by hand too. Each is a second copy, and nothing but
+      review notices when one is wrong. A visitor finds out first, by copying a request that no
+      longer works. The other simple design hides the API behind the console and publishes nothing,
+      which keeps the contract small and ends the lesson at the screen. No lab page shows this one
+      yet. The{' '}
+      <a href={SITE_LAB} rel="noopener">
+        lab’s index
+      </a>{' '}
+      is where the lab explains the family of techniques around it, and as read on {READ} it has
+      five labs and none on an API.
+    </p>
+
+    <h2>One contract, written in Rust</h2>
+    <p>
+      The contract is <code>crates/contracts</code>: the request and response types, derived with
+      schemars into one JSON Schema each, and the route table in <code>routes.rs</code>. The table
+      gives every route an id, a method, a path, who may call it (public, any session, the sandbox’s
+      own, signed in, cookie only or Stripe-signed), whether it takes a bearer token, the types it
+      names and the refusals it can give. Three things are generated from it.
+    </p>
+    <ul>
+      <li>
+        <strong>The TypeScript.</strong> The schemas produce <code>apps/web/src/contracts</code>,
+        and a test fails when a committed file is stale.
+      </li>
+      <li>
+        <strong>The OpenAPI document.</strong> The <code>openapi</code> binary writes{' '}
+        <code>apps/web/public/docs/api/openapi.json</code>, version 3.1.0 of the specification as
+        read on {READ}, and with <code>--check</code> it fails when the committed copy is not what
+        the table and schemas give today. A test also requires every route to appear in it once.
+      </li>
+      <li>
+        <strong>The reference.</strong> <a href="/docs/api/">The page at /docs/api/</a> is built
+        from that document at build time, with a curl for each route, and no renderer is fetched.
+      </li>
+    </ul>
+
+    <h2>The nuance: the table is held against its neighbours</h2>
+    <p>
+      The Worker has a route table of its own, in <code>workers/api/src/http/routes.rs</code>, and
+      the two are edited together. A test in <code>crates/contracts</code> reads the Worker’s table
+      and the Worker’s README: a route the Worker serves that the contract lacks fails, as does a
+      different method, path, session rule or bearer rule, and so does a route of a covered pull
+      request that the Worker does not serve. Because the reference is rendered from the contract,
+      every route the Worker serves is in the reference. The tour is held the same way: a test in{' '}
+      <code>apps/web/test/tour.test.ts</code> checks each step’s request against the document, its
+      method, its path, its bearer rule and its body against the request’s schema. One limit is
+      worth stating. The console’s own request helpers in <code>apps/web/src/lib/api.ts</code> are
+      written by hand over the generated types, and no test compares their paths with the document,
+      so the types are held by the generator and the paths by review and the tour.
+    </p>
+
+    <h2>A token that reaches one sandbox</h2>
+    <p>
+      A signed-in visitor can issue a bearer token in the console (<code>token.rs</code>,{' '}
+      <code>docs/security.md</code>, “The API token”). It is signed like the session cookie, with
+      its own purpose label, so a cookie presented as a token is refused and the reverse. Its claims
+      name the sandbox, and a path whose sandbox differs is the 404 of a name that exists nowhere,
+      so a visitor can script their own bakery and nobody else’s. It lasts 24 hours (86,400 seconds,{' '}
+      <code>crates/app/src/auth/token.rs</code>), and it dies with the sandbox. Rotating it raises
+      the sandbox’s token version, which makes every older token 401 <code>token</code>. It is
+      accepted on 57 of the 72 routes, and never on the routes that mint one, so a token cannot make
+      its successor. It is sent in <code>Authorization: Bearer</code> and refused in a query string,
+      which is what RFC 6750, as read on {READ}, advises, and a token beside a cookie is refused
+      too.
+    </p>
+    <p>
+      Each token has its own limit of 60 requests a minute, keyed by its id, reads included. The
+      61st is 429 <code>rate-limit</code> with <code>Retry-After: 60</code>. Cloudflare’s binding,
+      as read on {READ}, counts in each location separately and approximately, so 60 is a threshold
+      and not an exact line. The check runs before the Sandbox is read, so a flood never reaches the
+      object, and it spends nothing from the console’s limit. The reason is in RFC 6750: a bearer
+      token works for whoever holds it. A token that can leave the browser is held to a request a
+      second, and a leaked one is worth 24 hours of that in one sandbox the next 10:00 UTC deletes.
+    </p>
+
+    <h2>What it costs</h2>
+    <ul>
+      <li>
+        <strong>A large reference.</strong> The document is 414,873 bytes and 30,995 gzipped, with
+        64 paths, 72 operations and 115 component schemas (counted on 2026-11-06 from{' '}
+        <code>openapi.json</code>). The Lighthouse pass of 2026-11-06 found /docs/api/ the heaviest
+        page: 16,092 DOM elements and a performance score of 98 (<code>docs/roadmap.md</code>, PR
+        12).
+      </li>
+      <li>
+        <strong>A promise.</strong> After acceptance a field is only added, never renamed or
+        removed, until a <code>/v2/</code>, so a mistake in a name is carried (
+        <code>docs/adr/0013</code>).
+      </li>
+      <li>
+        <strong>Two tables by hand.</strong> The contract’s and the Worker’s are edited together,
+        with a test between them instead of a single source.
+      </li>
+      <li>
+        <strong>Fewer tokens than screens.</strong> Guests get no token, and the account-level
+        routes refuse one, which a visitor may find surprising.
+      </li>
+    </ul>
+
+    <h2>Try it</h2>
+    <p>
+      Sign in, open <a href="/app/">the console</a> and issue a token, which is shown once. Take any
+      step of the tour, copy its curl, which fills the token in for you, and run it from a terminal.
+      Then read the same route in <a href="/docs/api/">the reference</a>, and send the request a
+      61st time inside a minute to see the refusal and its <code>Retry-After</code>.
+    </p>
+
+    <h2>Sources</h2>
+    <ul class="sources">
+      {SOURCES.map((s) => (
+        <li>
+          <a href={s.href} rel="noopener">
+            {s.title}
+          </a>
+          , {s.by}, read on {READ}: {s.for}.
+        </li>
+      ))}
+    </ul>
+    <p class="hint">
+      Back to <a href={howUrl('api')}>the API principle on How it’s built</a>, to the decision that
+      chose it,{' '}
+      <a href={adrUrl('0013')} rel="noopener">
+        ADR 0013
+      </a>
+      , or to{' '}
+      <a href={SITE_LAB} rel="noopener">
+        the lab
+      </a>
+      .
+    </p>
+  </article>
+</Base>

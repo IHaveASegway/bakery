@@ -2,7 +2,7 @@
 
 This folder is the plan and the decision record for Proof of Concept Bakery, a made-up bakery run as a real business system: ordering, pickup and delivery scheduling, catering, billing through Stripe's sandbox, and a CRM with campaigns. Every backend is Rust on Cloudflare Workers, and state lives in SQLite-backed Durable Objects (DOs). The docs say what the demo is for, how it is built, shipped, secured, paid for and run, and why each choice beat its alternatives. They are also a study guide: every decision names its pattern, the quality attributes it trades, whether it is a one-way or a two-way door, and a source to read next.
 
-Status: Draft for review in PR 1 · 2026-11-04
+Status: Updated in PR 1 · 2026-11-04
 
 PR 1 wrote these docs before any code, and Joseph answered the blocking questions on 2026-11-04; the docs below carry his answers. An Accepted ADR is a commitment and a Proposed one is still open to argument, and the [ADR index](adr/README.md) is the one place that says which is which. At the time of writing every ADR is Proposed. Everything else here changes by pull request, in the doc that owns the topic.
 
@@ -32,7 +32,7 @@ Purpose first, then the language of the business, then the shape, then the parts
 | 6 | [cost.md](cost.md) | What does it cost, and what keeps it there? Price sheet, formulas, the per-sandbox meter, scenarios, the plan decision, guardrails, denial of wallet |
 | 7 | [delivery.md](delivery.md) | How does a change reach production? Repository layout, toolchain pins, the pipeline, environments, deploy and rollback for each Worker, quality gates, dependency policy |
 | 8 | [operations.md](operations.md) | How is it run alone? Access setup, observability, alerting, runbooks (deploy, rollback, wipe, kill switch, secret rotation, leak response), the maintenance calendar |
-| 9 | [roadmap.md](roadmap.md) | In what order? How we work, the definition of done, pull requests 1 to 13 with scope and estimates, spikes S1 to S7, decision gates, risks, what is explicitly later |
+| 9 | [roadmap.md](roadmap.md) | In what order? How we work, the definition of done, pull requests 1 to 16 with scope and estimates, spikes S1 to S7, decision gates, risks, what is explicitly later |
 | 10 | [adr/README.md](adr/README.md) | Which decisions are hard to reverse? The ADR format, the template, and the index of every ADR with its status |
 
 This table lists docs, not ADRs. The ADR index is the one owner of ADR titles and statuses. Copying it here would give the same facts two owners, the drift this plan avoids everywhere else.

@@ -57,7 +57,7 @@ export const CONTROLS: TourStep[] = [
     screen: 'console',
     target: 'controls-traffic',
     title: 'Simulated traffic',
-    what: 'Synthetic customers place orders the way a visitor does, through the same checks, so the board moves while you watch. It runs only while this page is open, at most 6 orders a minute and 30 minutes a day. Watch the queue’s backlog grow and the CRM’s timelines trail the orders.',
+    what: 'Synthetic customers place orders the way a visitor does, through the same checks, so the board moves while you watch. It runs only while this page is open, at most 6 orders a minute and 30 minutes a day. Watch the board fill over its socket while the customer list and the activity feed trail the orders by a moment.',
     events: ['TrafficStarted', 'OrderPlaced', 'OrderPaid'],
     principle: LOAD,
     api: {

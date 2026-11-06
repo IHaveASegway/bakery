@@ -1,0 +1,221 @@
+---
+import Base from '../../layouts/Base.astro';
+import { ESSAYS, HOW_PATH, SITE_LAB, adrUrl, howUrl } from '../../lib/links';
+
+// The essay the CQRS principle and the load principle share (docs/domain.md, "The principle
+// map"; Q40 · Q-traffic). Neither has a lab page yet, so the bakery explains them itself.
+// Static, no island. Every claim about Cloudflare's behaviour is as its documentation stated it
+// on the date in READ, and every number from the code names its file.
+const READ = '2026-11-06';
+const { title } = ESSAYS.cqrs;
+const SOURCES = [
+  {
+    href: 'https://cqrs.wordpress.com/wp-content/uploads/2010/11/cqrs_documents.pdf',
+    title: 'CQRS Documents',
+    by: 'Greg Young, 2010',
+    for: 'a service split into a command side and a query side, with consistent transactions on the first and eventual consistency on the second, kept in step by events',
+  },
+  {
+    href: 'https://www.enterpriseintegrationpatterns.com/patterns/messaging/Resequencer.html',
+    title: 'Resequencer',
+    by: 'Gregor Hohpe and Bobby Woolf, Enterprise Integration Patterns (2003)',
+    for: 'collecting messages that arrive out of order and publishing them in order, which the CRM deliberately does not do',
+  },
+  {
+    href: 'https://developers.cloudflare.com/queues/configuration/batching-retries/',
+    title: 'Batching, retries and delays',
+    by: 'Cloudflare’s Queues documentation',
+    for: 'a batch is delivered when it reaches its size or its timeout, whichever comes first; a message acknowledged on its own is not delivered again; three retries by default, then the dead-letter queue',
+  },
+  {
+    href: 'https://developers.cloudflare.com/queues/reference/delivery-guarantees/',
+    title: 'Delivery guarantees',
+    by: 'Cloudflare’s Queues documentation',
+    for: 'messages are delivered at least once and occasionally more than once',
+  },
+  {
+    href: 'https://developers.cloudflare.com/queues/platform/pricing/',
+    title: 'Queues pricing',
+    by: 'Cloudflare’s Queues documentation',
+    for: 'a message takes 3 operations, a write, a read and a delete, and each retry another read; 1,000,000 operations a month on Workers Paid, then $0.40 a million',
+  },
+  {
+    href: SITE_LAB,
+    title: 'The lab',
+    by: 'the lab index on ihaveasegway.com',
+    for: 'five lab pages, the Route, Queue, Cache, Backfill and Raft Labs; the Queue and Backfill Labs show the parts, and none shows the split itself',
+  },
+];
+---
+
+<Base
+  title={`${title} | Proof of Concept Bakery`}
+  description="How Proof of Concept Bakery takes writes in the objects that decide them and builds the CRM’s views from their events through a queue, and how simulated traffic makes the lag between the two visible."
+>
+  <article class="essay prose">
+    <p class="hint">
+      <a href={HOW_PATH}>How it’s built</a>
+    </p>
+    <h1>{title}</h1>
+    <p class="lead">
+      An order is decided at once, and the CRM learns of it a moment later. This is why the bakery
+      is built that way, what joins the two sides, and how the console lets a visitor watch the gap
+      under load instead of hiding it.
+    </p>
+
+    <h2>The order is on the board, and not yet on the timeline</h2>
+    <p>
+      A visitor opens the console and presses Start traffic at 6 orders a minute. Made-up customers
+      start ordering. A card appears on the kitchen board almost as soon as each order is placed. In
+      the customer list, that customer’s count of orders goes up later, once the payment has landed
+      and the list has looked again. Nothing failed. Every order was accepted the moment it was
+      placed, and the views are catching up.
+    </p>
+
+    <h2>What a simpler design does, and where it breaks</h2>
+    <p>
+      The obvious design reads the truth at the moment it is asked. A customer’s history would ask
+      every Order object that customer ever had, and the campaign stats would ask all of them, a
+      request each for every page view. <code>docs/adr/0004</code> rejects that as projections
+      polling their sources. The other obvious design has the Order write into the CRM as it
+      commits. A Durable Object’s transaction ends at its own storage, so that is a call, not a
+      write, and the Order would wait on the CRM: a slow CRM would slow every checkout. No lab page
+      shows this one yet. The{' '}
+      <a href={SITE_LAB} rel="noopener">
+        lab’s index
+      </a>{' '}
+      is where the lab explains the family of techniques around it; as read on {READ} its Queue and
+      Backfill Labs show the parts, and none shows the split.
+    </p>
+
+    <h2>Two sides with different needs</h2>
+    <p>
+      Greg Young’s <em>CQRS Documents</em> (2010) splits a service into a command side and a query
+      side because they want different things: commands want consistent data and a transaction,
+      while most systems can let the query side be eventually consistent. The bakery takes that
+      literally. The <code>Order</code>, <code>Customer</code> and <code>CateringEvent</code>{' '}
+      objects take commands and decide them. The <code>Crm</code> object keeps the views the console
+      reads, the customer list, the timelines, the activity feed, the lead pipeline and the campaign
+      stats, and no command ever writes them (<code>crates/domain/src/crm.rs</code>). The only thing
+      between the two sides is the Queue.
+    </p>
+
+    <h2>How an event crosses</h2>
+    <p>
+      An Order commits its events and a copy of each in its outbox in one transaction, answers the
+      visitor, and sends the outbox to the <code>bakery-events</code> Queue straight after; an{' '}
+      <code>outbox</code> timer 30 seconds out sends whatever did not go (in
+      <code>workers/api/src/objects/stream.rs</code>). The consumer takes batches of up to 10 with a
+      batch timeout of 0, so a message goes as soon as it is there (<code>wrangler.jsonc</code>).
+      Each subscriber gets the event at its own path, and a message is acknowledged only when every
+      subscriber answered 2xx; otherwise it is retried, and after 3 retries it moves to the
+      dead-letter queue (<code>workers/api/src/queue.rs</code>). Delivery is at least once, and
+      Cloudflare’s documentation, read on {READ}, promises no order.
+    </p>
+    <p>
+      So the CRM has to make a correct view out of events that can come twice and out of order. It
+      keeps the ids it applied, so a second delivery changes nothing. For each order, catering and
+      customer stream it keeps the newest <code>seq</code> it applied and ignores anything not
+      newer. It does not wait for gaps, because it receives only some of each stream’s events by
+      design. It is not Hohpe and Woolf’s resequencer, which buffers messages until the order is
+      whole. The one case it cannot apply is a later event for an order it has never seen, such as{' '}
+      <code>OrderPaid</code> ahead of <code>OrderPlaced</code>: it refuses it as an unknown
+      reference, and the Queue’s retry brings it back after the placement has arrived.
+    </p>
+
+    <h2>The lag is the design</h2>
+    <p>
+      The write that must be right now is the order: its place, its price, its payment. The read
+      that may be a moment old is the timeline. Splitting them means the checkout never waits for a
+      view, and a view can be thrown away and rebuilt from the CRM’s log (the{' '}
+      <a href={howUrl('backfill')}>backfill principle</a>). The cost is that the screens are behind,
+      and they say so. The console’s customer list and its activity feed look again every ten
+      seconds (<code>apps/web/src/components/Customers.tsx</code>, <code>Activity.tsx</code>), and
+      the tour tells the visitor that the CRM learns of a change “a moment later”. While a rebuild
+      runs, the CRM’s answers carry <code>Projection-State: rebuilding</code>. That header marks a
+      rebuild only; no screen yet shows how many events a view is behind.
+    </p>
+    <p>
+      The kitchen board is a projection too, fed by the same Queue. It looks faster because it is
+      pushed: a socket gets a snapshot when it joins and a frame for every event that changes the
+      board.
+    </p>
+
+    <h2>Load you can start, and that stops itself</h2>
+    <p>
+      A quiet demo has nothing to catch up on. The <code>Simulator</code> object, one per sandbox,
+      places orders on its own alarm, one tick a wall-time minute, as the seed’s made-up customers
+      (in
+      <code>workers/api/src/objects/simulator.rs</code>). Each order goes the way a visitor’s does:
+      the same idempotency key check, a place asked of the day’s <code>Schedule</code>, a payment
+      through Stripe’s test mode, one in six declined. Its events carry{' '}
+      <code>cause: sim:&lt;ulid&gt;</code>, so the feed tells them apart. Because it passes the same
+      checks, it is refused like a visitor: a smoke run at 03:30 UTC found its slots, four hours
+      ahead, falling before opening, and full slots kept it under its own rate limit, so the smoke
+      now moves the business clock to the next opening before it runs (<code>docs/roadmap.md</code>
+      ).
+    </p>
+    <p>
+      It is bounded three ways. At most 6 orders a wall-time minute, the next logged{' '}
+      <code>sim_rate</code>. At most 30 minutes a sandbox a UTC day, reserved in{' '}
+      <code>Control</code>’s ledger, a start past them refused and logged <code>sim_cap</code>. And
+      only while the console is open: a tick that has seen no socket and no heartbeat (sent every 30
+      seconds) for 90 seconds stops with <code>console_closed</code>. A demo left in a tab that was
+      closed cannot run up a bill on its own.
+    </p>
+
+    <h2>What it costs</h2>
+    <ul>
+      <li>
+        <strong>One full run.</strong> 30 minutes at the top rate is 180 orders, about 546 Queue
+        operations, 243 Durable Object requests and 3,000 rows written, wipe included (from
+        <code>docs/cost.md</code>, planning estimates as of 2026-11-06).
+      </li>
+      <li>
+        <strong>Three operations a message.</strong> A write, a read and a delete, and a read more
+        for each retry (Cloudflare’s Queues pricing, read on {READ}). On a day at the 300-sandbox
+        cap, <code>docs/cost.md</code> counts room for about 9 full runs in the Queue budget.
+      </li>
+      <li>
+        <strong>Views that are behind.</strong> Any screen built on the CRM can show a state a few
+        seconds old, and a reader has to know which screens those are.
+      </li>
+    </ul>
+
+    <h2>Try it</h2>
+    <p>
+      Sign in and open <a href="/app/">the console</a>. Press Start traffic and watch cards arrive
+      on the kitchen board, then watch the customer list’s Orders and Last order columns follow
+      them. Close the tab, and the Simulator stops on its own at its first tick after 90 seconds.
+    </p>
+
+    <h2>Sources</h2>
+    <ul class="sources">
+      {SOURCES.map((s) => (
+        <li>
+          <a href={s.href} rel="noopener">
+            {s.title}
+          </a>
+          , {s.by}, read on {READ}: {s.for}.
+        </li>
+      ))}
+    </ul>
+    <p class="hint">
+      Back to <a href={howUrl('cqrs')}>the CQRS principle</a> or{' '}
+      <a href={howUrl('load')}>load you can watch</a> on How it’s built, to the decisions that chose
+      them,{' '}
+      <a href={adrUrl('0003')} rel="noopener">
+        ADR 0003
+      </a>{' '}
+      and{' '}
+      <a href={adrUrl('0004')} rel="noopener">
+        ADR 0004
+      </a>
+      , or to{' '}
+      <a href={SITE_LAB} rel="noopener">
+        the lab
+      </a>
+      .
+    </p>
+  </article>
+</Base>

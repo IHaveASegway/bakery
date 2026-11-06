@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { SCREENS } from '../src/lib/tour';
 import { PRINCIPLE_TABLE, PRINCIPLES } from '../src/lib/how-its-built';
-import { ESSAYS, HOW_PATH, adrUrl, labUrl } from '../src/lib/links';
+import { ESSAYS, ESSAY_PAGES, HOW_PATH, SITE_LAB, adrUrl, labUrl } from '../src/lib/links';
 import { RULE_PATHS } from '../src/policy';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
@@ -14,9 +14,15 @@ import { readLock, verifyFolder } from '../../../scripts/fetch-solver.mjs';
 // Run after `pnpm build`.
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
-// The essays, one per lab principle, from the one table of them (src/lib/links.ts): a page added
-// there is checked here without a test of its own.
-const essays = Object.entries(ESSAYS).map(([id, essay]) => ({ id, ...essay }));
+// The essays, from the one table of them (src/lib/links.ts): a page added there is checked here
+// without a test of its own. Each page once, with every principle that links it (three pairs
+// share one: the two idempotency principles, CQRS and load, the sandbox and no personal data).
+const essays = ESSAY_PAGES.map((essay) => ({
+  ...essay,
+  ids: Object.entries(ESSAYS)
+    .filter(([, e]) => e.path === essay.path)
+    .map(([id]) => id),
+}));
 const essayFile = (path: string) => `${path.slice(1)}index.html`;
 const page = (path: string) => readFileSync(`${dist}${path}`, 'utf8');
 const rule = (path: string) => {
@@ -173,17 +179,19 @@ describe('dist', () => {
       }
     });
 
-    test('links each essay from its own section, by its title, lists all five, and the contents link every section', () => {
-      for (const { id, path, title } of essays) {
-        const start = html().indexOf(`id="${id}"`);
-        expect(start, id).toBeGreaterThan(-1);
-        expect(html().slice(start, html().indexOf('</section>', start)), id).toContain(
-          `<a href="${path}">${title}</a>`,
-        );
+    test('links each essay from its sections, by its title, lists each once, and the contents link every section', () => {
+      for (const { ids, path, title } of essays) {
+        for (const id of ids) {
+          const start = html().indexOf(`id="${id}"`);
+          expect(start, id).toBeGreaterThan(-1);
+          expect(html().slice(start, html().indexOf('</section>', start)), id).toContain(
+            `<a href="${path}">${title}</a>`,
+          );
+        }
       }
       const contents = html().split('id="contents-title"')[1]!.split('</nav>')[0]!;
       for (const { path, title } of essays) {
-        expect(contents, path).toContain(`<a href="${path}">${title}</a>`);
+        expect(contents.split(`<a href="${path}">${title}</a>`), path).toHaveLength(2);
       }
       for (const { id } of PRINCIPLE_TABLE) expect(html()).toContain(`href="#${id}"`);
       // A principle with no essay links none.
@@ -197,16 +205,28 @@ describe('dist', () => {
   });
 
   // Each essay's words between its h1 and its sources: the first was held to 700 to 1,000 in PR
-  // 12, the four of PR 14 to 900 to 1,300.
+  // 12, the four of PR 14, the four of PR 15 and the four of PR 16 to 900 to 1,300.
   const WORDS: Record<string, [number, number]> = {
-    raft: [700, 1_000],
-    queue: [900, 1_300],
-    cache: [900, 1_300],
-    backfill: [900, 1_300],
-    routes: [900, 1_300],
+    '/how-its-built/single-writer/': [700, 1_000],
+    '/how-its-built/outbox/': [900, 1_300],
+    '/how-its-built/cache/': [900, 1_300],
+    '/how-its-built/rebuild/': [900, 1_300],
+    '/how-its-built/routes/': [900, 1_300],
+    '/how-its-built/idempotency/': [900, 1_300],
+    '/how-its-built/sagas/': [900, 1_300],
+    '/how-its-built/leases/': [900, 1_300],
+    '/how-its-built/admission/': [900, 1_300],
+    '/how-its-built/lag/': [900, 1_300],
+    '/how-its-built/time-travel/': [900, 1_300],
+    '/how-its-built/sandbox/': [900, 1_300],
+    '/how-its-built/api/': [900, 1_300],
   };
 
-  describe.each(essays)('the essay $path', ({ id, path, title }) => {
+  test('every essay has its length set', () => {
+    expect(Object.keys(WORDS).sort()).toEqual(essays.map((e) => e.path).sort());
+  });
+
+  describe.each(essays)('the essay $path', ({ ids, path, title }) => {
     const file = essayFile(path);
     const html = () => page(file);
     const text = () =>
@@ -214,7 +234,7 @@ describe('dist', () => {
         .replace(/<(script|style)[\s\S]*?<\/\1>/g, '')
         .replace(/<[^>]+>/g, ' ')
         .replace(/\s+/g, ' ');
-    const principle = PRINCIPLES[id]!;
+    const principles = ids.map((id) => PRINCIPLES[id]!);
 
     test('is in the dist, on the Base layout, with the hint back to How it’s built', () => {
       expect(existsSync(`${dist}${file}`), file).toBe(true);
@@ -231,9 +251,16 @@ describe('dist', () => {
       expect(html()).toContain(`<title>${title} | Proof of Concept Bakery</title>`);
     });
 
-    test('links its lab page and its ADR', () => {
-      expect(html()).toContain(`href="${labUrl(principle.lab)}"`);
-      expect(html()).toContain(`href="${adrUrl(principle.adr)}"`);
+    test('links its lab page, or the lab’s index where its principle has none, and its ADR', () => {
+      // In the essay itself: the footer links the lab's index on every page.
+      const article = html().split('<article')[1]!.split('</article>')[0]!;
+      for (const principle of principles) {
+        const lab = labUrl(principle.lab);
+        expect(article, principle.id).toContain(`href="${lab ?? SITE_LAB}"`);
+        expect(article, principle.id).toContain(`href="${adrUrl(principle.adr)}"`);
+        // One with no lab page says so.
+        if (lab === undefined) expect(article, principle.id).toMatch(/no lab page/i);
+      }
     });
 
     test('lists at least five sources, each linked with the date it was read, or saying it was not', () => {
@@ -255,7 +282,7 @@ describe('dist', () => {
     test('is the length its brief sets, between its title and its sources', () => {
       const body = text().split(title).at(-1)!.split(' Sources ')[0]!;
       const words = body.trim().split(' ').length;
-      const [least, most] = WORDS[id]!;
+      const [least, most] = WORDS[path]!;
       expect(words).toBeGreaterThanOrEqual(least);
       expect(words).toBeLessThanOrEqual(most);
     });

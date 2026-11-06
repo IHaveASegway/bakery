@@ -29,6 +29,7 @@ import { HOW } from '../src/tour/how';
 import { PRINCIPLES, PRINCIPLE_TABLE } from '../src/lib/how-its-built';
 import {
   ESSAYS,
+  ESSAY_PAGES,
   LAB_SLUGS,
   NO_LAB,
   adrFile,
@@ -263,10 +264,14 @@ describe('events, principles and targets', () => {
     );
   });
 
-  test('every principle links its own section of How it’s built, and a lab principle its essay', () => {
+  test('every principle links its own section of How it’s built, and one with an essay its essay', () => {
     for (const step of allSteps) {
       expect(step.principle.howUrl, step.id).toBe(`/how-its-built/#${step.principle.id}`);
-      expect(step.principle.essay !== undefined, step.id).toBe(step.principle.lab !== 'none yet');
+      expect(step.principle.essay !== undefined, step.id).toBe(
+        Object.hasOwn(ESSAYS, step.principle.id),
+      );
+      // Every principle has an essay, with a lab page or without.
+      expect(step.principle.essay, step.id).toBeDefined();
       const essay = essayOf(step.principle.id);
       expect(step.principle.essay, step.id).toEqual(
         essay === undefined ? undefined : { url: essay.path, title: essay.title },
@@ -280,11 +285,7 @@ describe('events, principles and targets', () => {
     const reached = new Set(
       allSteps.flatMap((s) => (s.principle.essay ? [s.principle.essay.url] : [])),
     );
-    expect([...reached].sort()).toEqual(
-      Object.values(ESSAYS)
-        .map((e) => e.path)
-        .sort(),
-    );
+    expect([...reached].sort()).toEqual(ESSAY_PAGES.map((e) => e.path).sort());
   });
 
   test('every principle is used by at least one tour step', () => {
