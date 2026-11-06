@@ -358,7 +358,7 @@ sequenceDiagram
   participant A as bakery-api
   participant C as Control DO
   participant S as Sandbox DO
-  participant K as About 36 children
+  participant K as 36 children
   B->>A: POST /v1/sandboxes, Idempotency-Key, Turnstile token if guest
   A->>A: Origin, rate limit per IP hash, siteverify for guests
   A->>C: admit
@@ -686,7 +686,7 @@ Two shared resources: the account's bill on Paid, which has no spend cap,[^prici
 | GitHub outage | builds, deploys, the morning check | nothing | GitHub status | wait |
 | A fall back to Free (Q27 · Q-plan chose Paid) | every sandbox | creation refused once `Control`'s share is spent | `Control`'s ledger | rows written bind first, 100,000 a day,[^dopricing] at about 20 sandboxes a day ([cost.md](cost.md)); 10 ms CPU and 50 subrequests[^limits] push argon2 and Clarke–Wright to the browser; no Email Service sends |
 
-**Kill switch**, the site's levels adapted: L0 `Control`'s breaker, L1 flags, L2 redeploy, L3 the prebuilt WAF rule, L4 detach the API's Custom Domain, the switch the own hostname buys (Q8 · Q-api-host). [operations.md](operations.md) owns the runbook.
+**Kill switch**, the site's levels adapted: L0 `Control`'s breaker, L1 flags, L2 redeploy (not built as a dispatch: use L1 `off`, or ship a change under `workers/api/` through the pipeline, which restarts every object; `ci.yml` at d778ff7, 2026-11-06), L3 the prebuilt WAF rule, L4 detach the API's Custom Domain, the switch the own hostname buys (Q8 · Q-api-host). [operations.md](operations.md) owns the runbook.
 
 ## Cross-cutting concerns
 

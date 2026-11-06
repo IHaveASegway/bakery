@@ -508,26 +508,26 @@ All of them live and die with the sandbox, so none needs pruning. A command and 
 
 **Simulated traffic starts stopped.** No `Simulator` exists at seed; a signed-in visitor's first "Start traffic" registers one (Q40 · Q-traffic).
 
-**Approximate rows written at seed**, for [cost.md](cost.md), which prices the same table:
+**Approximate rows written at seed, as built on 2026-11-06** (sources: `workers/api/src/objects/sandbox.rs` for the 36 children, `crates/seed/src/dispatch.rs` for the Dispatch; the other rows are PR 4's estimates, not recounted; the sum is 40 + 106 + 460 + 120 + 13 + 72 + 107 + 13 + 942 + 241 + 4 = 2,118), for [cost.md](cost.md), which prices the same table:
 
 | Object | Instances | Tables | Rows |
 |---|---|---|---|
-| Sandbox | 1 | meta, a registry of 34, the clock, timers | 38 |
+| Sandbox | 1 | meta, a registry of 36, the clock, timers (planned 34 and 38) | 40 |
 | Catalog | 1 | 5 categories, 24 items, 48 variants, 24 availability rules, the version, events | 106 |
-| Schedule | 7 | 32 slots, 6 windows, capacities, 5 plan lines each (the PR 4 estimate; the day's real rows are not counted yet, spike S5) | 322 |
+| Schedule | 10 | 32 slots, 6 windows, capacities, 5 plan lines each (the PR 4 estimate; the day's real rows are not counted yet, spike S5); 7 days and 3 catering days, planned 7 × 46 = 322 | 460 |
 | Order | 12 open | 3 events, state, 3 lines, a key, a timer, outbox rows each | 120 |
 | Kitchen | 1 | the board, a timer | 13 |
 | CateringEvent | 8 | 5 events, state, the quote, 2 timers each | 72 |
 | Billing | 1 | 90 daily totals, 16 deposits and balances | 107 |
-| Dispatch | 1 | the open deliveries' stops (2 for seed 42 born 2026-11-07), 1 proposal | 13 |
+| Dispatch | 1 | the open deliveries' stops (2 for seed 42 born 2026-11-07, both paid), 1 proposal: 5 events, with their outbox rows, a meta row and 2 timer rows (planned 10 stops, 2 plans) | 13 |
 | Crm | 1 | 720 history events, 60 customers, 60 loyalty rows, segments, memberships, campaigns | 942 |
 | Inbox | 1 | 240 messages | 241 |
 | Account, Control | shared | the sandbox pointer; the ledger | 4 |
 | Customer | 0 | created on first touch | 0 |
 | Simulator | 0 | created stopped, on the first "Start traffic" | 0 |
-| Total | 34 objects | | 1,978, about 2,000 |
+| Total | 37 objects (the Sandbox and 36 children) | | 2,118, about 2,100 (planned 34 objects, 1,978) |
 
-That is close to the 2,000 rows [cost.md](cost.md) starts from; spike S5 measures the real figure, wipe included.
+That is close to the 2,000 rows [cost.md](cost.md) starts from (the plan counted 1,978 for 34 objects; the 3 catering days and the larger registry add 140); spike S5 measures the real figure, wipe included.
 
 **As built in PR 6 (2026-11-05).** A sandbox now seeds 22 children in four batches: the Catalog, the Kitchen and `Billing`, then the 7 `Schedule` days, then the 12 open orders (`workers/api/src/objects/sandbox.rs`). A `Schedule` day holds its place for each open order under the order's own id.
 
