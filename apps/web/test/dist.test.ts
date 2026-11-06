@@ -221,6 +221,7 @@ describe('dist', () => {
     '/how-its-built/time-travel/': [900, 1_300],
     '/how-its-built/sandbox/': [900, 1_300],
     '/how-its-built/api/': [900, 1_300],
+    '/how-its-built/breaker/': [900, 1_300],
   };
 
   test('every essay has its length set', () => {
@@ -355,8 +356,9 @@ describe('dist', () => {
       return page(`_astro/${url}`);
     };
 
-    test('is a static page with one island, the policy class island, and no third party', () => {
-      expect(html().split('<astro-island').length - 1).toBe(1);
+    // The Status island and, since PR 18, the tour's: every other page carries the tour's.
+    test('is a static page with two islands, the status one and the tour’s, and no third party', () => {
+      expect(html().split('<astro-island').length - 1).toBe(2);
       expect(html()).toContain('<h1>Status</h1>');
       expect(html()).not.toMatch(/<(link|script)[^>]+(href|src)="https?:/);
       expect(island()).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);

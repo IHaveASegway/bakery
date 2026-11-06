@@ -85,6 +85,7 @@ describe('every screen has a tour', () => {
         'menu',
         'privacy',
         'signin',
+        'status',
       ].sort(),
     );
   });

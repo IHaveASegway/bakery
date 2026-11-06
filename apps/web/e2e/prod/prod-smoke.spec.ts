@@ -46,6 +46,7 @@ const PAGES = [
   '/how-its-built/time-travel/',
   '/how-its-built/sandbox/',
   '/how-its-built/api/',
+  '/how-its-built/breaker/',
   '/docs/api/',
   '/inbox/',
   '/app/',
