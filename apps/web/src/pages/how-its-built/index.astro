@@ -1,11 +1,14 @@
 ---
 import Base from '../../layouts/Base.astro';
 import { GROUPS, ONE_LINE, RECRUITER_LINE, principleOf, sections } from '../../lib/how-its-built';
-import { ESSAY_PATH, SITE_LAB } from '../../lib/links';
+import { ESSAYS, SITE_LAB } from '../../lib/links';
 
 // How it's built (Q6 · Q-public, Q32 · Q-links, Q33 · Q-principles): one section per principle,
 // from the data the tour reads (lib/how-its-built.ts), so the page and the tour cannot drift. A
-// static page with no island and no script: the strict policy, like the 404.
+// static page with no island and no script: the strict policy, like the 404. Each lab principle
+// has an essay of its own (lib/links.ts, ESSAYS), listed after the contents and linked from its
+// section by title.
+const essays = Object.values(ESSAYS);
 const groups = (['lab', 'new', 'demo'] as const).map((group) => ({
   group,
   ...GROUPS[group],
@@ -51,9 +54,18 @@ const groups = (['lab', 'new', 'demo'] as const).map((group) => ({
           </ul>
         </>
       ))}
+      <h3 id="essays-title">The essays</h3>
       <p>
-        And the essay: <a href={ESSAY_PATH}>why a single-writer object needs no consensus</a>.
+        One for each lab principle: what the bakery does for real that the lab page shows in the
+        small.
       </p>
+      <ul class="contents" aria-labelledby="essays-title">
+        {essays.map((e) => (
+          <li>
+            <a href={e.path}>{e.title}</a>
+          </li>
+        ))}
+      </ul>
     </nav>
 
     {groups.map(({ group, title, intro, sections }) => (
@@ -90,10 +102,10 @@ const groups = (['lab', 'new', 'demo'] as const).map((group) => ({
               <a href={s.links.adrUrl} rel="noopener">
                 ADR {s.adr}
               </a>
-              {s.links.essayUrl !== undefined && (
+              {s.links.essay !== undefined && (
                 <>
                   {' · '}
-                  <a href={s.links.essayUrl}>why a single writer needs no consensus</a>
+                  <a href={s.links.essay.url}>{s.links.essay.title}</a>
                 </>
               )}
             </p>

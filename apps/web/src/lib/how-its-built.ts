@@ -5,7 +5,7 @@
 // the links. The tour's principles (src/tour/principles.ts) are read from here, so a tour step and
 // the page can never name a principle differently or link it somewhere else.
 import type { Principle } from './tour';
-import { ESSAY_PATH, adrUrl, howUrl, labUrl, type LabOrNone } from './links';
+import { adrUrl, essayOf, howUrl, labUrl, type LabOrNone } from './links';
 
 /**
  * The bakery in one line (docs/product.md, "In one line"), as the How it's built page and the home
@@ -34,8 +34,6 @@ export interface Identity {
   lab: LabOrNone;
   /** The ADR that decided it, by number. */
   adr: string;
-  /** Whether the essay on single-writer objects goes with it. */
-  essay?: true;
 }
 
 /** What the page says about it. */
@@ -113,7 +111,6 @@ export const PRINCIPLE_TABLE = [
     name: 'Consensus, and when a single writer needs none',
     lab: 'Raft Lab',
     adr: '0003',
-    essay: true,
   },
   {
     id: 'idempotency-keys',
@@ -203,17 +200,17 @@ const PROSE: Record<PrincipleId, Prose> = {
       'A paid order has to reach the kitchen board, the CRM and the inbox, which are other objects. A write and a message sent after it can come apart: the write commits and the message is lost, or the message goes and the write is undone.',
     technique:
       'A transactional outbox, a queue that delivers at least once, consumers that skip what they have already applied, and a dead-letter queue for what keeps failing.',
-    how: 'Each object writes its events, and a copy of them in its outbox, in the same transaction as its state, then sends the outbox to the Queue: a row may go twice, but once committed it is never lost. Each subscriber records an event’s id in its seen table in the same transaction as the change it makes, so a second delivery changes nothing; without that, every retry would put a second card on the board. A delivery still failing after three retries is parked as a dead letter, not dropped, until someone fixes the cause and redrives it.',
+    how: 'Each object writes its events, and a copy of them in its outbox, in the same transaction as its state, then sends the outbox to the Queue: a row may go twice, but once committed it is never lost. Each subscriber records the ids of the events it has applied in the same transaction as the change it makes, so a second delivery changes nothing; without that, every retry would put a second card on the board. A delivery still failing after three retries is parked as a dead letter, not dropped, until someone fixes the cause and redrives it.',
     where:
-      'The outbox table of every aggregate object; the bakery-events Queue; each subscriber’s seen table; the dead-letter queue and the Sandbox’s dead letters.',
+      'The outbox table of every aggregate object; the bakery-events Queue; each subscriber’s record of applied events; the dead-letter queue and the Sandbox’s dead letters.',
     see: 'Turn on the kitchen fault in the console, place an order, and watch the retries, the dead letter and a redrive that puts the card on the board once.',
     screen: { href: '/app/', label: 'The console' },
   },
   cache: {
     problem:
-      'Nearly every page view asks for the same menu, and most of the time it has not changed. Asking the Catalog object each time costs a request, and a cache that expires on a timer serves an old price until it does.',
+      'Nearly every page view asks for the same menu, and most of the time it has not changed. Fetching the whole menu from the Catalog object each time costs a request and its body, and a cache that expires on a timer serves an old price until it does.',
     technique: 'Cache keys that carry the menu’s version, and an ETag for the browser.',
-    how: 'Publishing the menu bumps its version and emits MenuPublished. The cache is keyed by sandbox and version, so the first read of a new version misses once and fills it, and an old version is never served again because nothing asks for its key: nothing has to be found and deleted. A client that sends the ETag back gets a 304 and no body. The cost is one miss per publish, and a new price nobody sees until it is published.',
+    how: 'Publishing the menu bumps its version and emits MenuPublished. The cache is keyed by sandbox and version, so the first read of a new version misses once and fills it, and an old version is never served again because nothing asks for its key: nothing has to be found and deleted. A client that sends the ETag back gets a 304 and no body. The cost is a version check on every read, one miss per publish in each data centre that serves the sandbox, and a new price nobody sees until it is published.',
     where:
       'The Catalog object’s menu version and ETag; the Cache API, keyed by sandbox and version; the MenuPublished event.',
     see: 'Change a price in the console, publish it, and watch the version, the ETag and the Bakery-Cache header change on the menu.',
@@ -223,7 +220,7 @@ const PROSE: Record<PrincipleId, Prose> = {
     problem:
       'The CRM’s customer list, timelines, segments and campaign stats are derived from events. A bug in how they are derived, or a new view of them, means computing them again from history while orders keep arriving.',
     technique: 'Projections rebuilt from an append-only log, in batches, behind a cursor.',
-    how: 'The CRM object keeps every event that changed its projections in a log. A rebuild empties the projections, sets a cursor at the start of the log and replays 200 events at a time, one alarm a batch, while commands keep working; the result is the same bytes it was before. That only holds because applying an event is idempotent and ordered per stream: a late event with a lower sequence number is dropped, and a projection that added on every replay would count each order twice.',
+    how: 'The CRM object keeps every event that changed its projections in a log. A rebuild empties the projections, sets a cursor at the start of the log and replays 200 events at a time, one alarm a batch, while commands keep working; the result is the same bytes it was before. That only holds because applying an event is idempotent and ordered per stream: a late event with a lower sequence number is dropped, and a projection that appended on every replay would write each order’s timeline line twice.',
     where: 'The Crm object: its log, its projections and its rebuild cursor.',
     see: 'Press Rebuild projections in the console, watch the cursor move, and compare the stats before and after.',
     screen: { href: '/app/', label: 'The console' },
@@ -244,7 +241,7 @@ const PROSE: Record<PrincipleId, Prose> = {
       'Two tabs race for the last place in a pickup slot. If the slot’s count lived in several copies, the copies would have to agree on who got it, and making copies agree is what consensus protocols such as Raft are for.',
     technique:
       'A single writer: one Durable Object owns each day’s places, so there is only one copy to agree with.',
-    how: 'The Schedule object for a sandbox and a day takes every hold for that day one at a time, and its storage commits with the code that decided, so the second of two racing holds sees the first and is refused, naming the next free slot. The bakery replicates nothing itself, so it elects no leader and counts no quorum. What that gives up, and where the bakery pays for it, is the essay below.',
+    how: 'The Schedule object for a sandbox and a day takes every hold for that day one at a time, and its storage commits with the code that decided, so the second of two racing holds sees the first and is refused, naming the next free slot. The bakery replicates nothing itself, so it elects no leader and counts no quorum. What that gives up, and where the bakery pays for it, is the essay linked below.',
     where:
       'The Schedule object, one per sandbox and business day; the SlotHeld event and the slot-full refusal.',
     see: 'Set a pickup slot’s capacity to one in the console, then check out that slot from two tabs: one order is held and the other is refused.',
@@ -371,6 +368,7 @@ export function sections(): Section[] {
 /** A principle with its links: the one place they are made. */
 export function principleOf(section: Identity): Principle {
   const lab = labUrl(section.lab);
+  const essay = essayOf(section.id);
   return {
     id: section.id,
     name: section.name,
@@ -379,7 +377,7 @@ export function principleOf(section: Identity): Principle {
     ...(lab === undefined ? {} : { labUrl: lab }),
     adrUrl: adrUrl(section.adr),
     howUrl: howUrl(section.id),
-    ...(section.essay ? { essayUrl: ESSAY_PATH } : {}),
+    ...(essay === undefined ? {} : { essay: { url: essay.path, title: essay.title } }),
   };
 }
 

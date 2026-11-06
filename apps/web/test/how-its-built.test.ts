@@ -12,6 +12,7 @@ import {
   principle,
   sections,
 } from '../src/lib/how-its-built';
+import { ESSAYS, essayUrl } from '../src/lib/links';
 import * as tourPrinciples from '../src/tour/principles';
 
 const read = (relative: string) =>
@@ -77,9 +78,30 @@ describe('the sections and the tour’s principles', () => {
     expect(() => principle('no-such-principle')).toThrow(/no How it's built section/);
   });
 
-  test('the essay goes with the Raft principle alone', () => {
-    const withEssay = Object.values(PRINCIPLES).filter((p) => p.essayUrl !== undefined);
-    expect(withEssay.map((p) => p.id)).toEqual(['raft']);
+  test('every lab principle has its essay, at its path and by its title, and no other principle has one', () => {
+    const withEssay = Object.values(PRINCIPLES).filter((p) => p.essay !== undefined);
+    expect(withEssay.map((p) => p.id)).toEqual(['queue', 'cache', 'backfill', 'routes', 'raft']);
+    expect(Object.keys(ESSAYS)).toEqual(withEssay.map((p) => p.id));
+    for (const p of withEssay) {
+      const essay = ESSAYS[p.id as keyof typeof ESSAYS];
+      expect(p.essay, p.id).toEqual({ url: essay.path, title: essay.title });
+      expect(essayUrl(p.id), p.id).toBe(essay.path);
+      expect(essay.path, p.id).toMatch(/^\/how-its-built\/[a-z-]+\/$/);
+    }
+    expect(Object.values(ESSAYS)).toEqual([
+      { path: '/how-its-built/outbox/', title: 'Why a paid order is never lost and never doubled' },
+      { path: '/how-its-built/cache/', title: 'Why the menu is cached by version, not by time' },
+      { path: '/how-its-built/rebuild/', title: 'Why the CRM can be thrown away and rebuilt' },
+      {
+        path: '/how-its-built/routes/',
+        title: 'Why the browser plans the route and the object decides',
+      },
+      {
+        path: '/how-its-built/single-writer/',
+        title: 'Why a single-writer object needs no consensus',
+      },
+    ]);
+    expect(essayUrl('sagas')).toBeUndefined();
   });
 });
 
