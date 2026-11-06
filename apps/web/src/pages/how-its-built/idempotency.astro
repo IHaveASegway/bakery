@@ -143,10 +143,12 @@ const SOURCES = [
       was meant would place an order nobody asked for.
     </p>
     <p>
-      A replay can be out of date. As built on {READ}, the roadmap records one open gap: if a hold
-      lapses or is released and the same key is retried past 15 business minutes, the Schedule
-      replays its stored “held” answer, and the order can be placed with no live hold. It is rare,
-      and it is written down as unguarded.
+      A replay can be out of date. A hold released by its timer or by the compensation after the
+      Order refused would replay a stale “held”. The day therefore decides such a key again, as{' '}
+      <code>Retake</code>: the same place is held again with the retry’s own 15 minutes when there
+      is room, or the retry is refused with 409 <code>hold-lost</code>, naming the next free slot
+      (the hardening after PR 13, 2026-11-06, <code>workers/api/src/objects/schedule.rs</code>). The
+      release key carries the hold’s expiry, so a place taken again can be given back again.
     </p>
 
     <h2>The second edge: Stripe’s keys and Stripe’s clock</h2>

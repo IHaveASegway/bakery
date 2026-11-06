@@ -130,6 +130,19 @@ const SOURCES = [
       wipe missed still ends, at most 36 hours after its objects were born.
     </p>
 
+    <h2>A retry after the end</h2>
+    <p>
+      A lease can also end between a visitor’s request and its retry. If a placement is retried
+      under the same key after its hold was released, by the timer or by the router giving the place
+      back when the Order refused, the day no longer replays a stale “held”. The router first asks
+      whether the Order exists, and if it does the Order replays its own answer. If not, the
+      Schedule decides <code>Retake</code> (<code>crates/domain/src/schedule.rs</code>): the same
+      place is held again with the retry’s own 15 minutes when there is room, and otherwise the
+      answer is 409 <code>hold-lost</code>, naming the next free slot. Taking it back rather than
+      refusing it is the choice <code>docs/roadmap.md</code> records for the hardening of
+      2026-11-06: the visitor asked once, and the place was free.
+    </p>
+
     <h2>The payment that arrives after the end</h2>
     <p>
       The Order’s expiry and the Schedule’s hold timer are two timers on two objects at one instant,
