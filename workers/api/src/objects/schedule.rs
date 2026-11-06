@@ -6,7 +6,11 @@
 //!
 //! Born on first touch through the Sandbox's registry, like every child: the router (a hold, a
 //! read of the day, a capacity change) and the seed register the name first, then hand the
-//! birth here.
+//! birth here. A day born after the seed asks the Catalog once for its published menu and is
+//! born with its caps (`RefreshCaps`, in the first write's transaction), so it is capped like a
+//! seeded day; a later `MenuPublished` of the same version changes nothing. When the menu cannot
+//! be read the day is not born: 410 if the Catalog is gone, else 503 `{error: "caps-unavailable"}`
+//! with `schedule_birth_refused` logged, and nothing is held (the hardening after PR 13).
 //!
 //! Paths (the Worker builds them; nothing outside reaches them):
 //!
@@ -19,6 +23,9 @@
 //!   `Idempotent-Replayed: true` for a key seen with the same body; 422 `{error: "key-reused"}`
 //!   for one seen with another; 422 `{error: "schedule", rule, next_free?, item?, free?}` for a
 //!   rule the command breaks, which writes nothing. With `birth` the day is created if needed.
+//!   A `hold` whose key is seen but whose place was released since (by its timer, or given back
+//!   after the Order refused) is not replayed: it is decided again as `Retake`, held anew with
+//!   the retry's `expires_at` and its answer stored under the key, or refused `hold-lost`.
 //!   `cmd` is one of `{cmd: "hold", ref, kind, start, zone, lines, expires_at}`, `{cmd: "confirm",
 //!   ref}`, `{cmd: "release", ref, reason}`, `{cmd: "fulfil", ref}`, `{cmd: "set_capacity",
 //!   target, capacity}`, `{cmd: "refresh_caps", menu_version, caps}`.
@@ -445,6 +452,51 @@ pub fn caps_of(menu: &MenuView) -> Vec<ItemCap> {
         .collect()
 }
 
+/// Why a day could not be born with its caps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NoCaps {
+    /// The Catalog answered 410: the sandbox is gone.
+    Gone,
+    /// The Catalog answered this status, or 0 when it could not be reached.
+    Unavailable(u16),
+}
+
+/// The caps a day is born with, as the menu gives them.
+fn caps_command(menu: &MenuView) -> ScheduleCommand {
+    ScheduleCommand::RefreshCaps {
+        menu_version: menu.version,
+        caps: caps_of(menu),
+    }
+}
+
+/// A day's first write: the menu's caps, then the command, decided as one, so a hold on a day
+/// no seed touched is capped like a seeded one. A refused command writes nothing, caps included.
+fn decide_born(
+    date: BakeryDate,
+    caps: &ScheduleCommand,
+    cmd: &ScheduleCommand,
+    ctx: &DecideContext,
+) -> std::result::Result<(ScheduleState, Vec<ScheduleEvent>), ScheduleError> {
+    let (state, mut events) = execute::<Aggregate>(ScheduleState::new(date), caps, ctx)?;
+    let (state, more) = execute::<Aggregate>(state, cmd, ctx)?;
+    events.extend(more);
+    Ok((state, events))
+}
+
+/// Whether a seen `hold` key is decided again as `Retake` instead of replayed: an order's place
+/// that is released now. A catering place is held again by its own accept, under a new key.
+fn retakes(state: &ScheduleState, cmd: &Cmd) -> bool {
+    match cmd {
+        Cmd::Hold(r) => {
+            r.kind != HoldKind::Catering
+                && state
+                    .hold(r.reference)
+                    .is_some_and(|h| h.status == HoldStatus::Released)
+        }
+        _ => false,
+    }
+}
+
 #[durable_object]
 pub struct Schedule {
     state: State,
@@ -539,6 +591,8 @@ struct Write {
     cause: Option<String>,
     /// The command's key, body hash and stored answer.
     key: Option<(String, String, String)>,
+    /// The key is seen already and its answer is replaced (a `Retake`).
+    rekey: bool,
     /// A consumed event's id.
     seen: Option<String>,
 }
@@ -588,20 +642,89 @@ impl Schedule {
         ))
     }
 
-    /// The day as it stands, created with its defaults if it was not yet.
+    /// The day as it stands, created with its defaults and the menu's caps if it was not yet.
     async fn open(&self, birth: Birth, now: WallTime) -> Result<Response> {
-        let sql = self.sql();
-        if let Some(meta) = child::meta(&sql)? {
+        if let Some(meta) = child::meta(&self.sql())? {
             let (state, _) = self.load(&meta)?;
             return json(&response_of(&state), 200);
         }
+        let caps = self.caps_at_birth(birth.sandbox).await;
+        // Another request may have born the day while the Catalog answered.
+        if let Some(meta) = child::meta(&self.sql())? {
+            let (state, _) = self.load(&meta)?;
+            return json(&response_of(&state), 200);
+        }
+        let caps = match caps {
+            Ok(c) => c,
+            Err(no) => return Self::not_born(no),
+        };
         let date = Self::date(&birth.name)?;
+        let ctx = DecideContext {
+            now: business_at(now, birth.clock_offset_s),
+            id: random::ulid(now)?,
+        };
+        let (state, events) = execute::<Aggregate>(ScheduleState::new(date), &caps, &ctx)
+            .map_err(|e| Error::RustError(e.to_string()))?;
         self.ensure_schema()?;
-        transaction_sync(&self.state.storage(), move || {
-            child::born(&sql, &birth, now)
-        })?;
-        stream::arm(&self.state.storage(), now).await?;
-        json(&response_of(&ScheduleState::new(date)), 200)
+        let answer = response_of(&state);
+        self.write(
+            Write {
+                birth,
+                first_write: true,
+                last_seq: 0,
+                events,
+                state,
+                at: ctx.now,
+                cause: None,
+                key: None,
+                rekey: false,
+                seen: None,
+            },
+            now,
+        )
+        .await?;
+        json(&answer, 200)
+    }
+
+    /// The published menu's caps, read from the Catalog for a day's birth.
+    async fn caps_at_birth(&self, sandbox: Ulid) -> std::result::Result<ScheduleCommand, NoCaps> {
+        let res = sql::call_empty(
+            &self.env,
+            catalog::BINDING,
+            &catalog::name(sandbox),
+            Method::Get,
+            "/_menu",
+        )
+        .await;
+        let Ok(mut res) = res else {
+            return Err(NoCaps::Unavailable(0));
+        };
+        match res.status_code() {
+            200 => match res
+                .text()
+                .await
+                .map(|t| serde_json::from_str::<MenuView>(&t))
+            {
+                Ok(Ok(menu)) => Ok(caps_command(&menu)),
+                _ => Err(NoCaps::Unavailable(200)),
+            },
+            410 => Err(NoCaps::Gone),
+            status => Err(NoCaps::Unavailable(status)),
+        }
+    }
+
+    /// A day that could not be born with its caps is not born: the hold or the read is refused,
+    /// so no day takes an order its menu would cap.
+    fn not_born(no: NoCaps) -> Result<Response> {
+        match no {
+            NoCaps::Gone => gone(),
+            NoCaps::Unavailable(status) => {
+                console_log!(
+                    "{{\"event\":\"schedule_birth_refused\",\"object\":\"{CLASS}\",\"reason\":\"caps-unavailable\",\"status\":{status}}}"
+                );
+                refuse(503, "caps-unavailable")
+            }
+        }
     }
 
     /// The seed's commands for this day, decided one by one against the state so far and
@@ -642,6 +765,7 @@ impl Schedule {
                 at: ctx.now,
                 cause: None,
                 key: None,
+                rekey: false,
                 seen: None,
             },
             now,
@@ -651,6 +775,14 @@ impl Schedule {
     }
 
     async fn command(&self, c: CommandIn, now: WallTime) -> Result<Response> {
+        // A day not yet born reads its caps first: the one await before the decision, so the
+        // rest runs as one turn of the object, as it always did.
+        let caps = match &c.birth {
+            Some(b) if child::meta(&self.sql())?.is_none() => {
+                Some(self.caps_at_birth(b.sandbox).await)
+            }
+            _ => None,
+        };
         let sql = self.sql();
         let meta = child::meta(&sql)?;
         let (birth, first_write) = match (&meta, &c.birth) {
@@ -661,18 +793,30 @@ impl Schedule {
             (None, Some(b)) => (b.clone(), true),
             (None, None) => return gone(),
         };
+        let born_with = if first_write {
+            match caps {
+                Some(Ok(cmd)) => Some(cmd),
+                Some(Err(no)) => return Self::not_born(no),
+                None => return Self::not_born(NoCaps::Unavailable(0)),
+            }
+        } else {
+            None
+        };
+        let (state, last_seq) = match &meta {
+            Some(m) => self.load(m)?,
+            None => (ScheduleState::new(Self::date(&birth.name)?), 0),
+        };
+        let mut rekey = false;
         if !first_write {
             let seen = stream::seen(&sql, &c.key)?;
             match check_command(seen.as_ref(), &c.body_hash) {
+                // The place this key held is gone: decided again, never replayed as held.
+                Ok(CommandCheck::Replay(_)) if retakes(&state, &c.cmd) => rekey = true,
                 Ok(CommandCheck::Replay(result)) => return replayed(result),
                 Ok(CommandCheck::Fresh) => {}
                 Err(_) => return refuse(422, "key-reused"),
             }
         }
-        let (state, last_seq) = match &meta {
-            Some(m) => self.load(m)?,
-            None => (ScheduleState::new(Self::date(&birth.name)?), 0),
-        };
         let id: Ulid = c
             .key
             .rsplit(':')
@@ -683,10 +827,24 @@ impl Schedule {
             now: business_at(now, birth.clock_offset_s),
             id,
         };
-        let (state, events) = match execute::<Aggregate>(state, &c.cmd.domain(), &ctx) {
+        let cmd = match (&c.cmd, rekey) {
+            (Cmd::Hold(r), true) => ScheduleCommand::Retake(Box::new(r.clone())),
+            (cmd, _) => cmd.domain(),
+        };
+        let decided = match &born_with {
+            Some(caps) => decide_born(state.date(), caps, &cmd, &ctx),
+            None => execute::<Aggregate>(state, &cmd, &ctx),
+        };
+        let (state, events) = match decided {
             Ok(done) => done,
             Err(e) => return json(&Refusal::of(&e), 422),
         };
+        if rekey {
+            console_log!(
+                "{{\"event\":\"hold_retaken\",\"object\":\"{CLASS}\",\"events\":{}}}",
+                events.len()
+            );
+        }
         let answer = Answer {
             events: events.iter().map(|e| e.name().to_owned()).collect(),
             hold: hold_view(&state, c.cmd.reference()),
@@ -706,6 +864,7 @@ impl Schedule {
                 at: ctx.now,
                 cause: Some(c.cause.clone().unwrap_or_else(|| c.key.clone())),
                 key: Some((c.key.clone(), c.body_hash.clone(), stored.clone())),
+                rekey,
                 seen: None,
             },
             now,
@@ -809,6 +968,7 @@ impl Schedule {
                 at: ctx.now,
                 cause: Some(envelope.id.to_string()),
                 key: None,
+                rekey: false,
                 seen: Some(envelope.id.to_string()),
             },
             now,
@@ -874,6 +1034,7 @@ impl Schedule {
                 at: ctx.now,
                 cause: Some(timer.to_owned()),
                 key: None,
+                rekey: false,
                 seen: None,
             },
             now,
@@ -924,6 +1085,13 @@ impl Schedule {
             }
             stream::append(&sql, &built)?;
             if let Some((key, hash, answer)) = &w.key {
+                if w.rekey {
+                    exec(
+                        &sql,
+                        "DELETE FROM commands_seen WHERE key = ?",
+                        vec![key.as_str().into()],
+                    )?;
+                }
                 stream::remember(&sql, key, hash, answer, now)?;
             }
             if let Some(id) = &w.seen {
@@ -1116,6 +1284,100 @@ mod tests {
             }]
         );
         assert_eq!(caps_of(&menu)[0].daily_cap, 30);
+    }
+
+    fn one_item_menu(version: u32, daily_cap: u32) -> MenuView {
+        serde_json::from_value(serde_json::json!({
+            "version": version,
+            "categories": [{ "slug": "breads", "name": "Breads", "items": [{
+                "slug": "fern-loaf", "name": "Fern loaf", "allergens": [], "daily_cap": daily_cap,
+                "days_baked": ["tue","wed","thu","fri","sat","sun"], "season": null,
+                "bulk_lead": null, "pickup_only": false, "status": "available",
+                "variants": [
+                    { "slug": "fern-loaf/whole", "label": "Whole", "price_cents": 900, "lead_minutes": 120 }
+                ]
+            }]}]
+        }))
+        .unwrap()
+    }
+
+    fn fern_hold(r: u128, time: &str, qty: u32) -> ScheduleCommand {
+        let at: BusinessTime = format!("2026-11-17T{time}:00-07:00").parse().unwrap();
+        ScheduleCommand::Hold(Box::new(HoldRequest {
+            reference: Ulid::from_parts(1, r),
+            kind: HoldKind::Slot,
+            start: at,
+            zone: None,
+            lines: vec![ItemQty {
+                item: "fern-loaf".into(),
+                qty,
+            }],
+            expires_at: "2026-11-17T06:15:00-07:00".parse().unwrap(),
+        }))
+    }
+
+    #[test]
+    fn a_day_born_by_a_hold_is_capped_by_the_menu_it_reads() {
+        let date = BakeryDate::new(2026, 11, 17).unwrap();
+        let ctx = DecideContext {
+            now: "2026-11-17T06:00:00-07:00".parse().unwrap(),
+            id: Ulid::from_parts(1, 99),
+        };
+        let caps = caps_command(&one_item_menu(2, 3));
+        // The first hold, on a day no seed touched, is decided after the caps.
+        let (state, events) = decide_born(date, &caps, &fern_hold(1, "09:00", 3), &ctx).unwrap();
+        let names: Vec<&str> = events.iter().map(|e| e.name()).collect();
+        assert_eq!(names, ["CapsRefreshed", "SlotHeld"]);
+        assert_eq!(state.menu_version(), 2);
+        assert_eq!(state.item_cap("fern-loaf"), Some(3));
+        let over = execute::<Aggregate>(state.clone(), &fern_hold(2, "10:00", 1), &ctx);
+        assert_eq!(
+            over.unwrap_err(),
+            ScheduleError::ItemCapExceeded {
+                item: "fern-loaf".into(),
+                free: 0
+            }
+        );
+        // The same version published later changes nothing: the day already holds it.
+        assert_eq!(execute::<Aggregate>(state, &caps, &ctx).unwrap().1, []);
+        // A first hold over the cap is refused, and nothing is written, caps included.
+        assert_eq!(
+            decide_born(date, &caps, &fern_hold(1, "09:00", 4), &ctx).unwrap_err(),
+            ScheduleError::ItemCapExceeded {
+                item: "fern-loaf".into(),
+                free: 3
+            }
+        );
+    }
+
+    #[test]
+    fn only_an_orders_released_place_is_decided_again() {
+        let date = BakeryDate::new(2026, 11, 17).unwrap();
+        let ctx = DecideContext {
+            now: "2026-11-17T06:20:00-07:00".parse().unwrap(),
+            id: Ulid::from_parts(1, 99),
+        };
+        let ScheduleCommand::Hold(req) = fern_hold(1, "09:00", 1) else {
+            unreachable!()
+        };
+        let cmd = Cmd::Hold((*req).clone());
+        let held = execute::<Aggregate>(ScheduleState::new(date), &cmd.domain(), &ctx)
+            .unwrap()
+            .0;
+        assert!(!retakes(&held, &cmd), "a live hold replays");
+        let expire = ScheduleCommand::Release {
+            reference: req.reference,
+            reason: ReleaseReason::HoldExpired,
+        };
+        let released = execute::<Aggregate>(held, &expire, &ctx).unwrap().0;
+        assert!(retakes(&released, &cmd), "a released one is decided again");
+        let confirm = Cmd::Confirm {
+            reference: req.reference,
+        };
+        assert!(!retakes(&released, &confirm));
+        let mut catering = (*req).clone();
+        catering.kind = HoldKind::Catering;
+        assert!(!retakes(&released, &Cmd::Hold(catering)));
     }
 
     #[test]
