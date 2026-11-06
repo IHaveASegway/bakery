@@ -117,10 +117,12 @@ const SOURCES = [
       request that the Worker does not serve. Because the reference is rendered from the contract,
       every route the Worker serves is in the reference. The tour is held the same way: a test in{' '}
       <code>apps/web/test/tour.test.ts</code> checks each step’s request against the document, its
-      method, its path, its bearer rule and its body against the request’s schema. One limit is
-      worth stating. The console’s own request helpers in <code>apps/web/src/lib/api.ts</code> are
-      written by hand over the generated types, and no test compares their paths with the document,
-      so the types are held by the generator and the paths by review and the tour.
+      method, its path, its bearer rule and its body against the request’s schema. The console is
+      held too. Its request helpers in <code>apps/web/src/lib/api.ts</code> are written by hand over
+      the generated types, and <code>apps/web/test/api-paths.test.ts</code> calls every one against
+      a recording <code>fetch</code> and fails when it sends a method and path the document lacks.
+      The check runs one way: the document may have routes the console never calls, and the test
+      prints which.
     </p>
 
     <h2>A token that reaches one sandbox</h2>
