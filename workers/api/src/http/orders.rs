@@ -6,7 +6,10 @@
 //! anything is written there; the Catalog gives the published menu the prices come from; the
 //! day's Schedule holds the place (PR 6); the Order decides. The same key again finds the same
 //! ULID, and the Order's `commands_seen` answers the first result with `Idempotent-Replayed:
-//! true`, appending nothing. An unpaid order waits 15 minutes of business time and expires; PR 5's
+//! true`, appending nothing. A retry whose first attempt left no Order, and whose hold was released
+//! meanwhile (by its timer, or given back after the Order refused), never places an order with no
+//! place: the day holds the place again if it has room, or answers 409 `hold-lost` naming
+//! `next_free`. An unpaid order waits 15 minutes of business time and expires; PR 5's
 //! payment route (payments.rs) pays it, and only Stripe's webhook marks it paid.
 
 use bakery_contracts::OrderRequest;
@@ -116,6 +119,11 @@ fn hold_problem(r: &schedule::Refusal) -> Failure {
 /// first attempt is decided here; the day holds the place (`hold:<key>`), keyed by the order,
 /// until the Order's `held_until`; then the Order decides at that same business time. An Order
 /// that refuses after the hold gives the place back (`Release {cancelled}`).
+///
+/// A retry first asks whether the Order exists: if it does, its `/_place` replays the first
+/// answer and no place is asked for. If it does not, the day's `hold:<key>` replays a place still
+/// live, or takes a released one again with this attempt's 15 minutes (409 `hold-lost` when the
+/// slot has no room left), and the Order decides at that hold's time.
 pub async fn place(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answer {
     let (claims, id) = own_sandbox(cx, id)?;
     not_revoked(cx, &claims).await?;
@@ -223,17 +231,24 @@ pub async fn place(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answer {
         clock_offset_s: slot_of.clock_offset_s,
         clock_v: slot_of.clock_v,
     };
-    match schedule::hold(&cx.env, &day_birth, &key.to_string(), &hash, request, None).await? {
-        // The hold's own time decides, so a retry places at the first attempt's time.
-        HoldAnswer::Held(view) => {
-            place.at = view.expires_at.plus_minutes(-EXPIRY_MINUTES).ok();
+    // A retry of an order that exists replays at the Order and asks for no place.
+    let placed = slot_of.replayed && order_exists(cx, &name).await?;
+    // The hold's own time decides: a retry whose place is still held places at the first
+    // attempt's time, one whose place was taken again at this attempt's.
+    let mut held_until = None;
+    if !placed {
+        match schedule::hold(&cx.env, &day_birth, &key.to_string(), &hash, request, None).await? {
+            HoldAnswer::Held(view) => {
+                place.at = view.expires_at.plus_minutes(-EXPIRY_MINUTES).ok();
+                held_until = Some(view.expires_at);
+            }
+            HoldAnswer::Refused(r) => {
+                cx.reason("hold-refused");
+                return Err(hold_problem(&r));
+            }
+            HoldAnswer::KeyReused => return Err(problem::idempotency_reused()),
+            HoldAnswer::Gone => return Err(problem::wiped()),
         }
-        HoldAnswer::Refused(r) => {
-            cx.reason("hold-refused");
-            return Err(hold_problem(&r));
-        }
-        HoldAnswer::KeyReused => return Err(problem::idempotency_reused()),
-        HoldAnswer::Gone => return Err(problem::wiped()),
     }
 
     let mut res = call(
@@ -249,13 +264,28 @@ pub async fn place(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answer {
         let refused: Refused = res.json().await?;
         // The Order's rule refused it: the place goes back. A reused key is an order that
         // exists, holding its place.
-        if refused.error == "order" {
-            schedule::release(&cx.env, &day, &key.to_string(), slot_of.order).await;
+        // Keyed by the hold's time too, so a place taken again by a retry is given back again.
+        if refused.error == "order"
+            && let Some(until) = held_until
+        {
+            let release_key = format!("{key}:{}", until.unix_ms());
+            schedule::release(&cx.env, &day, &release_key, slot_of.order).await;
         }
         return Err(refused_problem(&refused));
     }
     let location = format!("/v1/sandboxes/{id}/orders/{}", slot_of.order);
     answered(res, 201, Some(location)).await
+}
+
+/// Whether the Order is placed already: a retry's first question. 410 is an Order never placed
+/// (a refused one writes nothing).
+async fn order_exists(cx: &Cx, name: &str) -> Result<bool, Failure> {
+    let res = call_empty(&cx.env, order::BINDING, name, Method::Get, "/_order").await?;
+    match res.status_code() {
+        200 => Ok(true),
+        404 | 410 => Ok(false),
+        _ => Err(problem::internal()),
+    }
 }
 
 /// The order's object name, once the Sandbox's registry holds it (docs/architecture.md,

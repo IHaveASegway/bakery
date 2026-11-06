@@ -20,6 +20,13 @@
 //!   `revived: true`. It is the one way a count passes its capacity.
 //! - **An item with no cap is uncapped.** Caps arrive by `RefreshCaps`; before the first, or for
 //!   an item the menu does not list, nothing is refused on items. The Order checks the menu.
+//! - **A lost hold is taken again, or refused.** `Retake` is the placement's retry under the
+//!   key whose hold was released (by its timer, or by the router giving the place back after the
+//!   Order refused) before any Order was placed: the same place, at the same start with the same
+//!   lines, is held again with the retry's own `expires_at` when the day still has room, and
+//!   refused `hold-lost` (naming `next_free` as `slot-full` does) when it has none. A place still
+//!   held, reserved or fulfilled is left as it is. The hardening after PR 13 added it, so a retry
+//!   never places an order whose place is gone.
 //! - **Events carry what the fold needs.** `SlotHeld` carries the zone and lines and
 //!   `CapsRefreshed` the caps, so the state is the fold of its events.
 //!
@@ -258,6 +265,9 @@ pub struct HoldRequest {
 pub enum ScheduleCommand {
     /// Synchronous, from the router at order placement; keyed by the order id.
     Hold(Box<HoldRequest>),
+    /// The placement's retry, when the hold its key took was released before an Order was
+    /// placed: the same place held again if there is room (see the module doc).
+    Retake(Box<HoldRequest>),
     /// From `OrderPaid` (later `CateringDepositPaid`).
     Confirm { reference: Ulid },
     /// From `OrderExpired`, `OrderCancelled`, `CateringCancelled`, `CateringDepositLapsed`, or
@@ -392,6 +402,8 @@ pub enum ScheduleError {
     ItemCapExceeded { item: String, free: u32 },
     #[error("this order already holds a different place")]
     RefHeld,
+    #[error("the place this order held was given back, and {}", slot_full_text(.next_free))]
+    HoldLost { next_free: Option<BusinessTime> },
     #[error("no hold for that order or event on this day")]
     UnknownRef,
     #[error("not a capacity target: {0}")]
@@ -416,6 +428,7 @@ impl ScheduleError {
             ScheduleError::SlotFull { .. } => "slot-full",
             ScheduleError::ItemCapExceeded { .. } => "item-cap",
             ScheduleError::RefHeld => "ref-held",
+            ScheduleError::HoldLost { .. } => "hold-lost",
             ScheduleError::UnknownRef => "unknown-ref",
             ScheduleError::BadTarget(_) => "bad-target",
         }
@@ -651,7 +664,8 @@ impl Aggregate for Schedule {
         ctx: &DecideContext,
     ) -> Result<Vec<ScheduleEvent>, ScheduleError> {
         match cmd {
-            ScheduleCommand::Hold(req) => hold(state, req),
+            ScheduleCommand::Hold(req) => hold(state, req, false),
+            ScheduleCommand::Retake(req) => hold(state, req, true),
             ScheduleCommand::Confirm { reference } => {
                 let h = state
                     .holds
@@ -774,8 +788,9 @@ impl Aggregate for Schedule {
                     None => {
                         state.holds.insert(*reference, fresh);
                     }
-                    // A catering place given back is taken again (see the module doc).
-                    Some(h) if rehold_allowed(h) => {
+                    // A place given back is taken again: a catering place by its event, an
+                    // order's by `Retake` (see the module doc). `decide` allows no other.
+                    Some(h) if h.status == HoldStatus::Released => {
                         state.holds.insert(*reference, fresh);
                     }
                     Some(_) => {}
@@ -848,7 +863,13 @@ fn replan(state: &ScheduleState, reference: Ulid, status: HoldStatus) -> Option<
     })
 }
 
-fn hold(state: &ScheduleState, req: &HoldRequest) -> Result<Vec<ScheduleEvent>, ScheduleError> {
+/// `Hold`, or with `retake` the placement's `Retake`: a released place under the same ref is
+/// held again at the same start with the same lines, and a capacity refusal is `hold-lost`.
+fn hold(
+    state: &ScheduleState,
+    req: &HoldRequest,
+    retake: bool,
+) -> Result<Vec<ScheduleEvent>, ScheduleError> {
     if !state.open {
         return Err(ScheduleError::ClosedDay);
     }
@@ -884,22 +905,37 @@ fn hold(state: &ScheduleState, req: &HoldRequest) -> Result<Vec<ScheduleEvent>, 
         }
     };
     let lines = normalize_lines(req.lines.iter().cloned());
-    if let Some(existing) = state
-        .holds
-        .get(&req.reference)
-        .filter(|h| !(rehold_allowed(h) && req.kind == HoldKind::Catering))
-    {
-        let same = existing.kind == req.kind
+    if let Some(existing) = state.holds.get(&req.reference) {
+        let same_place = existing.kind == req.kind
             && existing.start.unix_ms() == start.unix_ms()
             && existing.zone == zone
-            && existing.lines == lines
-            && existing.expires_at.unix_ms() == req.expires_at.unix_ms();
-        return if same {
-            Ok(Vec::new())
-        } else {
-            Err(ScheduleError::RefHeld)
-        };
+            && existing.lines == lines;
+        let released = existing.status == HoldStatus::Released;
+        if retake {
+            // Only the place the key held comes back, and only once it is gone.
+            if !same_place {
+                return Err(ScheduleError::RefHeld);
+            }
+            if !released {
+                return Ok(Vec::new());
+            }
+        } else if !(rehold_allowed(existing) && req.kind == HoldKind::Catering) {
+            return if same_place && existing.expires_at.unix_ms() == req.expires_at.unix_ms() {
+                Ok(Vec::new())
+            } else {
+                Err(ScheduleError::RefHeld)
+            };
+        }
     }
+    // A retake of a place the key never held is a first hold, refused as one.
+    let retaking = retake && state.holds.contains_key(&req.reference);
+    let lost = |e: ScheduleError| match e {
+        ScheduleError::SlotFull { next_free } if retaking => ScheduleError::HoldLost { next_free },
+        ScheduleError::ItemCapExceeded { .. } if retaking => {
+            ScheduleError::HoldLost { next_free: None }
+        }
+        e => e,
+    };
     match req.kind {
         HoldKind::Slot => {
             let m = local_minutes(start);
@@ -912,7 +948,7 @@ fn hold(state: &ScheduleState, req: &HoldRequest) -> Result<Vec<ScheduleEvent>, 
                         let m = local_minutes(*s);
                         state.slot_taken(m) < u32::from(state.slot_cap(m))
                     });
-                return Err(ScheduleError::SlotFull { next_free });
+                return Err(lost(ScheduleError::SlotFull { next_free }));
             }
         }
         HoldKind::Window => {
@@ -920,12 +956,12 @@ fn hold(state: &ScheduleState, req: &HoldRequest) -> Result<Vec<ScheduleEvent>, 
             if state.zone_taken(zone) >= u32::from(state.zone_cap(zone)) {
                 // The zone's stops are shared by its three windows, so when one is full every
                 // window in the zone is: there is no next free one that day.
-                return Err(ScheduleError::SlotFull { next_free: None });
+                return Err(lost(ScheduleError::SlotFull { next_free: None }));
             }
         }
         HoldKind::Catering => {
             if state.catering_taken() >= u32::from(state.catering_capacity) {
-                return Err(ScheduleError::SlotFull { next_free: None });
+                return Err(lost(ScheduleError::SlotFull { next_free: None }));
             }
         }
     }
@@ -933,10 +969,10 @@ fn hold(state: &ScheduleState, req: &HoldRequest) -> Result<Vec<ScheduleEvent>, 
         if let Some(cap) = state.item_cap(&line.item) {
             let used = state.item_used(&line.item);
             if used.saturating_add(line.qty) > cap {
-                return Err(ScheduleError::ItemCapExceeded {
+                return Err(lost(ScheduleError::ItemCapExceeded {
                     item: line.item.clone(),
                     free: cap.saturating_sub(used),
-                });
+                }));
             }
         }
     }
@@ -1419,6 +1455,154 @@ mod tests {
         assert_eq!(s.slots()[8].capacity, 1);
     }
 
+    fn retake(r: u128, time: &str, items: &[(&str, u32)], expires: &str) -> ScheduleCommand {
+        let ScheduleCommand::Hold(mut req) = pickup(r, time, items) else {
+            unreachable!()
+        };
+        req.expires_at = at(expires);
+        ScheduleCommand::Retake(req)
+    }
+
+    fn expire(state: ScheduleState, r: u128, now: &str) -> ScheduleState {
+        let cmd = ScheduleCommand::Release {
+            reference: id(r),
+            reason: ReleaseReason::HoldExpired,
+        };
+        execute::<Schedule>(state, &cmd, &ctx_at(now)).unwrap().0
+    }
+
+    #[test]
+    fn a_lost_hold_is_taken_again_when_the_slot_has_room() {
+        let held = ok(fresh(), pickup(1, "09:00", &[("croissant", 2)]));
+        // Released by its timer at 06:15, the retry comes at 06:30 with its own 15 minutes.
+        let lapsed = expire(held.clone(), 1, "2026-11-07T06:15:00-07:00");
+        assert_eq!(lapsed.slots()[8].taken, 0);
+        let again = retake(1, "09:00", &[("croissant", 2)], "2026-11-07T06:45:00-07:00");
+        let (s, events) =
+            execute::<Schedule>(lapsed.clone(), &again, &ctx_at("2026-11-07T06:30:00-07:00"))
+                .unwrap();
+        assert_eq!(
+            events,
+            [ScheduleEvent::SlotHeld {
+                kind: HoldKind::Slot,
+                date: date(),
+                start: at("2026-11-07T09:00:00-07:00"),
+                reference: id(1),
+                zone: None,
+                lines: lines(&[("croissant", 2)]),
+                expires_at: at("2026-11-07T06:45:00-07:00"),
+            }]
+        );
+        let h = s.hold(id(1)).unwrap();
+        assert_eq!(h.status, HoldStatus::Held);
+        assert_eq!(h.expires_at, at("2026-11-07T06:45:00-07:00"));
+        assert_eq!(s.slots()[8].taken, 1);
+        assert_eq!(s.item_used("croissant"), 2);
+        assert_eq!(
+            s.held_expiries(),
+            [(id(1), at("2026-11-07T06:45:00-07:00"))]
+        );
+        // Once taken again it is live: a second retake, and one of a live hold, change nothing.
+        assert_eq!(run(s.clone(), &again).unwrap().1, []);
+        assert_eq!(run(held.clone(), &again).unwrap().1, []);
+        let reserved = ok(s, ScheduleCommand::Confirm { reference: id(1) });
+        assert_eq!(run(reserved, &again).unwrap().1, []);
+        // Only the place the key held comes back; a plain hold never takes back an order's.
+        assert_eq!(
+            run(
+                lapsed.clone(),
+                &retake(1, "10:00", &[("croissant", 2)], "2026-11-07T06:45:00-07:00")
+            ),
+            Err(ScheduleError::RefHeld)
+        );
+        assert_eq!(
+            run(
+                lapsed.clone(),
+                &retake(1, "09:00", &[("croissant", 3)], "2026-11-07T06:45:00-07:00")
+            ),
+            Err(ScheduleError::RefHeld)
+        );
+        let (s, events) = run(lapsed.clone(), &pickup(1, "09:00", &[("croissant", 2)])).unwrap();
+        assert_eq!(
+            (events, s.hold(id(1)).unwrap().status),
+            (vec![], HoldStatus::Released)
+        );
+        let ScheduleCommand::Retake(later) = &again else {
+            unreachable!()
+        };
+        assert_eq!(
+            run(lapsed, &ScheduleCommand::Hold(later.clone())),
+            Err(ScheduleError::RefHeld)
+        );
+        // Given back by the router after the Order refused: the same.
+        let (given_back, _) = run(
+            held,
+            &ScheduleCommand::Release {
+                reference: id(1),
+                reason: ReleaseReason::Cancelled,
+            },
+        )
+        .unwrap();
+        let (s, events) = run(given_back, &again).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(s.hold(id(1)).unwrap().status, HoldStatus::Held);
+        // A retake of a place never held is a first hold.
+        let (s, events) = run(
+            fresh(),
+            &retake(7, "07:00", &[], "2026-11-07T06:45:00-07:00"),
+        )
+        .unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(s.hold(id(7)).unwrap().status, HoldStatus::Held);
+    }
+
+    #[test]
+    fn a_lost_hold_with_no_room_left_is_refused_naming_the_next_free_start() {
+        let set = |capacity| ScheduleCommand::SetCapacity {
+            target: Target::Slot(9 * 60),
+            capacity,
+        };
+        let mut s = ok(fresh(), set(1));
+        s = ok(s, pickup(1, "09:00", &[("croissant", 1)]));
+        s = expire(s, 1, "2026-11-07T06:15:00-07:00");
+        // Another order took the one place while the first was gone.
+        s = ok(s, pickup(2, "09:00", &[("croissant", 1)]));
+        let again = retake(1, "09:00", &[("croissant", 1)], "2026-11-07T06:45:00-07:00");
+        let lost = run(s.clone(), &again).unwrap_err();
+        assert_eq!(
+            lost,
+            ScheduleError::HoldLost {
+                next_free: Some(at("2026-11-07T09:15:00-07:00"))
+            }
+        );
+        assert_eq!(lost.rule(), "hold-lost");
+        assert_eq!(
+            lost.to_string(),
+            "the place this order held was given back, and that time is full; the next free one is 2026-11-07T09:15:00-07:00"
+        );
+        assert_eq!(s.hold(id(1)).unwrap().status, HoldStatus::Released);
+        // Room again, and the retry holds.
+        let s = ok(s, set(2));
+        assert_eq!(run(s, &again).unwrap().1.len(), 1);
+
+        // An item at its cap is lost the same way, with no start to offer.
+        let caps = ScheduleCommand::RefreshCaps {
+            menu_version: 1,
+            caps: vec![ItemCap {
+                item: "croissant".into(),
+                daily_cap: 1,
+            }],
+        };
+        let mut s = ok(fresh(), caps);
+        s = ok(s, pickup(1, "09:00", &[("croissant", 1)]));
+        s = expire(s, 1, "2026-11-07T06:15:00-07:00");
+        s = ok(s, pickup(2, "10:00", &[("croissant", 1)]));
+        assert_eq!(
+            run(s, &again),
+            Err(ScheduleError::HoldLost { next_free: None })
+        );
+    }
+
     #[test]
     fn capacity_changes() {
         let s = ok(fresh(), pickup(1, "09:00", &[]));
@@ -1849,8 +2033,13 @@ mod tests {
             (0usize..2).prop_map(|i| Target::Item(ITEMS[i].into())),
             Just(Target::Catering),
         ];
+        let retake = hold.clone().prop_map(|cmd| match cmd {
+            ScheduleCommand::Hold(req) => ScheduleCommand::Retake(req),
+            other => other,
+        });
         prop_oneof![
             4 => hold,
+            1 => retake,
             2 => reference.clone().prop_map(|reference| ScheduleCommand::Confirm { reference }),
             2 => (reference.clone(), reason)
                 .prop_map(|(reference, reason)| ScheduleCommand::Release { reference, reason }),
@@ -1954,8 +2143,8 @@ mod tests {
                         // A repeated command changes nothing.
                         prop_assert_eq!(Schedule::decide(&state, cmd, &ctx), Ok(vec![]));
                     }
-                    Err(ScheduleError::SlotFull { next_free }) => {
-                        let ScheduleCommand::Hold(req) = cmd else {
+                    Err(ScheduleError::SlotFull { next_free } | ScheduleError::HoldLost { next_free }) => {
+                        let (ScheduleCommand::Hold(req) | ScheduleCommand::Retake(req)) = cmd else {
                             return Err(TestCaseError::fail("only a hold is full"));
                         };
                         // `next_free` is a later start with a free place, or none exists.
@@ -1991,8 +2180,15 @@ mod tests {
                 if !revived {
                     highs.holds_for(&state)?;
                 }
-                // Every accepted hold fitted the capacity in force when it was taken.
-                if let (ScheduleCommand::Hold(req), true) = (cmd, state.holds.len() > before.holds.len()) {
+                // Every accepted hold, a place taken again included, fitted the capacity in
+                // force when it was taken.
+                let taken = |req: &HoldRequest| {
+                    !before.hold(req.reference).is_some_and(|h| h.status.counts())
+                        && state.hold(req.reference).is_some_and(|h| h.status.counts())
+                };
+                if let ScheduleCommand::Hold(req) | ScheduleCommand::Retake(req) = cmd
+                    && taken(req)
+                {
                     let h = state.hold(req.reference).unwrap();
                     match h.kind {
                         HoldKind::Slot => {

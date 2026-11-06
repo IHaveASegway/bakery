@@ -541,8 +541,10 @@ pub fn lead_time(message: Option<&str>) -> Failure {
 }
 
 /// A Schedule rule a hold or a capacity change broke, by its slug
-/// (`ScheduleError::rule()`): 409 for a full slot (with `next_free`, RFC 9457 section 3.2) or an
-/// item over its cap, 422 for a time or a target the day does not have.
+/// (`ScheduleError::rule()`): 409 for a full slot (with `next_free`, RFC 9457 section 3.2), an
+/// item over its cap, or a retried placement whose place was given back and is taken now
+/// (`hold-lost`, with `next_free` as `slot-full` has it); 422 for a time or a target the day
+/// does not have.
 pub fn schedule(
     rule: &str,
     next_free: Option<&str>,
@@ -567,6 +569,15 @@ pub fn schedule(
                 (Some(i), Some(0)) => format!("No more {i} can be made that day."),
                 (Some(i), Some(n)) => format!("Only {n} more {i} can be made that day."),
                 _ => "An item in the order is over its daily cap that day.".into(),
+            },
+        ),
+        "hold-lost" => (
+            "hold-lost",
+            409,
+            "The place this order held was given back",
+            match next_free {
+                Some(t) => format!("The place this order held was given back before the order was placed, and that time is full now; the next free start that day is {t}."),
+                None => "The place this order held was given back before the order was placed, and there is no room for it now.".into(),
             },
         ),
         "no-such-slot" => (
@@ -613,7 +624,7 @@ pub fn schedule(
         ),
     };
     let mut problem = Problem::typed(slug, status, title, format!("{detail} The rule is {slug}."));
-    if slug == "slot-full" {
+    if slug == "slot-full" || slug == "hold-lost" {
         problem.next_free = next_free.map(str::to_owned);
     }
     Failure {
@@ -989,6 +1000,18 @@ mod tests {
         let cap = schedule("item-cap", None, Some("croissant"), Some(2));
         assert_eq!(cap.problem.status, 409);
         assert!(cap.problem.next_free.is_none());
+        let lost = schedule("hold-lost", Some("2026-11-07T10:15:00-07:00"), None, None);
+        assert_eq!(lost.problem.status, 409);
+        assert!(lost.problem.problem_type.ends_with("/hold-lost"));
+        assert_eq!(
+            lost.problem.next_free.as_deref(),
+            Some("2026-11-07T10:15:00-07:00")
+        );
+        let detail = lost.problem.detail.unwrap();
+        assert!(detail.contains("given back") && detail.contains("10:15:00"));
+        assert!(detail.ends_with("The rule is hold-lost."));
+        let none = schedule("hold-lost", None, None, None);
+        assert!(none.problem.next_free.is_none());
         assert_eq!(schedule("closed-day", None, None, None).problem.status, 422);
         assert_eq!(
             schedule("bad-target", None, None, None).reason,
@@ -1091,6 +1114,8 @@ mod tests {
             schedule("slot-full", Some("2026-11-07T10:15:00-07:00"), None, None),
             schedule("slot-full", None, None, None),
             schedule("item-cap", None, Some("croissant"), Some(2)),
+            schedule("hold-lost", Some("2026-11-07T10:15:00-07:00"), None, None),
+            schedule("hold-lost", None, None, None),
             schedule("no-such-slot", None, None, None),
             schedule("closed-day", None, None, None),
             schedule("bad-target", None, None, None),
