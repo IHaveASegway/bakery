@@ -83,21 +83,29 @@ Through PR 10 it answers:
 | `OPTIONS` on any of these                                 | none                                          | no    | the CORS preflight                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | 204                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | anything else                                             |                                               |       |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 404 or 405 with `Allow`, `application/problem+json`                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
-The catering routes' statuses, as run on 2026-11-05 by `../../scripts/smoke-catering.sh` (151 checks,
+The catering routes' statuses, as run on 2026-11-06 by `../../scripts/smoke-catering.sh` (238 checks,
 `wrangler dev` 4.157.0). Proven over HTTP: 201 with `Location` for an inquiry and 200
-`Idempotent-Replayed` for its key again; 422 `catering` for `catering-lead` (naming the earliest date
-and "7 business days"), for a headcount of 9 and of 201, and for `brief-email`, `brief-phone`,
-`brief-card-number` and `brief-url`, none echoing the brief; 422 `idempotency-key` for a reused key;
+`Idempotent-Replayed` for its key again; 422 `catering` for `catering-lead` (naming the earliest
+date and "7 business days"), for a headcount of 9 and of 201, for `brief-email`, `brief-phone`,
+`brief-card-number` and `brief-url`, none echoing the brief, and for `date` (`2026-02-30` and
+`tomorrow`, neither echoed, no event registered); 422 `idempotency-key` for a reused key;
 200 for the list (a guest reads the 8 seeded events) and for one event, and 404 for another sandbox's
 event; 200 for `quote`, `accept`, `deposit` (the same client secret and payment on a second call),
 `start-production`, `delivered` and `decline`; 202 for `pay-balance`; 200 for `cancel` (refunding the
 deposit 8 days out) and for `staff-cancel` (no refund 3 days out); 409 `catering` for `accept` from
 `inquiry` (`out-of-order`), for a repeated `quote`, for `deposit` and `pay-balance` before their
-states, and for `accept` on an expired quote (`quote-expired`); 409 `slot-full` for a third
-acceptance on a day; 403 `guest-scope` for a guest's `quote`. Not run over HTTP, so known from the
-domain's unit tests and the code only: the 409s of `decline`, `start-production`, `delivered`,
-`cancel` and `staff-cancel`, 422 `quote-total`, 422 `date` for an unparseable date, and 503
-`stripe-key` on `deposit` and `pay-balance` (the guard is proven on PR 5's routes).
+states, and for `accept` on an expired quote (`quote-expired`); 409 `out-of-order` for `decline`
+(from `quoted` and `closed`), `start-production` (`quoted`, `closed`), `delivered` (`confirmed`,
+`quoted`), `cancel` (`quoted`, `invoiced`) and `staff-cancel` (`quoted`, `closed`), each leaving the
+event and its log as they were; 422 `quote-total` for a total of 0 and of -500 on an inquiry (any other
+state is 409 first); 409 `slot-full` for a third acceptance on a day; 403 `guest-scope` for a guest's
+`quote`; and on `deposit` and `pay-balance` 503 `stripe-key` with a key of the other mode and 503
+`config` naming `STRIPE_SECRET_KEY` with no key at all, the guard running before the event is looked
+up and nothing reaching the fake Stripe.
+
+As run on 2026-11-06 by `../../scripts/smoke-crm.sh` (176 checks): a send that falls due while a
+rebuild runs is deferred (`sends_deferred`), goes after `rebuild_finished` (`identical: true` in the
+log line) and ends sent with its messages; a deferred send is made due again at the rebuild's next step (its business time kept), so the wait logs `sends_deferred` once per rebuild run (6 lines over 5 steps) and spends 7 of the day's 100 alarm re-arms, where it spun 72 to 74 runs and spent 83 before the fix.
 
 The last five rows before the token rows are PR 9's and the last three PR 10's. The Token column says whether the
 sandbox's API token may stand in for the cookie ([Using a token](#using-a-token)); every route
