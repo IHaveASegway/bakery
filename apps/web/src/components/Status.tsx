@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { getStatus } from '../lib/api';
 import {
+  breakerWords,
   browserStorage,
   createPoller,
   formatTime,
@@ -61,6 +62,10 @@ export function StatusView({ model }: { model: Model }) {
             sandboxes admitted on {data.day} (UTC); {data.guests_today} of {data.guest_cap} were
             guests, and {data.demo_accounts_today} of {data.demo_account_cap} demo accounts were
             made.
+          </p>
+
+          <p data-testid="status-breaker">
+            <strong>Breaker:</strong> {breakerWords(data.breaker)}
           </p>
 
           <h2>The last 24 hours</h2>
