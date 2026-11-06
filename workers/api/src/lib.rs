@@ -10,9 +10,12 @@
 //! adds the `Dispatch` object per day with its stops, the server's savings plan, the browser's
 //! validated plan and the published plan, the dispatch routes, and the consumer's stop edges.
 //! PR 13 adds the Analytics Engine points (`metrics`) and the status page's counters, refreshed
-//! by the 15-minute cron through the SQL API (`analytics`) and kept in `Control`.
+//! by the 15-minute cron through the SQL API (`analytics`) and kept in `Control`. PR 17 adds the
+//! 15-minute cron breaker (`breaker`), which reads the account's usage through the GraphQL
+//! Analytics API, keeps its state in `Control`, raises the flag and enables the WAF kill rule.
 
 mod analytics;
+mod breaker;
 mod clock;
 mod config;
 mod cron;

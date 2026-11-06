@@ -7,6 +7,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { StatusView } from '../src/components/Status';
 import {
   STORAGE_KEY,
+  breakerWords,
   browserStorage,
   createPoller,
   formatTime,
@@ -16,6 +17,7 @@ import {
   stateLabel,
   stateWords,
   unreachableWords,
+  type BreakerStatus,
   type Model,
   type StatusData,
 } from '../src/lib/status';
@@ -86,6 +88,88 @@ describe('readStatus', () => {
     for (const bad of [null, 'x', [], {}, { ...BASE, sandboxes_today: -1 }]) {
       expect(readStatus(bad)).toBeNull();
     }
+  });
+});
+
+const BREAKER = {
+  state: 'armed',
+  since: null,
+  last_run: '2026-11-06T14:15:00.250Z',
+  last_usd: '0.0012',
+  unread: [],
+};
+const tripped = (state: string): BreakerStatus =>
+  data({ breaker: { ...BREAKER, state, since: '2026-11-06T13:30:00Z' } }).breaker;
+
+describe('the breaker', () => {
+  test('is read as the API states it', () => {
+    const b = data({ breaker: { ...BREAKER, unread: ['rows_written', 7, 'do_gb_s'] } }).breaker;
+    expect(b.state).toBe('armed');
+    expect(b.last_run).toBe('2026-11-06T14:15:00.250Z');
+    expect(b.last_usd).toBe('0.0012');
+    expect(b.unread).toEqual(['rows_written', 'do_gb_s']);
+  });
+
+  test('an API from before the breaker, or an answer that is not one, reads as not configured', () => {
+    for (const raw of [undefined, null, 'armed', [], {}, { state: 'tripped' }, { state: 4 }]) {
+      const b = data({ breaker: raw }).breaker;
+      expect(b).toEqual({
+        state: 'unconfigured',
+        since: null,
+        last_run: null,
+        last_usd: null,
+        unread: [],
+      });
+    }
+    expect(readStatus(BASE)!.breaker.state).toBe('unconfigured');
+  });
+
+  test('bad times and amounts read as null, never as a time', () => {
+    const b = data({ breaker: { ...BREAKER, since: 'soon', last_run: 4, last_usd: 12 } }).breaker;
+    expect([b.since, b.last_run, b.last_usd]).toEqual([null, null, null]);
+  });
+
+  test('has words for each state', () => {
+    expect(breakerWords(data({ breaker: BREAKER }).breaker)).toBe(
+      'armed, last run 2026-11-06 14:15 UTC',
+    );
+    expect(breakerWords(data({ breaker: { ...BREAKER, last_run: null } }).breaker)).toBe(
+      'armed, no run recorded yet',
+    );
+    expect(breakerWords(tripped('read-only'))).toBe(
+      'tripped: read-only since 2026-11-06 13:30 UTC',
+    );
+    expect(breakerWords(tripped('off'))).toBe('tripped: off since 2026-11-06 13:30 UTC');
+    expect(breakerWords(data({ breaker: { state: 'off' } }).breaker)).toBe(
+      'tripped: off since an unknown time',
+    );
+    expect(breakerWords(data().breaker)).toBe('not configured');
+  });
+
+  test('the page shows one Breaker line, in words, for each state', () => {
+    const line = (extra: Record<string, unknown>) =>
+      html(answered(data(extra))).match(/<p data-testid="status-breaker">(.*?)<\/p>/)?.[1];
+    expect(line({})).toBe('<strong>Breaker:</strong> not configured');
+    expect(line({ breaker: BREAKER })).toBe(
+      '<strong>Breaker:</strong> armed, last run 2026-11-06 14:15 UTC',
+    );
+    expect(
+      line({ breaker: { ...BREAKER, state: 'read-only', since: '2026-11-06T13:30:00Z' } }),
+    ).toBe('<strong>Breaker:</strong> tripped: read-only since 2026-11-06 13:30 UTC');
+    expect(line({ breaker: { ...BREAKER, state: 'off', since: '2026-11-06T13:30:00Z' } })).toBe(
+      '<strong>Breaker:</strong> tripped: off since 2026-11-06 13:30 UTC',
+    );
+    expect(html(answered(data())).split('data-testid="status-breaker"').length - 1).toBe(1);
+  });
+
+  test('the kept answer keeps the breaker, and no line shows before an answer', () => {
+    const store = new MemoryStore();
+    saveSnapshot(store, data({ breaker: BREAKER }), '2026-11-06T14:20:00.000Z');
+    expect(loadSnapshot(store)!.data.breaker.state).toBe('armed');
+    const out = html({ kind: 'unreachable', cached: loadSnapshot(store) });
+    expect(out).toContain('armed, last run 2026-11-06 14:15 UTC');
+    expect(html({ kind: 'loading' })).not.toContain('status-breaker');
+    expect(html({ kind: 'unreachable', cached: null })).not.toContain('status-breaker');
   });
 });
 

@@ -148,6 +148,77 @@
         ],
         "type": "string"
       },
+      "BreakerState": {
+        "description": "The breaker's state, in the order it rises.",
+        "oneOf": [
+          {
+            "const": "unconfigured",
+            "description": "No run has had its token, ids and lines: the status keeps saying so.",
+            "type": "string"
+          },
+          {
+            "const": "armed",
+            "description": "Running, and no window has crossed a line.",
+            "type": "string"
+          },
+          {
+            "const": "read-only",
+            "description": "A window crossed a line: the flag was raised to `read-only`.",
+            "type": "string"
+          },
+          {
+            "const": "off",
+            "description": "A window crossed the `off` line, or crossed a line again after `read-only`: the flag is\n`off` and the WAF kill rule is enabled.",
+            "type": "string"
+          }
+        ]
+      },
+      "BreakerStatus": {
+        "additionalProperties": false,
+        "description": "The 15-minute cron breaker, as `Control` keeps it (kill switch L0; docs/cost.md,\n\"Guardrails\"). Every property is sent, `null` or empty when there is nothing.",
+        "properties": {
+          "last_run": {
+            "description": "When the last run's window was handed to `Control`, an RFC 3339 UTC time.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_usd": {
+            "description": "The last window's usage priced in dollars with four decimals, such as `\"0.0123\"`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "since": {
+            "description": "When the state last changed, an RFC 3339 UTC time; `null` while `unconfigured`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/BreakerState",
+            "description": "`unconfigured` until the breaker's first configured run, then `armed`, `read-only` or\n`off`. It only rises; a person resets it."
+          },
+          "unread": {
+            "description": "The meters the last run could not read, counted as 0, such as `[\"rows_written\"]`.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "state",
+          "unread",
+          "last_run",
+          "last_usd",
+          "since"
+        ],
+        "type": "object"
+      },
       "CampaignListResponse": {
         "additionalProperties": false,
         "description": "`GET /v1/sandboxes/{id}/campaigns`: every campaign, by id.",
@@ -2848,8 +2919,12 @@
       },
       "StatusResponse": {
         "additionalProperties": false,
-        "description": "`GET /v1/status`: today's admission state, from the `Control` object.\n\nThe field order is fixed and is the wire order: the day and the sandbox count and cap\n(PR 2), then the guest and demo-account counts and caps (PR 3), then the status page's\ncounters with their time and state (PR 13), then the flag. Readers go by name, so PR 2's\nsmoke check still passes; a new field is added before `flag`.\n\nThe counters are a snapshot of the kept Analytics Engine queries that the 15-minute cron\nrefreshes, never a query per request (docs/operations.md, \"Observability\").",
+        "description": "`GET /v1/status`: today's admission state, from the `Control` object.\n\nThe field order is fixed and is the wire order: the day and the sandbox count and cap\n(PR 2), then the guest and demo-account counts and caps (PR 3), then the status page's\ncounters with their time and state (PR 13), then the breaker's state (PR 17), then the flag.\nReaders go by name, so PR 2's smoke check still passes; a new field is added before `flag`.\n\nThe counters are a snapshot of the kept Analytics Engine queries that the 15-minute cron\nrefreshes, never a query per request (docs/operations.md, \"Observability\").",
         "properties": {
+          "breaker": {
+            "$ref": "#/components/schemas/BreakerStatus",
+            "description": "The 15-minute cron breaker's state and its last run, kept in `Control`."
+          },
           "counters": {
             "anyOf": [
               {
@@ -2926,6 +3001,7 @@
           "demo_accounts_today",
           "demo_account_cap",
           "counters_state",
+          "breaker",
           "flag",
           "counters",
           "counters_as_of"
@@ -13113,11 +13189,11 @@
                 }
               }
             },
-            "description": "today's sandboxes, guests and demo accounts with their caps, the last snapshot of the kept Analytics Engine queries with `counters_as_of` and `counters_state` (`live`, `stale` or `unavailable`), and the flag"
+            "description": "today's sandboxes, guests and demo accounts with their caps, the last snapshot of the kept Analytics Engine queries with `counters_as_of` and `counters_state` (`live`, `stale` or `unavailable`), the breaker's state (`unconfigured`, `armed`, `read-only` or `off`) with its last run, and the flag"
           }
         },
         "security": [],
-        "summary": "Today's admission state and the status page's counters, from the Control object",
+        "summary": "Today's admission state, the status page's counters and the breaker's state, from the Control object",
         "tags": [
           "service"
         ],

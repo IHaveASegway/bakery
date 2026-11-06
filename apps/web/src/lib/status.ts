@@ -17,6 +17,10 @@ export interface StatusCounters {
 /** `live`: refreshed within 20 minutes. `stale`: an older snapshot. `unavailable`: none yet. */
 export type CountersState = 'live' | 'stale' | 'unavailable';
 
+/** The cron breaker's state and last run, as the generated contract has them. */
+export type BreakerStatus = StatusResponse['breaker'];
+export type BreakerState = BreakerStatus['state'];
+
 /**
  * The additions, typed here until the generated StatusResponse carries them. Once it does, this
  * intersection is the same type twice, so regenerating the contract needs no edit in this file.
@@ -65,6 +69,32 @@ function readCounters(raw: unknown): StatusCounters | null {
   };
 }
 
+const BREAKER_STATES: readonly string[] = ['unconfigured', 'armed', 'read-only', 'off'];
+
+/**
+ * The breaker as the API states it. An API that predates the breaker, or an answer that is not
+ * one, reads as "unconfigured": the page never shows an armed breaker it was not told about.
+ */
+function readBreaker(raw: unknown): BreakerStatus {
+  const none: BreakerStatus = {
+    state: 'unconfigured',
+    since: null,
+    last_run: null,
+    last_usd: null,
+    unread: [],
+  };
+  if (!isObject(raw) || typeof raw.state !== 'string' || !BREAKER_STATES.includes(raw.state)) {
+    return none;
+  }
+  return {
+    state: raw.state as BreakerState,
+    since: isIso(raw.since) ? raw.since : null,
+    last_run: isIso(raw.last_run) ? raw.last_run : null,
+    last_usd: typeof raw.last_usd === 'string' ? raw.last_usd : null,
+    unread: Array.isArray(raw.unread) ? raw.unread.filter((m) => typeof m === 'string') : [],
+  };
+}
+
 /**
  * A status response, or null when it is not one. A response from an API that predates the
  * counters (or one whose counters are malformed) reads as "unavailable", never as zeros.
@@ -88,6 +118,7 @@ export function readStatus(raw: unknown): StatusData | null {
     counters,
     counters_as_of: counters === null ? null : asOf,
     counters_state: state,
+    breaker: readBreaker(raw.breaker),
   };
 }
 
@@ -170,6 +201,21 @@ export function stateWords(state: CountersState, asOf: string | null): string {
         : `The last refresh of the counters failed, so these numbers are from ${formatTime(asOf)}.`;
     case 'unavailable':
       return 'The bakery has not read its counters yet. They appear after the first refresh, which runs every 15 minutes.';
+  }
+}
+
+/** The breaker's line: what it is doing and since when, in words. */
+export function breakerWords(b: BreakerStatus): string {
+  switch (b.state) {
+    case 'unconfigured':
+      return 'not configured';
+    case 'armed':
+      return b.last_run === null
+        ? 'armed, no run recorded yet'
+        : `armed, last run ${formatTime(b.last_run)}`;
+    case 'read-only':
+    case 'off':
+      return `tripped: ${b.state} since ${b.since === null ? 'an unknown time' : formatTime(b.since)}`;
   }
 }
 
