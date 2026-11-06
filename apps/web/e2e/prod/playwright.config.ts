@@ -11,6 +11,10 @@ if (!local && process.env.SMOKE_TARGET !== 'production') {
 }
 const webPort = Number(process.env.E2E_WEB_PORT || 8797);
 const apiPort = Number(process.env.E2E_API_PORT || 8798);
+// prod-smoke.spec.ts waits up to SMOKE_WAIT_MS for both hostnames (two minutes, or ten on a first
+// attach, Incident #41). The run gets that wait plus two minutes for the checks, and never less than
+// the five minutes it always had: 5 minutes by default, 12 on a first attach.
+const waitMs = Number(process.env.SMOKE_WAIT_MS || 120_000);
 
 export default defineConfig({
   testDir: '.',
@@ -20,7 +24,7 @@ export default defineConfig({
   retries: 0,
   timeout: 60_000,
   expect: { timeout: 10_000 },
-  globalTimeout: 5 * 60_000,
+  globalTimeout: Math.max(5 * 60_000, waitMs + 2 * 60_000),
   reporter: process.env.CI ? [['list'], ['github']] : [['list']],
   use: {
     ...devices['Desktop Chrome'],
