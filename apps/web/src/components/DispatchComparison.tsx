@@ -1,0 +1,63 @@
+import { clockText, type BrowserSolver, type Figures, type Report } from '../lib/dispatch';
+import { HOW } from '../tour/how';
+
+const SOURCE_NAMES = { server: 'Server (savings heuristic)', browser: 'Browser (VROOM)' } as const;
+
+function cell(figures: Figures | null, pick: (f: Figures) => string, missing: string): string {
+  return figures === null ? missing : pick(figures);
+}
+
+/**
+ * The two plans side by side: total drive minutes, the time the last van is back, vans used and the
+ * gap between them as the API reports it. When there is no browser plan, because it has not run or
+ * cannot, the server’s column stands alone and the other says why.
+ */
+export default function DispatchComparison({
+  report,
+  solver,
+}: {
+  report: Report;
+  solver: BrowserSolver;
+}) {
+  const { server, browser } = report;
+  const noBrowser = solver === 'unavailable' ? 'Unavailable here' : 'Not planned yet';
+  const rows: { name: string; pick: (f: Figures) => string }[] = [
+    { name: 'Drive minutes, all vans', pick: (f) => String(f.minutes) },
+    { name: 'Last van back', pick: (f) => clockText(f.lastBack) },
+    { name: 'Vans used', pick: (f) => String(f.vansUsed) },
+    { name: 'Stops placed', pick: (f) => String(f.stops) },
+  ];
+  return (
+    <>
+      <p aria-live="polite">{report.summary}</p>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">
+                <span className="sr-only">Figure</span>
+              </th>
+              <th scope="col">{SOURCE_NAMES.server}</th>
+              <th scope="col">{SOURCE_NAMES.browser}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.name}>
+                <th scope="row">{row.name}</th>
+                <td>{cell(server, row.pick, 'Not proposed yet')}</td>
+                <td>{cell(browser, row.pick, noBrowser)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="hint">
+        Drive minutes are free-flow times from the travel-time matrix, with no traffic and no time
+        at the door. The gap is the server’s total less the browser’s, as a percentage of the
+        browser’s.
+      </p>
+      <p className="hint">How this works: {HOW.dispatch}</p>
+    </>
+  );
+}

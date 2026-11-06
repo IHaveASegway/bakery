@@ -16,6 +16,7 @@
 //   --raw TEXT          a frame sent as is after the snapshot (and after any --cmd)
 //   --flood N           N copies of a `cmd` frame with no id, sent at once after the snapshot
 //   --wait-evt TYPE[:N] exit 0 once N `evt` frames of TYPE arrived (N defaults to 1)
+//   --evt-order ORDER   count only `evt` frames whose stream is that order's (`order:<s>:ORDER`)
 //   --until KIND        exit 0 once a frame of this `t` arrived (snapshot, ack, nack, ...)
 //   --hold SECONDS      stay open this long, then close with 1000; 0 holds until killed
 //   --timeout SECONDS   exit 3 when the condition has not been met by then (default 10)
@@ -75,6 +76,9 @@ for (let i = 0; i < args.length; i++) {
       opts.waitEvt = { type, n: n === undefined ? 1 : Number(n) };
       break;
     }
+    case '--evt-order':
+      opts.evtOrder = next();
+      break;
     case '--until':
       opts.until = next();
       break;
@@ -205,7 +209,11 @@ ws.onmessage = (message) => {
       break;
     case 'evt':
       fold(frame.env);
-      if (opts.waitEvt && frame.env?.type === opts.waitEvt.type) {
+      if (
+        opts.waitEvt &&
+        frame.env?.type === opts.waitEvt.type &&
+        (!opts.evtOrder || String(frame.env?.stream ?? '').endsWith(`:${opts.evtOrder}`))
+      ) {
         evts += 1;
         if (evts >= opts.waitEvt.n) finish(0);
       }

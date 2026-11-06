@@ -7,9 +7,10 @@
 export type RebuildState = 'idle' | 'rebuilding' | 'finished';
 
 /**
- * `GET /v1/sandboxes/{id}/crm/rebuild`, and `202` from `POST` to it, staff only (a guest gets
- * `403` `guest-scope`): "Rebuild projections" drops Crm's projections and replays its log, 200
- * events per alarm. A `POST` while one runs answers `202` with its progress and starts nothing.
+ * `GET /v1/sandboxes/{id}/rebuild`, which any session of the sandbox reads, and `202` from
+ * `POST` to it, staff only (a guest gets `403` `guest-scope`): "Rebuild projections" drops
+ * Crm's projections and replays its log, 200 events per alarm. A `POST` while one runs is `409`
+ * problem of type `rebuild` and starts nothing; `GET` says how far the running one is.
  */
 export interface RebuildResponse {
   /**

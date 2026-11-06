@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ActivityEntry } from '../contracts';
+import { activityFeed } from '../lib/activity-feed';
 import { getActivity } from '../lib/api';
 import { whenText } from '../lib/crm';
 import { describeError, type Message as Text } from '../lib/messages';
@@ -20,6 +21,7 @@ export default function Activity({ sandboxId, refresh }: { sandboxId: string; re
   const load = useCallback(() => {
     getActivity(sandboxId, SHOWN).then(
       (answer) => {
+        activityFeed.set(sandboxId, answer.entries);
         setEntries(answer.entries);
         setError(null);
       },
@@ -34,7 +36,7 @@ export default function Activity({ sandboxId, refresh }: { sandboxId: string; re
   }, [load]);
 
   return (
-    <section aria-labelledby="activity-heading">
+    <section aria-labelledby="activity-heading" data-tour="crm-activity">
       <h3 id="activity-heading">Activity</h3>
       <Message error={error} />
       {entries === null ? (

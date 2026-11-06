@@ -1,0 +1,9 @@
+---
+import type { Span } from '../lib/openapi';
+interface Props {
+  spans: Span[];
+}
+const { spans } = Astro.props;
+---
+
+{spans.map((span) => (span.code ? <code>{span.text}</code> : span.text))}

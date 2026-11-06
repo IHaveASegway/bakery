@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MessageResponse",
+  "description": "One message in the sandbox's inbox, and `GET /v1/sandboxes/{id}/inbox/{mid}`.",
+  "type": "object",
+  "properties": {
+    "body": {
+      "type": "string"
+    },
+    "clicked_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "delivered_at": {
+      "description": "Business times.",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/MessageKind"
+    },
+    "message": {
+      "description": "The message's ULID.",
+      "type": "string"
+    },
+    "opened_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ref": {
+      "description": "The ULID of the order, catering event or campaign it is about.",
+      "type": "string"
+    },
+    "subject": {
+      "description": "From a fixed template, filled with the event's own figures; never free text.",
+      "type": "string"
+    },
+    "to": {
+      "description": "The customer's ULID: the only recipient there is.",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "message",
+    "to",
+    "kind",
+    "ref",
+    "subject",
+    "body",
+    "delivered_at"
+  ],
+  "$defs": {
+    "MessageKind": {
+      "description": "What a message is.",
+      "type": "string",
+      "enum": [
+        "receipt",
+        "ready",
+        "on_its_way",
+        "refund",
+        "declined",
+        "acknowledgement",
+        "quote",
+        "notice",
+        "reminder",
+        "invoice",
+        "campaign"
+      ]
+    }
+  }
+}

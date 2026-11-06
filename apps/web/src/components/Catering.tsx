@@ -10,6 +10,7 @@ import CateringDetail from './CateringDetail';
 import CateringInquiryForm from './CateringInquiryForm';
 import Message from './Message';
 import StatusLine from './StatusLine';
+import { HOW } from '../tour/how';
 
 /** The /catering/ island: the inquiry, the visitor's events, and the one open for reading. */
 export default function Catering() {
@@ -91,7 +92,7 @@ export default function Catering() {
       )}
 
       {sandboxId !== null && (
-        <section aria-labelledby="events-heading">
+        <section aria-labelledby="events-heading" data-tour="catering-events">
           <h2 id="events-heading">Your events</h2>
           <Message error={error} />
           {events === null ? (
@@ -140,13 +141,7 @@ export default function Catering() {
         <CateringDetail sandboxId={sandboxId} event={open} onChange={take} />
       )}
 
-      <p className="hint">
-        How this works: a catering event is a saga by alarm. Each step is one object’s transaction:
-        the inquiry, the staff’s quote, your acceptance, the deposit’s webhook, the kitchen, the
-        delivery and the balance invoice. Reminders are timers that fire when the sandbox’s clock
-        passes them, so advance the clock in the console to see one. The deposit confirms the day’s
-        place: until it is paid the place is only held, for 15 minutes of bakery time.
-      </p>
+      <p className="hint">How this works: {HOW.catering}</p>
     </>
   );
 }

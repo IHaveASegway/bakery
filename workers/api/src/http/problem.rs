@@ -182,6 +182,68 @@ pub fn rate_limit() -> Failure {
     .retry_after(Some(60))
 }
 
+/// The per-token limit, `TOKEN_LIMIT`, spent by every request a token makes.
+pub fn token_rate_limit() -> Failure {
+    Failure::typed(
+        "rate-limit",
+        429,
+        "Slow down",
+        "Too many requests with this API token in the last minute. Try again after the time in Retry-After.",
+    )
+    .retry_after(Some(60))
+    .because("token-limit")
+}
+
+/// A refused API token (docs/security.md, "The API token"): 400 for a request that carries one
+/// the wrong way, 401 for one that is not good here. `detail` names the rule as a whole word and
+/// never the token.
+pub fn token(reason: &'static str, status: u16) -> Failure {
+    let (title, sentence) = match reason {
+        "query" => (
+            "The API token was sent the wrong way",
+            "An API token goes in the Authorization header as a Bearer token, never in the URL.",
+        ),
+        "both" => (
+            "The API token was sent the wrong way",
+            "Send the session cookie or an API token, not both.",
+        ),
+        "expired" => (
+            "The API token was refused",
+            "This API token is more than 24 hours old. Issue a new one from the console.",
+        ),
+        "rotated" => (
+            "The API token was refused",
+            "This API token was rotated. Use the newest token from the console.",
+        ),
+        "purpose" => (
+            "The API token was refused",
+            "That is not an API token. Use the token the console issued.",
+        ),
+        "cookie-only" => (
+            "The API token was refused",
+            "This route takes the session cookie, never an API token: the session, sign-out, the kitchen socket, and issuing or rotating a token.",
+        ),
+        _ => (
+            "The API token was refused",
+            "The Authorization header does not hold an API token this API issued.",
+        ),
+    };
+    Failure {
+        problem: Box::new(Problem::typed(
+            "token",
+            status,
+            title,
+            format!("{sentence} The rule is {reason}."),
+        )),
+        retry_after: None,
+        reason,
+    }
+}
+
+pub fn token_error(e: bakery_app::auth::TokenError) -> Failure {
+    token(e.reason(), e.status())
+}
+
 pub fn wiped() -> Failure {
     Failure::typed(
         "wiped",
@@ -691,6 +753,61 @@ pub fn no_such_day() -> Failure {
     )
 }
 
+/// A day with no `Dispatch`: the same days as a schedule's (PR 9).
+pub fn no_such_dispatch_day() -> Failure {
+    Failure::typed(
+        "no-such-day",
+        404,
+        "No dispatch for that day",
+        "A day's dispatch exists from the sandbox's first day to 30 days after today, as YYYY-MM-DD.",
+    )
+}
+
+/// A refused dispatch command, by its slug (`DispatchError::rule()`): 422 for a request that
+/// breaks a rule as sent, 409 for what the day's state blocks (the router's `Step::status`). The
+/// detail names the rule as a whole word, `The rule is <slug>.`, and never a value the visitor
+/// sent: not an order id, not a van's units.
+pub fn dispatch(status: u16, rule: &str) -> Failure {
+    let sentence = match rule {
+        "vans" => {
+            "A day plans with 1 to 4 vans, and a plan names each van once, numbered from 1 to the day's vans."
+        }
+        "capacity" => "A van carries at least 1 unit.",
+        "no-stops" => "The day has no confirmed stops to plan.",
+        "place-unknown" => "A stop's place is not in the travel-time matrix.",
+        "route-ends" => "Every van starts and ends at the bakery.",
+        "stop-unknown" => {
+            "The plan names a stop that is not a confirmed stop of this day, or the published plan has no such stop number."
+        }
+        "stop-twice" => "The plan lists a stop more than once.",
+        "over-capacity" => "A van in the plan carries more units than its capacity.",
+        "stop-missing" => "The plan leaves out a confirmed stop of this day.",
+        "no-plan" => {
+            "There is no such plan yet: propose, or plan in the browser, before publishing, and publish before completing a stop."
+        }
+        "published" => {
+            "A van has already left on the published plan, so it is not replaced. Stops can still be completed."
+        }
+        "wrong-day" => "The stop's window is not on this day.",
+        _ => "The dispatch request does not fit the bakery's rules.",
+    };
+    let title = if status == 422 {
+        "The plan was refused"
+    } else {
+        "Dispatch cannot do that now"
+    };
+    Failure {
+        problem: Box::new(Problem::typed(
+            "dispatch",
+            status,
+            title,
+            format!("{sentence} The rule is {rule}."),
+        )),
+        retry_after: None,
+        reason: "dispatch",
+    }
+}
+
 /// A cap or the flag, with `Retry-After` to the next 00:00 UTC for a cap.
 pub fn refusal(r: Refusal, retry_after: Option<u32>, account_cap: u32) -> Failure {
     let f = match r {
@@ -744,6 +861,53 @@ pub fn refusal(r: Refusal, retry_after: Option<u32>, account_cap: u32) -> Failur
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dispatch_refusal_names_its_rule_as_a_whole_word() {
+        use bakery_domain::dispatch::DispatchError;
+        let o = bakery_domain::Ulid::from_parts(1, 1);
+        for e in [
+            DispatchError::StopMissing { order: o },
+            DispatchError::StopTwice { order: o },
+            DispatchError::StopUnknown { order: o },
+            DispatchError::NoSuchStop { stop: 4 },
+            DispatchError::OverCapacity {
+                van: 1,
+                units: 9,
+                capacity: 5,
+            },
+            DispatchError::RouteEnds { van: 1 },
+            DispatchError::NoPlan,
+            DispatchError::NoStops,
+            DispatchError::Vans { van: 5, vans: 4 },
+            DispatchError::Capacity,
+            DispatchError::WrongDay,
+            DispatchError::PlaceUnknown {
+                order: o,
+                place: 70,
+            },
+            DispatchError::Published,
+        ] {
+            for status in [409, 422] {
+                let f = dispatch(status, e.rule());
+                let detail = f.problem.detail.clone().unwrap();
+                assert_eq!(f.problem.status, status);
+                assert_eq!(
+                    f.problem.problem_type,
+                    "https://bakery.ihaveasegway.com/problems/dispatch"
+                );
+                assert!(
+                    detail.ends_with(&format!(" The rule is {}.", e.rule())),
+                    "{detail}"
+                );
+                // A sentence for every rule, and none of the request's values.
+                assert!(!detail.starts_with("The dispatch request"), "{detail}");
+                assert!(!detail.contains(&o.to_string()), "{detail}");
+            }
+        }
+        assert_eq!(dispatch(422, "x").problem.title, "The plan was refused");
+        assert_eq!(no_such_dispatch_day().problem.status, 404);
+    }
 
     #[test]
     fn every_refusal_maps_to_its_slug_and_status() {

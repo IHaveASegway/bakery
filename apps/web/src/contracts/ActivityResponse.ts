@@ -5,8 +5,9 @@
  */
 
 /**
- * `GET /v1/sandboxes/{id}/crm/activity`: the sandbox's logged events (clock moves, faults,
- * menu and capacity changes, payment intents, routes, traffic), in business-time order.
+ * `GET /v1/sandboxes/{id}/activity`: the sandbox's logged events (clock moves, faults,
+ * menu and capacity changes, payment intents, routes, traffic, token rotations), newest first;
+ * `?limit=` keeps the newest that many.
  */
 export interface ActivityResponse {
   entries: ActivityEntry[];

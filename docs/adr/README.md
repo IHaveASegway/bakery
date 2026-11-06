@@ -18,8 +18,7 @@ Status: Draft for review in PR 1 · 2026-11-04
 | [0010](0010-workers-paid-with-the-sites-guardrails.md) | Workers Paid for the account, with the site's guardrails from launch day | Proposed |
 | [0011](0011-github-actions-owns-deploys-for-both-workers.md) | GitHub Actions owns build, gates and deploys, for both Workers | Proposed |
 | [0012](0012-delivery-dispatch.md) | Delivery dispatch: VROOM in the browser to plan, a savings heuristic in Rust to propose, the object to decide | Proposed |
-
-0013 is reserved for the API and socket contract v1, written in PR 10 (the tour and the visitor API). Until then the contract is described in [architecture.md](../architecture.md) and may change without a record.
+| [0013](0013-the-api-and-socket-contract-v1.md) | The API and socket contract v1: one route table in Rust, an OpenAPI 3.1 document generated from it, and additive-only changes after acceptance | Proposed |
 
 Open decisions that have not reached an ADR yet are the numbered questions in [product.md](../product.md), cited across these records by number and short name (for example Q23 · Q-auth). Several records here state an assumption that holds until a question is answered, and say which.
 

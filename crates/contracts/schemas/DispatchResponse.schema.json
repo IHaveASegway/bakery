@@ -1,0 +1,316 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DispatchResponse",
+  "description": "`GET /v1/sandboxes/{id}/dispatch/{date}`, which any session of the sandbox reads, and the\nanswer to every dispatch command, which are staff only: one bakery day's stops and plans. It mirrors the Dispatch aggregate's state.",
+  "type": "object",
+  "properties": {
+    "capacity": {
+      "description": "Units a van carries: the last proposal's, 250 before any.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "comparison": {
+      "description": "Both plans' totals, when there are both; `null` while the browser's solver has not run\nor cannot (the page then shows the server's plan alone and says why).",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ComparisonView"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "date": {
+      "description": "The bakery day, `YYYY-MM-DD`.",
+      "type": "string"
+    },
+    "plan_v": {
+      "description": "The published plan's version, 0 before the first publish.",
+      "type": "integer",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0
+    },
+    "proposed": {
+      "description": "The server's plan from the last `propose`.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PlanView"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "published": {
+      "description": "The record: what drivers, the kitchen board and the order status read.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PlanView"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "stops": {
+      "description": "Every stop the day has seen, removed ones included, by order ULID.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/StopView"
+      }
+    },
+    "submitted": {
+      "description": "The browser's plan from the last `plan`, validated.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PlanView"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "vans": {
+      "description": "The day's vans, 1 to 4: the last proposal's, 4 before any.",
+      "type": "integer",
+      "format": "uint8",
+      "maximum": 255,
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "date",
+    "vans",
+    "capacity",
+    "stops",
+    "plan_v"
+  ],
+  "$defs": {
+    "ComparisonView": {
+      "description": "The two plans' totals side by side.",
+      "type": "object",
+      "properties": {
+        "browser_minutes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "gap_percent": {
+          "description": "`(server − browser) / browser × 100`, to one decimal: positive when the heuristic drives\nlonger. `null` when the browser's plan drives 0 minutes and the server's does not.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "server_minutes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "server_minutes",
+        "browser_minutes"
+      ]
+    },
+    "PlanSource": {
+      "description": "Who made a plan: the server's savings heuristic or the browser's VROOM solver.",
+      "type": "string",
+      "enum": [
+        "server",
+        "browser"
+      ]
+    },
+    "PlanView": {
+      "description": "A plan as the dispatch screen shows it (ADR 0012, decision 5). Its minutes are the server's\nown arithmetic over the matrix, whoever made the plan.",
+      "type": "object",
+      "properties": {
+        "last_back": {
+          "description": "When the last van is back, a business time: the vans leave at 09:00 and drive the\nmatrix's minutes, with no time at the door counted.",
+          "type": "string"
+        },
+        "minutes": {
+          "description": "Every van's drive summed.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "plan_v": {
+          "description": "A published plan's version. A proposal or submission carries the version it would be\npublished as when it was made; one at or below the response's `plan_v` is stale.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "source": {
+          "$ref": "#/$defs/PlanSource"
+        },
+        "unassigned": {
+          "description": "Order ULIDs no van could take. A plan with any cannot be published.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "vans": {
+          "description": "The vans used, by van; a plan may use fewer than the day has.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/VanPlanView"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "plan_v",
+        "vans",
+        "minutes",
+        "last_back",
+        "unassigned"
+      ]
+    },
+    "StopStatus": {
+      "description": "Where a delivery stop stands (ADR 0012; docs/domain.md, \"Ubiquitous language\": Stop).",
+      "oneOf": [
+        {
+          "description": "Placed, not yet paid: shown, in no plan.",
+          "type": "string",
+          "const": "provisional"
+        },
+        {
+          "description": "Paid: every plan must carry it.",
+          "type": "string",
+          "const": "confirmed"
+        },
+        {
+          "description": "Expired or cancelled.",
+          "type": "string",
+          "const": "removed"
+        },
+        {
+          "description": "Delivered.",
+          "type": "string",
+          "const": "completed"
+        }
+      ]
+    },
+    "StopView": {
+      "description": "One stop of the day.",
+      "type": "object",
+      "properties": {
+        "customer": {
+          "description": "The customer's ULID; the screen shows the persona's made-up address, never the place.",
+          "type": "string"
+        },
+        "order": {
+          "description": "The order's ULID: what every plan names the stop by.",
+          "type": "string"
+        },
+        "place": {
+          "description": "The customer's place, an index into the travel-time matrix, 0 to 63.",
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "place_label": {
+          "description": "The place's label, `p1` to `p64`.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/StopStatus"
+        },
+        "stop": {
+          "description": "The stop's number in the published plan, counted from 1 across the vans, van 1's stops\nfirst; `null` when it is in no published plan.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "units": {
+          "description": "The order's line quantities summed: what the stop takes of a van's capacity.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "van": {
+          "description": "The van that carries it in the published plan; `null` when none does.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "window": {
+          "description": "The delivery window's start, a business time.",
+          "type": "string"
+        },
+        "zone": {
+          "description": "`z1`, `z2` or `z3`.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "order",
+        "customer",
+        "place",
+        "place_label",
+        "window",
+        "zone",
+        "units",
+        "status"
+      ]
+    },
+    "VanPlanView": {
+      "description": "One van of a plan.",
+      "type": "object",
+      "properties": {
+        "minutes": {
+          "description": "The drive, bakery to bakery, from the travel-time matrix.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "stops": {
+          "description": "Order ULIDs, in driving order.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "units": {
+          "description": "The stops' units summed; never over the day's capacity.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "van": {
+          "description": "1 to the day's vans.",
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "van",
+        "stops",
+        "units",
+        "minutes"
+      ]
+    }
+  }
+}

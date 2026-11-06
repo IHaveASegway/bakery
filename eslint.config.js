@@ -6,7 +6,16 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig([
-  globalIgnores(['**/dist/', '**/.astro/', '**/.wrangler/', '**/target/', 'workers/api/build/']),
+  globalIgnores([
+    '**/dist/',
+    '**/.astro/',
+    '**/.wrangler/',
+    '**/target/',
+    'workers/api/build/',
+    'tools/route-data/work/',
+    // Fetched at build, third-party: checked against apps/web/solver.lock.json, not linted.
+    'apps/web/public/app/dispatch/solver/',
+  ]),
   js.configs.recommended,
   tseslint.configs.recommended,
   astro.configs.recommended,

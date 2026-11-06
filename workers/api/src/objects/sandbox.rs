@@ -29,6 +29,11 @@
 //!   day, born on first touch, for a date from the birth day to 30 days after business today, or
 //!   any later one with `catering: true` (an accepted quote's event day, which the domain's
 //!   rules already bound); 404 `{error: "no-such-day"}` for any other.
+//! - `POST /_register-dispatch {date}` → `{name, clock_offset_s, clock_v}`: the day's
+//!   `Dispatch`, born on first touch, for the same dates as a `Schedule` day (PR 9); 404
+//!   `{error: "no-such-day"}` for any other, 409 `{error: "seeding"}` before seeding is done.
+//! - `GET /_place/<customer>` → `{place}`: a persona's delivery place, the seed's `p<n>`, from
+//!   the `personas` table (PR 9: the consumer's `AddStop`); 404 `{error: "unknown-persona"}`.
 //! - `GET /_children/<class>` → `[name]`: the registered children of a class, by name.
 //! - `GET /_days` → `[name]`: the registered `Schedule` days from business today on.
 //! - `GET /_child/<name>` → 200 `{class}` for a registered child, else 404.
@@ -43,6 +48,13 @@
 //! - `POST /_redrive {key, id}` → `DeadLetter`: the stored envelope sent to the Queue again with
 //!   its own id, and the row removed; 404 `{error: "unknown-dead-letter"}`.
 //! - `POST /_wipe {cause}` → `WipeAnswer`.
+//! - `GET /_token` → `TokenState`: the lifecycle state and the token version the router checks a
+//!   bearer token against, with the last issued token's times and masked form for the console.
+//! - `POST /_token/issue {key, rotate, tid, iat, exp}` → `TokenIssued`: the claims the Worker
+//!   signs, at the current token version, or with `rotate` (`RotateApiToken`) at the version plus
+//!   one and `ApiTokenRotated` appended in the same transaction. The token itself never reaches
+//!   this object; a repeated key replays the claims, so the Worker signs the same token again.
+//! - `POST /_token/masked {token_v, tid, masked}`: the issued token's masked form, for `GET`.
 
 use std::cell::Cell;
 
@@ -74,7 +86,9 @@ use super::sql::{
     self, exec, first, gone, has_table, json, refuse, replayed, rows, transaction_sync, user_rows,
 };
 use super::stream::{self, OUTBOX};
-use super::{billing, catalog, catering, crm, customer, inbox, kitchen, order, simulator};
+use super::{
+    billing, catalog, catering, crm, customer, dispatch, inbox, kitchen, order, simulator,
+};
 use crate::clock::{SystemClock, alarm_time, business, business_at};
 use crate::random;
 
@@ -94,6 +108,7 @@ const DISPATCH: &[(&str, &str)] = &[
     (customer::CLASS, customer::BINDING),
     (crm::CLASS, crm::BINDING),
     (inbox::CLASS, inbox::BINDING),
+    (dispatch::CLASS, dispatch::BINDING),
 ];
 
 const WIPE: &str = "wipe";
@@ -102,8 +117,8 @@ const SEED: &str = "seed";
 const CLOCK: &str = "clock";
 
 /// Children seeded per alarm run: the Catalog, the Kitchen, Billing, Crm, the Inbox, the 7
-/// Schedule days, the 12 open orders, the 8 catering events and their 3 days, 35 in all, take
-/// five runs, each far inside the 1,000 subrequests a Free invocation may make (Workers limits,
+/// Schedule days, today's Dispatch, the 12 open orders, the 8 catering events and their 3 days,
+/// 36 in all (PR 9 added the Dispatch), take six runs, each far inside the 1,000 subrequests a Free invocation may make (Workers limits,
 /// https://developers.cloudflare.com/workers/platform/limits/, as of 2026-11-05): a run's
 /// largest, the one with the catering events, makes 7 seeds, 7 log reads and 14 hand-overs.
 const SEED_BATCH: usize = 7;
@@ -115,6 +130,17 @@ const DAYS_AHEAD: i64 = 30;
 /// A seeded order still waiting for payment is held this long after the sandbox is born, as a
 /// new order would be (docs/domain.md, "Order": 15 minutes).
 const SEED_HOLD_MINUTES: i64 = bakery_domain::order::EXPIRY_MINUTES;
+
+/// The last token issued at the current version (PR 10): its id and times, and its masked form
+/// once the Worker has signed it. Never the token, and never its MAC beyond the masked form's
+/// last 4 characters. Created on first use too, for a sandbox born before the table existed.
+const API_TOKEN_TABLE: &str = "CREATE TABLE IF NOT EXISTS api_token (
+       id INTEGER PRIMARY KEY CHECK (id = 1),
+       token_v INTEGER NOT NULL,
+       tid TEXT NOT NULL,
+       iat INTEGER NOT NULL,
+       exp INTEGER NOT NULL,
+       masked TEXT)";
 
 const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS meta (
@@ -150,6 +176,7 @@ const SCHEMA: &[&str] = &[
     // Each persona's first-touch payload for its `Customer`: the seed's profile, consent and
     // opening points (PR 8), so registering a customer reads a row and never the whole seed.
     "CREATE TABLE IF NOT EXISTS personas (id TEXT PRIMARY KEY, register TEXT NOT NULL)",
+    API_TOKEN_TABLE,
     "CREATE TABLE IF NOT EXISTS delivery_errors (id TEXT PRIMARY KEY, error TEXT NOT NULL, at TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS dead_letters (
        id TEXT PRIMARY KEY,
@@ -293,6 +320,49 @@ pub struct Redrive {
     pub id: String,
 }
 
+/// `/_token`'s answer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenState {
+    /// `seeding`, `live` or `wiping`.
+    pub state: String,
+    pub token_v: u32,
+    #[serde(default)]
+    pub issued_at: Option<String>,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    #[serde(default)]
+    pub masked: Option<String>,
+}
+
+/// `IssueApiToken`, or `RotateApiToken` with `rotate`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenCommand {
+    /// The command's `Idempotency-Key`.
+    pub key: String,
+    pub rotate: bool,
+    /// The new token's id, 32 hex characters: the rate limit's key, never a secret.
+    pub tid: String,
+    /// Unix seconds.
+    pub iat: i64,
+    pub exp: i64,
+}
+
+/// `/_token/issue`'s answer: the claims the Worker signs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenIssued {
+    pub tid: String,
+    pub iat: i64,
+    pub exp: i64,
+    pub token_v: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenMasked {
+    pub token_v: u32,
+    pub tid: String,
+    pub masked: String,
+}
+
 #[derive(Deserialize)]
 struct MetaRow {
     id: String,
@@ -433,6 +503,13 @@ impl DurableObject for Sandbox {
                         let body: RegisterDay = sql::body(&mut req).await?;
                         self.register_day(&meta, body.date, body.catering, now)
                     }
+                    (Method::Post, "/_register-dispatch") => {
+                        let body: RegisterDay = sql::body(&mut req).await?;
+                        self.register_dispatch(&meta, body.date, now)
+                    }
+                    (Method::Get, p) if p.starts_with("/_place/") => {
+                        self.place_of(&meta, &p["/_place/".len()..])
+                    }
                     (Method::Post, "/_register-catering") => {
                         let body: RegisterCatering = sql::body(&mut req).await?;
                         self.register_catering(&meta, body, now)
@@ -482,6 +559,15 @@ impl DurableObject for Sandbox {
                     (Method::Post, "/_redrive") => {
                         let body: Redrive = sql::body(&mut req).await?;
                         self.redrive(body, now).await
+                    }
+                    (Method::Get, "/_token") => json(&self.token_state(&meta)?, 200),
+                    (Method::Post, "/_token/issue") => {
+                        let body: TokenCommand = sql::body(&mut req).await?;
+                        self.issue_token(&meta, body, now).await
+                    }
+                    (Method::Post, "/_token/masked") => {
+                        let body: TokenMasked = sql::body(&mut req).await?;
+                        self.token_masked(&body)
                     }
                     _ => refuse(404, "not-found"),
                 }
@@ -1156,6 +1242,84 @@ impl Sandbox {
         )
     }
 
+    /// A day's `Dispatch` for the router's read or a staff command, or the consumer's stop,
+    /// born on first touch. The same days as a `Schedule`'s: from the birth day to 30 days after
+    /// business today.
+    fn register_dispatch(
+        &self,
+        meta: &MetaRow,
+        date: BakeryDate,
+        now: WallTime,
+    ) -> Result<Response> {
+        match meta.state.as_str() {
+            "live" => {}
+            "seeding" => return refuse(409, "seeding"),
+            _ => return gone(),
+        }
+        if !meta.day_in_range(date, now)? {
+            return refuse(404, "no-such-day");
+        }
+        let name = dispatch::name(meta.sandbox()?, date);
+        exec(
+            &self.sql(),
+            "INSERT OR IGNORE INTO registry (name, class, registered_at, clock_v) VALUES (?, ?, ?, ?)",
+            vec![
+                name.as_str().into(),
+                dispatch::CLASS.into(),
+                now.to_string().into(),
+                meta.clock_v.into(),
+            ],
+        )?;
+        json(
+            &DayBirth {
+                name,
+                clock_offset_s: meta.clock_offset_s,
+                clock_v: u32::try_from(meta.clock_v).unwrap_or(0),
+            },
+            200,
+        )
+    }
+
+    /// A persona's delivery place, the seed's `p<n>`, from its first-touch payload: where its
+    /// delivery orders' stops are. Answered while seeding too, as `/_register-customer` is.
+    fn place_of(&self, meta: &MetaRow, customer_id: &str) -> Result<Response> {
+        if !matches!(meta.state.as_str(), "live" | "seeding") {
+            return gone();
+        }
+        let Ok(customer_id) = customer_id.parse::<Ulid>() else {
+            return refuse(404, "unknown-persona");
+        };
+        #[derive(Deserialize)]
+        struct PersonaRow {
+            register: String,
+        }
+        let sql = self.sql();
+        let found: Option<PersonaRow> = if has_table(&sql, "personas")? {
+            first(
+                &sql,
+                "SELECT register FROM personas WHERE id = ?",
+                vec![customer_id.to_string().into()],
+            )?
+        } else {
+            None
+        };
+        let place = match found {
+            Some(r) => {
+                serde_json::from_str::<customer::RegisterIn>(&r.register)?
+                    .profile
+                    .place
+            }
+            None => {
+                let g = Self::generated(u64::try_from(meta.seed).unwrap_or(0), meta.born()?)?;
+                match g.customers.iter().find(|c| c.id == customer_id) {
+                    Some(c) => c.place.clone(),
+                    None => return refuse(404, "unknown-persona"),
+                }
+            }
+        };
+        json(&serde_json::json!({ "place": place }), 200)
+    }
+
     /// The registered `Schedule` days from business today on: where `MenuPublished`'s new
     /// caps go.
     fn days(&self, meta: &MetaRow, now: WallTime) -> Result<Response> {
@@ -1317,6 +1481,131 @@ impl Sandbox {
             vec![name.into()],
         )?;
         Ok(n.is_some_and(|r| r.n > 0))
+    }
+
+    /// What the router checks a bearer token against: the state and the token version, read
+    /// from `meta` with no other query but the last token's row.
+    fn token_state(&self, meta: &MetaRow) -> Result<TokenState> {
+        #[derive(Deserialize)]
+        struct TokenRow {
+            iat: i64,
+            exp: i64,
+            masked: Option<String>,
+        }
+        let token_v = u32::try_from(meta.token_v).unwrap_or(0);
+        let row: Option<TokenRow> = if has_table(&self.sql(), "api_token")? {
+            first(
+                &self.sql(),
+                "SELECT iat, exp, masked FROM api_token WHERE token_v = ?",
+                vec![meta.token_v.into()],
+            )?
+        } else {
+            None
+        };
+        let wall = |s: i64| {
+            WallTime::from_unix_ms(s.saturating_mul(1_000))
+                .map(|t| t.to_string())
+                .ok()
+        };
+        Ok(TokenState {
+            state: meta.state.clone(),
+            token_v,
+            issued_at: row.as_ref().and_then(|r| wall(r.iat)),
+            expires_at: row.as_ref().and_then(|r| wall(r.exp)),
+            masked: row.and_then(|r| r.masked),
+        })
+    }
+
+    /// `IssueApiToken` and `RotateApiToken` (docs/domain.md, "Sandbox"): the token row and the
+    /// command's key in one transaction, and for a rotation the version plus one and
+    /// `ApiTokenRotated { token_v }` with them, so a token naming the old version is refused from
+    /// the next request on. The version only grows. A key seen with the other command is 422.
+    async fn issue_token(
+        &self,
+        meta: &MetaRow,
+        cmd: TokenCommand,
+        now: WallTime,
+    ) -> Result<Response> {
+        if meta.state == "wiping" {
+            return gone();
+        }
+        let sql = self.sql();
+        exec(&sql, API_TOKEN_TABLE, vec![])?;
+        let kind = if cmd.rotate { "rotate" } else { "issue" };
+        let seen = stream::seen(&sql, &cmd.key)?;
+        match bakery_domain::outbox::check_command(seen.as_ref(), kind) {
+            Ok(bakery_domain::outbox::CommandCheck::Replay(result)) => return replayed(result),
+            Ok(bakery_domain::outbox::CommandCheck::Fresh) => {}
+            Err(_) => return refuse(422, "key-reused"),
+        }
+        let token_v = meta.token_v + i64::from(cmd.rotate);
+        let issued = TokenIssued {
+            tid: cmd.tid.clone(),
+            iat: cmd.iat,
+            exp: cmd.exp,
+            token_v: u32::try_from(token_v).map_err(|_| Error::RustError("token_v".into()))?,
+        };
+        let answer = serde_json::to_string(&issued)?;
+        let event = if cmd.rotate {
+            let sandbox = meta.sandbox()?;
+            Some(Envelope {
+                v: bakery_domain::ENVELOPE_VERSION,
+                id: random::ulid(now)?,
+                sandbox,
+                stream: bakery_app::names::sandbox_object_name(sandbox),
+                seq: stream::head(&sql, sandbox, "")?.last_seq + 1,
+                event_type: "ApiTokenRotated".into(),
+                at: business_at(now, meta.clock_offset_s),
+                recorded_at: now,
+                data: serde_json::json!({ "token_v": token_v }),
+                cause: Some(cmd.key.clone()),
+            })
+        } else {
+            None
+        };
+        let stored = answer.clone();
+        let tx_sql = self.sql();
+        transaction_sync(&self.state.storage(), move || {
+            if let Some(event) = &event {
+                exec(&tx_sql, "UPDATE meta SET token_v = ?", vec![token_v.into()])?;
+                stream::append(&tx_sql, std::slice::from_ref(event))?;
+            }
+            exec(
+                &tx_sql,
+                "INSERT OR REPLACE INTO api_token (id, token_v, tid, iat, exp, masked)
+                 VALUES (1, ?, ?, ?, ?, NULL)",
+                vec![
+                    token_v.into(),
+                    cmd.tid.as_str().into(),
+                    cmd.iat.into(),
+                    cmd.exp.into(),
+                ],
+            )?;
+            stream::remember(&tx_sql, &cmd.key, kind, &stored, now)?;
+            Ok(())
+        })?;
+        if cmd.rotate {
+            stream::relay_soon(&self.state, &self.env, now, CLASS).await?;
+        }
+        let mut res = Response::ok(answer)?;
+        res.headers_mut().set("Content-Type", "application/json")?;
+        Ok(res)
+    }
+
+    /// The signed token's masked form, kept for `GET` while that token is the last issued.
+    fn token_masked(&self, body: &TokenMasked) -> Result<Response> {
+        if has_table(&self.sql(), "api_token")? {
+            exec(
+                &self.sql(),
+                "UPDATE api_token SET masked = ? WHERE token_v = ? AND tid = ?",
+                vec![
+                    body.masked.as_str().into(),
+                    i64::from(body.token_v).into(),
+                    body.tid.as_str().into(),
+                ],
+            )?;
+        }
+        json(&serde_json::json!({ "ok": true }), 200)
     }
 
     /// `AdvanceClock` (docs/domain.md, "Sandbox"): the step from the domain's rules (`15m`,
@@ -1667,9 +1956,10 @@ struct SeedChild {
     catering_day: Option<usize>,
 }
 
-/// The Catalog, the Kitchen, Billing, Crm, the Inbox, the seed's 7 Schedule days, its 12 open
-/// orders, its 8 catering events and the 3 days that hold the accepted and confirmed events'
-/// places: 35 children. The days go before the orders, so an order's events find its day; Crm
+/// The Catalog, the Kitchen, Billing, Crm, the Inbox, the seed's 7 Schedule days, today's
+/// Dispatch, its 12 open orders, its 8 catering events and the 3 days that hold the accepted and
+/// confirmed events' places: 36 children. The days and the Dispatch go before the orders, so an
+/// order's events find its day and its stop already there; Crm
 /// and the Inbox go before the orders too, so the seeded orders' events, which their outboxes
 /// relay, find both born (and a seeded paid order's points find Crm), and before the catering
 /// events, whose own events the Sandbox hands them as each is seeded.
@@ -1723,6 +2013,11 @@ fn seed_plan(g: &Generated, sandbox: Ulid) -> Vec<SeedChild> {
         catering: None,
         catering_day: None,
     }));
+    plan.push(plain(
+        dispatch::CLASS,
+        dispatch::BINDING,
+        dispatch::name(sandbox, bakery_seed::seed_dispatch(g).date),
+    ));
     plan.extend(g.open_orders.iter().enumerate().map(|(i, o)| SeedChild {
         class: order::CLASS,
         binding: order::BINDING,
@@ -1874,6 +2169,16 @@ impl SeedChild {
                     categories: via_json::<_, Vec<Category>>(&g.categories)?,
                     items,
                     variants: via_json::<_, Vec<Variant>>(&g.variants)?,
+                })?
+            }
+            None if self.class == dispatch::CLASS => {
+                serde_json::to_value(dispatch::SeedDispatch {
+                    birth,
+                    cmds: bakery_seed::seed_dispatch(g)
+                        .commands
+                        .iter()
+                        .filter_map(|(_, c)| dispatch::Cmd::of(c))
+                        .collect(),
                 })?
             }
             None if self.class == billing::CLASS => serde_json::to_value(billing::SeedBilling {
@@ -2084,11 +2389,12 @@ mod tests {
     }
 
     #[test]
-    fn the_plan_is_thirty_five_children_catalog_kitchen_billing_crm_inbox_and_the_days_first() {
+    fn the_plan_is_thirty_six_children_catalog_kitchen_billing_crm_inbox_the_days_and_dispatch_first()
+     {
         let g = generated();
         let sandbox = Ulid::from_parts(1, 1);
         let plan = seed_plan(&g, sandbox);
-        assert_eq!(plan.len(), 35);
+        assert_eq!(plan.len(), 36);
         assert_eq!(plan[0].name, format!("catalog:{sandbox}"));
         assert_eq!(plan[1].name, format!("kitchen:{sandbox}"));
         assert_eq!(plan[2].name, format!("billing:{sandbox}"));
@@ -2103,21 +2409,26 @@ mod tests {
         assert!(plan[5..12].iter().all(|c| c.class == "Schedule"
             && c.name.starts_with(&format!("schedule:{sandbox}:"))
             && schedule::date_of(&c.name).is_some()));
+        // Today's Dispatch, before the orders whose stops it holds.
+        assert_eq!(
+            (plan[12].class, plan[12].name.clone()),
+            ("Dispatch", format!("dispatch:{sandbox}:2026-11-07"))
+        );
         assert!(
-            plan[12..24]
+            plan[13..25]
                 .iter()
                 .all(|c| c.class == "Order" && c.name.starts_with(&format!("order:{sandbox}:")))
         );
         assert!(
-            plan[24..32].iter().all(|c| c.class == "CateringEvent"
+            plan[25..33].iter().all(|c| c.class == "CateringEvent"
                 && c.name.starts_with(&format!("catering:{sandbox}:")))
         );
         // The accepted and the two confirmed events' days, none of them a seeded week day.
-        assert!(plan[32..].iter().all(|c| c.class == "Schedule"));
+        assert!(plan[33..].iter().all(|c| c.class == "Schedule"));
         let names: std::collections::BTreeSet<&str> =
             plan.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names.len(), plan.len(), "no child twice");
-        assert_eq!(plan.len().div_ceil(SEED_BATCH), 5, "five seeding runs");
+        assert_eq!(plan.len().div_ceil(SEED_BATCH), 6, "six seeding runs");
         // Every class but the Simulator, born on the first "Start traffic", and the Customer,
         // born on a persona's first touch.
         for (class, _) in DISPATCH

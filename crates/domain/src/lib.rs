@@ -20,6 +20,8 @@
 //! - [`crm`]: Crm's projection (customers, timelines, activity, leads, campaign stats, the
 //!   rebuild), its segments, and the campaigns it hosts (docs/domain.md, "Campaign").
 //! - [`inbox`]: the Inbox projection, its message templates and the simulated engagement.
+//! - [`dispatch`]: the Dispatch, hosted by `Dispatch` per day: stops, the savings heuristic,
+//!   the plan validator and the travel-time matrix (ADR 0012).
 
 pub mod aggregate;
 pub mod calendar;
@@ -30,6 +32,7 @@ pub mod catering;
 pub mod clock;
 pub mod crm;
 pub mod customer;
+pub mod dispatch;
 mod envelope;
 mod error;
 mod free_text;

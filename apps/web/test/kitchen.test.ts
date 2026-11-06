@@ -1,4 +1,7 @@
-import { describe, expect, test } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, test, vi } from 'vitest';
+import { CardView } from '../src/components/KitchenBoard';
 import {
   EMPTY_BOARD,
   FEED_MAX,
@@ -11,6 +14,8 @@ import {
   isSimulated,
   parseFrame,
   pushFeed,
+  routeWords,
+  type BoardState,
   type Card,
   type Envelope,
 } from '../src/lib/kitchen';
@@ -172,6 +177,8 @@ describe('staff actions', () => {
     updated_seq: 1,
     cause: null,
     last: null,
+    van: null,
+    stop: null,
   };
 
   test('each state offers the next step', () => {
@@ -209,5 +216,218 @@ describe('the activity feed and the reconnect delay', () => {
     expect([0, 1, 2, 3, 4, 5, 6, 10, 100].map(backoffMs)).toEqual([
       1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000, 30000,
     ]);
+  });
+});
+
+describe('a delivery’s van and stop', () => {
+  const delivery = () =>
+    envelope(1, 'OrderPlaced', {
+      kind: 'delivery',
+      slot: '2026-11-07T09:45:00-07:00',
+      lines: [{ item: 'country-loaf', variant: 'country-loaf/whole', qty: 2, unit_cents: 950 }],
+    });
+  const outForDelivery = (seq: number, route = 'van-2', stop = 3) =>
+    envelope(seq, 'OrderOutForDelivery', { route, stop });
+  const snapshotCard = {
+    order: ORDER,
+    state: 'out_for_delivery',
+    lines: [{ variant: 'country-loaf/whole', qty: 2 }],
+    note: null,
+    slot: '2026-11-07T09:45:00-07:00',
+    kind: 'delivery',
+    updated_seq: 5,
+  };
+
+  test('a new card has none; a snapshot carries them when set and reads null otherwise', () => {
+    expect(applyEvent(EMPTY_BOARD, delivery()).cards[ORDER]).toMatchObject({
+      van: null,
+      stop: null,
+    });
+    const withPair = boardFromSnapshot([{ ...snapshotCard, van: 'van-1', stop: 2 }]);
+    expect(withPair.cards[ORDER]).toMatchObject({ van: 'van-1', stop: 2 });
+    for (const odd of [
+      {},
+      { van: null, stop: null },
+      { van: '', stop: 0 },
+      { van: 1, stop: 'x' },
+    ]) {
+      expect(boardFromSnapshot([{ ...snapshotCard, ...odd }]).cards[ORDER]).toMatchObject({
+        van: null,
+        stop: null,
+      });
+    }
+  });
+
+  test('OrderOutForDelivery sets the pair, so the fold agrees with a snapshot', () => {
+    let board = applyEvent(EMPTY_BOARD, delivery());
+    board = applyEvent(board, envelope(2, 'OrderPaid'));
+    board = applyEvent(board, envelope(3, 'OrderProductionStarted'));
+    board = applyEvent(board, envelope(4, 'OrderReady'));
+    expect(board.cards[ORDER]).toMatchObject({ van: null, stop: null });
+    board = applyEvent(board, outForDelivery(5));
+    const folded = board.cards[ORDER] as Card;
+    expect(folded).toMatchObject({ state: 'out_for_delivery', van: 'van-2', stop: 3 });
+    const snapshot = boardFromSnapshot([{ ...snapshotCard, van: 'van-2', stop: 3 }]);
+    expect({ ...folded, cause: null, last: null }).toEqual(snapshot.cards[ORDER]);
+  });
+
+  test('an event without a usable pair keeps what the card has', () => {
+    let board = applyEvent(EMPTY_BOARD, delivery());
+    board = applyEvent(board, envelope(2, 'OrderPaid'));
+    board = applyEvent(board, { ...outForDelivery(3), data: {} });
+    expect(board.cards[ORDER]).toMatchObject({ state: 'out_for_delivery', van: null, stop: null });
+  });
+
+  test('the label: van and stop, either alone, and nothing when neither is set', () => {
+    expect(routeWords({ van: 'van-1', stop: 3 })).toBe('Van 1, stop 3');
+    expect(routeWords({ van: 'van-4', stop: null })).toBe('Van 4');
+    expect(routeWords({ van: null, stop: 7 })).toBe('Stop 7');
+    expect(routeWords({ van: 'van-a', stop: 2 })).toBe('Van a, stop 2');
+    expect(routeWords({ van: null, stop: null })).toBeNull();
+  });
+
+  test('the card shows the label when set and no label when not', () => {
+    const base = applyEvent(EMPTY_BOARD, delivery()).cards[ORDER] as Card;
+    const draw = (card: Card) =>
+      renderToStaticMarkup(
+        createElement(CardView, {
+          card,
+          sandboxId: '01JC8YV2D4QK7S1M9E3PZ6W8AN',
+          canAct: false,
+          open: true,
+          onAct: () => undefined,
+          onRefunded: () => undefined,
+        }),
+      );
+    expect(draw({ ...base, state: 'out_for_delivery', van: 'van-1', stop: 3 })).toContain(
+      '<p>Van 1, stop 3</p>',
+    );
+    const plain = draw(base);
+    expect(plain).not.toMatch(/Van \d|[Ss]top \d/);
+  });
+
+  describe('RoutePublished, as crates/domain/src/kitchen.rs applies it', () => {
+    const O = (k: number) => `01JC8Z5R0T2B6Y8C4V1N3K7Q${String(k).padStart(2, '0')}`;
+    const stream = 'dispatch:01JC8YV2D4QK7S1M9E3PZ6W8AN:2026-11-07';
+    const published = (planV: number, vans: { van: number; stops: string[] }[], seq = planV) => ({
+      id: `01JC8Z6K3W9QF2N4T7XRB5N${String(seq).padStart(3, '0')}`,
+      stream,
+      seq,
+      type: 'RoutePublished',
+      at: '2026-11-07T07:00:00-07:00',
+      recorded_at: '2026-11-07T14:00:00.000Z',
+      cause: null,
+      data: { date: '2026-11-07', plan_v: planV, source: 'server', vans, minutes: 40 },
+    });
+    const placedOrder = (k: number, seq = 1): Envelope => ({
+      ...delivery(),
+      stream: `order:01JC8YV2D4QK7S1M9E3PZ6W8AN:${O(k)}`,
+      id: `01JC8Z6K3W9QF2N4T7XRB5M${String(k).padStart(3, '0')}`,
+      seq,
+    });
+    // Orders 1, 2 and 3 have cards; 9 has none. Order 3 is in no plan.
+    const start = () => [1, 2, 3].reduce((b, k) => applyEvent(b, placedOrder(k)), EMPTY_BOARD);
+    const labels = (board: BoardState) =>
+      [1, 2, 3].map((k) => [board.cards[O(k)]?.van, board.cards[O(k)]?.stop]);
+
+    test('labels the cards in stop order across the vans, skips an order with no card', () => {
+      const plan = published(1, [
+        { van: 1, stops: [O(2)] },
+        { van: 2, stops: [O(1), O(9)] },
+      ]);
+      const board = applyEvent(start(), plan);
+      expect(labels(board)).toEqual([
+        ['van-2', 2],
+        ['van-1', 1],
+        [null, null],
+      ]);
+      expect(board.cards[O(9)]).toBeUndefined();
+      // Nothing of the order's own moved.
+      expect(board.cards[O(1)]).toMatchObject({ updated_seq: 1, last: 'OrderPlaced' });
+      expect(board.heads).toEqual(start().heads);
+    });
+
+    test('the folded board equals the snapshot the Kitchen would send', () => {
+      const folded = applyEvent(
+        start(),
+        published(1, [
+          { van: 1, stops: [O(2)] },
+          { van: 2, stops: [O(1), O(9)] },
+        ]),
+      );
+      // kitchen.rs `snapshot()`: the cards by slot then order, `van` and `stop` only when set.
+      const wire = [
+        { ...snapshotCard, order: O(1), state: 'pending', updated_seq: 1, van: 'van-2', stop: 2 },
+        { ...snapshotCard, order: O(2), state: 'pending', updated_seq: 1, van: 'van-1', stop: 1 },
+        { ...snapshotCard, order: O(3), state: 'pending', updated_seq: 1 },
+      ];
+      const snapshot = boardFromSnapshot(wire);
+      const bare = (b: BoardState) =>
+        Object.values(b.cards).map((c) => ({ ...c, cause: null, last: null }));
+      expect(bare(folded)).toEqual(bare(snapshot));
+      expect(folded.heads).toEqual(snapshot.heads);
+    });
+
+    test('a lower or equal plan_v after a higher one changes nothing', () => {
+      const first = applyEvent(start(), published(2, [{ van: 1, stops: [O(1), O(2)] }]));
+      const older = applyEvent(first, published(1, [{ van: 3, stops: [O(2), O(1)] }]));
+      expect(older).toBe(first);
+      const same = applyEvent(first, published(2, [{ van: 3, stops: [O(2), O(1)] }], 7));
+      expect(same).toBe(first);
+      expect(labels(first)).toEqual([
+        ['van-1', 1],
+        ['van-1', 2],
+        [null, null],
+      ]);
+    });
+
+    test('a newer plan relabels its cards and leaves a card it does not name as it was', () => {
+      let board = applyEvent(start(), published(1, [{ van: 1, stops: [O(1), O(2)] }]));
+      board = applyEvent(board, published(2, [{ van: 2, stops: [O(2)] }]));
+      expect(labels(board)).toEqual([
+        ['van-1', 1],
+        ['van-2', 1],
+        [null, null],
+      ]);
+    });
+
+    test('the days are separate, and a plan’s label survives OrderOutForDelivery with the same pair', () => {
+      let board = applyEvent(start(), published(1, [{ van: 1, stops: [O(1)] }]));
+      const otherDay = published(1, [{ van: 4, stops: [O(3)] }], 5);
+      otherDay.data.date = '2026-11-08';
+      board = applyEvent(board, otherDay);
+      expect(labels(board)).toEqual([
+        ['van-1', 1],
+        [null, null],
+        ['van-4', 1],
+      ]);
+      const before = board.cards[O(1)] as Card;
+      board = applyEvent(board, {
+        ...placedOrder(1, 2),
+        type: 'OrderOutForDelivery',
+        data: { route: 'van-1', stop: 1 },
+      });
+      expect(board.cards[O(1)]).toMatchObject({ state: 'out_for_delivery', van: 'van-1', stop: 1 });
+      expect(board.cards[O(1)]?.lines).toEqual(before.lines);
+    });
+
+    test('malformed data changes nothing, logs no error, and the feed still lists the frame', () => {
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        const board = start();
+        for (const data of [{}, { date: 'x', plan_v: 1, vans: [] }, { date: '2026-11-07' }]) {
+          expect(applyEvent(board, { ...published(1, []), data })).toBe(board);
+        }
+        const frame = parseFrame(JSON.stringify({ t: 'evt', v: 1, env: published(1, []) }));
+        expect(frame?.t).toBe('evt');
+        if (frame?.t !== 'evt') return;
+        const feed = pushFeed([], frame.env);
+        expect(feed).toHaveLength(1);
+        expect(feed[0]).toMatchObject({ type: 'RoutePublished', stream, seq: 1, cause: null });
+        expect(errors).not.toHaveBeenCalled();
+      } finally {
+        errors.mockRestore();
+      }
+    });
   });
 });

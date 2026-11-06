@@ -1,0 +1,32 @@
+---
+import Base from '../../../layouts/Base.astro';
+import Dispatch from '../../../components/Dispatch';
+import attribution from '../../../../public/app/dispatch/data/ATTRIBUTION.txt?raw';
+---
+
+<Base
+  title="Dispatch | Proof of Concept Bakery"
+  description="One day's delivery stops on a map of Salt Lake City, the server's proposed plan, the plan VROOM makes in your browser, the two compared, and the one that is published."
+  screen="dispatch"
+>
+  <h1>Dispatch</h1>
+  <p>
+    Staff plan each day's deliveries here: the confirmed stops, one to four vans leaving the bakery
+    and coming back. The server proposes a plan, your browser can plan the same stops with a
+    different method, and the Dispatch object checks whichever you send and decides what is
+    published. The places are public parks, libraries and stations that stand in for made-up
+    addresses.
+  </p>
+  <Dispatch client:load />
+  <section>
+    <h2>Map and route data</h2>
+    <p class="fine">{attribution.trim()}</p>
+    <p>
+      <a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a>; routing by
+      openrouteservice (self-hosted).
+    </p>
+  </section>
+  <p>
+    <a href="/app/">Back to the console</a>
+  </p>
+</Base>

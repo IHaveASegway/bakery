@@ -9,6 +9,7 @@ import SignInError from '../../components/SignInError';
 <Base
   title="Sign in | Proof of Concept Bakery"
   description="Three ways into a private sandbox: Google, GitHub or a demo account, or a guest."
+  screen="signin"
 >
   <h1>Sign in</h1>
   <p>
@@ -18,7 +19,7 @@ import SignInError from '../../components/SignInError';
 
   <SignInError client:load />
 
-  <section aria-labelledby="providers">
+  <section aria-labelledby="providers" data-tour="signin-providers">
     <h2 id="providers">Sign in with an account you have</h2>
     <p>
       Google and GitHub tell the bakery only a number that identifies the account, kept as a keyed

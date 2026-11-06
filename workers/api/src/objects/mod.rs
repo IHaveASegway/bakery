@@ -9,6 +9,7 @@ pub mod child;
 pub mod control;
 pub mod crm;
 pub mod customer;
+pub mod dispatch;
 pub mod inbox;
 pub mod kitchen;
 pub mod order;

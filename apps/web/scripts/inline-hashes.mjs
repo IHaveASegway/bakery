@@ -22,6 +22,11 @@ export function inlineHashes(html) {
   };
 }
 
+/** Whether a built file's URL (`/menu/index.html`) falls under a rule (`/menu/*`, or `/` alone). */
+function matches(rule, url) {
+  return rule.endsWith('*') ? url.startsWith(rule.slice(0, -1)) : url === `${rule}index.html`;
+}
+
 /**
  * Hashes per policy rule. `rules` are the paths that get their own policy (`/signin/*`); every
  * other page belongs to `/*`. Returns { '/*': {script, style}, '/signin/*': ... }.
@@ -31,7 +36,10 @@ export function hashesByRule(dir, rules) {
   for (const file of readdirSync(dir, { recursive: true })) {
     if (typeof file !== 'string' || !file.endsWith('.html')) continue;
     const url = `/${file.replaceAll('\\', '/')}`;
-    const rule = rules.find((r) => url.startsWith(r.slice(0, -1))) ?? '/*';
+    // The longest matching prefix wins: /app/dispatch/* is under /app/*. A rule with no splat
+    // (`/`) is that page alone, as Cloudflare reads it.
+    const rule =
+      rules.filter((r) => matches(r, url)).sort((x, y) => y.length - x.length)[0] ?? '/*';
     const found = inlineHashes(readFileSync(join(dir, file), 'utf8'));
     for (const kind of ['script', 'style']) {
       out[rule][kind] = [...new Set([...out[rule][kind], ...found[kind]])].sort();

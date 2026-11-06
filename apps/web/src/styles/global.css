@@ -42,6 +42,19 @@ a:focus-visible {
   outline-offset: 2px;
 }
 
+/* Links inside running text carry an underline as well as the colour (WCAG 1.4.1). Navigation
+   lists, buttons and link-styled controls (.action, .api-index) keep the plain look. */
+:where(p, li, td, th, dd, dt, figcaption, blockquote, h4, h5, h6) a:not(.action, .api-index a) {
+  text-decoration-line: underline;
+  text-decoration-thickness: 0.0625em;
+  text-underline-offset: 0.2em;
+}
+
+:where(p, li, td, th, dd, dt, figcaption, blockquote, h4, h5, h6)
+  a:not(.action, .api-index a):hover {
+  text-decoration-thickness: 0.125em;
+}
+
 /* Forms and the console. Colors come from tokens.css only. */
 h2 {
   margin: 2.5rem 0 0.75rem;
@@ -451,4 +464,296 @@ progress {
   height: 1rem;
   vertical-align: middle;
   accent-color: var(--primary);
+}
+
+/* The dispatch screen's map. Colors come from the --map-* tokens, never a literal here, and no
+   element carries a style attribute (the page policy refuses them). Vans differ by colour, by shape
+   (squares for A and D, circles for B and C) and by dash, so none is told apart by colour alone. */
+.dispatch-map {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.map-land {
+  fill: var(--map-land);
+}
+
+.map-band {
+  stroke: none;
+}
+
+.map-band-1 {
+  fill: var(--map-band-1);
+}
+.map-band-2 {
+  fill: var(--map-band-2);
+}
+.map-band-3 {
+  fill: var(--map-band-3);
+}
+.map-band-4 {
+  fill: var(--map-band-4);
+}
+.map-band-5 {
+  fill: var(--map-band-5);
+}
+.map-band-6 {
+  fill: var(--map-band-6);
+}
+
+.map-band-label,
+.map-depot-label {
+  fill: var(--map-label);
+  font-size: 26px;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--map-land);
+  stroke-width: 7px;
+  stroke-linejoin: round;
+}
+
+.map-depot-label {
+  font-size: 32px;
+  font-weight: 700;
+}
+
+.map-place {
+  fill: var(--map-place);
+  opacity: 0.35;
+}
+
+.map-depot {
+  fill: var(--map-depot);
+  stroke: var(--map-land);
+  stroke-width: 4px;
+}
+
+.map-route {
+  fill: none;
+  stroke-width: 7px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.map-route-a {
+  stroke: var(--map-van-a);
+}
+.map-route-b {
+  stroke: var(--map-van-b);
+  stroke-dasharray: 22 10;
+}
+.map-route-c {
+  stroke: var(--map-van-c);
+  stroke-dasharray: 4 10;
+}
+.map-route-d {
+  stroke: var(--map-van-d);
+  stroke-dasharray: 34 10 4 10;
+}
+
+.map-mark {
+  stroke: var(--map-land);
+  stroke-width: 3px;
+}
+
+.map-mark-open {
+  fill: var(--background);
+  stroke: var(--map-place);
+  stroke-width: 5px;
+}
+.map-mark-a {
+  fill: var(--map-van-a);
+}
+.map-mark-b {
+  fill: var(--map-van-b);
+}
+.map-mark-c {
+  fill: var(--map-van-c);
+}
+.map-mark-d {
+  fill: var(--map-van-d);
+}
+
+.map-mark-text {
+  fill: var(--background);
+  font-size: 26px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.map-mark-small {
+  font-size: 18px;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  margin: 0.5rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.swatch {
+  display: inline-block;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-right: 0.375rem;
+  border: 1px solid var(--foreground);
+  vertical-align: -0.125rem;
+}
+.swatch-a {
+  background: var(--map-van-a);
+}
+.swatch-b {
+  background: var(--map-van-b);
+  border-radius: 50%;
+}
+.swatch-c {
+  background: var(--map-van-c);
+  border-radius: 50%;
+}
+.swatch-d {
+  background: var(--map-van-d);
+}
+
+.figures {
+  width: auto;
+}
+
+.figures th[scope='row'] {
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+
+.fine {
+  white-space: pre-line;
+}
+
+/* The guided tour (components/Tour.tsx). The card is docked at the foot of the window, so nothing
+   is positioned from the target and no element needs a style attribute. The ring is drawn on the
+   target itself by an attribute the island sets. */
+.tour-trigger {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 20;
+}
+
+.tour-card {
+  position: fixed;
+  right: 1rem;
+  bottom: 4.75rem;
+  left: 1rem;
+  z-index: 20;
+  box-sizing: border-box;
+  max-width: 40rem;
+  max-height: 55vh;
+  margin-left: auto;
+  overflow-y: auto;
+  padding: 0.5rem 1rem 1rem;
+  border: 2px solid var(--primary);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.tour-card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+}
+
+.tour-card h2:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.tour-card h3 {
+  margin: 1rem 0 0.25rem;
+  font-size: 1rem;
+}
+
+.tour-progress {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.tour-curl {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.75rem;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  font-size: 0.875rem;
+}
+
+.tour-curl code {
+  font-family: var(--font-mono);
+  white-space: pre;
+}
+
+[data-tour-current] {
+  outline: 3px solid var(--ring);
+  outline-offset: 4px;
+  scroll-margin: 1rem 0 60vh;
+}
+
+/* The API token's reveal box and the reference page. */
+.reveal {
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid var(--primary);
+  border-radius: var(--radius-md);
+}
+
+.api-index {
+  columns: 14rem;
+  padding-left: 1.25rem;
+}
+
+.api-op {
+  margin-top: 2rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.api-op h3 {
+  font-family: var(--font-mono);
+  font-size: 1rem;
+}
+
+.method {
+  display: inline-block;
+  min-width: 4.5rem;
+  margin-right: 0.5rem;
+  padding: 0 0.375rem;
+  border: 1px solid var(--foreground);
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.api-curl {
+  overflow-x: auto;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+}
+
+.api-curl code {
+  white-space: pre;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-card {
+    scroll-behavior: auto;
+  }
 }

@@ -28,7 +28,7 @@ export default function Guest() {
   }
 
   return (
-    <form onSubmit={submit} aria-labelledby="guest-heading">
+    <form onSubmit={submit} aria-labelledby="guest-heading" data-tour="signin-guest">
       <h2 id="guest-heading">Try it as a guest</h2>
       <p>
         No account. A check that you are a person gets you a sandbox and a cookie. Guests browse,

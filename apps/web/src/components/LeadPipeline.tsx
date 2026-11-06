@@ -37,7 +37,7 @@ export default function LeadPipeline({
   }, [load]);
 
   return (
-    <section aria-labelledby="leads-heading">
+    <section aria-labelledby="leads-heading" data-tour="crm-leads">
       <h3 id="leads-heading">Catering lead pipeline</h3>
       <p>Every catering inquiry is a lead. It moves right as the event does.</p>
       <Message error={error} />

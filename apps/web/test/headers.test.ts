@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
+import { SOLVER_CSP } from '../src/policy';
 
 // security.md, "Headers, CSP and CORS": the storefront's headers as built by src/policy.ts. Run
 // after `pnpm build`; the file under test is the one the Worker serves.
@@ -38,8 +39,12 @@ describe('dist/_headers', () => {
     '/*',
     '/signin/*',
     '/app/*',
+    '/app/dispatch/*',
     '/menu/*',
     '/inbox/*',
+    '/privacy/*',
+    '/docs/api/*',
+    '/',
     '/checkout/*',
     '/catering/*',
     '/_astro/*',
@@ -81,7 +86,56 @@ describe('dist/_headers', () => {
     );
   });
 
-  test.each(['/menu/*', '/inbox/*'])(
+  test('/app/dispatch/* is the sign-in class plus worker-src self, and detaches the /app/* policy first', () => {
+    const lines = rule(text, '/app/dispatch/*');
+    expect(lines.indexOf('! Content-Security-Policy')).toBe(0);
+    const policy = policyOf(lines);
+    const app = policyOf(rule(text, '/app/*'));
+    expect(directive(policy, 'worker-src')).toEqual(["'self'"]);
+    expect(directive(app, 'worker-src')).toEqual([]);
+    expect(directive(policy, 'script-src').slice(0, 2)).toEqual([
+      "'self'",
+      'https://challenges.cloudflare.com',
+    ]);
+    expect(directive(policy, 'frame-src')).toEqual(['https://challenges.cloudflare.com']);
+    expect(directive(policy, 'connect-src')).toEqual(directive(app, 'connect-src'));
+    expect(
+      directive(policy, 'script-src').filter((s) => s.startsWith("'sha256-")),
+    ).not.toHaveLength(0);
+    // Nothing else differs from the /app/* policy.
+    const names = (p: string) => p.split('; ').map((part) => part.split(' ')[0]);
+    expect(names(policy).filter((n) => !names(app).includes(n))).toEqual(['worker-src']);
+  });
+
+  test('the solver’s folder carries its own policy, the site’s Route Lab policy, after the page rules that match it', () => {
+    const lines = rule(text, '/app/dispatch/solver/*');
+    expect(lines[0]).toBe('! Content-Security-Policy');
+    const policy = policyOf(lines);
+    expect(policy).toBe(SOLVER_CSP);
+    expect(directive(policy, 'script-src')).toEqual(["'self'", "'wasm-unsafe-eval'"]);
+    expect(directive(policy, 'connect-src')).toEqual(["'self'"]);
+    expect(directive(policy, 'default-src')).toEqual(["'none'"]);
+    expect(lines).toContain('Cache-Control: public, max-age=31536000, immutable');
+    // Later rules win: it must come after every rule whose path also matches its files.
+    const order = text.split('\n').filter((l) => l.startsWith('/'));
+    const at = order.indexOf('/app/dispatch/solver/*');
+    for (const earlier of ['/*', '/app/*', '/app/dispatch/*']) {
+      expect(order.indexOf(earlier), earlier).toBeLessThan(at);
+    }
+  });
+
+  test('wasm-unsafe-eval appears once in the whole file, in the solver’s rule', () => {
+    const code = text.split('\n').filter((line) => !line.trimStart().startsWith('#'));
+    const holders = code.filter((line) => line.includes('wasm-unsafe-eval'));
+    expect(holders).toHaveLength(1);
+    expect(rule(text, '/app/dispatch/solver/*').join('\n')).toContain('wasm-unsafe-eval');
+    // And no page policy has any other unsafe keyword.
+    for (const path of rules) {
+      expect(policyOf(rule(text, path)), path).not.toContain('wasm-unsafe-eval');
+    }
+  });
+
+  test.each(['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/'])(
     '%s is an island page: its own policy with hashes, and no third party',
     (path) => {
       const lines = rule(text, path);

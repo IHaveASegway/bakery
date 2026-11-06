@@ -373,7 +373,7 @@ command_as guest G 192.0.2.51 POST /v1/sandboxes '{"turnstile_token":"pass-1","r
 expect_status guest 201
 GID="$(json_field guest b.id)"
 check "guest: seeding reaches live within 20 s" "wait_live guest_live G '$GID'"
-expect_json guest_live "b.state === 'live' && b.children >= 35 && typeof b.persona_name === 'string' && b.persona_name.length > 0 && b.persona_address.line1.endsWith('(synthetic)') && b.persona_address.city === 'Salt Lake City' && b.persona_address.country === 'US'"
+expect_json guest_live "b.state === 'live' && b.children >= 36 && typeof b.persona_name === 'string' && b.persona_name.length > 0 && b.persona_address.line1.endsWith('(synthetic)') && b.persona_address.city === 'Salt Lake City' && b.persona_address.country === 'US'"
 
 get_as menu G "/v1/sandboxes/$GID/menu"
 ORDER="$(order_json menu 0 2)" || { fail "no item on the seeded menu fits a slot 4 h out"; ORDER='{}'; }
@@ -384,7 +384,9 @@ TOTAL="$(json_field place b.total_cents)"
 
 # A socket on the guest's board, open before the payment.
 probe_args G "$GID"
-node "${PROBE[@]}" --wait-evt OrderPaid --timeout 30 > "$TMP/ws_pay.out" &
+# Its own OrderPaid: a seeded order's, still on its way through the Queue, may reach the board
+# first (PR 9 gave every order event one more subscriber).
+node "${PROBE[@]}" --wait-evt OrderPaid --evt-order "$OID" --timeout 30 > "$TMP/ws_pay.out" &
 WS_PAY=$!
 sleep 1
 
