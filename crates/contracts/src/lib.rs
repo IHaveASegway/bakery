@@ -1368,8 +1368,8 @@ pub struct MessageResponse {
 
 /// `GET /v1/sandboxes/{id}/inbox`: the newest messages first, and how many there are in all.
 /// `?kind=` keeps one kind, `?to=` one customer's, `?limit=` the newest that many (50 when left
-/// out).
-/// The customer persona sees its own; staff see every customer's.
+/// out, at most 500). Any session of the sandbox, a guest's included, sees every customer's
+/// messages: the persona is not filtered to its own, and `?to=` is how a reader narrows to one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct InboxResponse {
@@ -1419,8 +1419,9 @@ pub struct ActivityEntry {
 }
 
 /// `GET /v1/sandboxes/{id}/activity`: the sandbox's logged events (clock moves, faults,
-/// menu and capacity changes, payment intents, routes, traffic, token rotations), newest first;
-/// `?limit=` keeps the newest that many.
+/// menu and capacity changes, payment intents, routes, traffic, token rotations), newest first
+/// by business time (ties by event id); `?limit=` keeps the newest that many (50 when left out,
+/// at most 500). Any session of the sandbox reads it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ActivityResponse {
@@ -1437,8 +1438,12 @@ pub enum RebuildState {
 
 /// `GET /v1/sandboxes/{id}/rebuild`, which any session of the sandbox reads, and `202` from
 /// `POST` to it, staff only (a guest gets `403` `guest-scope`): "Rebuild projections" drops
-/// Crm's projections and replays its log, 200 events per alarm. A `POST` while one runs is `409`
-/// problem of type `rebuild` and starts nothing; `GET` says how far the running one is.
+/// Crm's projections and replays its log, 200 events per alarm. A second `POST` (with a new
+/// `Idempotency-Key`) while one runs is `409` problem of type `rebuild` and starts nothing; the
+/// same key again replays the first `202`. Nothing else is refused during a rebuild: other
+/// commands run, reads answer the partial projection with `Projection-State: rebuilding`, and a
+/// campaign send that falls due is deferred (logged as `sends_deferred`) until it ends. `GET`
+/// says how far the running one is, and `finished` with its `ms` until the next start.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RebuildResponse {
