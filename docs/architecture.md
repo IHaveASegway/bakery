@@ -54,7 +54,7 @@ flowchart TB
   waf --> web
   waf --> api
   lab -.->|"Running in the bakery"| web
-  web -.->|"How this works"| lab
+  web -.->|"Read how it works"| lab
   api <--> queues
   api -.-> ae
   api -.->|"optional, to Joseph"| email
@@ -317,7 +317,7 @@ sequenceDiagram
   Note over B,W: 0 Worker requests, 0 DO requests: $0.<br/>The cart is browser state until checkout.
 ```
 
-- Home, Menu, Catering, About, How it's built, Privacy and Status are static (Q6 · Q-public); the menu is the seed's.
+- Home, Menu, Catering, About, How it's built, Privacy and Status are static (Q6 · Q-public); the menu is the seed's. As built on 2026-11-06 (PR 12), all but Status exist, with the essay at `/how-its-built/single-writer/`; the build makes 14 pages. Every page shares one header, nav and footer made of plain links (`apps/web/src/layouts/Base.astro`), which add no script. About, How it's built and the essay are reading pages with no island and the strict page policy; Home, Menu, Privacy and the API reference carry the tour's island. Their text is data or markup in `apps/web/`, so a view still costs $0.
 - A Custom Domain issues its own certificate for a two-level name like `api.bakery.ihaveasegway.com`; Universal SSL covers only the apex and one level.[^customdomains]
 
 ### Sign-in with Google, and a demo account
@@ -644,6 +644,7 @@ sequenceDiagram
 - **A client-side island on every screen,** shipped by `bakery-web` with no third-party script, so it adds nothing to the CSP and costs $0 to serve.
 - **One step per screen element.** Each step names what is shown; lists the events the visitor's last action produced, with their `cause`, from the activity feed the screen already holds; names the principle, with its lab page and ADR; and offers a copyable API request for the same action, filled with the visitor's own token when copied and masked on screen.
 - **The "How this works" drawer is one of its steps.** Steps are data in `apps/web/`, checked at build against `crates/contracts`, so a request in a step cannot drift from the API.
+- **The links, as built in PR 12 (2026-11-06).** A step's principle comes from the table behind the How it's built page (`apps/web/src/lib/how-its-built.ts`), so the card and the page are one source. The card reads "Principle: <name>. Read how it works: <Lab page> · ADR NNNN" with real links (`rel="noopener"`, same window): the lab page's URL is made from its name through one map of five slugs, the ADR's from its number and the file names in `docs/adr/` read at build, and a principle with no lab page links its section of `/how-its-built/` instead; the Raft step adds the essay. The tour's chunk grew from 39,288 B to 42,039 B (13,507 B at gzip -9) for the URLs, the page's prose being kept out of it. A weekly check fetches every external link in the built pages ([delivery.md](delivery.md#the-jobs-as-written)).
 
 ### The API token
 
