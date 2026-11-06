@@ -71,8 +71,15 @@
     ],
   },
 
+  // One data point per event (docs/operations.md, "Observability"): sandbox_created,
+  // order_placed, payment_succeeded, payment_failed, refund_issued, wipe and dlq, each holding
+  // the event's name and counts, never a visitor, a sandbox or an IP. Written fire and forget;
+  // the status page reads them through the SQL API from the 15-minute cron (PR 13).
+  "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "bakery_events" }],
+
   // The wipe at 10:00 UTC, and the sweep that retries any sandbox the wipe missed (the breaker
-  // joins it in PR 11). Each only asks Control to start; Control's alarm does the work.
+  // joins it in PR 11) and refreshes the status page's counters (PR 13). Each only asks Control
+  // to start or to store; Control's alarm does the wipe's work.
   "triggers": { "crons": ["0 10 * * *", "*/15 * * * *"] },
 
   // The free layer of admission, before Control (docs/architecture.md, "Creating a sandbox"):

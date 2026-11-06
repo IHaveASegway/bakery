@@ -40,6 +40,7 @@
 use std::cell::Cell;
 
 use bakery_app::Clock;
+use bakery_app::analytics::{Event, Point};
 use bakery_contracts::{OrderLineResponse, OrderResponse};
 use bakery_domain::catalog::MenuView;
 use bakery_domain::dispatch::{DispatchEvent, deliveries};
@@ -61,7 +62,7 @@ use super::child::{self, Birth, ClockUpdate};
 use super::sql::{self, gone, json, refuse, replayed, transaction_sync};
 use super::stream::{self, BACKSTOP, OUTBOX};
 use crate::clock::{SystemClock, business_at, wall_at};
-use crate::random;
+use crate::{metrics, random};
 
 pub const BINDING: &str = "ORDER";
 pub const CLASS: &str = "Order";
@@ -385,6 +386,8 @@ impl Order {
                 AnswerKind::Order,
             )
             .await?;
+        // Committed: the `order_placed` point, after the commit and never in its way.
+        metrics::write(&self.env, &Point::one(Event::OrderPlaced));
         let mut out = Response::ok(res)?.with_status(201);
         out.headers_mut().set("Content-Type", "application/json")?;
         Ok(out)

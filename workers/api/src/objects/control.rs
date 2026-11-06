@@ -10,14 +10,21 @@
 //! (docs/architecture.md, "Simulated traffic"; docs/cost.md, "Guardrails": 30 minutes).
 //! The daily IP salt lives in memory only and is never stored, so yesterday's IP hashes cannot
 //! be recomputed (docs/security.md, "Privacy and data inventory").
+//!
+//! The status page's counters (PR 13): the 15-minute cron runs the kept Analytics Engine
+//! queries in the Worker and hands the answer here by command (`POST /status-snapshot`, or
+//! `POST /status-failed` when a query failed); `GET /status` serves the one stored snapshot with
+//! its time and state. Nothing here reads Analytics Engine or arms a timer for it. `admit`
+//! writes the `sandbox_created` point and the wipe's last fan-out run writes `wipe`.
 
 use std::cell::{Cell, RefCell};
 
 use bakery_app::Clock;
 use bakery_app::admission::{self, Caps, Counts, Refusal};
+use bakery_app::analytics::{Event, Point, counters_state};
 use bakery_app::auth::hex;
 use bakery_app::names::{CONTROL, sandbox_object_name};
-use bakery_contracts::{Flag, SandboxKind, StatusResponse};
+use bakery_contracts::{Flag, SandboxKind, StatusCounters, StatusResponse};
 use bakery_domain::{Ulid, WallTime};
 use serde::{Deserialize, Serialize};
 use worker::{
@@ -29,7 +36,7 @@ use super::sandbox::{self, WipeRequest};
 use super::sql::{self, exec, first, rows, transaction_sync};
 use crate::clock::{SystemClock, alarm_time};
 use crate::config::{caps_from_env, traffic_minutes_cap};
-use crate::random;
+use crate::{metrics, random};
 
 pub const BINDING: &str = "CONTROL";
 /// Ledger rows and creation keys older than this many days are pruned.
@@ -92,6 +99,18 @@ const SCHEMA: &[&str] = &[
        sandbox TEXT NOT NULL,
        minutes INTEGER NOT NULL,
        PRIMARY KEY (day, sandbox))",
+    // The status page's counters: one row, the last good refresh's answer as JSON with its
+    // time, and the time of a refresh that failed after it (PR 13). Replaced, never appended.
+    "CREATE TABLE IF NOT EXISTS status_snapshot (
+       id INTEGER PRIMARY KEY CHECK (id = 1),
+       as_of TEXT,
+       json TEXT,
+       failed_at TEXT)",
+    // One row per nightly wipe, opened by the 10:00 UTC cron and closed by its last fan-out
+    // run, which writes the `wipe` point from it. Pruned with the ledger.
+    "CREATE TABLE IF NOT EXISTS wipe_runs (
+       started_at TEXT PRIMARY KEY,
+       finished_at TEXT)",
 ];
 
 /// `POST /admit`.
@@ -185,6 +204,21 @@ pub struct TrafficGrant {
     pub cap: u16,
 }
 
+/// `POST /status-snapshot`, from the 15-minute cron: the kept queries' answer and when it was
+/// read, an RFC 3339 UTC time from the cron's clock.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatusSnapshot {
+    pub as_of: String,
+    pub counters: StatusCounters,
+}
+
+/// `POST /status-failed`, from the 15-minute cron: a refresh failed at `at`, so the stored
+/// snapshot is stale. The reason is in the cron's log line only.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotFailed {
+    pub at: String,
+}
+
 /// `POST /wipe` and `POST /sweep`: how many rows were stamped for the fan-out.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stamped {
@@ -245,6 +279,16 @@ impl DurableObject for Control {
             (Method::Post, "/wipe") => Response::from_json(&self.stamp_wipe(now).await?),
             (Method::Post, "/sweep") => Response::from_json(&self.sweep(now).await?),
             (Method::Post, "/prune") => Response::from_json(&self.prune(now)?),
+            (Method::Post, "/status-snapshot") => {
+                let body: StatusSnapshot = sql::body(&mut req).await?;
+                self.store_snapshot(&body)?;
+                Response::from_json(&serde_json::json!({ "ok": true }))
+            }
+            (Method::Post, "/status-failed") => {
+                let body: SnapshotFailed = sql::body(&mut req).await?;
+                self.snapshot_failed(&body)?;
+                Response::from_json(&serde_json::json!({ "ok": true }))
+            }
             _ => Response::error("Not Found", 404),
         }
     }
@@ -387,7 +431,30 @@ impl Control {
         let sql = self.sql();
         let day = now.utc_day();
         let caps = self.caps();
+        let snapshot = read_snapshot(&sql)?;
+        let as_of = snapshot
+            .as_ref()
+            .and_then(|s| s.as_of.parse::<WallTime>().ok());
+        let failed_at = snapshot
+            .as_ref()
+            .and_then(|s| s.failed_at.as_deref())
+            .and_then(|f| f.parse::<WallTime>().ok());
+        // A snapshot is served only whole: counters that read and the time they were read.
+        let (counters, counters_as_of, as_of) = match (snapshot, as_of) {
+            (
+                Some(Snapshot {
+                    counters: Some(c),
+                    as_of: text,
+                    ..
+                }),
+                Some(at),
+            ) => (Some(c), Some(text), Some(at)),
+            _ => (None, None, None),
+        };
         Ok(StatusResponse {
+            counters,
+            counters_as_of,
+            counters_state: counters_state(as_of, failed_at, now),
             sandboxes_today: read_meter(&sql, &day, SANDBOXES)?,
             sandbox_cap: caps.sandboxes,
             guests_today: read_meter(&sql, &day, GUEST_SANDBOXES)?,
@@ -399,10 +466,46 @@ impl Control {
         })
     }
 
+    /// The cron's good refresh: the snapshot replaces the last one, and an earlier failure no
+    /// longer makes it stale.
+    fn store_snapshot(&self, s: &StatusSnapshot) -> Result<()> {
+        exec(
+            &self.sql(),
+            "INSERT INTO status_snapshot (id, as_of, json, failed_at) VALUES (1, ?, ?, NULL)
+             ON CONFLICT (id) DO UPDATE SET as_of = excluded.as_of, json = excluded.json,
+               failed_at = NULL",
+            vec![
+                s.as_of.as_str().into(),
+                serde_json::to_string(&s.counters)?.into(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// The cron's failed refresh: the snapshot stays, marked stale from `at`.
+    fn snapshot_failed(&self, f: &SnapshotFailed) -> Result<()> {
+        exec(
+            &self.sql(),
+            "INSERT INTO status_snapshot (id, failed_at) VALUES (1, ?)
+             ON CONFLICT (id) DO UPDATE SET failed_at = excluded.failed_at",
+            vec![f.at.as_str().into()],
+        )?;
+        Ok(())
+    }
+
     /// Admits one sandbox if the flag and the caps allow it: the replay check, the read, the
     /// decision and the writes are one SQL transaction, so two requests can never both take
-    /// the last place and a retried key never takes a second.
+    /// the last place and a retried key never takes a second. A first admission writes the
+    /// `sandbox_created` point after the commit; a replay or a refusal writes none.
     fn admit(&self, req: AdmitRequest, now: WallTime) -> Result<AdmitAnswer> {
+        let answer = self.admit_once(req, now)?;
+        if answer.admitted && !answer.replayed {
+            metrics::write(&self.env, &Point::one(Event::SandboxCreated));
+        }
+        Ok(answer)
+    }
+
+    fn admit_once(&self, req: AdmitRequest, now: WallTime) -> Result<AdmitAnswer> {
         let sql = self.sql();
         let day = now.utc_day();
         let caps = self.caps();
@@ -590,6 +693,11 @@ impl Control {
             "UPDATE sandboxes SET wipe_due = ? WHERE wiped_at IS NULL",
             vec![now.to_string().into()],
         )?;
+        exec(
+            &self.sql(),
+            "INSERT OR IGNORE INTO wipe_runs (started_at) VALUES (?)",
+            vec![now.to_string().into()],
+        )?;
         self.start_fan_out(now).await?;
         console_log!("{{\"event\":\"wipe_stamped\",\"rows\":{stamped}}}");
         Ok(Stamped {
@@ -664,13 +772,67 @@ impl Control {
             let day = now.utc_day();
             if read_meter(&sql, &day, ALARM_REARMS)? >= REARM_GUARD {
                 console_log!("{{\"event\":\"alarm_guard\",\"object\":\"control\"}}");
+                self.finish_wipe_run()?;
                 return Ok(());
             }
             bump(&sql, &day, ALARM_REARMS)?;
             let next = WallTime::from_unix_ms(now.unix_ms() + FANOUT_GAP_MS)
                 .map_err(|e| Error::RustError(e.to_string()))?;
             self.set_timer(FANOUT, next)?;
+        } else {
+            self.finish_wipe_run()?;
         }
+        Ok(())
+    }
+
+    /// The nightly wipe's end: its last fan-out run closes the open `wipe_runs` row and writes
+    /// the `wipe` point with the sandboxes it ended, their objects and the milliseconds since
+    /// the 10:00 UTC cron. A sweep's retry with no open run writes nothing. The end time is the
+    /// Clock port's, read after the run's subrequests.
+    fn finish_wipe_run(&self) -> Result<()> {
+        #[derive(Deserialize)]
+        struct Run {
+            started_at: String,
+        }
+        #[derive(Deserialize)]
+        struct Totals {
+            sandboxes: i64,
+            objects: Option<i64>,
+        }
+        let sql = self.sql();
+        let Some(run): Option<Run> = first(
+            &sql,
+            "SELECT started_at FROM wipe_runs WHERE finished_at IS NULL
+             ORDER BY started_at DESC LIMIT 1",
+            vec![],
+        )?
+        else {
+            return Ok(());
+        };
+        let end = SystemClock::new().now_wall();
+        let totals: Option<Totals> = first(
+            &sql,
+            "SELECT count(*) AS sandboxes, sum(objects) AS objects FROM sandboxes
+             WHERE wiped_at IS NOT NULL AND wipe_due IS NOT NULL AND wipe_due >= ?",
+            vec![run.started_at.as_str().into()],
+        )?;
+        exec(
+            &sql,
+            "UPDATE wipe_runs SET finished_at = ? WHERE finished_at IS NULL",
+            vec![end.to_string().into()],
+        )?;
+        let (sandboxes, objects) = totals.map_or((0, 0), |t| (t.sandboxes, t.objects.unwrap_or(0)));
+        let ms = run
+            .started_at
+            .parse::<WallTime>()
+            .map_or(0, |s| end.unix_ms() - s.unix_ms());
+        let sandboxes = u32::try_from(sandboxes).unwrap_or(u32::MAX);
+        let objects = u32::try_from(objects).unwrap_or(u32::MAX);
+        let ms = u64::try_from(ms).unwrap_or(0);
+        metrics::write(&self.env, &Point::wipe(sandboxes, objects, ms));
+        console_log!(
+            "{{\"event\":\"wipe_point\",\"sandboxes\":{sandboxes},\"objects\":{objects},\"ms\":{ms}}}"
+        );
         Ok(())
     }
 
@@ -716,6 +878,10 @@ impl Control {
         )? + exec(
             &sql,
             "DELETE FROM sandboxes WHERE created_at < ? AND wiped_at IS NOT NULL",
+            vec![before.as_str().into()],
+        )? + exec(
+            &sql,
+            "DELETE FROM wipe_runs WHERE started_at < ? AND finished_at IS NOT NULL",
             vec![before.as_str().into()],
         )?;
         Ok(Pruned {
@@ -794,6 +960,34 @@ fn traffic_used(sql: &SqlStorage, day: &str, sandbox: &str) -> Result<u16> {
     Ok(u16::try_from(row.map_or(0, |r| r.minutes)).unwrap_or(u16::MAX))
 }
 
+#[derive(Deserialize)]
+struct SnapshotRow {
+    as_of: Option<String>,
+    json: Option<String>,
+    failed_at: Option<String>,
+}
+
+/// The stored snapshot: its counters (unreadable JSON reads as none), their time and the last
+/// failure's.
+struct Snapshot {
+    counters: Option<StatusCounters>,
+    as_of: String,
+    failed_at: Option<String>,
+}
+
+fn read_snapshot(sql: &SqlStorage) -> Result<Option<Snapshot>> {
+    let row: Option<SnapshotRow> = first(
+        sql,
+        "SELECT as_of, json, failed_at FROM status_snapshot WHERE id = 1",
+        vec![],
+    )?;
+    Ok(row.map(|r| Snapshot {
+        counters: r.json.as_deref().and_then(|j| serde_json::from_str(j).ok()),
+        as_of: r.as_of.unwrap_or_default(),
+        failed_at: r.failed_at,
+    }))
+}
+
 /// A missing row counts as 0.
 fn read_meter(sql: &SqlStorage, day: &str, meter: &str) -> Result<u32> {
     let row: Option<ValueRow> = first(
@@ -870,4 +1064,16 @@ pub async fn wipe(env: &Env) -> Result<Stamped> {
 
 pub async fn sweep(env: &Env) -> Result<Stamped> {
     ask::<(), _>(env, Method::Post, "/sweep", None).await
+}
+
+pub async fn store_snapshot(env: &Env, s: &StatusSnapshot) -> Result<()> {
+    ask::<_, serde_json::Value>(env, Method::Post, "/status-snapshot", Some(s))
+        .await
+        .map(|_| ())
+}
+
+pub async fn snapshot_failed(env: &Env, f: &SnapshotFailed) -> Result<()> {
+    ask::<_, serde_json::Value>(env, Method::Post, "/status-failed", Some(f))
+        .await
+        .map(|_| ())
 }
