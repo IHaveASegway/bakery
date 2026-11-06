@@ -17,17 +17,9 @@ export interface StatusCounters {
 /** `live`: refreshed within 20 minutes. `stale`: an older snapshot. `unavailable`: none yet. */
 export type CountersState = 'live' | 'stale' | 'unavailable';
 
-/** The cron breaker's state (docs/cost.md, "Guardrails"). It only ever goes up: armed, read-only, off. */
-export type BreakerState = 'unconfigured' | 'armed' | 'read-only' | 'off';
-
-/** What the 15-minute breaker adds to `GET /v1/status`. `since` is when it last tripped. */
-export interface BreakerStatus {
-  state: BreakerState;
-  since: string | null;
-  last_run: string | null;
-  last_usd: string | null;
-  unread: string[];
-}
+/** The cron breaker's state and last run, as the generated contract has them. */
+export type BreakerStatus = StatusResponse['breaker'];
+export type BreakerState = BreakerStatus['state'];
 
 /**
  * The additions, typed here until the generated StatusResponse carries them. Once it does, this
@@ -37,7 +29,6 @@ export interface StatusExtras {
   counters: StatusCounters | null;
   counters_as_of: string | null;
   counters_state: CountersState;
-  breaker: BreakerStatus;
 }
 
 export type StatusData = StatusResponse & StatusExtras;
