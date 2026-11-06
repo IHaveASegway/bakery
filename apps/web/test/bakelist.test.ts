@@ -46,7 +46,7 @@ const released = (date: string, seq: number, n: number) =>
   });
 
 const fold = (events: Envelope[], from: BoardState = EMPTY_BOARD) =>
-  events.reduce(applyEvent, from);
+  events.reduce((board, env) => applyEvent(board, env), from);
 
 describe('the snapshot’s bake lists', () => {
   test('are read from board.bake_lists with the cards beside them', () => {
@@ -192,6 +192,69 @@ describe('reserved counts', () => {
     const board = applyEvent(withLists, placed);
     expect(Object.keys(board.cards)).toEqual(['01JC8Z5R0T2B6Y8C4V1N3K7QXE']);
     expect(board.bakeLists[DAY]?.version).toBe(1);
+  });
+});
+
+describe('the day a frame carries (bake_list, since 2026-11-06)', () => {
+  const lines = [{ item: 'croissant', qty: 6, start: `${DAY}T09:00:00-07:00` }];
+  const frameOf = (env: Envelope, day: object | undefined) => {
+    const frame = parseFrame(JSON.stringify({ t: 'evt', v: 1, env, bake_list: day }));
+    if (frame?.t !== 'evt') throw new Error('not an evt');
+    return frame;
+  };
+  const apply = (board: BoardState, env: Envelope, day?: object) => {
+    const frame = frameOf(env, day);
+    return applyEvent(board, frame.env, frame.bakeList);
+  };
+
+  test('is read from the evt frame, and is null when the frame has none', () => {
+    const day = { date: DAY, version: 2, lines, reserved: 3 };
+    expect(frameOf(released(DAY, 4, 1), day).bakeList).toEqual(day);
+    expect(frameOf(released(DAY, 4, 1), undefined).bakeList).toBeNull();
+    expect(frameOf(released(DAY, 4, 1), { date: 'soon', reserved: 1 }).bakeList).toBeNull();
+  });
+
+  test('a place reserved before the snapshot and released while watching lowers the count', () => {
+    // The snapshot: one place reserved, by a ref this page has seen no event for.
+    const snapshot: BoardState = {
+      ...EMPTY_BOARD,
+      bakeLists: { [DAY]: { date: DAY, version: 1, lines, reserved: 1 } },
+    };
+    // The old rule, an adjusted count, leaves it one too high.
+    expect(applyEvent(snapshot, released(DAY, 2, 1)).bakeLists[DAY]?.reserved).toBe(1);
+    // The frame's day sets it, plan included.
+    const after = apply(snapshot, released(DAY, 2, 1), {
+      date: DAY,
+      version: 1,
+      lines,
+      reserved: 0,
+    });
+    expect(after.bakeLists[DAY]).toEqual({ date: DAY, version: 1, lines, reserved: 0 });
+    // The replan that follows carries the day too.
+    const replanned = apply(after, planned(DAY, 3, 2, []), {
+      date: DAY,
+      version: 2,
+      lines: [],
+      reserved: 0,
+    });
+    expect(replanned.bakeLists[DAY]).toEqual({ date: DAY, version: 2, lines: [], reserved: 0 });
+  });
+
+  test('a set is idempotent and survives a missed frame', () => {
+    const day = (reserved: number) => ({ date: DAY, version: 1, lines, reserved });
+    let board = apply(EMPTY_BOARD, reserved(DAY, 1, 1), day(1));
+    const again = apply(board, reserved(DAY, 1, 1), day(1));
+    expect(again.bakeLists[DAY]).toEqual(board.bakeLists[DAY]);
+    // The frame for ref 2's reservation is missed; ref 3's frame says 3, and 3 it is.
+    board = apply(board, reserved(DAY, 3, 3), day(3));
+    expect(board.bakeLists[DAY]?.reserved).toBe(3);
+  });
+
+  test('a day that is not the event’s is ignored, and the event folds as before', () => {
+    const board = fold([reserved(DAY, 1, 1)]);
+    const other = apply(board, reserved(DAY, 2, 2), { date: '2026-11-08', reserved: 9 });
+    expect(other.bakeLists[DAY]?.reserved).toBe(2);
+    expect(other.bakeLists['2026-11-08']).toBeUndefined();
   });
 });
 

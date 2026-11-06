@@ -10,7 +10,9 @@
 # `ClockAdvanced` on the console's feed; `next-opening` from a Sunday afternoon lands on Tuesday
 # 07:00; the 15th day is refused `offset-cap`); since the hardening after PR 13, a day born after
 # the seed (first touched by a read, or by the order that fills an item's cap) capped by the
-# published menu, before and after a publish; and every child empty after the wipe. It prints
+# published menu, before and after a publish; since 2026-11-06, a place reserved before the
+# kitchen socket connects and released while it watches, its frame carrying the day so the
+# page's reserved count falls at once; and every child empty after the wipe. It prints
 # ok or FAIL per check as scripts/smoke-orders.sh does, and exits non-zero on any failure.
 #
 # The loop guard's 101st re-arm is proven natively (workers/api/src/objects/stream.rs, its
@@ -64,7 +66,7 @@ stop_pid() {
   fi
 }
 stop() {
-  for pid in ${WS_CLOCK:-}; do kill -TERM "$pid" 2>/dev/null || true; done
+  for pid in ${WS_CLOCK:-} ${WS_REL:-}; do kill -TERM "$pid" 2>/dev/null || true; done
   stop_pid "$SERVER_PID"
   stop_pid "$FAKE_PID"
   stop_pid "$STRIPE_PID"
@@ -212,13 +214,15 @@ probe_ok() {
     const snapshot = frames.find((f) => f.t === 'snapshot');
     const lists = snapshot ? (snapshot.board.bake_lists || []) : [];
     const evts = frames.filter((f) => f.t === 'evt').map((f) => ({ ...f.env, at_ms: f.at }));
+    const folded = (lines.find((l) => l.bake_lists) || {}).bake_lists || {};
     if (!($2)) process.exit(1);" "$1" 2>/dev/null
 }
 expect_probe() {
   if probe_ok "$2" "$3"; then pass "$1"; else fail "$1 ($(head -c 400 "$2" | tr '\n' ' '))"; fi
 }
 # snapshot_until NAME JAR SANDBOX EXPR: opens the board's socket until its snapshot satisfies
-# EXPR (over `lists`, `snapshot`), up to 10 s.
+# EXPR (over `lists`, `snapshot`), up to 10 s. probe_ok's `folded` is the probe's bake lists by
+# date as the page holds them: the snapshot's days, each set again from a frame's `bake_list`.
 snapshot_until() {
   local name="$1" jar_name="$2" id="$3" expr="$4"
   probe_args "$jar_name" "$id"
@@ -558,6 +562,57 @@ check "the cake is paid through the fake Stripe" "wait_order cake_paid D '$DID' 
 check "the cake is on $CAKE_DAY's bake list" "schedule_until cake_baked D '$DID' '$CAKE_DAY' \"b.bake_list.lines.some(l => l.item === 'chocolate-layer-cake' && l.start === '$CAKE_LATER' && l.qty >= 1)\""
 check "the kitchen socket's snapshot carries $CAKE_DAY's bake list with the cake" "snapshot_until snap_cake D '$DID' \"lists.some(l => l.date === '$CAKE_DAY' && l.version >= 1 && l.reserved >= 1 && l.lines.some(x => x.item === 'chocolate-layer-cake' && x.start === '$CAKE_LATER'))\""
 expect_probe "the snapshot's bake lists are sorted by date, from today on" "$TMP/snap_cake.out" "lists.every((l, i) => i === 0 || lists[i - 1].date < l.date) && lists.every(l => l.date >= '$TODAY' && Array.isArray(l.lines) && typeof l.reserved === 'number')"
+
+# ---------- a place reserved before the socket, released while it watches (2026-11-06) ----------
+
+# The roadmap's PR 6 reading: the frame carried no count, so a page that never saw the place
+# reserved kept its count one too high until the next snapshot. Each Schedule frame now carries
+# the day as the board holds it (`bake_list`), and the page sets the day from it.
+REL_ORDER="$(node -e "$CAL
+  const menu = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'));
+  const skip = process.argv.slice(2);
+  let t = nextSlot(Date.now() + 180 * 60000);
+  for (let i = 0; i < 96 * 9; i++, t = nextSlot(t + 900000)) {
+    if (skip.includes(day(t))) continue;
+    const f = fits(menu, t, Math.floor((t - Date.now()) / 60000) - 30);
+    if (f) { console.log(JSON.stringify({ kind: 'pickup', slot: iso(t), lines: [{ variant: f.variant, qty: 1 }] })); process.exit(0); }
+  }
+  process.exit(1);" "$TMP/dmenu.body" "$RACE_FROM" "$CAKE_DAY" 2>/dev/null)" || { fail "no item fits a slot 3 h out away from the race's and the cake's days"; REL_ORDER='{}'; }
+command_as rel_place D 192.0.2.82 POST "/v1/sandboxes/$DID/orders" "$REL_ORDER"
+expect_status rel_place 201
+REL_ID="$(json_field rel_place b.id)"
+REL_SLOT="$(json_field rel_place b.slot)"
+REL_DAY="${REL_SLOT:0:10}"
+reserved_on() { echo "(lists.find(l => l.date === '$REL_DAY') || { reserved: 0 }).reserved"; }
+snapshot_until rel_before D "$DID" "true" || true
+REL_R0="$(node -e "const s = require('fs').readFileSync(process.argv[1], 'utf8').split('\n').filter(Boolean).map(JSON.parse).map(l => l.frame).find(f => f && f.t === 'snapshot'); const d = s && (s.board.bake_lists || []).find(l => l.date === process.argv[2]); process.stdout.write(String(s ? (d ? d.reserved : 0) : ''))" "$TMP/rel_before.out" "$REL_DAY" 2>/dev/null || true)"
+check "held, not yet paid: the board counts $REL_DAY's reserved places as ${REL_R0:-unread}" "[[ -n '$REL_R0' ]]"
+REL_R0="${REL_R0:-0}"
+pay_order pay_rel D 192.0.2.82 "$DID" "$REL_ID"
+check "the order is paid through the fake Stripe" "wait_order rel_paid D '$DID' '$REL_ID' confirmed"
+check "the reservation reaches the board before any socket watches: $((REL_R0 + 1)) reserved on $REL_DAY" "snapshot_until rel_reserved D '$DID' \"\$(reserved_on) === $((REL_R0 + 1))\""
+
+# The socket connects now, after the reservation, and watches the release.
+probe_args D "$DID"
+node "${PROBE[@]}" --hold 0 > "$TMP/ws_rel.out" 2>/dev/null &
+WS_REL=$!
+for _ in $(seq 1 50); do grep -q '"t":"snapshot"' "$TMP/ws_rel.out" 2>/dev/null && break; sleep 0.2; done
+command_as rel_cancel D 192.0.2.82 POST "/v1/sandboxes/$DID/orders/$REL_ID/cancel"
+expect_status rel_cancel 200
+expect_json rel_cancel "['refund_pending', 'cancelled'].includes(b.status)"
+for _ in $(seq 1 50); do grep -q "\"type\":\"SlotReleased\".*$REL_ID\|$REL_ID.*\"type\":\"SlotReleased\"" "$TMP/ws_rel.out" 2>/dev/null && break; sleep 0.2; done
+sleep 1
+kill -TERM "$WS_REL" 2>/dev/null || true
+wait "$WS_REL" 2>/dev/null || true
+REL_FRAME="frames.find(f => f.t === 'evt' && f.env.type === 'SlotReleased' && f.env.data.ref === '$REL_ID')"
+expect_probe "the socket's snapshot, taken after the reservation, counts $((REL_R0 + 1)) on $REL_DAY" "$TMP/ws_rel.out" "$(reserved_on) === $((REL_R0 + 1))"
+expect_probe "the release reaches the socket as an evt frame, with no reconnect" "$TMP/ws_rel.out" "frames.filter(f => f.t === 'snapshot').length === 1 && $REL_FRAME !== undefined"
+expect_probe "the release's frame carries $REL_DAY as the board now holds it: $REL_R0 reserved" "$TMP/ws_rel.out" "(($REL_FRAME || {}).bake_list || {}).date === '$REL_DAY' && $REL_FRAME.bake_list.reserved === $REL_R0 && Array.isArray($REL_FRAME.bake_list.lines) && typeof $REL_FRAME.bake_list.version === 'number'"
+expect_probe "every Schedule frame for $REL_DAY carries its day, and no card's frame carries one" "$TMP/ws_rel.out" "frames.filter(f => f.t === 'evt' && ['BakeListChanged', 'SlotReserved', 'SlotReleased'].includes(f.env.type)).every(f => f.bake_list && f.bake_list.date === f.env.data.date) && frames.filter(f => f.t === 'evt' && f.env.stream.startsWith('order:')).every(f => f.bake_list === undefined)"
+expect_probe "the page's count, the snapshot set again from each frame's day, is $REL_R0 without a reconnect" "$TMP/ws_rel.out" "(folded['$REL_DAY'] || {}).reserved === $REL_R0"
+# What the page did before: adjust the snapshot's count only for refs this socket saw reserved.
+expect_probe "the old rule, an adjusted count, would have kept $((REL_R0 + 1)): the gap this closes" "$TMP/ws_rel.out" "(() => { let n = $(reserved_on); const marks = {}; for (const f of frames.filter(f => f.t === 'evt' && f.env.data.date === '$REL_DAY' && ['SlotReserved', 'SlotReleased'].includes(f.env.type))) { const was = marks[f.env.data.ref]; const r = f.env.type === 'SlotReserved'; n += r ? (was ? 0 : 1) : was ? -1 : 0; marks[f.env.data.ref] = r; } return n === $((REL_R0 + 1)); })()"
+check "a new socket's snapshot agrees: $REL_R0 reserved on $REL_DAY" "snapshot_until rel_after D '$DID' \"\$(reserved_on) === $REL_R0\""
 
 # ---------- the clock, on sandbox e ----------
 

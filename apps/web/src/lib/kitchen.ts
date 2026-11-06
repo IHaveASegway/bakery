@@ -106,7 +106,7 @@ export type Action = 'start_production' | 'mark_ready' | 'mark_picked_up';
 
 export type Frame =
   | { t: 'snapshot'; board: BoardState; seq: number }
-  | { t: 'evt'; env: Envelope }
+  | { t: 'evt'; env: Envelope; bakeList: BakeList | null }
   | { t: 'presence'; sockets: number }
   | { t: 'bye'; reason: string }
   | { t: 'ack'; id: string }
@@ -162,22 +162,23 @@ function readBakeLines(value: unknown): BakeLine[] {
     .filter((l) => l.item !== '');
 }
 
+/** One day's `{date, version, lines: [{item, qty, start}], reserved}`, or null when it has no date. */
+function readBakeList(entry: unknown): BakeList | null {
+  if (!isObject(entry)) return null;
+  const date = str(entry['date']);
+  if (!DATE.test(date)) return null;
+  return {
+    date,
+    version: num(entry['version']),
+    lines: readBakeLines(entry['lines']),
+    reserved: Math.max(0, num(entry['reserved'])),
+  };
+}
+
 /** The snapshot's `board.bake_lists`: `[{date, version, lines: [{item, qty, start}], reserved}]`. */
 function readBakeLists(value: unknown): BakeList[] {
   if (!Array.isArray(value)) return [];
-  const out: BakeList[] = [];
-  for (const entry of value) {
-    if (!isObject(entry)) continue;
-    const date = str(entry['date']);
-    if (!DATE.test(date)) continue;
-    out.push({
-      date,
-      version: num(entry['version']),
-      lines: readBakeLines(entry['lines']),
-      reserved: Math.max(0, num(entry['reserved'])),
-    });
-  }
-  return out;
+  return value.map(readBakeList).filter((b): b is BakeList => b !== null);
 }
 
 /**
@@ -239,7 +240,7 @@ export function parseFrame(text: string): Frame | null {
       return { t: 'snapshot', board: boardFromSnapshot(value['board']), seq: num(value['seq']) };
     case 'evt': {
       const env = readEnvelope(value['env']);
-      return env === null ? null : { t: 'evt', env };
+      return env === null ? null : { t: 'evt', env, bakeList: readBakeList(value['bake_list']) };
     }
     case 'presence':
       return { t: 'presence', sockets: num(value['sockets']) };
@@ -278,9 +279,14 @@ const LEAVES = new Set(['OrderPickedUp', 'OrderDelivered', 'OrderExpired', 'Orde
  * by `seq` (anything not newer is ignored), a card is added by `OrderPlaced`, moved by the
  * production events and removed when the order is picked up, delivered, expired or cancelled.
  * An event for an order this page has no card for is ignored; the next snapshot repairs it.
+ * `bakeList` is the frame's `bake_list`, the day as the Kitchen holds it after a Schedule event.
  */
-export function applyEvent(board: BoardState, env: Envelope): BoardState {
-  if (SCHEDULE_EVENTS.has(env.type)) return applyScheduleEvent(board, env);
+export function applyEvent(
+  board: BoardState,
+  env: Envelope,
+  bakeList: BakeList | null = null,
+): BoardState {
+  if (SCHEDULE_EVENTS.has(env.type)) return applyScheduleEvent(board, env, bakeList);
   if (env.type === 'RoutePublished') return applyRoutePublished(board, env);
   const order = orderOf(env.stream);
   if (order === null) return board;
@@ -368,16 +374,30 @@ function scheduleDate(env: Envelope): string | null {
 const emptyDay = (date: string): BakeList => ({ date, version: 0, lines: [], reserved: 0 });
 
 /**
- * The Schedule's events, folded the way the Kitchen's own board does (crates/domain/src/kitchen.rs).
- * `BakeListChanged` carries the plan's `version`: a higher one replaces the day's plan, an equal
- * or lower one is ignored, whatever order they arrive in. `SlotReserved` and `SlotReleased` move
- * the day's `reserved` count by ref, the latest `seq` of a ref winning, so a repeat counts once.
- * A release of a ref this page never saw reserved changes nothing: it may have been a hold, and
- * a count from the snapshot cannot say which. The next snapshot repairs any drift.
+ * The Schedule's events. When the frame carries the day as the Kitchen now holds it (`bake_list`,
+ * since 2026-11-06), the page sets the day from it: the Kitchen has seen every reservation since
+ * the sandbox's birth, so its count is right where this page's cannot be. A place reserved before
+ * the page's snapshot and released while it watches is one this page never saw reserved, so an
+ * adjusted count would stay one too high. A set is idempotent and survives a missed frame.
+ *
+ * Without `bake_list` (a frame from a Kitchen built before it) the events are folded the way the
+ * Kitchen's own board does (crates/domain/src/kitchen.rs). `BakeListChanged` carries the plan's
+ * `version`: a higher one replaces the day's plan, an equal or lower one is ignored, whatever
+ * order they arrive in. `SlotReserved` and `SlotReleased` move the day's `reserved` count by ref,
+ * the latest `seq` of a ref winning, so a repeat counts once. A release of a ref this page never
+ * saw reserved changes nothing: it may have been a hold, and a count from the snapshot cannot say
+ * which. The next snapshot repairs that drift.
  */
-function applyScheduleEvent(board: BoardState, env: Envelope): BoardState {
+function applyScheduleEvent(
+  board: BoardState,
+  env: Envelope,
+  bakeList: BakeList | null = null,
+): BoardState {
   const date = scheduleDate(env);
   if (date === null) return board;
+  if (bakeList !== null && bakeList.date === date) {
+    return { ...board, bakeLists: { ...board.bakeLists, [date]: bakeList } };
+  }
   const day = board.bakeLists[date] ?? emptyDay(date);
 
   if (env.type === 'BakeListChanged') {

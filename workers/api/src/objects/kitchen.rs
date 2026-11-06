@@ -34,8 +34,10 @@
 //! The socket, protocol v1, JSON text frames. Server to client: `{t: "snapshot", v: 1, board:
 //! {cards, bake_lists}, seq}` on open, `seq` being the count of events that changed the board and
 //! `bake_lists` each day's plan from today on, `[{date, version, lines: [{item, qty, start}],
-//! reserved}]` by date; `{t: "evt", v: 1, env}` for each event that changed it (an order's card,
-//! or a day's `BakeListChanged`, `SlotReserved` or `SlotReleased`), and for the Sandbox's
+//! reserved}]` by date; `{t: "evt", v: 1, env, bake_list?}` for each event that changed it (an
+//! order's card, or a day's `BakeListChanged`, `SlotReserved` or `SlotReleased`, whose frame
+//! also carries `bake_list`, that day as the board holds it after the event, so the client sets
+//! the day's plan and reserved count rather than adjusting them), and for the Sandbox's
 //! `ClockAdvanced`, which reaches the Kitchen with its `/_clock`; `{t: "presence", v: 1, sockets}` when a socket
 //! opens or closes; `{t: "bye", v: 1, reason: "wiped" | "limit"}` before the server closes;
 //! `{t: "ack", v: 1, id}` or `{t: "nack", v: 1, id, rule}` for a command. Client to server:
@@ -247,8 +249,16 @@ pub fn bake_lists_from(board: &Board, today: BakeryDate) -> Vec<BakeList> {
         .collect()
 }
 
-pub fn evt_frame(envelope: &Envelope) -> Result<String> {
-    Ok(serde_json::json!({ "t": "evt", "v": PROTOCOL, "env": envelope }).to_string())
+/// The `evt` frame: the envelope whole and, when the event changed a day's bake list or reserved
+/// count, that day as the board now holds it (`bake_list`, the snapshot's entry shape). A client
+/// sets the day from it rather than adjusting its own count, so a release of a place reserved
+/// before the client's snapshot, which the client never saw reserved, still lowers the count.
+pub fn evt_frame(envelope: &Envelope, bake_list: Option<&BakeList>) -> Result<String> {
+    let mut frame = serde_json::json!({ "t": "evt", "v": PROTOCOL, "env": envelope });
+    if let Some(day) = bake_list {
+        frame["bake_list"] = serde_json::to_value(day)?;
+    }
+    Ok(frame.to_string())
 }
 
 pub fn presence_frame(sockets: usize) -> String {
@@ -459,7 +469,7 @@ impl DurableObject for Kitchen {
                         stream::arm(&self.state.storage(), now).await?;
                         // The console's feed shows the jump, once per advance.
                         if let (true, Some(event)) = (newer, &body.event) {
-                            broadcast(&self.open_sockets(), &evt_frame(event)?);
+                            broadcast(&self.open_sockets(), &evt_frame(event, None)?);
                         }
                         json(&serde_json::json!({ "clock_v": body.clock_v }), 200)
                     }
@@ -875,7 +885,11 @@ impl Kitchen {
             )?;
         }
         if changed {
-            broadcast(&self.open_sockets(), &evt_frame(&envelope)?);
+            let day = match &change {
+                BoardChange::BakeList(day) => Some(day),
+                _ => None,
+            };
+            broadcast(&self.open_sockets(), &evt_frame(&envelope, day)?);
         }
         json(&serde_json::json!({ "change": label }), 200)
     }
@@ -999,6 +1013,75 @@ mod tests {
         assert_eq!(days[0]["lines"][0]["item"], "fern-loaf");
         assert_eq!(days[0]["lines"][0]["qty"], 2);
         assert_eq!(days[0]["lines"][0]["start"], "2026-11-07T10:00:00-07:00");
+    }
+
+    /// The scene of the roadmap's PR 6 reading: a place reserved before a client's snapshot,
+    /// released while it watches. The release's frame carries the day as the board now holds it,
+    /// so a client that never saw the reservation still sets the count to 0.
+    #[test]
+    fn a_release_frame_carries_the_day_the_board_now_holds() {
+        use bakery_domain::schedule::{HoldKind, ReleaseReason, ScheduleEvent};
+        let sandbox = Ulid::from_parts(1, 1);
+        let date: BakeryDate = "2026-11-08".parse().unwrap();
+        let start = date.at_local(600);
+        let reference = Ulid::from_parts(1, 99);
+        let envelope = |n: u64, event: &ScheduleEvent| Envelope {
+            v: 1,
+            id: Ulid::from_parts(2, u128::from(n)),
+            sandbox,
+            stream: format!("schedule:{sandbox}:{date}"),
+            seq: n,
+            event_type: bakery_domain::DomainEvent::name(event).into(),
+            at: start,
+            recorded_at: "2026-11-07T16:00:00.000Z".parse().unwrap(),
+            data: bakery_domain::DomainEvent::to_data(event),
+            cause: None,
+        };
+        let mut board = Board::default();
+        let reserved = envelope(
+            1,
+            &ScheduleEvent::SlotReserved {
+                kind: HoldKind::Slot,
+                date,
+                start,
+                reference,
+                revived: false,
+            },
+        );
+        board.apply(&reserved).unwrap();
+        // The client joins here: its snapshot says 1 reserved, and it has seen no SlotReserved.
+        let joined = bake_lists_from(&board, date);
+        assert_eq!(joined[0].reserved, 1);
+
+        let released = envelope(
+            2,
+            &ScheduleEvent::SlotReleased {
+                kind: HoldKind::Slot,
+                date,
+                start,
+                reference,
+                reason: ReleaseReason::Cancelled,
+            },
+        );
+        let BoardChange::BakeList(day) = board.apply(&released).unwrap() else {
+            panic!("a reserved place's release changes the day");
+        };
+        let frame: serde_json::Value =
+            serde_json::from_str(&evt_frame(&released, Some(&day)).unwrap()).unwrap();
+        assert_eq!(frame["t"], "evt");
+        assert_eq!(frame["env"]["type"], "SlotReleased");
+        assert_eq!(frame["bake_list"]["date"], "2026-11-08");
+        assert_eq!(frame["bake_list"]["reserved"], 0);
+        assert_eq!(frame["bake_list"]["version"], 0);
+        assert_eq!(frame["bake_list"]["lines"], serde_json::json!([]));
+        // The frame's day is the next snapshot's day: setting from either gives one count.
+        let after = bake_lists_from(&board, date);
+        assert_eq!(serde_json::to_value(&after[0]).unwrap(), frame["bake_list"]);
+
+        // An event that changed no day's list carries none.
+        let plain: serde_json::Value =
+            serde_json::from_str(&evt_frame(&released, None).unwrap()).unwrap();
+        assert!(plain.get("bake_list").is_none());
     }
 
     #[test]

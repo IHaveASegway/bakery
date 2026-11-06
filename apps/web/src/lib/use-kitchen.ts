@@ -94,7 +94,7 @@ function reduce(state: KitchenState, event: Event): KitchenState {
         case 'evt':
           return {
             ...state,
-            board: applyEvent(state.board, frame.env),
+            board: applyEvent(state.board, frame.env, frame.bakeList),
             feed: pushFeed(state.feed, frame.env),
           };
         case 'presence':
