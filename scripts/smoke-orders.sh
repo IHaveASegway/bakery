@@ -19,7 +19,8 @@
 # directory. The board is read as a browser reads it, through scripts/ws-probe.mjs on the socket.
 # The .dev.vars lowers TRAFFIC_MINUTES_CAP to 2, so the day's cap is reached in two minutes by the
 # same code path as 30. One check waits out the Simulator's 90 s console window, so a run takes
-# about four minutes.
+# about four minutes. Before the Simulator runs, the business clock moves to the next opening so the
+# slots it asks for have room at any hour (SMOKE_ORDERS_SIM_CLOCK=off skips that step).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -760,6 +761,20 @@ expect_json traffic_7 "b.detail.includes('The rule is rate')"
 command_as traffic_0 D 192.0.2.42 POST "/v1/sandboxes/$DID/traffic" '{"rate":0}'
 expect_problem traffic_0 422 traffic
 
+# The Simulator asks for slots about four hours past the business time of its minute, spread over
+# the next 16 quarter hours. From late morning through the night in Denver (business time) those
+# slots fall past 15:00 or before 07:00 and pile onto the next opening's first slots, 6 places
+# each, so slot-full refusals keep the Simulator below the 7th
+# order of the minute and the sim_rate check below is never reached. A check may not depend on the
+# hour the smoke runs at, so the business clock is moved to the next opening (07:00 on an open
+# day), where every slot the Simulator asks for, 11:00 to 14:45, has room. SMOKE_ORDERS_SIM_CLOCK=off
+# leaves the clock where it is, as this script did before, to reproduce the old dependence.
+if [[ "${SMOKE_ORDERS_SIM_CLOCK:-}" != off ]]; then
+  command_as sim_clock D 192.0.2.42 POST "/v1/sandboxes/$DID/clock" '{"step":"next-opening"}'
+  expect_status sim_clock 200
+  expect_json sim_clock "b.step === 'next-opening' && b.business_now.includes('T07:00:00')"
+fi
+
 # Both runs below must fall in one wall-time minute: start early in a minute.
 sec="$(date +%S)"
 if (( 10#$sec > 30 )); then sleep $(( 61 - 10#$sec )); fi
@@ -797,6 +812,11 @@ command_as traffic_restart D 192.0.2.42 POST "/v1/sandboxes/$DID/traffic" '{"rat
 expect_status traffic_restart 200
 expect_json traffic_restart "b.running === true && b.minutes_left === 1"
 check "a 7th order in a minute is refused and logged sim_rate" "wait_log '\"event\":\"sim_rate\",\"sandbox\":\"$DID\"' 10"
+if [[ "${SMOKE_ORDERS_SIM_CLOCK:-}" != off ]]; then
+  # With the clock at the opening every slot has room, so the refusal above is the rate cap's alone.
+  check "no simulated order was refused by a full slot: sim_rate is the rate cap's, not the day's" "! log_has '\"event\":\"sim_slot_full\",\"sandbox\":\"$DID\"'"
+  check "the first run placed all 6 orders of the minute: $SIM_ORDERS" "(( SIM_ORDERS == 6 ))"
+fi
 expect_probe "the minute's orders stayed at $SIM_ORDERS: the second run placed none past 6" "$TMP/ws_a.out" "evts.filter((e) => e.type === 'OrderPlaced' && e.at_ms >= $SIM_FROM_MS).length <= 6"
 
 # ---------- the wipe empties every child ----------
