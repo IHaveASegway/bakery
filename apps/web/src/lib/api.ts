@@ -49,6 +49,7 @@ import type {
   SegmentListResponse,
   SegmentResponse,
   SessionResponse,
+  StatusResponse,
   TimelineResponse,
   TokenInfoResponse,
   TokenResponse,
@@ -145,6 +146,8 @@ async function request<T>(
 
 const sandboxPath = (id: string) => `/v1/sandboxes/${encodeURIComponent(id)}`;
 
+/** `GET /v1/status`: public, no session needed. The status page reads it (lib/status.ts). */
+export const getStatus = () => request<StatusResponse>('GET', '/v1/status');
 export const getSession = () => request<SessionResponse>('GET', '/v1/session');
 export const demoSignup = (req: DemoSignupRequest) =>
   request<DemoSignupResponse>('POST', '/v1/auth/demo', { body: req });
