@@ -1,0 +1,222 @@
+---
+import Base from '../../layouts/Base.astro';
+import { ESSAYS, HOW_PATH, SITE_LAB, adrUrl, howUrl } from '../../lib/links';
+
+// The essay the time-travel principle maps to (docs/domain.md, "The principle map"; Q12 ·
+// Q-clock). The principle has no lab page yet, so the bakery explains it itself. Static, no
+// island. Every claim about Cloudflare's behaviour is as its documentation stated it on the
+// date in READ, and every number from the code names its file.
+const READ = '2026-11-06';
+const { title } = ESSAYS['time-travel'];
+const SOURCES = [
+  {
+    href: 'https://lamport.azurewebsites.net/pubs/time-clocks.pdf',
+    title: 'Time, Clocks, and the Ordering of Events in a Distributed System',
+    by: 'Leslie Lamport, Communications of the ACM 21(7), July 1978, the copy on the author’s site',
+    for: 'the happened-before relation, and logical clocks as counters that need no relation to physical time',
+  },
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/api/alarms/',
+    title: 'Durable Objects alarms',
+    by: 'Cloudflare’s Durable Objects documentation',
+    for: 'one alarm at a time per object, set in milliseconds since the Unix epoch, with a new setAlarm() replacing the old one; at-least-once execution, retried with exponential backoff from 2 seconds, up to 6 retries',
+  },
+  {
+    href: 'https://developers.cloudflare.com/workers/configuration/cron-triggers/',
+    title: 'Cron Triggers',
+    by: 'Cloudflare’s Workers documentation',
+    for: 'a cron trigger runs on UTC',
+  },
+  {
+    href: 'https://docs.stripe.com/webhooks',
+    title: 'Receive Stripe events in your webhook endpoint',
+    by: 'Stripe’s documentation',
+    for: 'a signed timestamp on every webhook, checked against a tolerance of five minutes by default in Stripe’s libraries',
+  },
+  {
+    href: SITE_LAB,
+    title: 'The lab',
+    by: 'the lab index on ihaveasegway.com',
+    for: 'five lab pages, the Route, Queue, Cache, Backfill and Raft Labs, and none on clocks or time travel',
+  },
+];
+---
+
+<Base
+  title={`${title} | Proof of Concept Bakery`}
+  description="How Proof of Concept Bakery lets a visitor move a sandbox’s business clock forward: wall time plus an offset, timers re-armed in business time, what stays on the wall clock, and the 14-day cap."
+>
+  <article class="essay prose">
+    <p class="hint">
+      <a href={HOW_PATH}>How it’s built</a>
+    </p>
+    <h1>{title}</h1>
+    <p class="lead">
+      Most of what a bakery does is about later. This is how a visitor moves later closer: one
+      offset the bakery owns, timers that know which clock they belong to, and the things that must
+      never take the bakery’s time.
+    </p>
+
+    <h2>A week you cannot wait for</h2>
+    <p>
+      A visitor reaches the checkout and stops. In 15 minutes of bakery time the hold on their
+      pickup place ends. A catering inquiry from last week is due a follow-up on the third open day
+      after its quote. A campaign is scheduled for tomorrow morning. Each of these is real code with
+      a timer, and none of it can be seen in a visit of ten minutes. The console therefore has a
+      Clock with four buttons: 15 minutes, 1 hour, 1 day and Next opening, which goes to the next
+      7:00 on a day the bakery opens.
+    </p>
+
+    <h2>What simpler designs do, and where they break</h2>
+    <p>
+      One design fires the timers by hand: a debug button that runs “expire this order now”. It
+      shows the result and skips the cause. The order’s events would say it expired at a time when
+      its hold had not ended, and every kind of timer would need a button of its own. Another moves
+      the whole Worker’s clock. That moves every sandbox at once, and it moves things that are not
+      the bakery’s to move: a cookie’s expiry, Stripe’s signature check, the nightly wipe. No lab
+      page shows this one yet. The{' '}
+      <a href={SITE_LAB} rel="noopener">
+        lab’s index
+      </a>{' '}
+      is where the lab explains the family of techniques around it; as read on {READ} it has five
+      labs and none on clocks.
+    </p>
+
+    <h2>Two clocks, and who owns each</h2>
+    <p>
+      The bakery keeps two clocks and never confuses them. Wall time is the platform’s. Business
+      time is wall time plus the sandbox’s offset, whole seconds the Sandbox object keeps as{' '}
+      <code>clock_offset_s</code>. One adapter reads the platform’s clock (in
+      <code>workers/api/src/clock.rs</code>), and its two functions are the whole conversion:{' '}
+      <code>business_at</code> adds the offset to a wall time, and <code>wall_at</code> takes it
+      away. Business time is shown at America/Denver’s offset for that instant, so a sandbox born in
+      summer reads <code>-06:00</code> and its seeded history agrees (<code>docs/roadmap.md</code>,
+      PR 6).
+    </p>
+    <p>
+      The name is borrowed. Lamport’s logical clocks, in his 1978 paper, are counters with no tie to
+      physical time: they exist to order events. The bakery’s business time is physical time
+      shifted. The Lamport-like part is beside it: a counter, <code>clock_v</code>, that the Sandbox
+      adds one to on every move, so that any object can tell a newer offset from an older one.
+    </p>
+
+    <h2>Later is the bakery’s question</h2>
+    <p>
+      The platform’s alarm knows only wall time: Cloudflare’s <code>setAlarm()</code>, as read on{' '}
+      {READ}, takes milliseconds since the Unix epoch, and an object has one alarm at a time. So
+      every object keeps a <code>timers</code> table, and a timer that belongs to the business
+      carries two times: <code>due_business</code>, when the bakery wants it, and{' '}
+      <code>due_wall</code>, when the platform should wake the object to ask (in
+      <code>workers/api/src/objects/stream.rs</code>). The alarm is armed for the earliest{' '}
+      <code>due_wall</code>. When it fires, the object reads business time and decides what is due.
+      The alarm only wakes the object. Whether a hold has ended is decided by the aggregate, by
+      business time.
+    </p>
+    <p>
+      A click on 1 day sends the Sandbox an <code>AdvanceClock</code>. In one transaction it grows
+      the offset by 86,400 seconds, adds one to <code>clock_v</code>, appends{' '}
+      <code>ClockAdvanced</code> and stores the answer under the request’s key. Then it calls{' '}
+      <code>/_clock</code> on every registered child whose <code>clock_v</code> is behind (in
+      <code>workers/api/src/objects/child.rs</code>, <code>ClockUpdate</code>). Each child writes
+      the new offset and recomputes <code>due_wall</code> from <code>due_business</code> for every
+      timer that has one, then arms its alarm for the earliest. A day’s advance makes every unpaid
+      hold’s wall time the past, so the alarm fires at once and the holds end in business-time
+      order. A child that cannot be reached keeps its old <code>clock_v</code> in the Sandbox’s
+      registry; the Sandbox logs <code>clock_children_missed</code> and its own <code>clock</code>
+      timer tries again 30 seconds later. An update no newer than the one a child holds changes
+      nothing, so the retries are safe.
+    </p>
+    <p>
+      Three steps are lengths of business time. A day is 86,400 seconds, so across a change to or
+      from daylight time the local hour shifts by one. Next opening is the exception, worked out by
+      the calendar (<code>crates/domain/src/clock.rs</code>), so from a Sunday evening it lands on
+      Tuesday at 7:00, Monday being closed.
+    </p>
+
+    <h2>What keeps the wall clock, and why</h2>
+    <p>
+      Anything that answers to someone outside the sandbox stays on wall time. The wipe at 10:00 UTC
+      is a cron trigger, and cron triggers run on UTC (Cloudflare, read on {READ}); it is a promise
+      on the privacy page and cannot be a visitor’s to move. A cookie and a Turnstile token expire
+      by the browser’s and Cloudflare’s clocks. Stripe stamps its webhooks with its own time, and
+      the bakery checks the signature within 300 seconds of wall time (<code>TOLERANCE_S</code> in{' '}
+      <code>crates/app/src/stripe/webhook.rs</code>); in business time, a webhook after any advance
+      would look a day old and be refused. The Analytics Engine points count the real account’s use.
+      The loop guard’s 100 re-arms an object a day, and <code>Control</code>’s 30 minutes of
+      simulated traffic a day, count UTC days, so skipping ahead never buys a fresh budget. The
+      36-hour backstop and every event’s <code>recorded_at</code> are wall time as well.
+    </p>
+
+    <h2>A click that arrives twice</h2>
+    <p>
+      Each click is one intent with its own Idempotency-Key, and the buttons are disabled while one
+      is in flight (<code>apps/web/src/lib/clock.ts</code>, <code>ClockClicks</code>). If the answer
+      is lost, the next click on the same step sends the same key and the Sandbox replays the first
+      answer, so the clock moves once. Two clicks that were both answered are two moves, which is
+      what the visitor asked for. The key is for a request repeated by the network, not for a
+      visitor who presses twice on purpose.
+    </p>
+
+    <h2>What it costs</h2>
+    <ul>
+      <li>
+        <strong>A cap of 14 days.</strong> The offset only grows, and never past 1,209,600 seconds
+        (set as
+        <code>MAX_OFFSET_S</code> in <code>crates/domain/src/clock.rs</code>). There is no way back
+        until the wipe gives the visitor a new sandbox the next day.
+      </li>
+      <li>
+        <strong>A quote you cannot watch expire.</strong> A quote lasts 14 open days, 16 or more
+        calendar days, so no advance within the cap expires one made since birth;{' '}
+        <code>docs/roadmap.md</code> (PR 7) leaves the choice open, a higher cap or a shorter
+        validity.
+      </li>
+      <li>
+        <strong>A call to every child on every move.</strong> A seeded sandbox has 36 children (from
+        <code>docs/cost.md</code>, as built on 2026-11-06), so one click is at least 36 requests to
+        other objects, plus a row written for each timer that moves.
+      </li>
+      <li>
+        <strong>Two clocks to keep apart.</strong> Every timer is written with the clock it belongs
+        to, and a mistake is silent: a business deadline set on wall time never moves.
+      </li>
+    </ul>
+
+    <h2>Try it</h2>
+    <p>
+      Sign in, order from <a href="/menu/">the menu</a> and stop at the checkout. In{' '}
+      <a href="/app/">the console</a>, press 15 minutes under Clock and read the capacity editor’s
+      line for that slot: one place fewer is taken. Press 1 day and read the activity feed for{' '}
+      <code>ClockAdvanced</code>, then keep pressing until the clock refuses with its limit of 14
+      days.
+    </p>
+
+    <h2>Sources</h2>
+    <ul class="sources">
+      {SOURCES.map((s) => (
+        <li>
+          <a href={s.href} rel="noopener">
+            {s.title}
+          </a>
+          , {s.by}, read on {READ}: {s.for}.
+        </li>
+      ))}
+    </ul>
+    <p class="hint">
+      Back to <a href={howUrl('time-travel')}>the time-travel principle on How it’s built</a>, to
+      the decisions that chose it,{' '}
+      <a href={adrUrl('0004')} rel="noopener">
+        ADR 0004
+      </a>{' '}
+      and{' '}
+      <a href={adrUrl('0005')} rel="noopener">
+        ADR 0005
+      </a>
+      , or to{' '}
+      <a href={SITE_LAB} rel="noopener">
+        the lab
+      </a>
+      .
+    </p>
+  </article>
+</Base>

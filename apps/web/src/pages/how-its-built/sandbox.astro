@@ -1,0 +1,231 @@
+---
+import Base from '../../layouts/Base.astro';
+import { ESSAYS, HOW_PATH, REPO, SITE_LAB, adrUrl, howUrl } from '../../lib/links';
+
+// The essay the Private sandbox and No personal data principles map to (docs/domain.md, "The
+// principle map"; ADR 0005, ADR 0006). Neither has a lab page yet, so the bakery explains them
+// itself. Static, no island. Every claim about Cloudflare's behaviour is as its documentation
+// stated it on the date in READ, and every number from the code names its file.
+const READ = '2026-11-06';
+const { title } = ESSAYS.sandbox;
+const SOURCES = [
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/api/namespace/',
+    title: 'Durable Object Namespace',
+    by: 'Cloudflare’s Durable Objects documentation',
+    for: 'an object is addressed by an id made from a name with idFromName(), and named objects are the usual way to refer to one',
+  },
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/',
+    title: 'SQLite-backed Durable Object Storage',
+    by: 'Cloudflare’s Durable Objects documentation',
+    for: 'deleteAll() deletes all of an object’s stored data, SQL and key-value, atomically, and also an active alarm from a compatibility date of 2026-02-24; point-in-time recovery reaches back 30 days',
+  },
+  {
+    href: 'https://github.com/IHaveASegway/website/blob/main/docs/lab.md',
+    title: 'The site’s lab rules for every demo',
+    by: 'ihaveasegway.com’s docs/lab.md',
+    for: 'seeded or fixture data only, no real people, companies or addresses, no visitor free text in a first version, country or continent at most, and IP addresses only as a keyed hash with a salt made each UTC day and held in memory',
+  },
+  {
+    href: `${REPO}/blob/main/docs/security.md`,
+    title: 'Security (docs/security.md, as of 2026-11-05)',
+    by: 'this repository',
+    for: 'the isolation rules, the data inventory and the steps of the wipe',
+  },
+  {
+    href: SITE_LAB,
+    title: 'Lab',
+    by: 'ihaveasegway.com',
+    for: 'five lab pages, the Route, Queue, Cache, Backfill and Raft Labs, and none on a private sandbox or on keeping no personal data',
+  },
+];
+---
+
+<Base
+  title={`${title} | Proof of Concept Bakery`}
+  description="How Proof of Concept Bakery can be handed to a stranger: every object’s name carries its sandbox, the seed makes everything up, sign-in keeps only a keyed hash, and the only free text is checked as it is written."
+>
+  <article class="essay prose">
+    <p class="hint">
+      <a href={HOW_PATH}>How it’s built</a>
+    </p>
+    <h1>{title}</h1>
+    <p class="lead">
+      A demo that anyone may change, and that a recruiter may open on a borrowed laptop, has to be
+      safe for the visitor and for the next one. This is how every sandbox is kept apart, why the
+      bakery holds no personal data because it has nowhere to put any, and what that costs: a bakery
+      in which nothing is real, the customers who open campaigns included.
+    </p>
+
+    <h2>A bakery handed to a stranger</h2>
+    <p>
+      A visitor signs in, opens the console and changes the price of the cardamom bun. Another
+      visitor, at the same minute, cancels every order on the board. A third types a phone number
+      into an order note. None of them should see the others’ work, and nobody should be left
+      holding something that names a person. The bakery is a business system, and business systems
+      are full of customers’ names, addresses and notes (<code>docs/adr/0005</code>), so a demo that
+      works like one has to decide where each of those goes.
+    </p>
+
+    <h2>What a simpler design does, and where it breaks</h2>
+    <p>
+      The shared demo is the usual first design: one bakery, one database, every visitor in it.
+      Anything one person types is shown to the next, so it needs moderation, and anything personal
+      that lands in it stays until someone finds it. The second design keeps one shared set of
+      tables and adds a tenant column to every row, with a filter on every query. One query without
+      its filter shows every visitor everything, and a wipe has to find the rows by that column. No
+      lab page shows this one yet. The{' '}
+      <a href={SITE_LAB} rel="noopener">
+        lab’s index
+      </a>{' '}
+      is where the lab explains the family of techniques around it, and the site’s rules for every
+      demo, read on {READ}, are what the bakery keeps: made-up data, no free text at first, and
+      nothing that outlives the visit.
+    </p>
+
+    <h2>A name that carries its sandbox</h2>
+    <p>
+      The bakery has no shared table to filter. A sandbox is a set of Durable Objects, each with its
+      own SQLite database, and every object’s name is built by the Worker from the sandbox id in the
+      signed session or token: <code>catalog:&lt;sandbox&gt;</code>,{' '}
+      <code>schedule:&lt;sandbox&gt;:&lt;date&gt;</code>,{' '}
+      <code>order:&lt;sandbox&gt;:&lt;ulid&gt;</code> (<code>docs/architecture.md</code>, “Object
+      naming”). A client never names an object. Cloudflare’s namespace documentation, read on {READ}
+      , addresses an object by an id derived from its name, so a name with another sandbox’s id is
+      another object. A path that names another sandbox gets the 404 of a name that exists nowhere,
+      and each object stores its sandbox id when it is born and refuses a mismatch.
+    </p>
+    <p>
+      <strong>Born only through the Sandbox.</strong> The <code>Sandbox</code> object keeps a
+      registry of its children (<code>workers/api/src/objects/sandbox.rs</code>). A child is written
+      into the registry before it is first written, in the same request, and the Sandbox hands it a{' '}
+      <code>Birth</code> (<code>child.rs</code>): its name, the sandbox id and the clock. An object
+      with no <code>meta</code> row refuses every command with 410, so a guessed name or a request
+      after the wipe summons nothing. That is why the wipe has one list to work from, and it cannot
+      miss an object the sandbox created.
+    </p>
+
+    <h2>Made up, and the same every time</h2>
+    <p>
+      <code>crates/seed</code> builds the whole starting state from the sandbox’s seed and birth
+      date with a seeded ChaCha20 generator: 60 customers, 6 venues, 64 delivery places, 90 days of
+      closed orders, 12 open orders and 8 catering events (<code>crates/seed/src/lib.rs</code>). Two
+      sandboxes from one seed and date are identical byte for byte, so a bug report can name its
+      seed. A customer is a made-up word pair, a plant or a weather word with a landform or a craft,
+      such as Fennel Talus (<code>words.rs</code>). A delivery address is not an address at all:{' '}
+      <code>p1</code> to <code>p64</code>, mapped onto the public places of the map by index. No
+      free text is seeded.
+    </p>
+
+    <h2>No personal data is an absence of places to put it</h2>
+    <p>
+      The bakery does not promise to be careful with personal data. It has no column for it. The{' '}
+      <code>Account</code> object’s tables hold an id, a kind, dates, the current sandbox, the ids
+      of revoked sessions, and a demo account’s generated username and password hash (
+      <code>account.rs</code>). Sign-in stores the id as a keyed hash: <code>HMAC-SHA256</code> of
+      the provider’s number for the account, with a key held as a Worker secret (
+      <code>docs/adr/0006</code>). Google is asked for the <code>openid</code> scope alone and
+      GitHub for no scope, and if a provider ever sends an email, a name or a picture, the callback
+      drops them before anything is stored or logged.
+    </p>
+    <p>
+      <strong>Mail has nowhere to go.</strong> The bakery has no address to send from or to, so
+      every message is a row in the sandbox’s <code>Inbox</code>, whose recipient is a customer id
+      and not an address. The <code>Recipient</code> type has private fields and no conversion from
+      a string, and two <code>compile_fail</code> tests show that code naming an address does not
+      build (<code>crates/app/src/ports.rs</code>, <code>docs/security.md</code>).
+    </p>
+    <p>
+      <strong>Two free-text fields, checked as written.</strong> The order note is 140 characters
+      and the catering brief 500 (<code>crates/domain/src/free_text.rs</code>). Both are normalised
+      to NFC and then refused, with a rule such as <code>brief-email</code> or{' '}
+      <code>brief-phone</code> and never the text, when they hold an email shape, 7 or more digits,
+      13 to 19 digits or a URL. The consumer removes both from every event headed for the CRM or the
+      Inbox. <strong>Logs</strong> carry ids, counts and slugs, and a request’s address only as{' '}
+      <code>HMAC(daily salt, IP)</code>; the salt is made in memory and never written, because
+      Cloudflare, as read on {READ}, can restore deleted storage for 30 days.
+    </p>
+
+    <h2>The wipe, from the one list</h2>
+    <p>
+      At 10:00 UTC a cron asks <code>Control</code> to stamp each sandbox due, and{' '}
+      <code>Control</code> wipes them 50 a run from its own alarm (<code>wipe.rs</code>,{' '}
+      <code>control.rs</code>). Each Sandbox wipes its registered children, deletes its alarm and
+      runs <code>deleteAll()</code>; <code>Billing</code> first cancels, voids and deletes the
+      Stripe objects it created, and each run ends in the <code>wipe</code> data point. Every
+      object’s own 36-hour backstop covers a wipe that fails. Deleted is not erased: Cloudflare’s
+      documentation says recovery reaches back 30 days, and nothing here calls it.
+    </p>
+
+    <h2>What it costs</h2>
+    <ul>
+      <li>
+        <strong>Nothing persists.</strong> A sandbox born at 09:55 UTC lasts five minutes (
+        <code>wipe.rs</code>, tested), and the work of a visitor is gone by the next 10:00.
+      </li>
+      <li>
+        <strong>Nothing is real.</strong> The customers who open campaigns are word pairs, and the
+        opens and clicks are drawn by the Inbox’s alarms from the seed. The demo shows how the
+        machinery behaves, not how customers do.
+      </li>
+      <li>
+        <strong>Rows to seed and to wipe.</strong> About 2,500 rows written for a 20-minute session,
+        2,000 of them at seed, and a wipe that deletes about as many again (
+        <code>docs/adr/0005</code>, estimates as of 2026-11-04).
+      </li>
+      <li>
+        <strong>A filter, not a guarantee.</strong> A visitor can still type a name into a note. It
+        stays in their own sandbox and goes with it, as <code>docs/security.md</code> says.
+      </li>
+    </ul>
+
+    <h2>Try it</h2>
+    <p>
+      Open <a href="/app/">the console</a>: it shows your sandbox’s id, its seed and when it will be
+      wiped, and Wipe now ends it on the spot. Read <a href="/privacy/">the privacy page</a>, then
+      the answer to <code>GET /v1/session</code>, which is the whole of what the bakery knows about
+      you. In the catering form, type a made-up email into the brief and read the refusal: it names
+      the rule and does not repeat what you typed.
+    </p>
+
+    <h2>Sources</h2>
+    <ul class="sources">
+      {SOURCES.map((s) => (
+        <li>
+          <a href={s.href} rel="noopener">
+            {s.title}
+          </a>
+          , {s.by}, read on {READ}: {s.for}.
+        </li>
+      ))}
+      <li>
+        <a
+          href="https://developers.google.com/identity/openid-connect/openid-connect"
+          rel="noopener"
+        >
+          OpenID Connect
+        </a>
+        , Google Identity documentation, not read on {READ}; cited as <code>docs/adr/0006</code>{' '}
+        records it on 2026-11-04: the <code>sub</code> claim is unique and never reused, and the{' '}
+        <code>email</code> and <code>profile</code> claims come only with their scopes.
+      </li>
+    </ul>
+    <p class="hint">
+      Back to <a href={howUrl('sandbox')}>the sandbox principle on How it’s built</a>, to{' '}
+      <a href={howUrl('no-personal-data')}>no personal data</a>, to the decisions that chose them,{' '}
+      <a href={adrUrl('0005')} rel="noopener">
+        ADR 0005
+      </a>{' '}
+      and{' '}
+      <a href={adrUrl('0006')} rel="noopener">
+        ADR 0006
+      </a>
+      , or to{' '}
+      <a href={SITE_LAB} rel="noopener">
+        the lab
+      </a>
+      .
+    </p>
+  </article>
+</Base>

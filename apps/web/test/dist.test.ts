@@ -15,8 +15,8 @@ import { readLock, verifyFolder } from '../../../scripts/fetch-solver.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 // The essays, from the one table of them (src/lib/links.ts): a page added there is checked here
-// without a test of its own. Each page once, with every principle that links it (the two
-// idempotency principles share one).
+// without a test of its own. Each page once, with every principle that links it (three pairs
+// share one: the two idempotency principles, CQRS and load, the sandbox and no personal data).
 const essays = ESSAY_PAGES.map((essay) => ({
   ...essay,
   ids: Object.entries(ESSAYS)
@@ -205,7 +205,7 @@ describe('dist', () => {
   });
 
   // Each essay's words between its h1 and its sources: the first was held to 700 to 1,000 in PR
-  // 12, the four of PR 14 and the four of PR 15 to 900 to 1,300.
+  // 12, the four of PR 14, the four of PR 15 and the four of PR 16 to 900 to 1,300.
   const WORDS: Record<string, [number, number]> = {
     '/how-its-built/single-writer/': [700, 1_000],
     '/how-its-built/outbox/': [900, 1_300],
@@ -216,6 +216,10 @@ describe('dist', () => {
     '/how-its-built/sagas/': [900, 1_300],
     '/how-its-built/leases/': [900, 1_300],
     '/how-its-built/admission/': [900, 1_300],
+    '/how-its-built/lag/': [900, 1_300],
+    '/how-its-built/time-travel/': [900, 1_300],
+    '/how-its-built/sandbox/': [900, 1_300],
+    '/how-its-built/api/': [900, 1_300],
   };
 
   test('every essay has its length set', () => {

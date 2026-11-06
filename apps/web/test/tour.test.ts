@@ -270,8 +270,8 @@ describe('events, principles and targets', () => {
       expect(step.principle.essay !== undefined, step.id).toBe(
         Object.hasOwn(ESSAYS, step.principle.id),
       );
-      // Every lab principle has an essay; some with no lab page have one too.
-      if (step.principle.lab !== 'none yet') expect(step.principle.essay, step.id).toBeDefined();
+      // Every principle has an essay, with a lab page or without.
+      expect(step.principle.essay, step.id).toBeDefined();
       const essay = essayOf(step.principle.id);
       expect(step.principle.essay, step.id).toEqual(
         essay === undefined ? undefined : { url: essay.path, title: essay.title },
