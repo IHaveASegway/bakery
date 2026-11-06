@@ -46,6 +46,10 @@ const PAGES = [
   '/how-its-built/time-travel/',
   '/how-its-built/sandbox/',
   '/how-its-built/api/',
+  '/docs/api/',
+  '/inbox/',
+  '/app/',
+  '/app/dispatch/',
 ];
 
 function expectApiHeaders(res: APIResponse, type = 'application/json') {

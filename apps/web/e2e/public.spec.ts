@@ -26,6 +26,10 @@ const PAGES = [
   '/how-its-built/time-travel/',
   '/how-its-built/sandbox/',
   '/how-its-built/api/',
+  '/docs/api/',
+  '/inbox/',
+  '/app/',
+  '/app/dispatch/',
 ];
 
 // A visitor with no session: a page that asks the API who it is gets 401, which Chromium logs.
