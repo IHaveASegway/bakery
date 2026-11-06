@@ -148,7 +148,12 @@ jobs:
             exit 1
           fi
       # The web app: build, test, typecheck, lint, format
+      # The storefront bakes the Turnstile site key into its bundle at build time: the repository
+      # variable TURNSTILE_SITE_KEY (public by design; a managed widget for bakery.ihaveasegway.com,
+      # operations.md step 5). Unset, the component falls back to Turnstile's test key.
       - run: pnpm build
+        env:
+          PUBLIC_TURNSTILE_SITE_KEY: ${{ vars.TURNSTILE_SITE_KEY }}
       # ADR 0007, decision 2: the firewall's half of the key guard. After the builds, so the
       # storefront's bundle (apps/web/dist) and the API's (workers/api/dist) are searched too.
       # The pattern is put together from parts, so this step's text never matches it, and the
@@ -159,7 +164,9 @@ jobs:
           # placeholder of that shape is what secret scanners flag, so none may exist here.
           mode="(li""ve|te""st)"
           tail="[0-9A-Za-z]{16,}"
-          pattern="((sk|rk|pk)_${mode}_${tail}|wh""sec_${tail})"
+          # A publishable key is public by design: the sandbox one is a var in wrangler.jsonc from
+          # launch (operations.md step 6), so only its live form is refused here.
+          pattern="((sk|rk)_${mode}_${tail}|pk_li""ve_${tail}|wh""sec_${tail})"
           for bundle in apps/web/dist workers/api/dist; do
             if [ ! -d "$bundle" ]; then
               echo "::error::$bundle is missing, so it cannot be searched"

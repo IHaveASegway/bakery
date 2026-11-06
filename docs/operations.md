@@ -88,7 +88,7 @@ Created in PR 2 in testing status, with Joseph as its test user, for local devel
 
 ### 5. Turnstile
 
-Free and unlimited ([Turnstile plans](https://developers.cloudflare.com/turnstile/plans/), as of 2026-11-04). Before launch, Turnstile's test keys only, in `.dev.vars` (confirm when building). At launch, a managed widget for `bakery.ihaveasegway.com`; the site key is public, the secret is `TURNSTILE_SECRET`; local runs and CI keep using the test keys. It gates guest sandbox and demo-account creation only; a signed-in account is capped at 3 sandboxes a day instead.
+Free and unlimited ([Turnstile plans](https://developers.cloudflare.com/turnstile/plans/), as of 2026-11-04). Before launch, Turnstile's test keys only, in `.dev.vars` (confirm when building). At launch, a managed widget for `bakery.ihaveasegway.com`; the site key is public and becomes the repository variable `TURNSTILE_SITE_KEY`, which `verify`'s web build reads as `PUBLIC_TURNSTILE_SITE_KEY` so the bundle carries it (`ci.yml`, 2026-11-06), the secret is `TURNSTILE_SECRET`; local runs and CI keep using the test keys. It gates guest sandbox and demo-account creation only; a signed-in account is capped at 3 sandboxes a day instead.
 
 ### 6. Worker secrets
 
