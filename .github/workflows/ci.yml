@@ -64,7 +64,11 @@ concurrency:
   # Rule 8: a new push to a pull request cancels its superseded run. Every other run waits for
   # its turn in the group and is never cancelled. A dispatch (a rollback) has a group of its own,
   # so it never waits behind a whole main run; it waits only for deploy, in deploy-production.
-  group: ci-${{ github.event_name == 'workflow_dispatch' && 'dispatch-' || '' }}${{ github.ref }}
+  # A closed pull request's run (preview-cleanup's) has a group of its own too, by number: on a
+  # merged pull request github.ref is the base branch, refs/heads/main, so with the shared group
+  # that run cancelled the merge's own push run on main and nothing deployed (launch day,
+  # 2026-11-06, run 116).
+  group: ci-${{ github.event_name == 'workflow_dispatch' && 'dispatch-' || '' }}${{ github.event_name == 'pull_request' && github.event.action == 'closed' && format('closed-pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
