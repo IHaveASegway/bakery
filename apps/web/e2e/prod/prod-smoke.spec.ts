@@ -4,7 +4,10 @@
 // artifact when SMOKE_DIST names it, and a page load with no CSP violation and no console error.
 //
 // Environment: SMOKE_WEB and SMOKE_API (the hostnames, production's by default); SMOKE_COMMIT,
-// the commit /v1/health must report (left unset after a rollback); SMOKE_DIST, the web artifact.
+// the commit /v1/health must report (left unset after a rollback); SMOKE_DIST, the web artifact;
+// SMOKE_WAIT_MS, how long both hostnames may take to answer (two minutes by default; the job gives
+// ten when a Worker had no version before, since a Custom Domain's first attach waits on DNS and a
+// certificate, Incident #41).
 // For a local rehearsal, e2e/run.mjs also sets SMOKE_*_DIRECT to wrangler dev's addresses, which
 // the API calls use, and the provider prefixes the fake providers answer with.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -21,7 +24,7 @@ const GOOGLE_AUTHORIZE = process.env.SMOKE_GOOGLE_AUTHORIZE || 'https://accounts
 const GITHUB_AUTHORIZE =
   process.env.SMOKE_GITHUB_AUTHORIZE || 'https://github.com/login/oauth/authorize';
 const OTHER_ORIGIN = 'https://example.com';
-const WAIT_MS = 120_000;
+const WAIT_MS = Number(process.env.SMOKE_WAIT_MS || 120_000);
 
 const PAGES = [
   '/',
@@ -187,6 +190,21 @@ test.describe('the storefront', () => {
       expect(h['cross-origin-opener-policy']).toBe('same-origin');
     });
   }
+
+  // Two policies are both enforced, so the stricter wins: on 2026-11-06 the start page went out with
+  // its island policy and the catch-all's, and its island was blocked (Incident #42). headers()
+  // joins repeated headers into one, so count them in headersArray().
+  test('every page answers with exactly one Content-Security-Policy header', async ({
+    request,
+  }) => {
+    for (const pathname of [...PAGES, '/no-such-page/']) {
+      const res = await request.get(`${WEB_DIRECT}${pathname}`);
+      const policies = res
+        .headersArray()
+        .filter((h) => h.name.toLowerCase() === 'content-security-policy');
+      expect(policies, pathname).toHaveLength(1);
+    }
+  });
 
   test('an unknown path is the 404 page', async ({ request }) => {
     expect((await request.get(`${WEB_DIRECT}/no-such-page/`)).status()).toBe(404);

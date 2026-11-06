@@ -422,7 +422,7 @@ jobs:
         run: |
           pnpm exec wrangler preview --config apps/web/wrangler.jsonc --name "pr-$PR" \
             --message "pr-$PR@${HEAD_SHA:0:8}" --json > "$RUNNER_TEMP/preview.json"
-          # The first workers.dev URL Wrangler reports (confirm the JSON's shape on launch day).
+          # The first workers.dev URL Wrangler reports (the shape held on the first preview, 2026-11-06).
           url="$(grep -oE 'https://[A-Za-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/preview.json" | head -n 1)"
           if [ -z "$url" ]; then
             echo "::error::wrangler preview reported no workers.dev URL"
@@ -541,6 +541,9 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Lighthouse against the preview's pages
         working-directory: apps/web
+        # The container's default shell is sh, which has no arrays: the first run, 2026-11-06, died
+        # on `urls=()` with "Syntax error: ( unexpected" before Lighthouse started.
+        shell: bash
         env:
           URL: ${{ needs.preview.outputs.url }}
         run: |
@@ -624,6 +627,9 @@ jobs:
       web: ${{ steps.web.outputs.deployed }}
       web_before: ${{ steps.live.outputs.web_version }}
       web_after: ${{ steps.web.outputs.version }}
+      # A Worker with no version before this run gets its Custom Domain attached for the first time,
+      # which waits on DNS and a certificate (Incident #41): prod-smoke then waits longer.
+      first_attach: ${{ steps.tip.outputs.go == 'true' && (steps.live.outputs.api_version == '' || steps.live.outputs.web_version == '') }}
     env:
       SHA: ${{ github.sha }}
     steps:
@@ -666,7 +672,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           # Prints "<version id> <commit>" of the Worker's newest deployment, or nothing when the
-          # Worker does not exist yet. The --json shape is the API's (confirm on launch day).
+          # Worker does not exist yet. The --json shape held on launch day, 2026-11-06: the re-run's
+          # deploy read the live API's commit from its message and skipped stage 1.
           live() {
             if ! pnpm exec wrangler deployments list --name "$1" --json > "$RUNNER_TEMP/$1.json" 2> "$RUNNER_TEMP/$1.err"; then
               if grep -qiE '10007|not found|does not exist' "$RUNNER_TEMP/$1.err"; then return 0; fi
@@ -746,15 +753,24 @@ jobs:
           echo "bakery-api deployed: ${version:-see the log} (main@${SHA:0:8})" >> "$GITHUB_STEP_SUMMARY"
       - name: Stage 1's check, health and CORS through the API's hostname
         if: steps.api.outputs.deployed == 'true'
+        env:
+          LIVE_VERSION: ${{ steps.live.outputs.api_version }}
         run: |
           api=https://api.bakery.ihaveasegway.com
-          for _ in $(seq 1 60); do
+          # A first attach of the Custom Domain waits on DNS and a certificate, which took more than
+          # two minutes on 2026-11-06 (Incident #41): ten minutes then, two otherwise.
+          if [ -z "$LIVE_VERSION" ]; then tries=300 minutes=ten; else tries=60 minutes=two; fi
+          commit=""
+          for i in $(seq 1 "$tries"); do
             commit="$(curl -sS "$api/v1/health" | jq -r '.commit // empty' 2> /dev/null || true)"
             [ "$commit" = "$SHA" ] && break
+            if [ $((i % 15)) -eq 0 ]; then
+              echo "waiting for $api: $(date -u +%H:%M:%S), last: ${commit:-nothing}"
+            fi
             sleep 2
           done
           if [ "$commit" != "$SHA" ]; then
-            echo "::error::/v1/health reports ${commit:-nothing}, not $SHA, after two minutes"
+            echo "::error::/v1/health reports ${commit:-nothing}, not $SHA, after $minutes minutes"
             exit 1
           fi
           allow="$(curl -sS -o /dev/null -D - -H 'Origin: https://bakery.ihaveasegway.com' "$api/v1/health" | tr -d '\r' | grep -i '^access-control-allow-origin:' | cut -d ' ' -f 2-)"
@@ -884,7 +900,7 @@ jobs:
       ((needs.deploy.result == 'success' && needs.deploy.outputs.ran == 'true') ||
       needs.rollback.result == 'success')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15 # rule 9; a first attach may wait ten minutes for both hostnames
     container:
       image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
       options: --ipc=host
@@ -910,6 +926,8 @@ jobs:
         env:
           SMOKE_TARGET: production
           SMOKE_COMMIT: ${{ needs.deploy.outputs.api == 'true' && github.sha || '' }}
+          # Ten minutes for both hostnames to answer on a first attach (Incident #41), else two.
+          SMOKE_WAIT_MS: ${{ needs.deploy.outputs.first_attach == 'true' && '600000' || '120000' }}
           WEB_DEPLOYED: ${{ needs.deploy.outputs.web }}
         run: |
           if [ "$WEB_DEPLOYED" = true ]; then export SMOKE_DIST="$PWD/dist"; fi
