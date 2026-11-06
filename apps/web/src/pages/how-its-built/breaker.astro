@@ -1,0 +1,245 @@
+---
+import Base from '../../layouts/Base.astro';
+import { ESSAYS, HOW_PATH, SITE_LAB, adrUrl, howUrl } from '../../lib/links';
+
+// The essay the breaker principle maps to (docs/domain.md, "The principle map"; ADR 0010 decision
+// 2.4; docs/roadmap.md, PR 17 and PR 18). The principle has no lab page yet, so the bakery explains
+// it itself. Static, no island. Every claim about Cloudflare’s behaviour is as its documentation
+// stated it on the date in READ, and every number from the code names its file. The breaker has
+// been proven against a fake of Cloudflare’s two APIs and not yet against Cloudflare.
+const READ = '2026-11-06';
+const { title } = ESSAYS.breaker;
+const SOURCES = [
+  {
+    href: 'https://developers.cloudflare.com/workers/observability/metrics-and-analytics/',
+    title: 'Metrics and analytics',
+    by: 'Cloudflare’s Workers documentation',
+    for: 'a slight delay in aggregation and metrics delivery for the most recent minutes, which is why the breaker reads the slot before the current one',
+  },
+  {
+    href: 'https://developers.cloudflare.com/queues/observability/metrics/',
+    title: 'Queues metrics',
+    by: 'Cloudflare’s Queues documentation',
+    for: 'the queueMessageOperationsAdaptiveGroups dataset and its billableOperations field, the sum of billable writes, reads and deletes',
+  },
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/observability/graphql-analytics/',
+    title: 'GraphQL analytics for Durable Objects',
+    by: 'Cloudflare’s Durable Objects documentation',
+    for: 'the request dataset, and for the periodic dataset only cpuTime documented, with introspection as the way to list the rest',
+  },
+  {
+    href: 'https://developers.cloudflare.com/ruleset-engine/rulesets-api/update-rule/',
+    title: 'Update a rule',
+    by: 'Cloudflare’s Ruleset Engine documentation',
+    for: 'a rule changed by a PATCH that should carry all the rule fields wanted in the new definition',
+  },
+  {
+    href: 'https://developers.cloudflare.com/fundamentals/api/reference/permissions/',
+    title: 'API token permissions',
+    by: 'Cloudflare’s API documentation',
+    for: 'the names Account Analytics Read and Zone WAF Edit, with Zone WAF Write in a second table, so that the names are confirmed on the first real run',
+  },
+  {
+    href: 'https://pages.johnspurlock.com/graphql-schema-docs/cloudflare.html',
+    title: 'Cloudflare GraphQL schema docs',
+    by: 'a third-party introspection dump, not Cloudflare’s own page',
+    for: 'the field names rowsWritten and duration for the periodic dataset, which the breaker treats as unread until a real run confirms them',
+  },
+  {
+    href: 'https://martinfowler.com/bliki/CircuitBreaker.html',
+    title: 'CircuitBreaker',
+    by: 'Martin Fowler’s bliki',
+    for: 'a protected call wrapped in an object that trips when failures pass a threshold, answers at once while open, and is watched and reset by people',
+  },
+  {
+    href: 'https://github.com/IHaveASegway/bakery/blob/main/docs/cost.md',
+    title: 'The bakery’s cost.md',
+    by: 'this repository',
+    for: 'the price sheet, the lines, scenario D, the idle month and the items still open on the first real run',
+  },
+];
+---
+
+<Base
+  title={`${title} | Proof of Concept Bakery`}
+  description="How Proof of Concept Bakery watches its own bill: a cron job that reads Cloudflare’s usage meters every 15 minutes, prices them, and moves the demo to read-only and then off, with a person to switch it back on."
+>
+  <article class="essay prose">
+    <p class="hint">
+      <a href={HOW_PATH}>How it’s built</a>
+    </p>
+    <h1>{title}</h1>
+    <p class="lead">
+      The Workers Paid plan has no spending cap, so a bug can run up a bill that nobody sees for a
+      day. This is how the bakery reads the platform’s own meter every 15 minutes, prices what it
+      finds, and turns itself down in two steps. It has met only a fake so far.
+    </p>
+
+    <h2>A bill that arrives after the money is gone</h2>
+    <p>
+      Two five-figure Cloudflare bills of 2026 are cited in <code>docs/cost.md</code>. In one, a
+      Durable Object alarm re-armed itself for the current time and ran about 600 times a second for
+      about two weeks, a $10,811.41 invoice. In the other, a queue consumer re-enqueued its own
+      writes, and the bill came to about $36,000. Both rest on their developers’ own posts. The
+      bakery holds both shapes, because its aggregates run on alarms and a Queue joins them.
+    </p>
+
+    <h2>What a simpler design does, and where it breaks</h2>
+    <p>
+      The simple design sets budget alerts. The bakery has them, at $10, $25, $50 and $100, and
+      treats a ring as a guardrail failing, but an alert gives notice within a day. At the rate of
+      the smallest loop <code>docs/cost.md</code> prices, $4.65 an hour, a day of it is $111.60,
+      over the $100 ceiling. The second is a cap on what the code admits, which the bakery also has:{' '}
+      <code>Control</code> refuses sandboxes past 300 a day. That cap counts what passes through the
+      door. A looping alarm never uses the door, so it spends without being counted. The{' '}
+      <a href={SITE_LAB} rel="noopener">
+        lab’s index
+      </a>{' '}
+      is where the lab covers the family of techniques, and this principle has no lab page yet.
+    </p>
+    <p>
+      The breaker is the third layer, and it measures what neither of the others can: what the
+      platform itself says was used. Nygard set the pattern down in <em>Release It!</em>, and Martin
+      Fowler’s page describes its shape: it trips when failures pass a threshold, answers at once
+      while open, and is reset by people. Here the count is dollars, and what trips is the whole
+      demo.
+    </p>
+
+    <h2>Five meters, two lines, one decision</h2>
+    <p>
+      Every 15 minutes the API Worker sends four GraphQL requests to Cloudflare’s Analytics API, one
+      per dataset, with a token of its own. They return five meters: Worker requests, Durable Object
+      requests, rows written, Durable Object duration in gigabyte-seconds, and Queue operations. The
+      window is the last complete 15-minute slot, and each count is priced in micro-dollars at the
+      Paid plan’s overage rates, as if every unit were past the included amount. That is
+      deliberately cautious.
+    </p>
+    <p>
+      Two lines come from numbers the bakery already has. The dollar line is the $100 ceiling
+      divided by the 2,880 windows in a month, $0.0347, the rate that would spend the ceiling in a
+      month. Each meter’s line is four times its 15-minute share of the day’s budget, which is{' '}
+      <code>Control</code>’s cap of 300 sandboxes times the per-sandbox meter in{' '}
+      <code>docs/cost.md</code>: 1,875 Worker requests and 62,500 rows written, for example. The
+      Worker does not judge. It sends the reads to <code>Control</code>, which calls a pure function
+      in <code>crates/app/src/breaker.rs</code> and, on a rise, raises the admission flag in the
+      same transaction, so the verdict and the flag cannot disagree.
+    </p>
+    <p>
+      The steps are two. A window over a meter’s line, or priced over the dollar line, sets{' '}
+      <code>read-only</code>. A window priced over four times the dollar line, $0.1389 and about a
+      week of the ceiling, or still over a line after a trip, sets <code>off</code>, and the Worker
+      then enables the pre-built WAF rule that blocks the API hostname, through the Rulesets API.
+      The state only goes up. A person resets it, in Data Studio and the dashboard, once the cause
+      is fixed. An automatic reset after quiet windows would let a loop start again every few hours.
+    </p>
+
+    <h2>The nuances of the tech</h2>
+    <ul>
+      <li>
+        <strong>The analytics lag, so the slot before.</strong> Cloudflare’s Workers page, read on{' '}
+        {READ}, warns of a slight delay in aggregation and gives no number. The current slot would
+        look empty, so the breaker reads the one that has ended. The price is time: a loop runs for
+        up to 30 minutes before the first run that can see it. A zero for Worker or Durable Object
+        requests is logged as empty, because the cron’s own run leaves at least one of each, so a
+        zero there means late data, not a quiet account.
+      </li>
+      <li>
+        <strong>Two field names nobody at Cloudflare documents.</strong> The page for the periodic
+        Durable Object dataset documents only <code>cpuTime</code> and points to introspection. The
+        names for rows written and duration, <code>rowsWritten</code> and <code>duration</code>,
+        come from a third-party dump of the schema. If they are wrong, Cloudflare answers with a
+        validation error, and the two meters are marked unread and shown on the status page. The
+        price is then a floor, and the other three meters still count.
+      </li>
+      <li>
+        <strong>One request per dataset.</strong> A GraphQL validation error fails the whole
+        request. Asking for all five meters at once would let one wrong name hide the other four, so
+        each dataset has its own request and its own five-second timeout.
+      </li>
+      <li>
+        <strong>A rule update wants every field.</strong> The update page, read on {READ}, says to
+        include all the rule fields wanted in the new definition, so the breaker reads the rule
+        first and sends its action, expression and description back with <code>enabled: true</code>.
+        Whether <code>enabled</code> alone would do is not tested.
+      </li>
+      <li>
+        <strong>A zero ceiling goes straight to off.</strong> Any priced usage is past a line of
+        zero, so the launch checklist’s forced trip, with <code>BREAKER_CEILING_USD</code> set to
+        “0”, skips read-only and enables the real kill rule. Run it only when someone is ready to
+        reset it.
+      </li>
+      <li>
+        <strong>The whole account, every count billable.</strong> The ceiling belongs to the
+        account, so the breaker prices the site’s lab Worker as well, and counts every unit as past
+        the free allowance. It trips earlier than the invoice would, which is the safe side: a false
+        trip is reset by hand, and a late one is not undone.
+      </li>
+    </ul>
+
+    <h2>What it costs</h2>
+    <p>
+      Each run is 4 requests to Cloudflare, 384 a day, and one request to <code>Control</code> and
+      about one row, which <code>docs/cost.md</code> counts in its idle month: 2,910 Worker requests
+      with the wipes, 0.03% of those included. The API Worker’s wasm was 4,400,280 bytes on
+      2026-11-06, against a budget of 5,317,776 (<code>docs/roadmap.md</code>, PR 17). The larger
+      cost is the reach of a false trip. Read-only turns away new work at the door, and off blocks
+      the API hostname, so the public pages stay but the signed-in screens go offline. There is no
+      email yet, so the signals are the status page’s Breaker line and a morning issue.
+    </p>
+    <p>
+      What the breaker cannot do is stop an alarm: neither the flag nor the rule reaches a loop
+      inside an object, so the loop guard bounds each object to 100 re-arms a day. And it has met no
+      real usage yet. The field names, the token’s permission names and the update body are listed
+      in <code>docs/cost.md</code> as open until the first real run.
+    </p>
+
+    <h2>Try it</h2>
+    <p>
+      Read <a href="/status/">the status page’s</a> Breaker line, then the same state in{' '}
+      <code>GET /v1/status</code>. To watch every path, run <code>scripts/smoke-breaker.sh</code>:
+      it starts a fake of the two Cloudflare APIs and walks 114 checks through unconfigured, armed,
+      read-only, off with the rule enabled, held while tripped, a rule enable that fails and is
+      retried, an unread meter, a request that times out and a rejected token. Its last phase sets
+      the ceiling to “0”. In the log, <code>breaker_read</code> lines give each window’s verdict and
+      price, and <code>breaker_meter_unread</code> says which meter and why.
+    </p>
+
+    <h2>Sources</h2>
+    <ul class="sources">
+      <li>
+        <em>Release It!</em>, Michael T. Nygard, 2nd edition, 2018: the circuit breaker and the
+        shedding of load, as the bakery’s <code>docs/architecture.md</code> cites them. The book was
+        not read on {READ}.
+      </li>
+      <li>
+        <a href="https://arxiv.org/abs/2104.08031" rel="noopener">
+          A paper on denial of wallet
+        </a>
+        , Kelly, Glavin and Barrett, 2021: the attack, or the bug, that forces financial exhaustion
+        on a serverless account, as <code>docs/cost.md</code> defines it. The paper was not read on{' '}
+        {READ}.
+      </li>
+      {SOURCES.map((s) => (
+        <li>
+          <a href={s.href} rel="noopener">
+            {s.title}
+          </a>
+          , {s.by}, read on {READ}: {s.for}.
+        </li>
+      ))}
+    </ul>
+    <p class="hint">
+      Back to <a href={howUrl('breaker')}>the breaker principle on How it’s built</a>, to the
+      decision that chose it,{' '}
+      <a href={adrUrl('0010')} rel="noopener">
+        ADR 0010
+      </a>
+      , or to{' '}
+      <a href={SITE_LAB} rel="noopener">
+        the lab
+      </a>
+      .
+    </p>
+  </article>
+</Base>

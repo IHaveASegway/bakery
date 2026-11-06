@@ -8,7 +8,7 @@ import { CRM } from './crm';
 import { DISPATCH } from './dispatch';
 import { INBOX } from './inbox';
 import { KITCHEN } from './kitchen';
-import { API_PAGE, CHECKOUT, HOME, MENU, PRIVACY, SIGNIN } from './simple';
+import { API_PAGE, CHECKOUT, HOME, MENU, PRIVACY, SIGNIN, STATUS } from './simple';
 
 export const TOURS: Record<ScreenId, TourStep[]> = {
   home: HOME,
@@ -21,6 +21,7 @@ export const TOURS: Record<ScreenId, TourStep[]> = {
   dispatch: DISPATCH,
   api: API_PAGE,
   privacy: PRIVACY,
+  status: STATUS,
 };
 
 export const stepsFor = (screen: ScreenId): TourStep[] => TOURS[screen];

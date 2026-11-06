@@ -64,7 +64,7 @@ export function StatusView({ model }: { model: Model }) {
             made.
           </p>
 
-          <p data-testid="status-breaker">
+          <p data-testid="status-breaker" data-tour="status-breaker">
             <strong>Breaker:</strong> {breakerWords(data.breaker)}
           </p>
 

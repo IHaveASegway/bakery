@@ -124,6 +124,10 @@ export const ESSAYS = {
     path: '/how-its-built/api/',
     title: 'Why the console is just another client',
   },
+  breaker: {
+    path: '/how-its-built/breaker/',
+    title: 'Why the bakery can switch itself off before the bill does',
+  },
 } as const satisfies Record<string, Essay>;
 
 /**

@@ -148,7 +148,7 @@ describe('the breaker', () => {
 
   test('the page shows one Breaker line, in words, for each state', () => {
     const line = (extra: Record<string, unknown>) =>
-      html(answered(data(extra))).match(/<p data-testid="status-breaker">(.*?)<\/p>/)?.[1];
+      html(answered(data(extra))).match(/<p data-testid="status-breaker"[^>]*>(.*?)<\/p>/)?.[1];
     expect(line({})).toBe('<strong>Breaker:</strong> not configured');
     expect(line({ breaker: BREAKER })).toBe(
       '<strong>Breaker:</strong> armed, last run 2026-11-06 14:15 UTC',
