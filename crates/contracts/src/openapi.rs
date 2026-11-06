@@ -43,8 +43,8 @@ pub const SOCKET_FRAMES: &[(&str, &str, &str, &str)] = &[
     (
         "server-to-client",
         "evt",
-        "{t: \"evt\", v: 1, env}",
-        "each event that changed the board, the envelope whole, the note with it; and the Sandbox's `ClockAdvanced`",
+        "{t: \"evt\", v: 1, env, bake_list?}",
+        "each event that changed the board, the envelope whole, the note with it; and the Sandbox's `ClockAdvanced`. A `BakeListChanged`, `SlotReserved` or `SlotReleased` frame also carries `bake_list`, that day as the board holds it after the event, `{date, version, lines: [{item, qty, start}], reserved}` (since 2026-11-06): set the day from it, do not adjust a count",
     ),
     (
         "server-to-client",

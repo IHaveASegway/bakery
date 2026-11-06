@@ -309,21 +309,26 @@ the DLQ, and `dlq` when the Sandbox keeps it.
 API, with the session's kind (staff or guest) in the socket's attachment. Frames are JSON text,
 protocol v1, each with `"v":1`:
 
-| Direction        | Frame                                                                                           | When                                                                                                       |
-| ---------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| server to client | `{t: "snapshot", board: {cards, bake_lists}, seq}`                                              | on open; `seq` counts the events that changed the board; `bake_lists` below                                |
-| server to client | `{t: "evt", env}`                                                                               | each event that changed the board, the envelope whole, the note with it; and the Sandbox's `ClockAdvanced` |
-| server to client | `{t: "presence", sockets}`                                                                      | a socket opened or closed                                                                                  |
-| server to client | `{t: "bye", reason: "wiped" or "limit"}`                                                        | before the server closes: 1001 at the wipe; 1008, 1009 or 1003 at a limit                                  |
-| client to server | `{t: "cmd", id: <ULID>, order: <ULID>, action: start_production, mark_ready or mark_picked_up}` | a staff action, sent to the Order's `/_command` with `id` as the idempotency key                           |
-| server to client | `{t: "ack", id}` or `{t: "nack", id, rule}`                                                     | the answer; a guest gets `guest-scope`; a repeated `id` gets the first answer                              |
+| Direction        | Frame                                                                                           | When                                                                                                                          |
+| ---------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| server to client | `{t: "snapshot", board: {cards, bake_lists}, seq}`                                              | on open; `seq` counts the events that changed the board; `bake_lists` below                                                   |
+| server to client | `{t: "evt", env, bake_list?}`                                                                   | each event that changed the board, the envelope whole, the note with it; and the Sandbox's `ClockAdvanced`; `bake_list` below |
+| server to client | `{t: "presence", sockets}`                                                                      | a socket opened or closed                                                                                                     |
+| server to client | `{t: "bye", reason: "wiped" or "limit"}`                                                        | before the server closes: 1001 at the wipe; 1008, 1009 or 1003 at a limit                                                     |
+| client to server | `{t: "cmd", id: <ULID>, order: <ULID>, action: start_production, mark_ready or mark_picked_up}` | a staff action, sent to the Order's `/_command` with `id` as the idempotency key                                              |
+| server to client | `{t: "ack", id}` or `{t: "nack", id, rule}`                                                     | the answer; a guest gets `guest-scope`; a repeated `id` gets the first answer                                                 |
 
 Since PR 6 the snapshot's `board.bake_lists` is `[{date, version, lines: [{item, qty, start}],
 reserved}]`, one entry per bakery day from business today on that the board has heard of, sorted
 by date: the day's latest `BakeListChanged` (`version` 0 before one) and how many places it has
 reserved. `BakeListChanged`, `SlotReserved` and `SlotReleased` arrive as `evt` frames once the
 Kitchen applied them; a `SlotReleased` for a place the board never saw reserved changes nothing
-and is not sent.
+and is not sent. Since 2026-11-06 each of those frames also carries `bake_list`, the day as the
+board holds it after the event, in the snapshot's entry shape. The client sets the day from it
+and does not adjust its own count: a place reserved before the client's snapshot and released
+while it watches was never seen reserved by the client, so a count it kept itself would stay one
+too high until the next snapshot. A set is idempotent: a repeated frame changes nothing, and
+after a missed one the day's next frame puts the count right.
 
 `{"t":"ping","v":1}` is answered `{"t":"pong","v":1}` by the platform's auto-response
 (`State::set_websocket_auto_response` exists in workers-rs 0.8.7), which does not wake the object;

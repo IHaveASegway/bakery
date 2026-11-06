@@ -22,9 +22,11 @@
 //   --timeout SECONDS   exit 3 when the condition has not been met by then (default 10)
 //
 // Prints one JSON line per frame, {"at": <ms>, "frame": {...}}, then on the way out
-// {"closed": {code, reason}} if the socket closed and {"board": {<order>: <state>}}: the board
+// {"closed": {code, reason}} if the socket closed, {"board": {<order>: <state>}}: the board
 // as this client holds it, the snapshot with every later `evt` folded in by the rules
-// apps/web/src/lib/kitchen.ts follows. SIGTERM and SIGINT close with 1000 and exit 0.
+// apps/web/src/lib/kitchen.ts follows, and {"bake_lists": {<date>: {date, version, lines,
+// reserved}}}: the snapshot's days, each set again from an `evt` frame's `bake_list` as the page
+// sets it. SIGTERM and SIGINT close with 1000 and exit 0.
 //
 // Exit codes: 0 done (a condition met, a hold ended, or `bye`), 3 timed out, 4 the socket
 // never opened (an upgrade refused shows here: the WHATWG client hides the status), 2 usage.
@@ -131,6 +133,8 @@ const MOVES = {
   OrderOutForDelivery: 'out_for_delivery',
 };
 const LEAVES = new Set(['OrderPickedUp', 'OrderDelivered', 'OrderExpired', 'OrderCancelled']);
+// The bake lists by date, as the page holds them: the snapshot's, then each frame's `bake_list`.
+const bakeLists = {};
 
 function fold(env) {
   const order = String(env.stream ?? '')
@@ -158,6 +162,7 @@ function finish(code) {
   finished = true;
   if (closed) print({ closed });
   print({ board });
+  print({ bake_lists: bakeLists });
   if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
     try {
       ws.close(1000, 'probe done');
@@ -204,11 +209,14 @@ ws.onmessage = (message) => {
         board[card.order] = card.state;
         heads[card.order] = card.updated_seq;
       }
+      for (const key of Object.keys(bakeLists)) delete bakeLists[key];
+      for (const day of frame.board?.bake_lists ?? []) bakeLists[day.date] = day;
       if (opts.delay > 0) setTimeout(sendNextCmd, opts.delay * 1000);
       else sendNextCmd();
       break;
     case 'evt':
       fold(frame.env);
+      if (frame.bake_list?.date) bakeLists[frame.bake_list.date] = frame.bake_list;
       if (
         opts.waitEvt &&
         frame.env?.type === opts.waitEvt.type &&
