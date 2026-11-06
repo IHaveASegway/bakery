@@ -55,7 +55,7 @@ describe('dist', () => {
     ['signin/index.html', '/signin/*'],
     ['app/index.html', '/app/*'],
     ['app/dispatch/index.html', '/app/dispatch/*'],
-    ['index.html', '/'],
+    ['index.html', '/*'],
     ['privacy/index.html', '/privacy/*'],
     ['docs/api/index.html', '/docs/api/*'],
     ['menu/index.html', '/menu/*'],
@@ -106,7 +106,8 @@ describe('dist', () => {
       expect(RULE_PATHS.filter((rule) => matches(rule, path))).toEqual([]);
       const every = rule('/*');
       expect(every).toContain("Content-Security-Policy: default-src 'self'");
-      expect(every).toContain("script-src 'self';");
+      // 'self' and the start page's hashes, which ride in this rule (src/policy.ts, ISLAND_PATHS).
+      expect(every).toMatch(/script-src 'self'( 'sha256-[A-Za-z0-9+/=]+')+;/);
       expect(every).toContain('X-Content-Type-Options: nosniff');
       expect(every).toContain('Cross-Origin-Opener-Policy: same-origin');
     },
