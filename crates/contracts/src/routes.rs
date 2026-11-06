@@ -176,9 +176,9 @@ use Session::{Any, Cookie, Public, Sandbox, SignedIn, Stripe};
 
 const S: &str = "/v1/sandboxes/{id}";
 
-/// Every route: the Worker's after PR 7 (its README's table, in its order), then PR 8's and
-/// PR 9's from their storefront briefs, then PR 10's token. The Worker serves the PR 8 to PR 10
-/// routes as their Worker streams land; until then the storefront's helpers call exactly these.
+/// Every route: the Worker's after PR 7 (its README's table, in its order), then PR 8's, PR 9's
+/// dispatch and PR 10's token, each held to the Worker as built and its README by the tests
+/// below.
 pub const ROUTES: &[RouteSpec] = &[
     r(
         2,
@@ -1165,7 +1165,7 @@ pub const ROUTES: &[RouteSpec] = &[
         Some("RebuildResponse"),
         &[ok(200, "the cursor")],
     ),
-    // PR 9: dispatch (pr9-web-brief.md, "The routes the Worker will answer").
+    // PR 9: dispatch (workers/api/src/http/dispatch.rs; the README's dispatch rows).
     r(
         9,
         "get-dispatch",
@@ -1175,7 +1175,7 @@ pub const ROUTES: &[RouteSpec] = &[
         "One bakery day's delivery stops and plans",
         None,
         Some("DispatchResponse"),
-        &[ok(200, "the day"), NO_SUCH_DAY],
+        &[ok(200, "the day"), NO_SUCH_DAY, SEEDING],
     ),
     r(
         9,
@@ -1194,6 +1194,7 @@ pub const ROUTES: &[RouteSpec] = &[
                 "dispatch",
                 "`vans`, `capacity`, `no-stops` or `place-unknown`",
             ),
+            SEEDING,
         ],
     ),
     r(
@@ -1211,8 +1212,9 @@ pub const ROUTES: &[RouteSpec] = &[
             no(
                 422,
                 "dispatch",
-                "`route-ends`, `vans`, `stop-unknown`, `stop-twice`, `over-capacity` or `stop-missing`",
+                "`route-ends`, `vans`, `stop-unknown`, `stop-twice`, `over-capacity`, `stop-missing` or `no-stops`",
             ),
+            SEEDING,
         ],
     ),
     r(
@@ -1228,7 +1230,12 @@ pub const ROUTES: &[RouteSpec] = &[
             ok(200, "the day, with `published`"),
             REPLAYED,
             NO_SUCH_DAY,
-            no(409, "dispatch", "`no-plan` or `stop-missing`"),
+            no(
+                409,
+                "dispatch",
+                "`no-plan`, `stop-missing`, `published` (a van has left) or the plan's own rules again",
+            ),
+            SEEDING,
         ],
     ),
     r(
@@ -1245,6 +1252,7 @@ pub const ROUTES: &[RouteSpec] = &[
             NO_SUCH_DAY,
             no(409, "dispatch", "`no-plan`"),
             no(422, "dispatch", "`stop-unknown`"),
+            SEEDING,
         ],
     ),
     // PR 10: the sandbox's API token (docs/security.md, "The API token"). Issuing and rotating

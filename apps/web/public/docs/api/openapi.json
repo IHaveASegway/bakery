@@ -8316,6 +8316,19 @@
             "x-problems": [
               "rate-limit"
             ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`seeding`: the sandbox is still being seeded",
+            "x-problems": [
+              "seeding"
+            ]
           }
         },
         "security": [
@@ -8500,6 +8513,19 @@
             "x-problems": [
               "rate-limit"
             ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`seeding`: the sandbox is still being seeded",
+            "x-problems": [
+              "seeding"
+            ]
           }
         },
         "security": [
@@ -8648,7 +8674,7 @@
                 }
               }
             },
-            "description": "`dispatch`: `route-ends`, `vans`, `stop-unknown`, `stop-twice`, `over-capacity` or `stop-missing`; `idempotency-key`: the same key again with a different body",
+            "description": "`dispatch`: `route-ends`, `vans`, `stop-unknown`, `stop-twice`, `over-capacity`, `stop-missing` or `no-stops`; `idempotency-key`: the same key again with a different body",
             "x-problems": [
               "dispatch",
               "idempotency-key"
@@ -8670,6 +8696,19 @@
             },
             "x-problems": [
               "rate-limit"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`seeding`: the sandbox is still being seeded",
+            "x-problems": [
+              "seeding"
             ]
           }
         },
@@ -8842,6 +8881,19 @@
             "x-problems": [
               "rate-limit"
             ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`seeding`: the sandbox is still being seeded",
+            "x-problems": [
+              "seeding"
+            ]
           }
         },
         "security": [
@@ -8977,7 +9029,7 @@
                 }
               }
             },
-            "description": "`dispatch`: `no-plan` or `stop-missing`",
+            "description": "`dispatch`: `no-plan`, `stop-missing`, `published` (a van has left) or the plan's own rules again",
             "x-problems": [
               "dispatch"
             ]
@@ -9024,6 +9076,19 @@
             },
             "x-problems": [
               "rate-limit"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`seeding`: the sandbox is still being seeded",
+            "x-problems": [
+              "seeding"
             ]
           }
         },
