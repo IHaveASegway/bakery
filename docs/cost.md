@@ -111,7 +111,7 @@ One sandbox session of about 20 minutes, then its share of the nightly wipe. As 
 | DO GB-s | 2.56 | 0.22 | 2.78 | × 0.128 |
 | Rows written | 2,500 | 2,500 | 5,000 | 2,000 at seed (alarms included) + 500 in use; wipe one per row removed (S5) |
 | Rows read | 20,000 | 0 | 20,000 | Assumed: snapshots, menu, projections, one rebuild over 720 history events |
-| Stored data, peak | ≈1 MB | to 0 | — | 35 × 12 KB + 2,500 × 200 B |
+| Stored data, peak | ≈1 MB | to 0 | — | 35 × 12 KB (planning figure: 36 children as built on 2026-11-06) + 2,500 × 200 B |
 | Queue operations | 147 | 3 | 150 | 50 events × 3, `SandboxSeeded` and `SandboxWiped` included |
 | Analytics Engine points | 9 | 1 | 10 | Start, seed, sign-in, admit or deny, payments, end, wipe (assumed) |
 | Log events | 165 | 35 | 200 | One per Worker request and consumer batch; one per object wiped |
@@ -126,23 +126,23 @@ One sandbox session of about 20 minutes, then its share of the nightly wipe. As 
 | Rows written | 1,500 | 1,500 | 3,000 | 180 × 8 = 1,440 + 30 `setAlarm()` rows + 30 minute-ledger rows; the wipe deletes as many |
 | Queue operations | 546 | 0 | 546 | 180 events × 3 = 540, + 6 for `TrafficStarted` and `TrafficStopped` |
 
-Rows written at seed, by object (approximate; [domain.md](domain.md) owns the seed, Q26 · Q-seed):
+Rows written at seed, by object, as built on 2026-11-06 (approximate; [domain.md](domain.md) owns the seed, Q26 · Q-seed; instances from `workers/api/src/objects/sandbox.rs`, which seeds 36 children; the rows each are the plan's estimates except where the last column says otherwise, and none is measured until spike S5):
 
 | Object | Instances | Rows each | Rows | Tables |
 |---|---|---|---|---|
-| `Sandbox` | 1 | 38 | 38 | Lifecycle, registry of 34, clock, alarm |
+| `Sandbox` | 1 | 40 | 40 | Lifecycle, registry of 36, clock, alarm: planned 38 with a registry of 34, so 4 other rows + 36; the 4 is the plan's, not recounted |
 | `Catalog` | 1 | 106 | 106 | 5 categories, 24 items, 48 variants, 24 availability, version, events |
-| `Schedule` | 7 | 46 | 322 | 32 slots, 6 windows, capacities, 5 plan lines |
+| `Schedule` | 10 | 46 | 460 | 32 slots, 6 windows, capacities, 5 plan lines; 7 days + 3 catering days, planned 7 × 46 = 322; the 3 catering days' hold rows are not counted, so about |
 | `Order` | 12 open | 10 | 120 | 3 events, state, 3 lines, key, alarm, outbox |
 | `Kitchen` | 1 | 13 | 13 | Board, alarm |
 | `CateringEvent` | 8 | 9 | 72 | 5 events, state, quote, 2 alarms |
 | `Billing` | 1 | 107 | 107 | 90 daily totals, 16 deposits and balances |
-| `Dispatch` | 1 | 13 | 13 | 10 stops, 2 plans |
+| `Dispatch` | 1 | 13 | 13 | Seed 42 born 2026-11-07: 2 stops, both paid, and 1 proposal = 5 events (`crates/seed/src/dispatch.rs` test); 1 meta + 5 events + 5 outbox + 1 timer + 1 alarm = 13. Planned 10 stops, 2 plans. Other seeds differ: 4 rows for each paid delivery |
 | `Crm` | 1 | 942 | 942 | 720 history events (90 days × 8), 60 customers, 60 loyalty, segments, memberships, campaigns |
 | `Inbox` | 1 | 241 | 241 | 240 messages |
 | `Account`, `Control` | shared | — | 4 | Sandbox pointer; ledger |
 | `Customer` | 0 | — | 0 | Created on first touch |
-| **Total** | **34** | | **1,978** | About 2,000 |
+| **Total** | **37** | | **2,118** | About 2,100: 40 + 106 + 460 + 120 + 13 + 72 + 107 + 13 + 942 + 241 + 4. Planned 34 objects and 1,978 (the plan's 38 + 322 replaced by 40 + 460) |
 
 History lives as events in `Crm`, so "rebuild projections" has a log to replay (Q21 · Q-crm-scope); 720 historic `Order` objects would add 720 DO requests and about 7,200 rows. In use, about 60 commands write about 8 rows each (event, outbox in and out, state, key, a subscriber's `seen` and projection): about 500 with alarms.
 
@@ -246,7 +246,7 @@ An alarm that re-arms itself for now, or a consumer that re-enqueues its own eve
 
 Two hours of the worst row cost $95.12. A bug in a class every sandbox holds loops in every live sandbox at once: two hours at $15.88 cost $318 on a quiet day (10 live) and $63,520 on a launch day (2,000). On Free the same loop spends the day's rows in 1.4 minutes (100,000 ÷ 1,200 a second) and darkens every DO on the account, at $0.
 
-What stops it: the loop guard bounds each object to 100 re-arms a day, about 400 rows; 2,000 sandboxes × 35 objects at that bound is 28M rows, inside the 50M. The consumer holds no producer for `bakery-events`, by type ([architecture.md](architecture.md)). For an internal loop the breaker sets `Control` to `off`; the consumer reads it (cached 60 s) and stops routing, so messages drain to `bakery-events-dlq` after 3 retries. Alarms need the guard or a deploy: no edge control reaches them ([operations.md](operations.md)).
+What stops it: the loop guard bounds each object to 100 re-arms a day, about 400 rows; 2,000 sandboxes × 36 children at that bound is 28.8M rows (36 as built on 2026-11-06, `workers/api/src/objects/sandbox.rs`; 35 before PR 9), inside the 50M. The consumer holds no producer for `bakery-events`, by type ([architecture.md](architecture.md)). For an internal loop the breaker sets `Control` to `off`; the consumer reads it (cached 60 s) and stops routing, so messages drain to `bakery-events-dlq` after 3 retries. Alarms need the guard or a deploy: no edge control reaches them ([operations.md](operations.md)).
 
 ### E. The nightly wipe
 
