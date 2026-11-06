@@ -212,7 +212,7 @@ Six notes on the graph:
 - **Fork PRs** get no secrets, so `firewall` exits 2: fail closed. Dependabot PRs get no preview and no Stripe key.
 - **Scheduled runs use 07:17 and 12:17,** not the hour, because GitHub delays and drops runs at the top of it ([GitHub](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows)).
 
-**Concurrency.** Pull request runs share `ci-pr-<n>` and cancel superseded runs. `deploy` and `rollback` share `deploy-production` and never cancel, so a deploy is not killed halfway and a rollback never races one. `scheduled.yml` jobs share `scheduled`, and `bakery-objects` never cancels.
+**Concurrency.** A pull request's runs share `ci-refs/pull/<n>/merge` and cancel superseded runs; its closed run (`preview-cleanup`) is in `ci-closed-pr-<n>`, because on a merged pull request `github.ref` is the base branch, and in the shared group that run cancelled the merge's own push run on `main` (2026-11-06, run 116: nothing deployed until the push run was re-run by hand). `deploy` and `rollback` share `deploy-production` and never cancel, so a deploy is not killed halfway and a rollback never races one. `scheduled.yml` jobs share `scheduled`, and `bakery-objects` never cancels.
 
 ### The jobs as written
 
