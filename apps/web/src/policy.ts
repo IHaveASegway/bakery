@@ -9,8 +9,10 @@
   reading the privacy page loads nothing from Cloudflare. Pages that create a sandbox or an account
   (/signin/ now, /app/ because it can create a sandbox too) are the challenge class: they add
   Turnstile's origin to script-src and frame-src, and nothing else. Pages with an island but no
-  third party (/menu/ and /inbox/, and since the tour the start page, /privacy/ and /docs/api/, and since PR 13 /status/) are
-  the island class: the strict policy plus the hashes below. The checkout
+  third party (/menu/ and /inbox/, and since the tour /privacy/ and /docs/api/, and since PR 13
+  /status/) are the island class: the strict policy plus the hashes below. The start page has an
+  island too but no rule of its own: it rides on the catch-all, whose policy carries its hashes
+  (below, and headersFile). The checkout
   (/checkout/) and the catering page (/catering/) are the payment class, the island class plus the
   three Stripe origins the Payment Element needs: its script, its frames (3-D Secure included) and
   its API. No other page names a Stripe origin, and these two load Stripe.js only once an order has
@@ -20,8 +22,17 @@
   No page of ours holds inline code of its own, but Astro writes two small inline pieces into a
   page with a hydrated island: the <astro-island> definition script and a one-rule style. So every
   page of the challenge and island classes allows those by SHA-256 hash, read from the built HTML
-  by scripts/inline-hashes.mjs, and never by 'unsafe-inline' or 'unsafe-eval'. Pages with no
-  island, which is the 404 alone since the tour, get no hash.
+  by scripts/inline-hashes.mjs, and never by 'unsafe-inline' or 'unsafe-eval'.
+
+  Every rule path ends with a splat. Cloudflare's asset server applies a rule for an exact path
+  (`/`) before the splat rules, so a `/` rule's detach (`! Content-Security-Policy`) ran before the
+  catch-all set its policy and could not remove it: the start page went out with two policies, both
+  enforced, and the strict one blocked its island (observed in production on 2026-11-06, Incident
+  #42; `wrangler dev` applies the rules in file order, which hid it). So the start page has no rule
+  and takes the catch-all's policy, and the catch-all carries the start page's hashes: Astro's
+  generic island bootstrap, two scripts and one style. The pages with no rule and no island (the
+  404, /about/, /how-its-built/ and the essays) inherit those three hashes too. That is harmless:
+  they hold no inline code, and the hashes allow only Astro's own bootstrap, never other code.
 
   The dispatch screen (/app/dispatch/) is a fifth class, the challenge class plus worker-src 'self'
   so its module Web Worker can load. The solver that worker runs sits in /app/dispatch/solver/,
@@ -132,11 +143,13 @@ export const SOLVER_CSP =
 
 /**
  * Pages with a hydrated island and no third party: the menu and the inbox, and since PR 10 the
- * start page, the privacy page and the API reference, which carry the guided tour (components/Tour.tsx)
- * and nothing else. `/` is the start page alone: Cloudflare's rule for a path with no splat matches
- * that path only.
+ * privacy page and the API reference, which carry the guided tour (components/Tour.tsx) and nothing
+ * else, and since PR 13 the status page. The start page carries the tour too but is not here: an
+ * exact-path rule (`/`) is applied before the catch-all in production, so its detach cannot remove
+ * the catch-all's policy (Incident #42, 2026-11-06). It takes the catch-all's policy, which holds its
+ * hashes. Every path here ends with a splat.
  */
-export const ISLAND_PATHS = ['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/status/*', '/'];
+export const ISLAND_PATHS = ['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/status/*'];
 
 /** Pages that load Stripe: the checkout's payment step and the catering page's deposit step. */
 export const PAYMENT_PATHS = ['/checkout/*', '/catering/*'];
@@ -150,9 +163,14 @@ export const RULE_PATHS = [
 ];
 
 /**
- * The contents of dist/_headers. Cloudflare applies every matching rule in file order; a header a
- * later rule sets again is appended, which for the policy would mean two policies, both enforced.
- * So a challenge or island rule first detaches the policy and then sets its own.
+ * The contents of dist/_headers. Cloudflare applies every matching rule, and a header two rules set
+ * is sent twice, which for the policy means two policies, both enforced. So a challenge, island or
+ * payment rule first detaches the policy (`!`) and then sets its own. The detach only removes a
+ * header a rule applied earlier has set: every splat rule here comes after `/*` and is applied after
+ * it, but production applies an exact-path rule before the splat rules, so no rule may be an exact
+ * path (Incident #42, 2026-11-06; `wrangler dev` applies the rules in file order). The pages with no
+ * rule, the start page among them, take the `/*` policy with the hashes of their inline code, which
+ * scripts/inline-hashes.mjs folds into `/*`.
  */
 export function headersFile(apiOrigin: string, hashes: Record<string, Hashes> = {}): string {
   const of = (path: string) => hashes[path] ?? NO_HASHES;

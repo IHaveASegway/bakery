@@ -187,6 +187,21 @@ test.describe('the storefront', () => {
     });
   }
 
+  // Two policies are both enforced, so the stricter wins: on 2026-11-06 the start page went out with
+  // its island policy and the catch-all's, and its island was blocked (Incident #42). headers()
+  // joins repeated headers into one, so count them in headersArray().
+  test('every page answers with exactly one Content-Security-Policy header', async ({
+    request,
+  }) => {
+    for (const pathname of [...PAGES, '/no-such-page/']) {
+      const res = await request.get(`${WEB_DIRECT}${pathname}`);
+      const policies = res
+        .headersArray()
+        .filter((h) => h.name.toLowerCase() === 'content-security-policy');
+      expect(policies, pathname).toHaveLength(1);
+    }
+  });
+
   test('an unknown path is the 404 page', async ({ request }) => {
     expect((await request.get(`${WEB_DIRECT}/no-such-page/`)).status()).toBe(404);
   });

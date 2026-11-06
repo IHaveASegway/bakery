@@ -126,14 +126,9 @@ describe('headersFile', () => {
   });
 
   test('the menu and the inbox get an island rule, the checkout and catering pages a payment rule: detach, then their own policy and hashes', () => {
-    expect(ISLAND_PATHS).toEqual([
-      '/menu/*',
-      '/inbox/*',
-      '/privacy/*',
-      '/docs/api/*',
-      '/status/*',
-      '/',
-    ]);
+    expect(ISLAND_PATHS).toEqual(['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/status/*']);
+    // No exact path: production applies one before "/*", so its detach would not hold (Incident #42).
+    for (const path of RULE_PATHS) expect(path, path).toMatch(/\*$/);
     expect(PAYMENT_PATHS).toEqual(['/checkout/*', '/catering/*']);
     expect(RULE_PATHS).toEqual([
       ...CHALLENGE_PATHS,
@@ -148,7 +143,6 @@ describe('headersFile', () => {
       '/privacy/*': hashes,
       '/docs/api/*': hashes,
       '/status/*': hashes,
-      '/': hashes,
       '/checkout/*': hashes,
       '/catering/*': hashes,
     });
@@ -166,6 +160,16 @@ describe('headersFile', () => {
     );
     // Stripe: script-src, two frame-src origins, connect-src; only in the payment rules.
     expect(file.split('stripe.com').length - 1).toBe(4 * PAYMENT_PATHS.length);
+  });
+
+  test('the start page has no rule of its own: the catch-all "/*" carries the hashes given for it', () => {
+    const hashes = { script: ["'sha256-AAAA'"], style: ["'sha256-BBBB'"] };
+    const lines = headersFile(DEFAULT_API_ORIGIN, { '/*': hashes }).split('\n');
+    expect(lines).not.toContain('/');
+    const at = lines.indexOf('/*');
+    expect(lines[at + 1]).toBe(
+      `  Content-Security-Policy: ${csp('every', DEFAULT_API_ORIGIN, hashes)}`,
+    );
   });
 
   test('the inbox is an island page: the strict policy and its hashes, no Stripe and no Turnstile', () => {

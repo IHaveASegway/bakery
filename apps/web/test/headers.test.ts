@@ -45,7 +45,6 @@ describe('dist/_headers', () => {
     '/privacy/*',
     '/docs/api/*',
     '/status/*',
-    '/',
     '/checkout/*',
     '/catering/*',
     '/_astro/*',
@@ -69,7 +68,28 @@ describe('dist/_headers', () => {
     const policy = policyOf(rule(text, '/*'));
     expect(policy).not.toContain('challenges.cloudflare.com');
     expect(directive(policy, 'frame-src')).toEqual(["'none'"]);
-    expect(directive(policy, 'script-src')).toEqual(["'self'"]);
+    // 'self' and the start page's hashes, nothing else.
+    const script = directive(policy, 'script-src');
+    expect(script[0]).toBe("'self'");
+    for (const source of script.slice(1)) expect(source).toMatch(/^'sha256-/);
+  });
+
+  test('every rule path ends with a splat: production applies an exact-path rule before "/*", so its detach cannot remove the catch-all policy (Incident #42)', () => {
+    const paths = text.split('\n').filter((line) => line.startsWith('/'));
+    expect(paths).toHaveLength(rules.length + 1);
+    for (const path of paths) expect(path, path).toMatch(/\*$/);
+    expect(paths).not.toContain('/');
+  });
+
+  test('the start page rides on "/*": the catch-all carries its two script hashes and one style hash', () => {
+    const policy = policyOf(rule(text, '/*'));
+    const script = directive(policy, 'script-src').filter((s) => s.startsWith("'sha256-"));
+    const style = directive(policy, 'style-src').filter((s) => s.startsWith("'sha256-"));
+    expect(script).toHaveLength(2);
+    expect(style).toHaveLength(1);
+    // The same bootstrap the island pages allow: /menu/* holds each of them.
+    const menu = policyOf(rule(text, '/menu/*'));
+    for (const hash of [...script, ...style]) expect(menu).toContain(hash);
   });
 
   test.each(['/signin/*', '/app/*'])('%s adds Turnstile to script-src and frame-src', (path) => {
@@ -136,7 +156,7 @@ describe('dist/_headers', () => {
     }
   });
 
-  test.each(['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/status/*', '/'])(
+  test.each(['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/status/*'])(
     '%s is an island page: its own policy with hashes, and no third party',
     (path) => {
       const lines = rule(text, path);
@@ -190,11 +210,10 @@ describe('dist/_headers', () => {
     expect(text.split('stripe.com').length - 1).toBe(4 * paymentRules.length);
   });
 
-  test('no rule carries unsafe-inline, unsafe-eval or a nonce; "/*" carries no hash either', () => {
+  test('no rule carries unsafe-inline, unsafe-eval or a nonce', () => {
     for (const path of rules) {
       expect(policyOf(rule(text, path))).not.toMatch(/unsafe-|nonce-/);
     }
-    expect(policyOf(rule(text, '/*'))).not.toContain('sha256-');
   });
 
   test('bundles are cached for a year, immutable, and drop the document-only headers', () => {

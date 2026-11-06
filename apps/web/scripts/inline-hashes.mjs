@@ -22,7 +22,12 @@ export function inlineHashes(html) {
   };
 }
 
-/** Whether a built file's URL (`/menu/index.html`) falls under a rule (`/menu/*`, or `/` alone). */
+/**
+ * Whether a built file's URL (`/menu/index.html`) falls under a rule (`/menu/*`). It still reads a
+ * rule with no splat as that page alone, as Cloudflare does, but src/policy.ts writes none since
+ * Incident #42 (2026-11-06): the start page's `/` rule was applied before the catch-all in
+ * production, so the page got two policies. The start page now falls under `/*`.
+ */
 function matches(rule, url) {
   return rule.endsWith('*') ? url.startsWith(rule.slice(0, -1)) : url === `${rule}index.html`;
 }
@@ -36,8 +41,8 @@ export function hashesByRule(dir, rules) {
   for (const file of readdirSync(dir, { recursive: true })) {
     if (typeof file !== 'string' || !file.endsWith('.html')) continue;
     const url = `/${file.replaceAll('\\', '/')}`;
-    // The longest matching prefix wins: /app/dispatch/* is under /app/*. A rule with no splat
-    // (`/`) is that page alone, as Cloudflare reads it.
+    // The longest matching prefix wins: /app/dispatch/* is under /app/*. A page under no rule, the
+    // start page among them, belongs to `/*`, so the catch-all's policy carries its hashes.
     const rule =
       rules.filter((r) => matches(r, url)).sort((x, y) => y.length - x.length)[0] ?? '/*';
     const found = inlineHashes(readFileSync(join(dir, file), 'utf8'));

@@ -9,8 +9,9 @@ import { inlineHashes } from '../scripts/inline-hashes.mjs';
 import { readLock, verifyFolder } from '../../../scripts/fetch-solver.mjs';
 
 // The built pages against the policy: the 404 carries no script at all (ADR 0008), and every
-// inline script or style on a page with an island (since PR 10 every page but the 404 has one, the
-// guided tour) is covered by a hash in the page's own rule.
+// inline script or style on a page with an island (since PR 10 the guided tour) is covered by a
+// hash in the rule the page falls under. The start page has no rule of its own since Incident #42
+// (2026-11-06): it falls under "/*", whose policy carries its hashes.
 // Run after `pnpm build`.
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
@@ -55,7 +56,7 @@ describe('dist', () => {
     ['signin/index.html', '/signin/*'],
     ['app/index.html', '/app/*'],
     ['app/dispatch/index.html', '/app/dispatch/*'],
-    ['index.html', '/'],
+    ['index.html', '/*'],
     ['privacy/index.html', '/privacy/*'],
     ['docs/api/index.html', '/docs/api/*'],
     ['menu/index.html', '/menu/*'],
@@ -99,6 +100,16 @@ describe('dist', () => {
   const matches = (rulePath: string, path: string) =>
     rulePath.endsWith('*') ? path.startsWith(rulePath.slice(0, -1)) : rulePath === path;
 
+  test('the start page has no rule of its own: it takes the "/*" policy, which holds its hashes', () => {
+    expect(RULE_PATHS.filter((rule) => matches(rule, '/'))).toEqual([]);
+    expect(page('_headers').split('\n')).not.toContain('/');
+    const hashes = inlineHashes(page('index.html')) as { script: string[]; style: string[] };
+    expect(hashes.script).toHaveLength(2);
+    expect(hashes.style).toHaveLength(1);
+    const every = rule('/*');
+    for (const hash of [...hashes.script, ...hashes.style]) expect(every).toContain(hash);
+  });
+
   test.each(['/about/', '/how-its-built/', ...essays.map((e) => e.path)])(
     '%s is in the dist and takes the strict policy of every page, with no rule of its own',
     (path) => {
@@ -106,7 +117,8 @@ describe('dist', () => {
       expect(RULE_PATHS.filter((rule) => matches(rule, path))).toEqual([]);
       const every = rule('/*');
       expect(every).toContain("Content-Security-Policy: default-src 'self'");
-      expect(every).toContain("script-src 'self';");
+      // 'self' and the start page's hashes: no third party.
+      expect(every).toMatch(/script-src 'self'( 'sha256-[^']+')*;/);
       expect(every).toContain('X-Content-Type-Options: nosniff');
       expect(every).toContain('Cross-Origin-Opener-Policy: same-origin');
     },
