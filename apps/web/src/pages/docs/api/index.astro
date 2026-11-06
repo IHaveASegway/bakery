@@ -1,0 +1,227 @@
+---
+// The API reference, built at build time from public/docs/api/openapi.json (crates/contracts
+// writes it from the route table and the schemas). No runtime fetch and no third-party renderer;
+// the only script is the copy buttons' (below). lib/openapi.ts does the reading.
+import Base from '../../../layouts/Base.astro';
+import SchemaTable from '../../../components/SchemaTable.astro';
+import Spans from '../../../components/Spans.astro';
+import doc from '../../../../public/docs/api/openapi.json';
+import { buildPage, type OpenApiDoc } from '../../../lib/openapi';
+
+const page = buildPage(doc as unknown as OpenApiDoc);
+---
+
+<Base
+  title="API reference | Proof of Concept Bakery"
+  description="Every route of the made-up bakery's API: who may call it, the request and the answers, with a curl for each, generated from the same contract the console uses."
+  screen="api"
+>
+  <h1>API reference</h1>
+  <p class="lead">{page.summary}</p>
+  {page.intro.map((paragraph) => (
+    <p><Spans spans={paragraph} /></p>
+  ))}
+  <p>
+    The document itself, OpenAPI 3.1, is at <a href="/docs/api/openapi.json"><code>/docs/api/openapi.json</code></a>.
+    This page is built from it, and it is built from the same route table and schemas as the
+    console’s types, so the three cannot disagree.
+  </p>
+
+  <h2>Servers</h2>
+  <ul>
+    {page.servers.map((server) => (
+      <li><code>{server.url}</code>: <Spans spans={server.description} /></li>
+    ))}
+  </ul>
+
+  <section id="token" aria-labelledby="token-heading" data-tour="api-token">
+    <h2 id="token-heading">Using your token</h2>
+    <p>
+      Sign in, open the <a href="/app/">console</a> and press <em>Issue token</em>. The token is
+      shown once. Send it as <code>Authorization: Bearer &lt;your token&gt;</code> on any route
+      marked “token accepted”, with no cookie and no <code>Origin</code>. A token lasts 24 hours,
+      dies with the sandbox and stops the moment you rotate it. A token in a query string, or a
+      token beside a cookie, is refused with 400 <code>token</code>; a rotated or expired one is 401
+      <code>token</code>. Every <code>POST</code> carries an <code>Idempotency-Key</code>, a ULID.
+    </p>
+  </section>
+
+  <section id="index" aria-labelledby="index-heading" data-tour="api-index">
+    <h2 id="index-heading">Index</h2>
+    <p>{page.operationCount} operations, by area.</p>
+    {page.tags.map((tag) => (
+      <>
+        <h3>{tag.title}</h3>
+        <ul class="api-index">
+          {tag.operations.map((op) => (
+            <li>
+              <a href={`#op-${op.id}`}>
+                <span class="method">{op.method}</span> <code>{op.path}</code>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </>
+    ))}
+    <p>
+      <a href="#socket">The kitchen socket</a> · <a href="#schemas">Schemas</a>
+    </p>
+  </section>
+
+  <section id="operations" aria-labelledby="operations-heading" data-tour="api-operations">
+    <h2 id="operations-heading">Operations</h2>
+    {page.tags.map((tag) => (
+      <>
+        <h3 id={`tag-${tag.name}`}>{tag.title}</h3>
+        {tag.operations.map((op) => (
+          <article id={`op-${op.id}`} class="api-op" aria-labelledby={`h-${op.id}`}>
+            <h4 id={`h-${op.id}`}>
+              <span class="method">{op.method}</span> <code>{op.path}</code>
+            </h4>
+            <p><strong>{op.summary}</strong></p>
+            {op.description.map((paragraph) => (
+              <p><Spans spans={paragraph} /></p>
+            ))}
+            <p class="hint">
+              Operation <code>{op.id}</code>{op.pr !== null && <> · added in PR {op.pr}</>}. {op.session}
+              {' '}{op.bearer ? 'A token is accepted.' : 'No token: the cookie or nothing.'}
+            </p>
+
+            {op.params.length > 0 && (
+              <>
+                <h5>Parameters</h5>
+                <div class="table-scroll" role="region" aria-label={`Parameters of ${op.id}`} tabindex="0">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th scope="col">Name</th>
+                        <th scope="col">In</th>
+                        <th scope="col">Required</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Meaning</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {op.params.map((p) => (
+                        <tr>
+                          <th scope="row"><code>{p.name}</code></th>
+                          <td>{p.where}</td>
+                          <td>{p.required ? 'yes' : 'no'}</td>
+                          <td>{p.type}</td>
+                          <td><Spans spans={p.description} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            {op.request && (
+              <>
+                <h5>Request body, <a href={`#schema-${op.request.schema}`}>{op.request.schema}</a></h5>
+                <SchemaTable view={op.request.view} label={`Request body of ${op.id}`} />
+              </>
+            )}
+
+            <h5>Answers</h5>
+            <ul>
+              {op.answers.map((answer) => (
+                <li>
+                  <strong>{answer.status}</strong>
+                  {answer.schema && <> <a href={`#schema-${answer.schema}`}>{answer.schema}</a></>}
+                  {answer.problems.length > 0 && (
+                    <>
+                      {' '}(problem{answer.problems.length > 1 ? 's' : ''}:{' '}
+                      {answer.problems.map((slug, i) => (<>{i > 0 && ', '}<code>{slug}</code></>))})
+                    </>
+                  )}
+                  : <Spans spans={answer.description} />
+                </li>
+              ))}
+            </ul>
+
+            {op.success && op.success.rows.length > 0 && (
+              <>
+                <h5>The answer, <a href={`#schema-${op.success.name}`}>{op.success.name}</a></h5>
+                <SchemaTable view={op.success} label={`Answer of ${op.id}`} />
+              </>
+            )}
+
+            {op.curl ? (
+              <>
+                <h5>curl</h5>
+                <pre class="api-curl" tabindex="0" id={`curl-${op.id}`}><code>{op.curl}</code></pre>
+                <p>
+                  <button type="button" data-copy={`curl-${op.id}`}>Copy the curl for {op.id}</button>
+                </p>
+              </>
+            ) : (
+              <p class="hint">{op.curlNote}</p>
+            )}
+          </article>
+        ))}
+      </>
+    ))}
+  </section>
+
+  {page.socket && (
+    <section id="socket" aria-labelledby="socket-heading" data-tour="api-socket">
+      <h2 id="socket-heading">The kitchen socket</h2>
+      <p>
+        <code>GET /v1/sandboxes/{'{id}'}/kitchen/ws</code> upgrades to a WebSocket (operation
+        <a href={`#op-${page.socket.operation}`}> <code>{page.socket.operation}</code></a>). It takes the
+        session cookie only, with the storefront’s exact <code>Origin</code>.
+      </p>
+      <p><Spans spans={page.socket.description} /></p>
+      <div class="table-scroll" role="region" aria-label="Socket frames" tabindex="0">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Frame</th>
+              <th scope="col">Direction</th>
+              <th scope="col">Shape</th>
+              <th scope="col">When</th>
+            </tr>
+          </thead>
+          <tbody>
+            {page.socket.frames.map((frame) => (
+              <tr>
+                <th scope="row"><code>{frame.t}</code></th>
+                <td>{frame.direction}</td>
+                <td><code>{frame.shape}</code></td>
+                <td><Spans spans={[{ text: frame.when, code: false }]} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )}
+
+  <section id="schemas" aria-labelledby="schemas-heading">
+    <h2 id="schemas-heading">Schemas</h2>
+    <p>{page.schemas.length} types, each once. A type in a table above links here.</p>
+    {page.schemas.map((schema) => (
+      <section id={`schema-${schema.name}`} aria-labelledby={`sh-${schema.name}`}>
+        <h3 id={`sh-${schema.name}`}><code>{schema.name}</code></h3>
+        <p><Spans spans={schema.description} /></p>
+        <SchemaTable view={schema} label={`Schema ${schema.name}`} />
+      </section>
+    ))}
+  </section>
+</Base>
+
+<script>
+  // The copy buttons are this page's only script. Each names the <pre> whose text it copies.
+  document.addEventListener('click', (event) => {
+    const button = (event.target as Element).closest<HTMLButtonElement>('button[data-copy]');
+    const source = button && document.getElementById(button.dataset.copy ?? '');
+    if (!button || !source) return;
+    const label = button.textContent;
+    navigator.clipboard.writeText(source.textContent ?? '').then(
+      () => (button.textContent = 'Copied'),
+      () => (button.textContent = 'Copy failed: select the command by hand'),
+    ).finally(() => setTimeout(() => (button.textContent = label), 2000));
+  });
+</script>

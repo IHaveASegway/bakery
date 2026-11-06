@@ -58,7 +58,7 @@ export default function MenuList({ menu, onAdd }: Props) {
   useEffect(() => setNow(Date.now()), []);
 
   return (
-    <div className="menu">
+    <div className="menu" data-tour="menu-list">
       {menu.categories.map((category) => (
         <section key={category.slug} aria-labelledby={`cat-${category.slug}`} className="category">
           <h2 id={`cat-${category.slug}`}>{category.name}</h2>

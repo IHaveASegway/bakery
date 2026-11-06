@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TokenInfoResponse",
+  "description": "`GET /v1/sandboxes/{id}/token`: what the console shows about the token without the token.",
+  "type": "object",
+  "properties": {
+    "expires_at": {
+      "description": "When that token stops being accepted, a wall time.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "issued_at": {
+      "description": "When the last token at this version was issued, a wall time; absent before the first\nissue and after a rotation until the next.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "masked": {
+      "description": "That token's first 6 and last 4 characters around `…`, such as `eyJ2Ij…x7Qk`: enough\nto tell two tokens apart, never enough to use one.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "token_v": {
+      "description": "The Sandbox's token version: a token naming an older one is refused.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "token_v"
+  ]
+}

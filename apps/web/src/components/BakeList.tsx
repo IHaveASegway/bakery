@@ -1,6 +1,7 @@
 import { groupBakeLines, type BakeList as Day } from '../lib/kitchen';
 import { clockLabel, mountainLocal } from '../lib/slots';
 import { dateLabel } from '../lib/schedule';
+import { HOW } from '../tour/how';
 
 /** `country-loaf` as "country loaf". */
 const itemWords = (slug: string) => slug.replaceAll('-', ' ');
@@ -21,7 +22,9 @@ function startWords(start: string): string {
 export default function BakeList({ lists, today }: { lists: Day[]; today: string }) {
   return (
     <>
-      <h3 id="bake-heading">Bake list</h3>
+      <h3 id="bake-heading" data-tour="kitchen-bake">
+        Bake list
+      </h3>
       {lists.length === 0 ? (
         <p className="hint">
           No day has a plan yet. A day gets one when an order for it is paid, or when the clock
@@ -66,13 +69,7 @@ export default function BakeList({ lists, today }: { lists: Day[]; today: string
           );
         })
       )}
-      <p className="hint">
-        How this works: a bake list is a projection from events. The Schedule works out each day’s
-        plan from the places that are paid for and sends it as <code>BakeListChanged</code> with a
-        version; the board keeps the highest version it has seen for a day, so a late or repeated
-        message changes nothing. The plan changes when a paid order lands, when a place is released,
-        or when the clock moves to a new day.
-      </p>
+      <p className="hint">How this works: {HOW.bake}</p>
     </>
   );
 }

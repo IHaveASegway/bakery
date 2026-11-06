@@ -1,4 +1,5 @@
-//! HMAC-SHA256 signing for the two cookies (docs/security.md, "The session cookie").
+//! HMAC-SHA256 signing for the two cookies and the API token (docs/security.md, "The session
+//! cookie", "The API token").
 //!
 //! A token is `<base64url(payload JSON)>.<base64url(MAC)>`. The payload holds identifiers and
 //! no secret, so it is signed and left unencrypted. Verification tries `SESSION_HMAC_KEY`, then
@@ -126,6 +127,10 @@ pub enum Purpose {
     Session,
     /// `__Host-oauth`.
     OAuth,
+    /// The sandbox's API token, in `Authorization: Bearer` (docs/security.md, "The API token").
+    /// Its own label, so a session cookie never verifies as a bearer token, nor a token as a
+    /// cookie, though both are signed with the same key.
+    ApiToken,
 }
 
 impl Purpose {
@@ -133,6 +138,7 @@ impl Purpose {
         match self {
             Purpose::Session => b"bakery-session-v1",
             Purpose::OAuth => b"bakery-oauth-v1",
+            Purpose::ApiToken => b"bakery-api-token-v1",
         }
     }
 }
@@ -253,6 +259,18 @@ mod tests {
             decode_token::<Payload>(Purpose::OAuth, &token, &keys),
             Err(SigningError::Signature)
         );
+        for (made, read) in [
+            (Purpose::Session, Purpose::ApiToken),
+            (Purpose::ApiToken, Purpose::Session),
+            (Purpose::ApiToken, Purpose::OAuth),
+        ] {
+            let token = encode_token(made, &Payload { a: 7 }, &keys);
+            assert_eq!(
+                decode_token::<Payload>(read, &token, &keys),
+                Err(SigningError::Signature),
+                "{made:?} read as {read:?}"
+            );
+        }
     }
 
     #[test]

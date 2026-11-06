@@ -1,4 +1,5 @@
 import { clockText, type BrowserSolver, type Figures, type Report } from '../lib/dispatch';
+import { HOW } from '../tour/how';
 
 const SOURCE_NAMES = { server: 'Server (savings heuristic)', browser: 'Browser (VROOM)' } as const;
 
@@ -56,13 +57,7 @@ export default function DispatchComparison({
         at the door. The gap is the server’s total less the browser’s, as a percentage of the
         browser’s.
       </p>
-      <p className="hint">
-        How this works: the server’s plan is a savings heuristic (Clarke and Wright, 1964), fast and
-        good but not exact. The browser’s plan is VROOM, a modern solver that looks harder for a
-        shorter plan. Neither is the record. The Dispatch object checks whichever plan is sent,
-        works out its minutes from its own matrix, and decides what may be published. The Route Lab
-        is where the solver is explained.
-      </p>
+      <p className="hint">How this works: {HOW.dispatch}</p>
     </>
   );
 }

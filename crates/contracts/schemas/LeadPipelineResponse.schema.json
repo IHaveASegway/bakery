@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "LeadPipelineResponse",
-  "description": "`GET /v1/sandboxes/{id}/crm/leads`: every stage, in order, with its catering events.",
+  "description": "`GET /v1/sandboxes/{id}/leads`: every stage, in order, with its catering events.",
   "type": "object",
   "properties": {
     "stages": {

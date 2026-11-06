@@ -1,4 +1,4 @@
-//! Sign-in, sessions and their checks, with no network and no randomness of their own
+//! Sign-in, sessions, the API token and their checks, with no network and no randomness of their own
 //! (docs/security.md, "Sign-in and sessions"; ADR 0006).
 //!
 //! Everything the Worker sends to Google, GitHub and Turnstile is built here, and everything it
@@ -14,6 +14,7 @@ mod oauth;
 mod password;
 mod session;
 mod signing;
+mod token;
 mod turnstile;
 
 pub use account::{AccountKind, account_id, demo_username, is_demo_username};
@@ -39,4 +40,8 @@ pub use session::{
     session_cookie, verify,
 };
 pub use signing::{Keyring, MIN_KEY_LEN, Purpose, SigningError, decode_token, encode_token, mac};
+pub use token::{
+    QUERY_NAMES, TOKEN_PROBLEM, TOKEN_TTL_S, TOKEN_VERSION, TokenClaims, TokenError, TokenKind,
+    check_request, check_version, decode_bearer, issue_token, masked, verify_bearer,
+};
 pub use turnstile::{SiteverifyResponse, siteverify_body};

@@ -14,7 +14,7 @@ export default function Receipt({
   paid: boolean;
 }) {
   return (
-    <section aria-labelledby="receipt-heading" aria-live="polite">
+    <section aria-labelledby="receipt-heading" aria-live="polite" data-tour="checkout-receipt">
       <h2 id="receipt-heading">{paid ? 'Paid, with thanks' : 'Order placed'}</h2>
       <dl>
         <dt>Order</dt>

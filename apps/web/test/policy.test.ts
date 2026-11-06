@@ -126,7 +126,7 @@ describe('headersFile', () => {
   });
 
   test('the menu and the inbox get an island rule, the checkout and catering pages a payment rule: detach, then their own policy and hashes', () => {
-    expect(ISLAND_PATHS).toEqual(['/menu/*', '/inbox/*']);
+    expect(ISLAND_PATHS).toEqual(['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/']);
     expect(PAYMENT_PATHS).toEqual(['/checkout/*', '/catering/*']);
     expect(RULE_PATHS).toEqual([
       ...CHALLENGE_PATHS,
@@ -138,6 +138,9 @@ describe('headersFile', () => {
     const file = headersFile(DEFAULT_API_ORIGIN, {
       '/menu/*': hashes,
       '/inbox/*': hashes,
+      '/privacy/*': hashes,
+      '/docs/api/*': hashes,
+      '/': hashes,
       '/checkout/*': hashes,
       '/catering/*': hashes,
     });

@@ -14,8 +14,8 @@ export type PlanSource = 'server' | 'browser';
 export type StopStatus = 'provisional' | 'confirmed' | 'removed' | 'completed';
 
 /**
- * `GET /v1/sandboxes/{id}/dispatch/{date}`, staff only, and the answer to every dispatch
- * command: one bakery day's stops and plans. It mirrors the Dispatch aggregate's state.
+ * `GET /v1/sandboxes/{id}/dispatch/{date}`, which any session of the sandbox reads, and the
+ * answer to every dispatch command, which are staff only: one bakery day's stops and plans. It mirrors the Dispatch aggregate's state.
  */
 export interface DispatchResponse {
   /**

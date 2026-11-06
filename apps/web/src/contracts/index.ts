@@ -81,6 +81,8 @@ export type { Segment, SegmentResponse } from './SegmentResponse';
 export type { SessionKind, SessionResponse } from './SessionResponse';
 export type { StatusResponse } from './StatusResponse';
 export type { TimelineEntry, TimelineResponse } from './TimelineResponse';
+export type { TokenInfoResponse } from './TokenInfoResponse';
+export type { TokenResponse } from './TokenResponse';
 export type { TrafficRequest } from './TrafficRequest';
 export type { TrafficResponse } from './TrafficResponse';
 export type { WipedResponse } from './WipedResponse';

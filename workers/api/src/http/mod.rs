@@ -19,13 +19,14 @@ mod problem;
 mod routes;
 mod sandboxes;
 mod schedule;
+mod token;
 mod traffic;
 mod webhook;
 
 use std::cell::RefCell;
 
 use bakery_app::Clock;
-use bakery_app::auth::Keyring;
+use bakery_app::auth::{Keyring, SESSION_COOKIE, check_request, cookie_value};
 use bakery_app::log::RequestLine;
 use bakery_app::{BuildInfo, health};
 use bakery_contracts::{HealthResponse, HealthStatus};
@@ -59,6 +60,10 @@ pub struct Cx {
 struct Note {
     reason: Option<&'static str>,
     sandbox: Option<String>,
+    /// The request carried an API token: no CORS headers, and no cookie set.
+    bearer: bool,
+    /// The token's id, for the log line; never the token.
+    tid: Option<String>,
 }
 
 impl Cx {
@@ -74,6 +79,11 @@ impl Cx {
     /// The sandbox this request ends up naming, for the log line.
     pub fn sandbox(&self, id: Option<Ulid>) {
         self.note.borrow_mut().sandbox = id.map(|i| i.to_string());
+    }
+
+    /// The API token's id, for the log line: never the token.
+    pub fn token_id(&self, tid: &str) {
+        self.note.borrow_mut().tid = Some(tid.to_owned());
     }
 
     pub fn claims(&self) -> Option<&bakery_app::auth::SessionClaims> {
@@ -96,7 +106,7 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
 
     let matched = routes::match_route(&method, &path);
     // Stripe's webhook gets no CORS headers whatever Origin it carries.
-    let cors_origin = if routes::is_server_to_server_path(&path) {
+    let mut cors_origin = if routes::is_server_to_server_path(&path) {
         None
     } else {
         origin.clone()
@@ -138,6 +148,12 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
             (f.into_response(&path)?, Some(reason))
         }
     };
+    // A request with an API token is `curl`'s, not a page's: no CORS headers, and no cookie,
+    // even where the route re-issues one for the cookie's holder (the wipe).
+    if note.bearer {
+        cors_origin = None;
+        res.headers_mut().delete("Set-Cookie")?;
+    }
     headers::apply(
         &mut res,
         cors_origin.as_deref(),
@@ -156,6 +172,9 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         line.continent = continent;
         line.sandbox = note.sandbox;
         line.reason = reason;
+        if let Some(tid) = &note.tid {
+            line.token_id(tid);
+        }
         console_log!("{}", line.to_json());
     }
     Ok(res)
@@ -197,9 +216,35 @@ async fn checked(
         return webhook::receive(cx, req).await;
     }
     let headers = req.headers();
+    // The API token (docs/security.md, "The API token"), read before the Origin check, which a
+    // request with a token and no cookie skips. Every route that needs a session refuses a token
+    // in the query string or beside the cookie; one that takes the cookie only refuses a token
+    // in its place. A public route needs no credential, so it ignores both.
+    let mut bearer: Option<String> = None;
+    if route.scope != Scope::Public {
+        let authorization = headers.get("Authorization").ok().flatten();
+        let has_cookie = headers
+            .get("Cookie")
+            .ok()
+            .flatten()
+            .as_deref()
+            .and_then(|h| cookie_value(h, SESSION_COOKIE))
+            .is_some();
+        let url = req.url().ok();
+        let query = url.as_ref().and_then(|u| u.query());
+        let carries = check_request(authorization.as_deref(), has_cookie, query)
+            .map_err(problem::token_error)?;
+        if carries.is_some() {
+            if !route.takes_bearer() {
+                return Err(problem::token("cookie-only", 401));
+            }
+            cx.note.borrow_mut().bearer = true;
+            bearer = authorization;
+        }
+    }
     // The socket's upgrade is a GET, but it carries the cookie and ignores CORS: the exact
     // Origin is the defence against cross-site hijacking (docs/security.md, the threats table).
-    if guard::is_command(route.method) || route.id == RouteId::KitchenSocket {
+    if bearer.is_none() && (guard::is_command(route.method) || route.id == RouteId::KitchenSocket) {
         let allowed = cx.cfg.origin()?;
         let origin = headers.get("Origin").ok().flatten();
         let site = headers.get("Sec-Fetch-Site").ok().flatten();
@@ -216,8 +261,9 @@ async fn checked(
         }
     }
 
-    // The session: required by its scope, read when present otherwise. Without a signing key
-    // a route that needs a session cannot answer; one that does not ignores the cookie.
+    // The session: the token's claims, verified and checked against the Sandbox; or the cookie,
+    // required by the route's scope and read when present otherwise. Without a signing key a
+    // route that needs a session cannot answer; one that does not ignores the cookie.
     let reads_session = !matches!(
         route.id,
         RouteId::Health
@@ -227,7 +273,9 @@ async fn checked(
             | RouteId::GithubStart
             | RouteId::GithubCallback
     );
-    if reads_session {
+    if let Some(header) = bearer.as_deref() {
+        cx.auth = Auth::Bearer(token::admit(cx, header, params.id.as_deref()).await?);
+    } else if reads_session {
         match cx.cfg.keyring() {
             Ok(keyring) => cx.auth = Auth::read(req, &keyring, cx.now),
             Err(e) if route.scope != Scope::Public => return Err(e.into()),
@@ -238,12 +286,16 @@ async fn checked(
         (Scope::Public, _) => {}
         (_, Auth::None) => return Err(problem::session().because("no-session")),
         (_, Auth::Invalid(reason)) => return Err(problem::session().because(reason)),
-        (Scope::SignedIn, Auth::Session(c)) if c.is_guest() => return Err(problem::guest_scope()),
-        (_, Auth::Session(_)) => {}
+        (Scope::SignedIn, Auth::Session(c) | Auth::Bearer(c)) if c.is_guest() => {
+            return Err(problem::guest_scope());
+        }
+        (_, Auth::Session(_) | Auth::Bearer(_)) => {}
     }
     cx.sandbox(cx.claims().and_then(|c| c.sbx));
 
+    // A token spent its own limit, on every request, before the Sandbox was asked.
     let limit_key = match route.limit {
+        _ if cx.auth.is_bearer() => None,
         Limit::None => None,
         Limit::SandboxCreate => Some(("SANDBOX_CREATE_LIMIT", ip_key(ip_hash.as_deref()))),
         Limit::Command => Some((
@@ -353,6 +405,9 @@ async fn checked(
         RouteId::SubmitPlan => dispatch::plan(cx, req, id.as_deref(), sub).await,
         RouteId::PublishDispatch => dispatch::publish(cx, req, id.as_deref(), sub).await,
         RouteId::CompleteStop => dispatch::complete(cx, req, id.as_deref(), sub).await,
+        RouteId::IssueToken => token::issue(cx, id.as_deref(), false).await,
+        RouteId::RotateToken => token::issue(cx, id.as_deref(), true).await,
+        RouteId::GetToken => token::info(cx, id.as_deref()).await,
         // Answered before the checks above.
         RouteId::StripeWebhook => Err(problem::internal()),
     }

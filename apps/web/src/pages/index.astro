@@ -5,12 +5,16 @@ import Base from '../layouts/Base.astro';
 <Base
   title="Proof of Concept Bakery"
   description="A made-up bakery built as a demonstration of a Rust system on Cloudflare."
+  screen="home"
 >
   <h1>Proof of Concept Bakery</h1>
-  <p>
+  <p data-tour="home-intro">
     This is a made-up bakery, built as a demonstration of a Rust system on Cloudflare. Nothing is
     live yet. Read <a href="https://github.com/IHaveASegway/bakery/tree/docs/plan/docs">the plan</a>
-    . Pages are being built ahead of it: <a href="/menu/">the menu</a>,{' '}
+    .
+  </p>
+  <p data-tour="home-links">
+    Pages are being built ahead of it: <a href="/menu/">the menu</a>,{' '}
     <a href="/catering/">catering</a>, <a href="/inbox/">the inbox</a>,
     <a href="/signin/">sign-in</a>, which makes a private sandbox, and{' '}
     <a href="/privacy/">privacy</a>, which says what the bakery keeps.

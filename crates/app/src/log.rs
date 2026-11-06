@@ -37,6 +37,10 @@ pub struct RequestLine {
     /// constant in the source, so a password, token or username cannot be put here by mistake.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<&'static str>,
+    /// The API token's id when the request carried a token that verified: 32 hex characters,
+    /// never the token. Set only through [`RequestLine::token_id`], which refuses anything else.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tid: Option<String>,
 }
 
 impl RequestLine {
@@ -53,7 +57,14 @@ impl RequestLine {
             continent: None,
             sandbox: None,
             reason: None,
+            tid: None,
         })
+    }
+
+    /// Records a token's id, if it is one: 32 lower-case hex characters. Anything else, a token
+    /// above all, leaves the field empty.
+    pub fn token_id(&mut self, tid: &str) {
+        self.tid = crate::auth::is_lower_hex(tid, 32).then(|| tid.to_owned());
     }
 
     /// The path with everything from the first `?` or `#` dropped. Refuses any control
@@ -87,6 +98,19 @@ mod tests {
     use super::*;
 
     const CANARY: &str = "canary-password-7f3k-do-not-log";
+
+    #[test]
+    fn a_token_id_is_logged_and_a_token_never() {
+        let mut line = RequestLine::new("/v1/sandboxes/x/menu", "GET", 200, 3).unwrap();
+        line.token_id("00112233445566778899aabbccddeeff");
+        assert!(
+            line.to_json()
+                .ends_with(",\"tid\":\"00112233445566778899aabbccddeeff\"}")
+        );
+        line.token_id("eyJ2IjoxfQ.c2lnbmF0dXJlLXNpZ25hdHVyZS1zaWduYXR1cmUtc2lnbmF0dXJl");
+        assert!(!line.to_json().contains("tid"));
+        assert!(!line.to_json().contains("eyJ"));
+    }
 
     #[test]
     fn a_query_never_reaches_the_line() {

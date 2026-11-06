@@ -89,6 +89,7 @@ export default function CateringInquiryForm({
   return (
     <form
       aria-labelledby="inquiry-heading"
+      data-tour="catering-inquiry"
       onSubmit={(e) => {
         e.preventDefault();
         void send();

@@ -174,7 +174,7 @@ export default function Checkout() {
     <>
       <StatusLine phase={phase} />
 
-      <section aria-labelledby="cart-heading">
+      <section aria-labelledby="cart-heading" data-tour="checkout-cart">
         <h2 id="cart-heading">Your cart</h2>
         <CartLines cart={cart} menu={menu.menu} update={update} />
         {cart.lines.length === 0 && ready && (
@@ -198,6 +198,7 @@ export default function Checkout() {
 
       <form
         aria-labelledby="receive-heading"
+        data-tour="checkout-form"
         onSubmit={(e) => {
           e.preventDefault();
           void place();
