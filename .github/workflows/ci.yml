@@ -550,7 +550,7 @@ jobs:
           CHROME_PATH="$(find /ms-playwright -path '*/chrome-linux*/chrome' -type f | head -n 1)"
           export CHROME_PATH
           urls=()
-          for page in / /menu/ /catering/ /checkout/ /privacy/ /signin/ /about/ /how-its-built/ /how-its-built/single-writer/ /how-its-built/outbox/ /how-its-built/cache/ /how-its-built/rebuild/ /how-its-built/routes/ /how-its-built/idempotency/ /how-its-built/sagas/ /how-its-built/leases/ /how-its-built/admission/ /how-its-built/time-travel/ /how-its-built/lag/ /how-its-built/sandbox/ /how-its-built/api/ /status/ /docs/api/; do
+          for page in / /menu/ /catering/ /checkout/ /privacy/ /signin/ /about/ /how-its-built/ /how-its-built/single-writer/ /how-its-built/outbox/ /how-its-built/cache/ /how-its-built/rebuild/ /how-its-built/routes/ /how-its-built/idempotency/ /how-its-built/sagas/ /how-its-built/leases/ /how-its-built/admission/ /how-its-built/time-travel/ /how-its-built/lag/ /how-its-built/sandbox/ /how-its-built/api/ /how-its-built/breaker/ /status/ /docs/api/; do
             urls+=("--collect.url=${URL%/}$page")
           done
           ../../tools/lighthouse/node_modules/.bin/lhci autorun --config=lighthouserc.json "${urls[@]}"

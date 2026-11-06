@@ -1,6 +1,6 @@
 # The scheduled jobs (docs/delivery.md, "From launch"; docs/operations.md, "The nightly wipe"):
 # bakery-objects, the morning object check after the 10:00 UTC wipe (and, at 12:17, the dead-letter
-# check), and audit, the Monday audit.
+# and breaker checks), and audit, the Monday audit.
 #
 # DORMANT UNTIL LAUNCH DAY. A scheduled run does nothing unless the repository variable LAUNCHED
 # is 'true' (Settings, Secrets and variables, Actions, Variables); it does not exist yet. A run
@@ -60,7 +60,7 @@ jobs:
     permissions:
       contents: read
       actions: read # the 09:47 listing, an artifact of that run
-      issues: write # "Objects survived the wipe", "Messages dead-lettered"
+      issues: write # "Objects survived the wipe", "Messages dead-lettered", "Breaker tripped"
     env:
       PHASE: ${{ github.event.schedule == '47 9 * * *' && 'before' || 'after' }}
     steps:
@@ -219,6 +219,76 @@ jobs:
             gh issue create --repo "$REPO" --title "$title" --body-file "$RUNNER_TEMP/dlq-body.md"
           fi
           echo "::error::$count message(s) dead-lettered in the last 24 hours"
+          exit 1
+
+      - name: Open or update the issue when the breaker has tripped (the public status route)
+        # The 12:17 run only, after the dead-letter step and independent of it. No secret: the
+        # 15-minute cron's breaker puts its state on GET /v1/status as `breaker` (docs/cost.md,
+        # "Guardrails"). A tripped state never relaxes by itself, so the issue stays open until a
+        # person resets it (docs/operations.md, "Breaker tripped"). The issue holds a state and
+        # times and one dollar figure, never an id.
+        if: ${{ !cancelled() && env.PHASE == 'after' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          STATUS_URL: https://api.bakery.ihaveasegway.com/v1/status # prod-smoke's API hostname
+        run: |
+          status="$RUNNER_TEMP/breaker-status.json"
+          if ! curl --fail --silent --show-error --max-time 20 --retry 2 --retry-delay 5 \
+            --output "$status" "$STATUS_URL"; then
+            echo "Breaker check: could not fetch the status route, so the breaker's state is unknown. The API being down is prod-smoke's finding; look at this run." >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::the breaker check could not fetch $STATUS_URL"
+            exit 1
+          fi
+          if ! jq -e '(.breaker.state | type) == "string"' "$status" > /dev/null 2>&1; then
+            echo "Breaker check: the status route answered without a breaker state." >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::the status route answered without a breaker state"
+            exit 1
+          fi
+          state="$(jq -r '.breaker.state' "$status")"
+          # Only a plain timestamp or dollar figure reaches the issue; anything else is shown as unknown.
+          since="$(jq -r 'if (.breaker.since | type) == "string" and (.breaker.since | test("^[0-9T:.Z+-]{10,40}$")) then .breaker.since else "unknown" end' "$status")"
+          last_run="$(jq -r 'if (.breaker.last_run | type) == "string" and (.breaker.last_run | test("^[0-9T:.Z+-]{10,40}$")) then .breaker.last_run else "unknown" end' "$status")"
+          last_usd="$(jq -r 'if (.breaker.last_usd | type) == "string" and (.breaker.last_usd | test("^[0-9]{1,9}[.][0-9]{1,6}$")) then .breaker.last_usd else "unknown" end' "$status")"
+          case "$state" in
+            armed)
+              echo "Breaker check: armed, last run $last_run (last window priced \$$last_usd). Nothing opened." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+              ;;
+            unconfigured)
+              echo "Breaker check: unconfigured. The breaker has not run with its secrets yet (BREAKER_API_TOKEN, BREAKER_ZONE_ID, BREAKER_RULE_ID); nothing is watching usage. See docs/operations.md." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+              ;;
+            read-only | off) ;;
+            *)
+              echo "Breaker check: unknown breaker state." >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::the status route answered an unknown breaker state"
+              exit 1
+              ;;
+          esac
+          echo "Breaker check: TRIPPED, $state since $since (last run $last_run, last window priced \$$last_usd)." >> "$GITHUB_STEP_SUMMARY"
+          title="Breaker tripped"
+          {
+            echo "$(date -u +%F), the 12:17 UTC check ($RUN):"
+            echo
+            echo "The breaker is **$state**, since $since. Its last run was at $last_run and priced that window at \$$last_usd."
+            if [ "$state" = off ]; then
+              echo "The demo is switched off and the pre-built WAF rule on the API hostname has been enabled (or is being retried every 15 minutes)."
+            else
+              echo "The demo is read-only. If the next window is still over a line, the breaker goes to off and enables the WAF rule."
+            fi
+            echo
+            echo "Runbook: docs/operations.md, \"Breaker tripped\". A tripped state never lowers by itself: a person finds the cause, resets the state and the flag, and disables the WAF rule."
+          } > "$RUNNER_TEMP/breaker-body.md"
+          number="$(gh issue list --repo "$REPO" --state open --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title == \"$title\")) | first | .number // empty")"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$REPO" --body-file "$RUNNER_TEMP/breaker-body.md"
+          else
+            gh issue create --repo "$REPO" --title "$title" --body-file "$RUNNER_TEMP/breaker-body.md"
+          fi
+          echo "::error::the breaker is $state since $since"
           exit 1
 
   audit:

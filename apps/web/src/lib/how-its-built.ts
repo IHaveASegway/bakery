@@ -189,6 +189,13 @@ export const PRINCIPLE_TABLE = [
     lab: 'none yet',
     adr: '0013',
   },
+  {
+    id: 'breaker',
+    group: 'demo',
+    name: 'A breaker that reads the platform’s meter',
+    lab: 'none yet',
+    adr: '0010',
+  },
 ] as const satisfies readonly Identity[];
 
 export type PrincipleId = (typeof PRINCIPLE_TABLE)[number]['id'];
@@ -357,6 +364,17 @@ const PROSE: Record<PrincipleId, Prose> = {
     where: 'crates/contracts; the API Worker’s route table; the reference at /docs/api/.',
     see: 'Issue a token in the console, copy any tour step’s curl and run it.',
     screen: { href: '/docs/api/', label: 'The API reference' },
+  },
+  breaker: {
+    problem:
+      'A loop that no visitor started, such as an alarm that re-arms itself, can spend the account’s money in hours, and the bakery’s own counters do not see it. Cloudflare’s budget alerts arrive a day later.',
+    technique:
+      'A circuit breaker driven by the platform’s own meter: a cron job reads the last complete 15-minute slot of usage, prices it, and trips in steps.',
+    how: 'Every 15 minutes the API Worker asks Cloudflare’s GraphQL Analytics API for five meters, prices them at the overage rates and hands the reads to the Control object, which decides with a pure function in the same transaction that raises the flag. A window over a line sets read-only, and a window past four times the dollar line sets off and enables a pre-built WAF rule. The state never goes down by itself: a person resets it, because an automatic reset would let a loop start again.',
+    where:
+      'The 15-minute cron in the API Worker; the breaker_state table in the Control object; the Rulesets API; the Breaker line on the status page.',
+    see: 'Open the status page and read the Breaker line, then ask GET /v1/status for the breaker’s last run and the meters it could not read.',
+    screen: { href: '/status/', label: 'The status page' },
   },
 };
 

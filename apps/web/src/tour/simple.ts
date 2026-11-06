@@ -1,11 +1,12 @@
 // The tours of the pages with little on them: the start page, sign-in, the menu, the checkout, the
-// API reference and the privacy page. Steps are data (lib/tour.ts, TourStep); test/tour.test.ts
+// API reference, the privacy page and the status page. Steps are data (lib/tour.ts, TourStep); test/tour.test.ts
 // checks every `api` against the OpenAPI document and every body against its request schema.
 import type { TourStep } from '../lib/tour';
 import { HOW } from './how';
 import {
   ADMISSION,
   API,
+  BREAKER,
   CACHE,
   IDEMPOTENCY,
   LEASE,
@@ -348,6 +349,24 @@ export const PRIVACY: TourStep[] = [
       method: 'DELETE',
       path: '/v1/sandboxes/{id}',
       note: 'Deletes the sandbox and, with it, every token for it. There is no undo.',
+    },
+  },
+];
+
+export const STATUS: TourStep[] = [
+  {
+    id: 'status-breaker',
+    screen: 'status',
+    target: 'status-breaker',
+    title: 'A breaker that reads the meter',
+    what: 'Every 15 minutes a cron job reads the account’s usage for the slot before, prices it and gives the verdict to the Control object. Armed means under every line. Read-only and off are tripped states: they never lower by themselves, and a person resets them. Not configured means the run has no token yet.',
+    events: [],
+    principle: BREAKER,
+    api: {
+      routeId: 'status',
+      method: 'GET',
+      path: '/v1/status',
+      note: 'Public and cheap. The breaker field holds its state, since when, the last run, that run’s price in dollars and the meters it could not read.',
     },
   },
 ];

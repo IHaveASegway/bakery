@@ -19,3 +19,4 @@ export const CLOCK = principle('time-travel');
 export const SANDBOX = principle('sandbox');
 export const NO_DATA = principle('no-personal-data');
 export const API = principle('api');
+export const BREAKER = principle('breaker');

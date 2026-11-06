@@ -9,13 +9,14 @@
  *
  * The field order is fixed and is the wire order: the day and the sandbox count and cap
  * (PR 2), then the guest and demo-account counts and caps (PR 3), then the status page's
- * counters with their time and state (PR 13), then the flag. Readers go by name, so PR 2's
- * smoke check still passes; a new field is added before `flag`.
+ * counters with their time and state (PR 13), then the breaker's state (PR 17), then the flag.
+ * Readers go by name, so PR 2's smoke check still passes; a new field is added before `flag`.
  *
  * The counters are a snapshot of the kept Analytics Engine queries that the 15-minute cron
  * refreshes, never a query per request (docs/operations.md, "Observability").
  */
 export interface StatusResponse {
+  breaker: BreakerStatus;
   /**
    * The last snapshot of the kept queries; `null` until the first refresh succeeds.
    */
@@ -61,6 +62,32 @@ export interface StatusResponse {
    * Sandboxes admitted today, guests' included.
    */
   sandboxes_today: number;
+}
+/**
+ * The 15-minute cron breaker's state and its last run, kept in `Control`.
+ */
+export interface BreakerStatus {
+  /**
+   * When the last run's window was handed to `Control`, an RFC 3339 UTC time.
+   */
+  last_run: string | null;
+  /**
+   * The last window's usage priced in dollars with four decimals, such as `"0.0123"`.
+   */
+  last_usd: string | null;
+  /**
+   * When the state last changed, an RFC 3339 UTC time; `null` while `unconfigured`.
+   */
+  since: string | null;
+  /**
+   * `unconfigured` until the breaker's first configured run, then `armed`, `read-only` or
+   * `off`. It only rises; a person resets it.
+   */
+  state: 'unconfigured' | 'armed' | 'read-only' | 'off';
+  /**
+   * The meters the last run could not read, counted as 0, such as `["rows_written"]`.
+   */
+  unread: string[];
 }
 /**
  * The status page's counters: the kept Analytics Engine queries over the last 24 hours, and

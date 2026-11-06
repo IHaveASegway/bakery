@@ -16,6 +16,15 @@
 //! `POST /status-failed` when a query failed); `GET /status` serves the one stored snapshot with
 //! its time and state. Nothing here reads Analytics Engine or arms a timer for it. `admit`
 //! writes the `sandbox_created` point and the wipe's last fan-out run writes `wipe`.
+//!
+//! The 15-minute cron breaker (PR 17) keeps its state here: the cron reads the window's usage in
+//! the Worker and hands it over by command (`POST /breaker`); this object decides with
+//! `bakery_app::breaker::decide` against the stored state, stores the run, and on a trip raises
+//! the flag in the same transaction. `POST /breaker-rule` records that the WAF kill rule was
+//! enabled. The state only rises (`unconfigured`, `armed`, `read-only`, `off`); a person resets
+//! it in Data Studio: `UPDATE breaker_state SET state = 'armed', since = NULL WHERE id = 1`, the
+//! flag back to `live` (`UPDATE flags SET mode = 'live' WHERE demo = 'bakery'`), and the WAF rule
+//! disabled by hand. Nothing here reads analytics or arms a timer for the breaker.
 
 use std::cell::{Cell, RefCell};
 
@@ -23,8 +32,11 @@ use bakery_app::Clock;
 use bakery_app::admission::{self, Caps, Counts, Refusal};
 use bakery_app::analytics::{Event, Point, counters_state};
 use bakery_app::auth::hex;
+use bakery_app::breaker::{Reads, decide, raised_flag};
 use bakery_app::names::{CONTROL, sandbox_object_name};
-use bakery_contracts::{Flag, SandboxKind, StatusCounters, StatusResponse};
+use bakery_contracts::{
+    BreakerState, BreakerStatus, Flag, SandboxKind, StatusCounters, StatusResponse,
+};
 use bakery_domain::{Ulid, WallTime};
 use serde::{Deserialize, Serialize};
 use worker::{
@@ -36,7 +48,7 @@ use super::sandbox::{self, WipeRequest};
 use super::sql::{self, exec, first, rows, transaction_sync};
 use crate::clock::{SystemClock, alarm_time};
 use crate::config::{caps_from_env, traffic_minutes_cap};
-use crate::{metrics, random};
+use crate::{breaker, metrics, random};
 
 pub const BINDING: &str = "CONTROL";
 /// Ledger rows and creation keys older than this many days are pruned.
@@ -111,6 +123,20 @@ const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS wipe_runs (
        started_at TEXT PRIMARY KEY,
        finished_at TEXT)",
+    // The 15-minute cron breaker (PR 17): one row, created `unconfigured` on first use. `since`
+    // is when the state last changed; `last_run`, `last_usd`, `meters` (JSON, each meter's
+    // read in its unit or null) and `unread` (a JSON array of names) are the last run's;
+    // `rule_enabled_at` is when the WAF kill rule was enabled, cleared on a trip to `off` so the
+    // rule is wanted afresh.
+    "CREATE TABLE IF NOT EXISTS breaker_state (
+       id INTEGER PRIMARY KEY CHECK (id = 1),
+       state TEXT NOT NULL,
+       since TEXT,
+       last_run TEXT,
+       last_usd TEXT,
+       meters TEXT,
+       unread TEXT,
+       rule_enabled_at TEXT)",
 ];
 
 /// `POST /admit`.
@@ -219,6 +245,32 @@ pub struct SnapshotFailed {
     pub at: String,
 }
 
+/// `POST /breaker`, from the 15-minute cron: the window's reads, each meter in its unit or
+/// `null` when unread, its price in dollars with four decimals and the unread meters' names, at
+/// `at`, an RFC 3339 UTC time from the cron's clock.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BreakerRun {
+    pub at: String,
+    pub usd: String,
+    pub meters: serde_json::Map<String, serde_json::Value>,
+    pub unread: Vec<String>,
+}
+
+/// `/breaker`'s answer: the state after the run and before it, and whether the cron should
+/// enable the WAF kill rule (`off`, and not yet enabled since the trip).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BreakerAnswer {
+    pub state: BreakerState,
+    pub previous: BreakerState,
+    pub rule_wanted: bool,
+}
+
+/// `POST /breaker-rule`, from the 15-minute cron: the kill rule was enabled at `at`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BreakerRuleEnabled {
+    pub at: String,
+}
+
 /// `POST /wipe` and `POST /sweep`: how many rows were stamped for the fan-out.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stamped {
@@ -287,6 +339,15 @@ impl DurableObject for Control {
             (Method::Post, "/status-failed") => {
                 let body: SnapshotFailed = sql::body(&mut req).await?;
                 self.snapshot_failed(&body)?;
+                Response::from_json(&serde_json::json!({ "ok": true }))
+            }
+            (Method::Post, "/breaker") => {
+                let body: BreakerRun = sql::body(&mut req).await?;
+                Response::from_json(&self.breaker(body)?)
+            }
+            (Method::Post, "/breaker-rule") => {
+                let body: BreakerRuleEnabled = sql::body(&mut req).await?;
+                self.breaker_rule(&body)?;
                 Response::from_json(&serde_json::json!({ "ok": true }))
             }
             _ => Response::error("Not Found", 404),
@@ -455,6 +516,7 @@ impl Control {
             counters,
             counters_as_of,
             counters_state: counters_state(as_of, failed_at, now),
+            breaker: read_breaker(&sql)?.status(),
             sandboxes_today: read_meter(&sql, &day, SANDBOXES)?,
             sandbox_cap: caps.sandboxes,
             guests_today: read_meter(&sql, &day, GUEST_SANDBOXES)?,
@@ -489,6 +551,88 @@ impl Control {
             "INSERT INTO status_snapshot (id, failed_at) VALUES (1, ?)
              ON CONFLICT (id) DO UPDATE SET failed_at = excluded.failed_at",
             vec![f.at.as_str().into()],
+        )?;
+        Ok(())
+    }
+
+    /// The cron's breaker run: the verdict against the stored state, the run stored, and on a
+    /// trip the state, its time and the flag raised, all in one transaction. A rise to `off`
+    /// clears `rule_enabled_at`, so the answer asks for the rule until `/breaker-rule` says it
+    /// is enabled. The lines come from this Worker's vars, as the cron checked them.
+    fn breaker(&self, run: BreakerRun) -> Result<BreakerAnswer> {
+        let lines = breaker::lines_from_env(&self.env)
+            .map_err(|u| Error::RustError(format!("breaker lines: {u:?}")))?;
+        let sql = self.sql();
+        let (answer, raised) = transaction_sync(&self.state.storage(), move || {
+            let stored = read_breaker(&sql)?;
+            let previous = stored.state;
+            let verdict = decide(previous, &Reads::from_wire(&run.meters), &lines);
+            let unread: Vec<&str> = verdict.unread.iter().map(|m| m.name()).collect();
+            let since = if verdict.state != previous {
+                Some(run.at.clone())
+            } else {
+                stored.since
+            };
+            let rule_enabled_at =
+                if verdict.state == BreakerState::Off && previous != BreakerState::Off {
+                    None
+                } else {
+                    stored.rule_enabled_at
+                };
+            exec(
+                &sql,
+                "INSERT INTO breaker_state
+                   (id, state, since, last_run, last_usd, meters, unread, rule_enabled_at)
+                 VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+                 ON CONFLICT (id) DO UPDATE SET state = excluded.state, since = excluded.since,
+                   last_run = excluded.last_run, last_usd = excluded.last_usd,
+                   meters = excluded.meters, unread = excluded.unread,
+                   rule_enabled_at = excluded.rule_enabled_at",
+                vec![
+                    verdict.state.as_str().into(),
+                    since.into(),
+                    run.at.as_str().into(),
+                    bakery_app::breaker::usd_text(verdict.usd_micros).into(),
+                    serde_json::to_string(&run.meters)?.into(),
+                    serde_json::to_string(&unread)?.into(),
+                    rule_enabled_at.clone().into(),
+                ],
+            )?;
+            let mut raised = None;
+            if verdict.tripped() {
+                let current = read_flag(&sql)?;
+                if let Some(to) = raised_flag(current, verdict.state) {
+                    exec(
+                        &sql,
+                        "UPDATE flags SET mode = ?, changed_at = ? WHERE demo = 'bakery'",
+                        vec![to.as_str().into(), run.at.as_str().into()],
+                    )?;
+                    raised = Some((current, to));
+                }
+            }
+            let answer = BreakerAnswer {
+                state: verdict.state,
+                previous,
+                rule_wanted: verdict.state == BreakerState::Off && rule_enabled_at.is_none(),
+            };
+            Ok((answer, raised))
+        })?;
+        if let Some((from, to)) = raised {
+            console_log!(
+                "{{\"event\":\"flag_raised\",\"by\":\"breaker\",\"from\":\"{}\",\"to\":\"{}\"}}",
+                from.as_str(),
+                to.as_str()
+            );
+        }
+        Ok(answer)
+    }
+
+    /// The cron enabled the WAF kill rule: the next run's answer no longer asks for it.
+    fn breaker_rule(&self, r: &BreakerRuleEnabled) -> Result<()> {
+        exec(
+            &self.sql(),
+            "UPDATE breaker_state SET rule_enabled_at = ? WHERE id = 1",
+            vec![r.at.as_str().into()],
         )?;
         Ok(())
     }
@@ -988,6 +1132,71 @@ fn read_snapshot(sql: &SqlStorage) -> Result<Option<Snapshot>> {
     }))
 }
 
+#[derive(Deserialize)]
+struct BreakerRow {
+    state: String,
+    since: Option<String>,
+    last_run: Option<String>,
+    last_usd: Option<String>,
+    unread: Option<String>,
+    rule_enabled_at: Option<String>,
+}
+
+/// The stored breaker: `unconfigured` with nothing else before its first run.
+struct StoredBreaker {
+    state: BreakerState,
+    since: Option<String>,
+    last_run: Option<String>,
+    last_usd: Option<String>,
+    unread: Vec<String>,
+    rule_enabled_at: Option<String>,
+}
+
+impl StoredBreaker {
+    fn status(self) -> BreakerStatus {
+        BreakerStatus {
+            state: self.state,
+            since: self.since,
+            last_run: self.last_run,
+            last_usd: self.last_usd,
+            unread: self.unread,
+        }
+    }
+}
+
+/// The breaker's row; an unreadable state reads as `off`, as the flag fails closed, so a run
+/// cannot lower it.
+fn read_breaker(sql: &SqlStorage) -> Result<StoredBreaker> {
+    let row: Option<BreakerRow> = first(
+        sql,
+        "SELECT state, since, last_run, last_usd, unread, rule_enabled_at
+         FROM breaker_state WHERE id = 1",
+        vec![],
+    )?;
+    Ok(match row {
+        None => StoredBreaker {
+            state: BreakerState::Unconfigured,
+            since: None,
+            last_run: None,
+            last_usd: None,
+            unread: Vec::new(),
+            rule_enabled_at: None,
+        },
+        Some(r) => StoredBreaker {
+            state: BreakerState::parse(&r.state).unwrap_or(BreakerState::Off),
+            since: r.since,
+            last_run: r.last_run,
+            last_usd: r.last_usd,
+            unread: r
+                .unread
+                .as_deref()
+                .and_then(|u| serde_json::from_str(u).ok())
+                .unwrap_or_default(),
+            rule_enabled_at: r.rule_enabled_at,
+        },
+    })
+}
+
 /// A missing row counts as 0.
 fn read_meter(sql: &SqlStorage, day: &str, meter: &str) -> Result<u32> {
     let row: Option<ValueRow> = first(
@@ -1068,6 +1277,16 @@ pub async fn sweep(env: &Env) -> Result<Stamped> {
 
 pub async fn store_snapshot(env: &Env, s: &StatusSnapshot) -> Result<()> {
     ask::<_, serde_json::Value>(env, Method::Post, "/status-snapshot", Some(s))
+        .await
+        .map(|_| ())
+}
+
+pub async fn breaker(env: &Env, run: &BreakerRun) -> Result<BreakerAnswer> {
+    ask(env, Method::Post, "/breaker", Some(run)).await
+}
+
+pub async fn breaker_rule(env: &Env, r: &BreakerRuleEnabled) -> Result<()> {
+    ask::<_, serde_json::Value>(env, Method::Post, "/breaker-rule", Some(r))
         .await
         .map(|_| ())
 }

@@ -19,6 +19,7 @@ export const SCREENS = [
   'dispatch',
   'api',
   'privacy',
+  'status',
 ] as const;
 export type ScreenId = (typeof SCREENS)[number];
 

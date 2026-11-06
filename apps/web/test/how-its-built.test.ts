@@ -46,6 +46,7 @@ describe('the sections and the tour’s principles', () => {
       'sandbox',
       'no-personal-data',
       'api',
+      'breaker',
     ]);
   });
 
@@ -127,8 +128,12 @@ describe('the sections and the tour’s principles', () => {
       { path: '/how-its-built/time-travel/', title: 'Why the bakery’s clock is yours to move' },
       { path: '/how-its-built/sandbox/', title: 'Why nothing here is real, by construction' },
       { path: '/how-its-built/api/', title: 'Why the console is just another client' },
+      {
+        path: '/how-its-built/breaker/',
+        title: 'Why the bakery can switch itself off before the bill does',
+      },
     ]);
-    expect(ESSAY_PAGES).toHaveLength(13);
+    expect(ESSAY_PAGES).toHaveLength(14);
     expect(new Set(ESSAY_PAGES.map((e) => e.title)).size).toBe(ESSAY_PAGES.length);
     expect(new Set(ESSAY_PAGES.map((e) => e.path)).size).toBe(ESSAY_PAGES.length);
   });

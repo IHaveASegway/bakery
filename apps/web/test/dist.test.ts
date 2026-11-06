@@ -221,6 +221,7 @@ describe('dist', () => {
     '/how-its-built/time-travel/': [900, 1_300],
     '/how-its-built/sandbox/': [900, 1_300],
     '/how-its-built/api/': [900, 1_300],
+    '/how-its-built/breaker/': [900, 1_300],
   };
 
   test('every essay has its length set', () => {
@@ -355,19 +356,28 @@ describe('dist', () => {
       return page(`_astro/${url}`);
     };
 
-    test('is a static page with one island, the policy class island, and no third party', () => {
-      expect(html().split('<astro-island').length - 1).toBe(1);
+    // The Status island and, since PR 18, the tour's: every other page carries the tour's.
+    test('is a static page with two islands, the status one and the tour’s, and no third party', () => {
+      expect(html().split('<astro-island').length - 1).toBe(2);
       expect(html()).toContain('<h1>Status</h1>');
       expect(html()).not.toMatch(/<(link|script)[^>]+(href|src)="https?:/);
       expect(island()).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);
     });
 
-    // Measured 2026-11-06 with node's gzipSync at its default level: 2,248 bytes. The budget is the
-    // measured size plus a quarter, rounded up to 2,810, far under the 8 KB the roadmap allows. The
-    // bytes buy the poller, the kept answer's storage code and the page's sentences.
-    test('the island’s chunk is within its JavaScript budget: 2,810 bytes gzipped', async () => {
+    // Measured 2026-11-06 with node's gzipSync at its default level: 2,510 bytes (2,248 before the
+    // breaker line). The budget is the measured size plus a quarter, rounded up to 3,138, far under
+    // the 8 KB the roadmap allows. The bytes buy the poller, the kept answer's storage code, the
+    // page's sentences and the breaker's.
+    test('the island’s chunk is within its JavaScript budget: 3,138 bytes gzipped', async () => {
       const { gzipSync } = await import('node:zlib');
-      expect(gzipSync(island()).length).toBeLessThanOrEqual(2_810);
+      expect(gzipSync(island()).length).toBeLessThanOrEqual(3_138);
+    });
+
+    test('the island carries the breaker line’s words and test id', () => {
+      const code = island();
+      expect(code).toContain('status-breaker');
+      expect(code).toContain('tripped: ');
+      expect(code).toContain('not configured');
     });
 
     test('the only browser storage the island names is its one key', () => {
