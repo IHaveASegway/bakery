@@ -75,3 +75,20 @@ ANALYTICS_ACCOUNT_ID=
 # ANALYTICS_API_TOKEN=fake-analytics-token
 # ANALYTICS_ACCOUNT_ID=0000000000000000000000000000fake
 ANALYTICS_API_BASE=
+
+# The 15-minute cron breaker (PR 17): it reads the last window's usage through the GraphQL
+# Analytics API with ANALYTICS_ACCOUNT_ID as the account tag, keeps its state in Control and, on
+# a trip to off, enables the WAF kill rule. With any of these three unset, or an id that is not
+# letters and digits, the run is skipped (breaker_unconfigured) and GET /v1/status says
+# breaker.state "unconfigured". BREAKER_CEILING_USD and BREAKER_BURST_FACTOR are public vars in
+# wrangler.jsonc; a line here overrides one locally.
+# A Cloudflare API token with Account Analytics Read and Zone WAF Edit on this zone only.
+BREAKER_API_TOKEN=
+# The zone the API hostname is in; an identifier, a secret only because the logs are public.
+BREAKER_ZONE_ID=
+# The id of the pre-built, disabled WAF custom rule that blocks the API hostname; as above.
+BREAKER_RULE_ID=
+# Local fake of the GraphQL Analytics and Rulesets APIs (scripts/fake-cloudflare.mjs, port
+# 8793); loopback hosts only, as above, and breaker_base_refused is logged for any other. Unset
+# means https://api.cloudflare.com/client/v4. Never set in wrangler.jsonc.
+BREAKER_API_BASE=
