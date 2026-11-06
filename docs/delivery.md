@@ -117,9 +117,9 @@ panic = "abort"
     "producers": [{ "binding": "EVENTS", "queue": "bakery-events" }],
     "consumers": [{ "queue": "bakery-events", "max_batch_size": 10, "max_retries": 3, "dead_letter_queue": "bakery-events-dlq" }]
   },
-  "triggers": { "crons": ["0 10 * * *", "*/15 * * * *"] },   // the wipe at 10:00 UTC; the breaker and retry sweep
+  "triggers": { "crons": ["0 10 * * *", "*/15 * * * *"] },   // the wipe at 10:00 UTC; the retry sweep, the status page's snapshot refresh (PR 13) and, from PR 11, the breaker
   "ratelimits": [{ "name": "SESSION_LIMIT", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } }],
-  "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "bakery_events" }],
+  "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "bakery_events" }],   // as built, 2026-11-06 (PR 13); `wrangler deploy --dry-run` lists it
   "vars": { "ALLOWED_ORIGIN": "https://bakery.ihaveasegway.com" }
   // "previews" only if spike S4 passes. No account_id, no secrets.
 }
@@ -253,7 +253,7 @@ Run by the `e2e` job and locally with `pnpm --filter web e2e` (`apps/web/e2e/run
 | `wipe` | "Wipe now"; then the 10:00 cron through `/cdn-cgi/local/scheduled`, after which `list-objects.mjs` exits 0 and shows `Control` was listed |
 
 - **Every test is guarded:** a CSP violation or console error fails it, except API statuses the test declares (401 on public pages, 410 after a wipe, 404 for the 404 page).
-- **Origins.** The production origins over local HTTPS; a small relay passes the fake Stripe's plain-HTTP webhooks to the HTTPS API; Turnstile's script is a local stand-in that passes at once, as the test site key does; each test gets its own TEST-NET-1 address (192.0.2.x) because sandbox creation is limited to one a minute per address. Ports: web 8797, API 8798, fake providers 8799, fake Stripe 8800, relay 8801, inspectors 9347 and 9348; the smoke scripts keep 8787 to 8791.
+- **Origins.** The production origins over local HTTPS; a small relay passes the fake Stripe's plain-HTTP webhooks to the HTTPS API; Turnstile's script is a local stand-in that passes at once, as the test site key does; each test gets its own TEST-NET-1 address (192.0.2.x) because sandbox creation is limited to one a minute per address. Ports: web 8797, API 8798, fake providers 8799, fake Stripe 8800, relay 8801, inspectors 9347 and 9348; the smoke scripts keep 8787 to 8791, and `scripts/smoke-status.sh` (PR 13) adds 8792 for `scripts/fake-analytics.mjs`, the fake SQL API.
 - **No proxy.** Chromium follows the proxy environment variables and its host-resolver rules do not apply through a proxy, so the runner passes `--no-proxy-server` and removes the proxy variables from Playwright's environment. A runner behind a proxy would otherwise send the public hostnames out.
 - **`prod-smoke`'s rehearsal.** `E2E_SUITE=prod-smoke pnpm --filter web e2e` runs the production smoke spec against `wrangler dev`: 16 of 16 passed on 2026-11-05. It refuses to start without `SMOKE_TARGET=production` or `SMOKE_LOCAL=1`.
 
