@@ -422,7 +422,7 @@ jobs:
         run: |
           pnpm exec wrangler preview --config apps/web/wrangler.jsonc --name "pr-$PR" \
             --message "pr-$PR@${HEAD_SHA:0:8}" --json > "$RUNNER_TEMP/preview.json"
-          # The first workers.dev URL Wrangler reports (confirm the JSON's shape on launch day).
+          # The first workers.dev URL Wrangler reports (the shape held on the first preview, 2026-11-06).
           url="$(grep -oE 'https://[A-Za-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/preview.json" | head -n 1)"
           if [ -z "$url" ]; then
             echo "::error::wrangler preview reported no workers.dev URL"
@@ -541,6 +541,9 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Lighthouse against the preview's pages
         working-directory: apps/web
+        # The container's default shell is sh, which has no arrays: the first run, 2026-11-06, died
+        # on `urls=()` with "Syntax error: ( unexpected" before Lighthouse started.
+        shell: bash
         env:
           URL: ${{ needs.preview.outputs.url }}
         run: |
@@ -669,7 +672,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           # Prints "<version id> <commit>" of the Worker's newest deployment, or nothing when the
-          # Worker does not exist yet. The --json shape is the API's (confirm on launch day).
+          # Worker does not exist yet. The --json shape held on launch day, 2026-11-06: the re-run's
+          # deploy read the live API's commit from its message and skipped stage 1.
           live() {
             if ! pnpm exec wrangler deployments list --name "$1" --json > "$RUNNER_TEMP/$1.json" 2> "$RUNNER_TEMP/$1.err"; then
               if grep -qiE '10007|not found|does not exist' "$RUNNER_TEMP/$1.err"; then return 0; fi
