@@ -15,8 +15,11 @@
 //! - [`routing`]: the subscriber table the Queue consumer reads (docs/domain.md, "The event
 //!   catalog").
 //! - [`dispatch_view`]: the dispatch screen's wire shapes from the Dispatch aggregate (ADR 0012).
+//! - [`analytics`]: the Analytics Engine points, the kept queries and the SQL API's answers, for
+//!   the status page's counters (docs/operations.md, "Observability").
 
 pub mod admission;
+pub mod analytics;
 pub mod auth;
 pub mod dispatch_view;
 pub mod health;

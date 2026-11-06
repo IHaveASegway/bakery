@@ -33,10 +33,15 @@ pub enum HealthStatus {
 /// `GET /v1/status`: today's admission state, from the `Control` object.
 ///
 /// The field order is fixed and is the wire order: the day and the sandbox count and cap
-/// (PR 2), then the guest and demo-account counts and caps (PR 3), then the flag. Readers go
-/// by name, so PR 2's smoke check still passes; a new field is added before `flag`.
+/// (PR 2), then the guest and demo-account counts and caps (PR 3), then the status page's
+/// counters with their time and state (PR 13), then the flag. Readers go by name, so PR 2's
+/// smoke check still passes; a new field is added before `flag`.
+///
+/// The counters are a snapshot of the kept Analytics Engine queries that the 15-minute cron
+/// refreshes, never a query per request (docs/operations.md, "Observability").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[schemars(transform = require_every_property)]
 pub struct StatusResponse {
     /// Today's UTC date, `YYYY-MM-DD`: the key of the daily ledger.
     pub day: String,
@@ -52,8 +57,83 @@ pub struct StatusResponse {
     pub demo_accounts_today: u32,
     /// The most demo accounts created in one UTC day.
     pub demo_account_cap: u32,
+    /// The last snapshot of the kept queries; `null` until the first refresh succeeds.
+    pub counters: Option<StatusCounters>,
+    /// When that snapshot was taken, an RFC 3339 UTC time such as `2026-11-06T10:15:02.114Z`;
+    /// `null` with `counters`.
+    pub counters_as_of: Option<String>,
+    /// Whether the counters are fresh: `live`, `stale` or `unavailable`.
+    pub counters_state: CountersState,
     /// The demo's flag.
     pub flag: Flag,
+}
+
+/// Every property is required, an `Option` one included: the type always sends its fields,
+/// `null` when there is nothing, so a reader can tell an old API (no field) from no value.
+fn require_every_property(schema: &mut schemars::Schema) {
+    let names: Vec<serde_json::Value> = schema
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+        .map(|p| p.keys().map(|k| k.as_str().into()).collect())
+        .unwrap_or_default();
+    if let Some(serde_json::Value::Array(required)) = schema.get_mut("required") {
+        for name in names {
+            if !required.contains(&name) {
+                required.push(name);
+            }
+        }
+    }
+}
+
+/// The status page's counters: the kept Analytics Engine queries over the last 24 hours, and
+/// the last nightly wipe (docs/operations.md, "Observability"). Counts are sums of the points'
+/// sample intervals, so they stay counts when Analytics Engine samples.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(transform = require_every_property)]
+pub struct StatusCounters {
+    /// `order_placed` points in the last 24 hours.
+    pub orders_24h: u32,
+    /// `payment_succeeded` points in the last 24 hours.
+    pub payments_24h: u32,
+    /// `payment_failed` points in the last 24 hours.
+    pub payment_failures_24h: u32,
+    /// `refund_issued` points in the last 24 hours.
+    pub refunds_24h: u32,
+    /// `sandbox_created` points in the last 24 hours, to read against the daily cap.
+    pub sandboxes_24h: u32,
+    /// `dlq` points in the last 24 hours: messages the dead-letter writer kept.
+    pub dlq_24h: u32,
+    /// The latest `wipe` point; `null` when none is in the dataset.
+    pub last_wipe: Option<LastWipe>,
+}
+
+/// One nightly wipe, as its `wipe` point recorded it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LastWipe {
+    /// When the point was written, at the wipe's end: an RFC 3339 UTC time such as
+    /// `2026-11-06T10:00:04Z`.
+    pub at: String,
+    /// Sandboxes the wipe ended.
+    pub sandboxes: u32,
+    /// Objects those sandboxes emptied, each Sandbox and its children.
+    pub objects: u32,
+    /// Milliseconds from the 10:00 UTC cron to the wipe's last run.
+    pub ms: u32,
+}
+
+/// How fresh `counters` are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum CountersState {
+    /// Refreshed within the last 20 minutes.
+    Live,
+    /// An older snapshot: the last refresh failed, or none has run for 20 minutes. The
+    /// failure's reason is in the Worker's log only.
+    Stale,
+    /// No snapshot yet.
+    Unavailable,
 }
 
 /// The demo's mode, set in `Control` (kill switch L1).
@@ -1288,8 +1368,8 @@ pub struct MessageResponse {
 
 /// `GET /v1/sandboxes/{id}/inbox`: the newest messages first, and how many there are in all.
 /// `?kind=` keeps one kind, `?to=` one customer's, `?limit=` the newest that many (50 when left
-/// out).
-/// The customer persona sees its own; staff see every customer's.
+/// out, at most 500). Any session of the sandbox, a guest's included, sees every customer's
+/// messages: the persona is not filtered to its own, and `?to=` is how a reader narrows to one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct InboxResponse {
@@ -1339,8 +1419,9 @@ pub struct ActivityEntry {
 }
 
 /// `GET /v1/sandboxes/{id}/activity`: the sandbox's logged events (clock moves, faults,
-/// menu and capacity changes, payment intents, routes, traffic, token rotations), newest first;
-/// `?limit=` keeps the newest that many.
+/// menu and capacity changes, payment intents, routes, traffic, token rotations), newest first
+/// by business time (ties by event id); `?limit=` keeps the newest that many (50 when left out,
+/// at most 500). Any session of the sandbox reads it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ActivityResponse {
@@ -1357,8 +1438,12 @@ pub enum RebuildState {
 
 /// `GET /v1/sandboxes/{id}/rebuild`, which any session of the sandbox reads, and `202` from
 /// `POST` to it, staff only (a guest gets `403` `guest-scope`): "Rebuild projections" drops
-/// Crm's projections and replays its log, 200 events per alarm. A `POST` while one runs is `409`
-/// problem of type `rebuild` and starts nothing; `GET` says how far the running one is.
+/// Crm's projections and replays its log, 200 events per alarm. A second `POST` (with a new
+/// `Idempotency-Key`) while one runs is `409` problem of type `rebuild` and starts nothing; the
+/// same key again replays the first `202`. Nothing else is refused during a rebuild: other
+/// commands run, reads answer the partial projection with `Projection-State: rebuilding`, and a
+/// campaign send that falls due is deferred (logged as `sends_deferred`) until it ends. `GET`
+/// says how far the running one is, and `finished` with its `ms` until the next start.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RebuildResponse {
@@ -1797,12 +1882,46 @@ mod tests {
             guest_cap: 100,
             demo_accounts_today: 0,
             demo_account_cap: 100,
+            counters: None,
+            counters_as_of: None,
+            counters_state: CountersState::Unavailable,
             flag: Flag::ReadOnly,
         };
         assert_eq!(
             serde_json::to_string(&status).unwrap(),
-            r#"{"day":"2026-11-04","sandboxes_today":0,"sandbox_cap":300,"guests_today":0,"guest_cap":100,"demo_accounts_today":0,"demo_account_cap":100,"flag":"read-only"}"#
+            r#"{"day":"2026-11-04","sandboxes_today":0,"sandbox_cap":300,"guests_today":0,"guest_cap":100,"demo_accounts_today":0,"demo_account_cap":100,"counters":null,"counters_as_of":null,"counters_state":"unavailable","flag":"read-only"}"#
         );
+        let live = StatusResponse {
+            counters: Some(StatusCounters {
+                orders_24h: 12,
+                payments_24h: 10,
+                payment_failures_24h: 2,
+                refunds_24h: 1,
+                sandboxes_24h: 7,
+                dlq_24h: 0,
+                last_wipe: Some(LastWipe {
+                    at: "2026-11-04T10:00:04Z".into(),
+                    sandboxes: 7,
+                    objects: 133,
+                    ms: 4210,
+                }),
+            }),
+            counters_as_of: Some("2026-11-04T10:15:02.114Z".into()),
+            counters_state: CountersState::Live,
+            ..status
+        };
+        let wire = serde_json::to_value(&live).unwrap();
+        assert_eq!(wire["counters_state"], "live");
+        assert_eq!(wire["counters"]["last_wipe"]["objects"], 133);
+        assert_eq!(
+            serde_json::from_value::<StatusResponse>(wire).unwrap(),
+            live
+        );
+        let schema = serde_json::to_value(schemars::schema_for!(StatusResponse)).unwrap();
+        let required = schema["required"].as_array().unwrap();
+        for name in ["counters", "counters_as_of", "counters_state"] {
+            assert!(required.iter().any(|r| r == name), "{name} is required");
+        }
 
         let problem = Problem::status(404, "Not Found").with_instance("/v1/nope");
         assert_eq!(

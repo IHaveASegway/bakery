@@ -3,7 +3,22 @@
 // console error (the guard in fixtures.ts).
 import { expect, test } from './fixtures';
 
-const PAGES = ['/', '/menu/', '/catering/', '/checkout/', '/privacy/', '/signin/'];
+const PAGES = [
+  '/',
+  '/menu/',
+  '/catering/',
+  '/checkout/',
+  '/privacy/',
+  '/signin/',
+  '/about/',
+  '/status/',
+  '/how-its-built/',
+  '/how-its-built/outbox/',
+  '/how-its-built/cache/',
+  '/how-its-built/rebuild/',
+  '/how-its-built/routes/',
+  '/how-its-built/single-writer/',
+];
 
 // A visitor with no session: a page that asks the API who it is gets 401, which Chromium logs.
 test.use({ allowedStatuses: [401] });

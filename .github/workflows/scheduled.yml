@@ -1,5 +1,6 @@
 # The scheduled jobs (docs/delivery.md, "From launch"; docs/operations.md, "The nightly wipe"):
-# bakery-objects, the morning object check after the 10:00 UTC wipe, and audit, the Monday audit.
+# bakery-objects, the morning object check after the 10:00 UTC wipe (and, at 12:17, the dead-letter
+# check), and audit, the Monday audit.
 #
 # DORMANT UNTIL LAUNCH DAY. A scheduled run does nothing unless the repository variable LAUNCHED
 # is 'true' (Settings, Secrets and variables, Actions, Variables); it does not exist yet. A run
@@ -13,8 +14,8 @@
 #   CLOUDFLARE_READ_TOKEN, CLOUDFLARE_ACCOUNT_ID (docs/operations.md, step 8): bakery-objects'
 #     listing. The read token is its own, so a scheduled job never holds write access: Account,
 #     Workers Scripts Read (Durable Object namespaces and their objects are listed under it;
-#     confirm the name on launch day). Account Analytics Read, which step 8 also names, is for
-#     the dead-letter query this file does not run yet.
+#     confirm the name on launch day). It has no analytics permission, by design: the 12:17 run's
+#     dead-letter step reads the public GET /v1/status, which needs no secret at all.
 # The GitHub token: issues: write for both jobs' issues, actions: read for bakery-objects to fetch
 # the 09:47 listing from that run, pull-requests: read and security-events: read for audit's
 # Dependabot state.
@@ -59,7 +60,7 @@ jobs:
     permissions:
       contents: read
       actions: read # the 09:47 listing, an artifact of that run
-      issues: write # "Objects survived the wipe"
+      issues: write # "Objects survived the wipe", "Messages dead-lettered"
     env:
       PHASE: ${{ github.event.schedule == '47 9 * * *' && 'before' || 'after' }}
     steps:
@@ -152,6 +153,74 @@ jobs:
           echo "::error::an object survived the wipe: $survivors"
           exit 1
 
+      - name: Open or update the issue when a message was dead-lettered (the public status route)
+        # The 12:17 run only: the count is a 24-hour one, so once a day is enough. It runs even when
+        # the survivors step above failed, so neither finding hides the other. No secret: the Worker's
+        # own 15-minute refresh puts counters.dlq_24h on GET /v1/status (docs/operations.md,
+        # "Observability"). The issue holds a count and times, never an object or sandbox id.
+        if: ${{ !cancelled() && env.PHASE == 'after' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          STATUS_URL: https://api.bakery.ihaveasegway.com/v1/status # prod-smoke's API hostname
+        run: |
+          status="$RUNNER_TEMP/status.json"
+          if ! curl --fail --silent --show-error --max-time 20 --retry 2 --retry-delay 5 \
+            --output "$status" "$STATUS_URL"; then
+            echo "Dead-letter check: could not fetch the status route, so the count is unknown. The API being down is prod-smoke's finding; look at this run." >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::the dead-letter check could not fetch $STATUS_URL"
+            exit 1
+          fi
+          if ! jq -e '(.counters_state | type) == "string"' "$status" > /dev/null 2>&1; then
+            echo "Dead-letter check: the status route answered without a counters_state." >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::the status route answered without a counters_state"
+            exit 1
+          fi
+          state="$(jq -r '.counters_state' "$status")"
+          case "$state" in
+            unavailable)
+              echo "Dead-letter check: counters unavailable (no analytics snapshot yet or the refresh is failing), so no count was read and nothing was opened. See the status incident runbook in docs/operations.md." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+              ;;
+            live | stale) ;;
+            *)
+              echo "Dead-letter check: unknown counters_state." >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::the status route answered an unknown counters_state"
+              exit 1
+              ;;
+          esac
+          if ! jq -e '(.counters.dlq_24h | type) == "number" and .counters.dlq_24h >= 0 and (.counters.dlq_24h | floor) == .counters.dlq_24h' "$status" > /dev/null 2>&1; then
+            echo "Dead-letter check: counters_state is $state but counters.dlq_24h is not a count." >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::counters.dlq_24h is not a count"
+            exit 1
+          fi
+          count="$(jq -r '.counters.dlq_24h' "$status")"
+          # Only a plain timestamp reaches the issue; anything else is shown as unknown.
+          as_of="$(jq -r 'if (.counters_as_of | type) == "string" and (.counters_as_of | test("^[0-9T:.Z+-]{10,40}$")) then .counters_as_of else "unknown" end' "$status")"
+          echo "Dead-letter check: $count dead-lettered in the last 24 hours (counters $state, as of $as_of)." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$count" -eq 0 ]; then exit 0; fi
+          title="Messages dead-lettered"
+          {
+            echo "$(date -u +%F), the 12:17 UTC check ($RUN):"
+            echo
+            echo "$count dead-lettered in the last 24 hours (the \`dlq\` points counted on the public status route; counters $state, as of $as_of)."
+            if [ "$state" = stale ]; then
+              echo "The counters are stale: the count may be out of date."
+            fi
+            echo
+            echo "Runbook: docs/operations.md, \"A dead-lettered message\". The Queues screen (bakery-events-dlq) and the owning Sandbox's dead letters show which messages; they are not named here."
+          } > "$RUNNER_TEMP/dlq-body.md"
+          number="$(gh issue list --repo "$REPO" --state open --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title == \"$title\")) | first | .number // empty")"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$REPO" --body-file "$RUNNER_TEMP/dlq-body.md"
+          else
+            gh issue create --repo "$REPO" --title "$title" --body-file "$RUNNER_TEMP/dlq-body.md"
+          fi
+          echo "::error::$count message(s) dead-lettered in the last 24 hours"
+          exit 1
+
   audit:
     # The Monday audit (delivery.md, the `scheduled` row): RustSec through cargo audit and cargo
     # deny against the newest database, pnpm audit against the lockfile, the Dependabot state, and
@@ -239,6 +308,27 @@ jobs:
             echo "::warning::this token cannot read Dependabot alerts; their state is in the Security tab"
             echo "Dependabot alerts: not readable with the workflow token" >> "$out/dependabot.txt"
           fi
+      - name: The storefront's external links (scripts/check-links.mjs, PR 12)
+        # The external-link check the old calendar promised: build the storefront, then fetch every
+        # link that leaves it (the lab pages, the ADRs, the essay's sources) and record each one
+        # that does not answer 2xx as a finding. No secret; the job's contents: read is enough.
+        run: |
+          out="$RUNNER_TEMP/findings"
+          set +e
+          if ! { pnpm install --frozen-lockfile && pnpm --filter web build; } > "$RUNNER_TEMP/web-build.log" 2>&1; then
+            tail -n 40 "$RUNNER_TEMP/web-build.log"
+            echo "the storefront did not build, so its external links were not checked" >> "$out/failed"
+            exit 0
+          fi
+          node scripts/check-links.mjs > "$out/links.txt" 2>&1
+          status=$?
+          cat "$out/links.txt"
+          if [ "$status" -eq 1 ]; then
+            grep -E '^- https?://' "$out/links.txt" | sed 's/^- /external link: /' >> "$out/failed"
+          elif [ "$status" -ne 0 ]; then
+            echo "the external-link check could not run (exit $status)" >> "$out/failed"
+          fi
+          exit 0
       - name: Open or update the issue on a finding
         env:
           GH_TOKEN: ${{ github.token }}

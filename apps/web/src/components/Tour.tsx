@@ -14,6 +14,7 @@ import {
   recentEvents,
   tourReduce,
   withSeen,
+  type Principle as PrincipleData,
   type ScreenId,
   type TourStep,
 } from '../lib/tour';
@@ -188,10 +189,7 @@ export function TourCard({
 
       <Events step={step} phase={phase} />
 
-      <p className="hint">
-        <strong>Principle:</strong> {step.principle.name}. <strong>Lab page:</strong>{' '}
-        {step.principle.lab}. <strong>ADR:</strong> {step.principle.adr}.
-      </p>
+      <Principle principle={step.principle} />
 
       <h3>Do the same through the API</h3>
       <p className="hint">{step.api.note}</p>
@@ -226,6 +224,37 @@ export function TourCard({
         </button>
       </p>
     </section>
+  );
+}
+
+/**
+ * The principle and where it is explained (Q32 · Q-links): its lab page on the site and its ADR on
+ * GitHub, or, for a principle with no lab page, its section of the How it's built page and the
+ * ADR; a lab principle adds its essay, by title. The URLs come with the principle (lib/how-its-built.ts).
+ */
+export function Principle({ principle }: { principle: PrincipleData }) {
+  return (
+    <p className="hint tour-principle">
+      <strong>Principle:</strong> {principle.name}. <strong>Read how it works:</strong>{' '}
+      {principle.labUrl === undefined ? (
+        <a href={principle.howUrl}>How it’s built</a>
+      ) : (
+        <a href={principle.labUrl} rel="noopener">
+          {principle.lab}
+        </a>
+      )}
+      {' · '}
+      <a href={principle.adrUrl} rel="noopener">
+        ADR {principle.adr}
+      </a>
+      {principle.essay !== undefined && (
+        <>
+          {' · '}
+          <a href={principle.essay.url}>{principle.essay.title}</a>
+        </>
+      )}
+      .
+    </p>
   );
 }
 

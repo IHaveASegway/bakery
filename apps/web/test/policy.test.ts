@@ -126,7 +126,14 @@ describe('headersFile', () => {
   });
 
   test('the menu and the inbox get an island rule, the checkout and catering pages a payment rule: detach, then their own policy and hashes', () => {
-    expect(ISLAND_PATHS).toEqual(['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/']);
+    expect(ISLAND_PATHS).toEqual([
+      '/menu/*',
+      '/inbox/*',
+      '/privacy/*',
+      '/docs/api/*',
+      '/status/*',
+      '/',
+    ]);
     expect(PAYMENT_PATHS).toEqual(['/checkout/*', '/catering/*']);
     expect(RULE_PATHS).toEqual([
       ...CHALLENGE_PATHS,
@@ -140,6 +147,7 @@ describe('headersFile', () => {
       '/inbox/*': hashes,
       '/privacy/*': hashes,
       '/docs/api/*': hashes,
+      '/status/*': hashes,
       '/': hashes,
       '/checkout/*': hashes,
       '/catering/*': hashes,

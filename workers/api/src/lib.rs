@@ -9,11 +9,15 @@
 //! the projection's rebuild, the inbox's simulated opens and clicks, and the CRM routes; PR 9
 //! adds the `Dispatch` object per day with its stops, the server's savings plan, the browser's
 //! validated plan and the published plan, the dispatch routes, and the consumer's stop edges.
+//! PR 13 adds the Analytics Engine points (`metrics`) and the status page's counters, refreshed
+//! by the 15-minute cron through the SQL API (`analytics`) and kept in `Control`.
 
+mod analytics;
 mod clock;
 mod config;
 mod cron;
 mod http;
+mod metrics;
 mod objects;
 mod queue;
 mod random;

@@ -1,0 +1,212 @@
+---
+import Base from '../../layouts/Base.astro';
+import { HOW_PATH, SITE_LAB, adrUrl, howUrl, labUrl } from '../../lib/links';
+
+// The essay the Route Lab maps to (docs/domain.md, "The principle map"; Q33 · Q-principles).
+// Static, no island. Every claim about Cloudflare’s behaviour is as its documentation stated it on
+// the date in READ, and each source carries that date. The lab is described as it was read that
+// day. The numbers about the bakery are the code’s, the route data’s and the roadmap’s, with
+// their files named. No coordinate appears: a stop is a stop.
+const READ = '2026-11-06';
+const SOURCES = [
+  {
+    href: 'https://github.com/VROOM-Project/vroom',
+    title: 'VROOM, the Vehicle Routing Open-source Optimization Machine',
+    by: 'the VROOM project',
+    for: 'a C++ solver under the BSD-2-Clause licence, tagged “Good solutions, fast”, which does not claim optimal ones',
+  },
+  {
+    href: 'https://github.com/GIScience/openrouteservice',
+    title: 'openrouteservice',
+    by: 'the GIScience project on GitHub, GPL-3.0 and LGPL-3.0',
+    for: 'a routing service over OpenStreetMap with directions, matrix and isochrone services, which the bakery runs on its own machine at build time',
+  },
+  {
+    href: 'https://developers.cloudflare.com/workers/platform/limits/',
+    title: 'Workers limits',
+    by: 'Cloudflare’s documentation',
+    for: 'on the paid plan, 30 seconds of CPU a request by default, configurable up to 5 minutes with limits.cpu_ms',
+  },
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/platform/limits/',
+    title: 'Durable Objects limits',
+    by: 'Cloudflare’s documentation',
+    for: 'a Durable Object follows the Workers limit of 30 seconds of CPU a request by default',
+  },
+  {
+    href: adrUrl('0012'),
+    title: 'ADR 0012, delivery dispatch',
+    by: 'the bakery’s decision record',
+    for: 'VROOM in the browser to plan, a savings heuristic in Rust to propose, the object to decide',
+  },
+  {
+    href: labUrl('Route Lab') as string,
+    title: 'Plan a bakery’s deliveries',
+    by: 'the Route Lab on ihaveasegway.com',
+    for: 'VROOM in your browser against orders taken as they came, on made-up Seattle data',
+  },
+];
+---
+
+<Base
+  title="Why the browser plans the route and the object decides | Proof of Concept Bakery"
+  description="Why Proof of Concept Bakery plans deliveries twice, once with a fast heuristic on the server and once with VROOM in the visitor's browser, and why neither plan is trusted until the Dispatch object has checked it."
+>
+  <article class="essay prose">
+    <p class="hint">
+      <a href={HOW_PATH}>How it’s built</a>
+    </p>
+    <h1>Why the browser plans the route and the object decides</h1>
+    <p class="lead">
+      On a Saturday the bakery plans 63 deliveries on up to four vans twice, once on the server and
+      once in your browser, and publishes neither until one object has checked the plan against its
+      own numbers. This is why the work is split that way, how to read the gap between the two
+      plans, and what the plan does not promise.
+    </p>
+
+    <h2>The problem</h2>
+    <p>
+      The seeded Saturday has 63 stops and four vans. Dealing the stops out in the order the orders
+      arrived sends each van across the city and back more often than it needs to. A good plan
+      groups stops that are near each other and orders them so the van does not backtrack, and
+      finding one is real computation: the number of ways to split 63 stops among four vans and
+      order each van’s stops is far past what any program tries one by one.
+    </p>
+
+    <h2>What the lab shows, and what it cannot</h2>
+    <p>
+      The Route Lab, as read on {READ}, is a made-up bakery in Seattle with 20 to 63 orders. It
+      plans the same orders two ways, as they came in and as VROOM plans them in a Web Worker, and
+      reports the difference: on its busy Saturday, 3 h 12 min of driving against 5 h 34 min. Its
+      page says VROOM “promises a good plan fast, and not always the best one”, and that its travel
+      times assume no traffic.
+    </p>
+    <p>
+      It compares a plan with no thought against one with a lot. It has no second planner of
+      comparable quality, so it can show no gap between two good plans. It has no record of
+      deliveries, so it cannot show what happens when a plan is wrong, or a stop is missing, or a
+      van has already left. Its data are Seattle’s, from OSRM; the bakery’s are Salt Lake City’s,
+      from openrouteservice. The bakery adds the server’s planner and the object that judges.
+    </p>
+
+    <h2>Two planners, neither exact</h2>
+    <p>
+      The server plans with the savings heuristic of Clarke and Wright (1964). Every stop starts as
+      its own round trip from the bakery. Joining the end of one trip to the start of another saves{' '}
+      <code>d(i,0) + d(0,j) − d(i,j)</code> minutes, where <code>d</code> is the drive time and 0 is
+      the bakery. The heuristic scores every ordered pair, 63 × 62 = 3,906 of them for the Saturday,
+      sorts by saving, and merges trips from the largest saving down while a van has room. It uses
+      no clock and no random draw, so the same input gives the same plan. It is in{' '}
+      <code>crates/domain/src/dispatch/savings.rs</code>.
+    </p>
+    <p>
+      VROOM, run in the browser as WebAssembly, builds a plan and then moves and swaps stops between
+      routes until no change shortens the driving. It looks harder, so it should find a shorter plan
+      more often than not. The page asks it to look at level 5 up to 40 stops and level 3 above
+      that, and to stop after 5 seconds (<code>apps/web/src/lib/dispatch.ts</code>).
+    </p>
+    <p>
+      Neither is exact, and the gap on the dispatch screen has to be read with that in mind. The
+      screen reports the server’s total less the browser’s, as a percentage of the browser’s. That
+      is a gap between two heuristics. A gap of zero says they agree, not that either is best. A
+      positive gap is a floor on what the server’s plan leaves unused, since the browser’s plan is a
+      real plan and the best one can only be shorter still. A negative gap, where the server’s plan
+      is shorter, is possible, and the screen says so in words. The gap does not say how far VROOM
+      is from the best plan, which neither planner computes. ADR 0012 sets the bakery’s own line at
+      25 percent of total drive time on the seeded days, a revisit trigger, and the roadmap records
+      no measured gap.
+    </p>
+
+    <h2>Neither is trusted: the object decides</h2>
+    <p>
+      The browser can send anything, so the browser’s plan is a request. The Dispatch object, one
+      per sandbox and business day, checks it before it is stored and again before it is published,
+      since stops come and go in between. Its rules have names a visitor can see in a refusal:{' '}
+      <code>vans</code>, <code>stop-unknown</code>, <code>stop-twice</code>,{' '}
+      <code>over-capacity</code>, <code>route-ends</code> and <code>stop-missing</code>. Every stop
+      appears once, no van carries more than its capacity, every route starts and ends at the
+      bakery, and no stop is left out. A plan that sends its own total is refused with 400, since
+      the object does not read it. The minutes are always worked out from the object’s own
+      travel-time matrix, the same arithmetic for the server’s plan and the browser’s.
+    </p>
+    <p>
+      That is what makes the comparison fair. The page builds VROOM’s input from the same matrix,
+      with every leg rounded up to whole minutes, so VROOM minimizes the figure the object will
+      count. A published plan is a <code>RoutePublished</code> event, and it is the only one that
+      reaches the kitchen board and the orders. Once a van has left, the object asks the orders
+      about it and refuses a new publish with 409 <code>published</code>.
+    </p>
+
+    <h2>Where the computation is free and where it is paid</h2>
+    <ul>
+      <li>
+        <strong>The browser’s search is free to the server.</strong> VROOM’s files are 919,927 B of
+        WebAssembly, 343,650 B gzipped (ADR 0012, as of 2026-11-04), fetched at build, checked
+        against a lock file and loaded on the first solve. The visitor pays the bytes once and the
+        time to solve: 548 ms for the 63-stop day in one headless Chrome run on 2026-11-05 (the
+        roadmap’s PR 9 note, not a committed test).
+      </li>
+      <li>
+        <strong>The server’s plan is cheap by design.</strong> ADR 0012 estimated a few milliseconds
+        of CPU for tens of stops. That has not been timed on its own. The Worker’s configured limit,{' '}
+        <code>limits.cpu_ms</code> in <code>workers/api/wrangler.jsonc</code>, is 300 ms, where
+        Cloudflare’s paid default on {READ} was 30 seconds. The bakery set it low on purpose, as a
+        bill guard. A VROOM search that took 548 ms in a browser on another machine is a figure to
+        compare against 300 ms, not a test that it would not fit.
+      </li>
+      <li>
+        <strong>The travel times are paid once, offline.</strong> No routing service is called while
+        a visitor plans. A build ran openrouteservice 9.10.0 on the bakery’s own machine over an
+        OpenStreetMap extract with a replication time of 2026-11-05T00:58:30Z, and wrote a 64-by-64
+        matrix of 64 public places into <code>tools/route-data/out/</code>. The committed files are
+        the record. The roadmap says the build reran byte for byte on one machine and does not
+        promise equal times on another machine or version.
+      </li>
+    </ul>
+
+    <h2>A plan, not a promise</h2>
+    <p>
+      The times are free-flow drive times with no traffic. The totals count driving only; the time
+      the last van is back adds 3 minutes at every door. The map draws straight lines between stops,
+      not roads. Delivery addresses are made up and map onto the 64 places by index, so two
+      customers can share a drop point. A published plan says what the bakery would do on a road
+      with nobody else on it.
+    </p>
+
+    <h2>What to try</h2>
+    <p>
+      On the <a href="/app/dispatch/">dispatch screen</a>, plan Saturday’s stops both ways, read the
+      gap as above, and publish one. Then try the{' '}
+      <a href={labUrl('Route Lab')} rel="noopener">
+        Route Lab
+      </a>{' '}
+      and add or remove an order on its map and watch both of its plans re-solve. The{' '}
+      <a href={howUrl('routes')}>summary on How it’s built</a> says the same in short.
+    </p>
+
+    <h2>Sources</h2>
+    <ul class="sources">
+      <li>
+        <em>Scheduling of Vehicles from a Central Depot to a Number of Delivery Points</em>, G.
+        Clarke and J. W. Wright, Operations Research, 1964: the savings heuristic. Cited from the
+        bakery’s reading list in <code>docs/roadmap.md</code>; the page itself was not read on{' '}
+        {READ}.
+      </li>
+      {SOURCES.map((s) => (
+        <li>
+          <a href={s.href} rel="noopener">
+            {s.title}
+          </a>
+          , {s.by}, read on {READ}: {s.for}.
+        </li>
+      ))}
+    </ul>
+    <p class="hint">
+      Back to <a href={howUrl('routes')}>the routing principle on How it’s built</a>, or to{' '}
+      <a href={SITE_LAB} rel="noopener">
+        the lab
+      </a>
+      .
+    </p>
+  </article>
+</Base>

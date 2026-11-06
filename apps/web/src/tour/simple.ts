@@ -21,7 +21,7 @@ export const HOME: TourStep[] = [
     screen: 'home',
     target: 'home-intro',
     title: 'A bakery that is a demonstration',
-    what: 'This is a made-up bakery built to show a Rust system on Cloudflare. Every visitor gets a private sandbox of synthetic data, and the system is the point: each screen has a tour like this one that says what you are looking at, what happened underneath and how to do the same thing from a terminal.',
+    what: 'This is a made-up bakery built as a real business system, to show the principles of the site’s lab running in production code: Rust on Cloudflare, with a private sandbox of synthetic data for every visitor, wiped every night. Each screen has a tour like this one that says what you are looking at, what happened underneath and how to do the same thing from a terminal.',
     events: ['SandboxSeeded'],
     principle: SANDBOX,
     api: {
@@ -35,8 +35,8 @@ export const HOME: TourStep[] = [
     id: 'home-links',
     screen: 'home',
     target: 'home-links',
-    title: 'Where to go next',
-    what: 'The links on this page lead to the menu, catering, the inbox and sign-in, which makes your sandbox. The console, at /app/, is the staff side: the kitchen board, the clock and every control that changes the bakery.',
+    title: 'Try it in a minute',
+    what: 'Five steps: sign in or try it as a guest, which makes your sandbox; the menu; a checkout paid with Stripe’s test card; the receipt in the inbox; and the console. The console, at /app/, is the staff side: the kitchen board, the clock and every control that changes the bakery.',
     events: [],
     principle: SANDBOX,
     api: {

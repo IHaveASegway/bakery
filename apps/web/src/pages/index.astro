@@ -1,22 +1,61 @@
 ---
 import Base from '../layouts/Base.astro';
+import { ONE_LINE, RECRUITER_LINE } from '../lib/how-its-built';
+import { HOW_PATH, SITE_LAB } from '../lib/links';
+
+// The launch home (docs/product.md, "Who it serves": something to click that works in a minute,
+// and a sentence to repeat). The copy is a draft for the owner to edit. The two data-tour anchors are the
+// home screen's tour (tour/simple.ts, HOME).
 ---
 
 <Base
   title="Proof of Concept Bakery"
-  description="A made-up bakery built as a demonstration of a Rust system on Cloudflare."
+  description="A made-up bakery built as a real business system in Rust on Cloudflare: order with a test card, watch the kitchen, move the clock. Nothing here is real."
   screen="home"
 >
-  <h1>Proof of Concept Bakery</h1>
-  <p data-tour="home-intro">
-    This is a made-up bakery, built as a demonstration of a Rust system on Cloudflare. Nothing is
-    live yet. Read <a href="https://github.com/IHaveASegway/bakery/tree/docs/plan/docs">the plan</a>
-    .
-  </p>
-  <p data-tour="home-links">
-    Pages are being built ahead of it: <a href="/menu/">the menu</a>,{' '}
-    <a href="/catering/">catering</a>, <a href="/inbox/">the inbox</a>,
-    <a href="/signin/">sign-in</a>, which makes a private sandbox, and{' '}
-    <a href="/privacy/">privacy</a>, which says what the bakery keeps.
-  </p>
+  <div class="prose">
+    <h1>Proof of Concept Bakery</h1>
+    <p class="statement" data-tour="home-intro">
+      {ONE_LINE}
+    </p>
+    <p>{RECRUITER_LINE}</p>
+
+    <section aria-labelledby="try-title" data-tour="home-links">
+      <h2 id="try-title">Try it in a minute</h2>
+      <ol class="try-steps">
+        <li>
+          <a href="/signin/">Sign in, or try it as a guest</a>. Either one makes your own sandbox: a
+          private copy of the bakery, deleted tonight.
+        </li>
+        <li>
+          Open <a href="/menu/">the menu</a> and put a loaf or a box of pastries in the cart.
+        </li>
+        <li>
+          Check out: choose a pickup slot and pay with Stripe’s test card,{' '}
+          <code>4242 4242 4242 4242</code>, with any future date and any CVC. No money moves.
+        </li>
+        <li>
+          Find the receipt in <a href="/inbox/">the inbox</a>. The bakery holds no email address for
+          anyone, so every message it sends lands there.
+        </li>
+        <li>
+          Open <a href="/app/">the console</a>: your sandbox, the kitchen board with your order on
+          it, and, once you are signed in, the clock, which you can move forward to see tomorrow.
+        </li>
+      </ol>
+      <p>
+        Every screen has a tour that says what you are looking at and how to do the same from a
+        terminal. <a href={HOW_PATH}>How it’s built</a> explains each technique, and{' '}
+        <a href={SITE_LAB} rel="noopener">
+          the lab on ihaveasegway.com
+        </a>{' '}
+        shows the principles behind them as simulations.
+      </p>
+    </section>
+
+    <p class="draft">
+      <strong>Nothing here is real.</strong> The bakery, its customers, their orders and their cards
+      are made up, and your sandbox is deleted at 10:00 UTC every night.
+    </p>
+  </div>
 </Base>

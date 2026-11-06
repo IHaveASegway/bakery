@@ -23,7 +23,22 @@ const GITHUB_AUTHORIZE =
 const OTHER_ORIGIN = 'https://example.com';
 const WAIT_MS = 120_000;
 
-const PAGES = ['/', '/menu/', '/catering/', '/checkout/', '/privacy/', '/signin/'];
+const PAGES = [
+  '/',
+  '/menu/',
+  '/catering/',
+  '/checkout/',
+  '/privacy/',
+  '/signin/',
+  '/about/',
+  '/status/',
+  '/how-its-built/',
+  '/how-its-built/outbox/',
+  '/how-its-built/cache/',
+  '/how-its-built/rebuild/',
+  '/how-its-built/routes/',
+  '/how-its-built/single-writer/',
+];
 
 function expectApiHeaders(res: APIResponse, type = 'application/json') {
   const h = res.headers();

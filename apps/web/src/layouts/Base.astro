@@ -4,6 +4,7 @@ import tokensCss from '../styles/tokens.css?raw';
 import { chromeColor } from '../lib/tokens';
 import Tour from '../components/Tour';
 import type { ScreenId } from '../lib/tour';
+import { REPO, SITE_LAB } from '../lib/links';
 
 interface Props {
   title: string;
@@ -12,6 +13,25 @@ interface Props {
   screen?: ScreenId;
 }
 const { title, description, screen } = Astro.props;
+
+// The public shell: the bakery's name, the nav and the footer, on every page. Plain links, so the
+// shell adds no script and no island; the console's own links are the console's business.
+const NAV = [
+  { href: '/menu/', label: 'Menu' },
+  { href: '/catering/', label: 'Catering' },
+  { href: '/how-its-built/', label: 'How it’s built' },
+  { href: '/about/', label: 'About' },
+  { href: '/status/', label: 'Status' },
+  { href: '/signin/', label: 'Sign in' },
+];
+const FOOTER = [
+  { href: '/privacy/', label: 'Privacy' },
+  { href: '/docs/api/', label: 'API reference' },
+  { href: REPO, label: 'The repository' },
+  { href: SITE_LAB, label: 'The lab, on ihaveasegway.com' },
+];
+const here = Astro.url.pathname;
+const current = (href: string) => (here === href || here.startsWith(href) ? 'page' : undefined);
 
 // The browser chrome takes the page's background: one theme-color meta per OS scheme, read from
 // tokens.css at build so no second copy of a color exists. There is no inline script, so the
@@ -33,12 +53,44 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
     ))}
     <title>{title}</title>
     <meta name="description" content={description} />
-    <meta name="robots" content="noindex" />
   </head>
   <body>
-    <main>
+    <a class="skip-link" href="#main">
+      Skip to the page
+    </a>
+    <header class="site-header">
+      <a class="site-name" href="/" aria-current={here === '/' ? 'page' : undefined}>
+        Proof of Concept Bakery
+      </a>
+      <nav aria-label="The bakery">
+        <ul class="site-nav">
+          {NAV.map(({ href, label }) => (
+            <li>
+              <a href={href} aria-current={current(href)}>
+                {label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    </header>
+    <main id="main" tabindex="-1">
       <slot />
     </main>
+    <footer class={screen ? 'site-footer with-tour' : 'site-footer'}>
+      <nav aria-label="More">
+        <ul class="site-nav">
+          {FOOTER.map(({ href, label }) => (
+            <li>
+              <a href={href} rel={href.startsWith('https:') ? 'noopener' : undefined}>
+                {label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+      <p>Everything here is made up: the bakery, its customers, their orders and their cards.</p>
+    </footer>
     {screen && <Tour screen={screen} client:idle />}
   </body>
 </html>

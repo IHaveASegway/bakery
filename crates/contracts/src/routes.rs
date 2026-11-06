@@ -197,12 +197,12 @@ pub const ROUTES: &[RouteSpec] = &[
         "GET",
         "/v1/status",
         Public,
-        "Today's admission state, from the Control object",
+        "Today's admission state and the status page's counters, from the Control object",
         None,
         Some("StatusResponse"),
         &[ok(
             200,
-            "today's sandboxes, guests and demo accounts with their caps, and the flag",
+            "today's sandboxes, guests and demo accounts with their caps, the last snapshot of the kept Analytics Engine queries with `counters_as_of` and `counters_state` (`live`, `stale` or `unavailable`), and the flag",
         )],
     ),
     with_query(
@@ -1151,7 +1151,11 @@ pub const ROUTES: &[RouteSpec] = &[
         Some("RebuildResponse"),
         &[
             ok(202, "the rebuild, started"),
-            no(409, "rebuild", "one is already running"),
+            no(
+                409,
+                "rebuild",
+                "a second start while one is running; other commands still run",
+            ),
         ],
     ),
     r(

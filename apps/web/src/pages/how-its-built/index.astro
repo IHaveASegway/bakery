@@ -1,0 +1,117 @@
+---
+import Base from '../../layouts/Base.astro';
+import { GROUPS, ONE_LINE, RECRUITER_LINE, principleOf, sections } from '../../lib/how-its-built';
+import { ESSAYS, SITE_LAB } from '../../lib/links';
+
+// How it's built (Q6 · Q-public, Q32 · Q-links, Q33 · Q-principles): one section per principle,
+// from the data the tour reads (lib/how-its-built.ts), so the page and the tour cannot drift. A
+// static page with no island and no script: the strict policy, like the 404. Each lab principle
+// has an essay of its own (lib/links.ts, ESSAYS), listed after the contents and linked from its
+// section by title.
+const essays = Object.values(ESSAYS);
+const groups = (['lab', 'new', 'demo'] as const).map((group) => ({
+  group,
+  ...GROUPS[group],
+  sections: sections()
+    .filter((s) => s.group === group)
+    .map((s) => ({
+      ...s,
+      links: principleOf(s),
+    })),
+}));
+---
+
+<Base
+  title="How it’s built | Proof of Concept Bakery"
+  description="Every technique Proof of Concept Bakery runs: the problem, the technique, how it works here, where it runs, how to see it, and the lab page and ADR that explain it."
+>
+  <div class="prose">
+    <h1>How it’s built</h1>
+    <p class="lead">{ONE_LINE}</p>
+    <p>{RECRUITER_LINE}</p>
+    <p>
+      Each section below takes one principle in the same order: the problem the bakery has, the
+      technique chosen, how it works here and what it costs, where it runs, and what you can do to
+      see it. Then it links the{' '}
+      <a href={SITE_LAB} rel="noopener">
+        lab page
+      </a>{' '}
+      that explains the principle on its own, where there is one, and the decision record (ADR) that
+      chose it. The tour on every screen links back here.
+    </p>
+
+    <nav aria-labelledby="contents-title">
+      <h2 id="contents-title">Contents</h2>
+      {groups.map(({ title, sections }) => (
+        <>
+          <h3>{title}</h3>
+          <ul class="contents">
+            {sections.map((s) => (
+              <li>
+                <a href={`#${s.id}`}>{s.name}</a>
+              </li>
+            ))}
+          </ul>
+        </>
+      ))}
+      <h3 id="essays-title">The essays</h3>
+      <p>
+        One for each lab principle: what the bakery does for real that the lab page shows in the
+        small.
+      </p>
+      <ul class="contents" aria-labelledby="essays-title">
+        {essays.map((e) => (
+          <li>
+            <a href={e.path}>{e.title}</a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+
+    {groups.map(({ group, title, intro, sections }) => (
+      <section aria-labelledby={`group-${group}`}>
+        <h2 id={`group-${group}`}>{title}</h2>
+        <p>{intro}</p>
+        {sections.map((s) => (
+          <section class="principle" id={s.id} aria-labelledby={`${s.id}-title`}>
+            <h3 id={`${s.id}-title`}>{s.name}</h3>
+            <dl>
+              <dt>The problem</dt>
+              <dd>{s.problem}</dd>
+              <dt>The technique</dt>
+              <dd>{s.technique}</dd>
+              <dt>How it works here</dt>
+              <dd>{s.how}</dd>
+              <dt>Where it runs</dt>
+              <dd>{s.where}</dd>
+              <dt>See it yourself</dt>
+              <dd>
+                {s.see} <a href={s.screen.href}>{s.screen.label}</a>.
+              </dd>
+            </dl>
+            <p class="links">
+              <strong>Read more:</strong>{' '}
+              {s.links.labUrl === undefined ? (
+                <span>no lab page yet</span>
+              ) : (
+                <a href={s.links.labUrl} rel="noopener">
+                  the {s.lab}
+                </a>
+              )}
+              {' · '}
+              <a href={s.links.adrUrl} rel="noopener">
+                ADR {s.adr}
+              </a>
+              {s.links.essay !== undefined && (
+                <>
+                  {' · '}
+                  <a href={s.links.essay.url}>{s.links.essay.title}</a>
+                </>
+              )}
+            </p>
+          </section>
+        ))}
+      </section>
+    ))}
+  </div>
+</Base>

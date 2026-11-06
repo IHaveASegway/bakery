@@ -11,3 +11,9 @@ interface ImportMetaEnv {
    */
   readonly PUBLIC_STRIPE_PUBLISHABLE_KEY?: string;
 }
+
+/** The ADR directory's file names, read at build (scripts/adr-files.mjs). */
+declare module 'virtual:adr-files' {
+  const files: readonly string[];
+  export default files;
+}

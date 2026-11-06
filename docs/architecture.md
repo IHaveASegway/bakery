@@ -54,7 +54,7 @@ flowchart TB
   waf --> web
   waf --> api
   lab -.->|"Running in the bakery"| web
-  web -.->|"How this works"| lab
+  web -.->|"Read how it works"| lab
   api <--> queues
   api -.-> ae
   api -.->|"optional, to Joseph"| email
@@ -255,7 +255,7 @@ CREATE TABLE commands_seen (id TEXT PRIMARY KEY, result TEXT NOT NULL, at TEXT N
 
 **Relay.** After commit the object sends its outbox rows to `bakery-events` in one batch under `wait_until`, deleting each accepted row, and leaves an `outbox` timer 30 s out. Each envelope travels as a JSON string, not as a `serde_json::Value`: spike S6 found on 2026-11-04 that `worker` 0.8.7 passes a `Value` map through serde-wasm-bindgen as a JavaScript `Map`, which the Queue encodes as `{}` ([roadmap.md](roadmap.md#spikes)). If the send failed or the isolate died, the alarm sends what is left and re-arms only while rows remain. A row may go twice; once committed it is never lost.
 
-**Consume.** The consumer runs in the same Worker on `#[event(queue)]` (beta in workers-rs as of 2026-11-04),[^workersrs] in batches of up to 100.[^queues] A static table in `crates/app` maps each event type to subscribers; the consumer delivers to each by `fetch` on its `/_event` path (DO RPC is not bound in workers-rs), acks when all answered 2xx, and retries otherwise. Since PR 5 the live subscribers are the Kitchen, `Billing` and the `Order`. `Billing` is the sandbox's one; an `Order` is the one the data's `ref` names, for the routes the catalog scopes `ByPurpose` (`PaymentSucceeded`, delivered when the purpose is `order`) and `ByRef` (`RefundIssued`, and `PaymentFailed`), where the purpose narrows the route when the data carries one. An event whose route needs a `ref` it lacks has no instance to deliver to, so its delivery fails, retries and dead-letters rather than guessing one. `Billing` takes Stripe's webhook events on a path of their own, so `/_event` keeps one meaning for every subscriber.
+**Consume.** The consumer runs in the same Worker on `#[event(queue)]` (beta in workers-rs as of 2026-11-04),[^workersrs] in batches of up to 10 (`max_batch_size` in `workers/api/wrangler.jsonc`, as configured on 2026-11-06; Cloudflare allows up to 100).[^queues] A static table in `crates/app` maps each event type to subscribers; the consumer delivers to each by `fetch` on its `/_event` path (DO RPC is not bound in workers-rs), acks when all answered 2xx, and retries otherwise. Since PR 5 the live subscribers are the Kitchen, `Billing` and the `Order`. `Billing` is the sandbox's one; an `Order` is the one the data's `ref` names, for the routes the catalog scopes `ByPurpose` (`PaymentSucceeded`, delivered when the purpose is `order`) and `ByRef` (`RefundIssued`, and `PaymentFailed`), where the purpose narrows the route when the data carries one. An event whose route needs a `ref` it lacks has no instance to deliver to, so its delivery fails, retries and dead-letters rather than guessing one. `Billing` takes Stripe's webhook events on a path of their own, so `/_event` keeps one meaning for every subscriber.
 
 **The Dispatch edges, as built in PR 9 (2026-11-05; `workers/api/src/queue.rs`).** `Dispatch` is a live subscriber, and its delivery is the day of the order's window. An order event is read from its `Order` (`GET /_order`) at most once per delivery, and the one read is shared between the Schedule edge and the Dispatch edge. `OrderPlaced` for a delivery becomes `AddStop`, with the customer's place read from the Sandbox (`GET /_place/<customer>`, the persona's `p<n>`) and mapped to a matrix index; `OrderPaid` becomes `ConfirmStop`, and `OrderExpired` and `OrderCancelled` become `RemoveStop`, the slot and kind coming from the Order because those events carry neither. A pickup's event is acked with nothing sent, and an Order that answers 404 or 410 is acked. A day never touched answers 410, and the consumer registers it with the Sandbox (`/_register-dispatch`) and sends the event again with its birth; a date outside the sandbox's days, or a wiped sandbox, is acked and logged `dispatch_no_day`, a persona with no place is acked and logged `dispatch_no_place`, and a day still being seeded is retried. The other direction: `RoutePublished` goes to each stop's `Order`, which decides `MarkOutForDelivery` with the route `van-<n>` and the stop number (an Order that is not yet ready refuses, logged and acked), and to the Kitchen, which labels its cards with their van and stop, the highest `plan_v` of a day winning; `StopCompleted` goes to its `Order`, which decides `MarkDelivered`. An Order that is gone by then is acked and logged `stop_order_gone`. The Dispatch object reads the travel-time matrix once per isolate from the fixture compiled into the Worker (`crates/seed/data/salt-lake-city/matrix.json`, 19,071 B of JSON as of 2026-11-05), hands it to the commands that plan, and never stores it.
 
@@ -294,7 +294,7 @@ Every datum the bakery touches, left to right: where it lives, who changes it, w
 | Simulated traffic | `Simulator`: rate, running flag, minute ledger | Platform | the visitor; its alarm | console; `Control`, for the day's minutes | commands, as a visitor's | strong in the object |
 | Flags, ledger, IP salt | `Control` | Platform | router; cron; Joseph | router, through a 30 s in-isolate cache | command | flags apply within 30 s |
 | Logs | Workers Logs | Platform | the Worker: JSON lines; `HMAC(daily salt, IP)`, country, continent | Joseph | ingestion; invocation logs off | best effort; 7 days on Paid[^logs] |
-| Metrics | Analytics Engine | Platform | Worker and objects | Joseph; the breaker; the status page later (Q31 · Q-status) | data points | eventual |
+| Metrics | Analytics Engine | Platform | Worker and objects (seven points, fire-and-forget; as built 2026-11-06) | Joseph; the breaker (planned, PR 11; not built); the status page, from a snapshot that the `*/15` cron refreshes through the SQL API and `Control` stores, not from a query per view | data points; the snapshot over `GET /v1/status` | eventual; the page's counters are up to about 15 minutes old, `stale` after 20 or a failed refresh |
 | Secrets | Worker secrets on `bakery-api` | Platform; Billing | Joseph, by Wrangler | the Worker | injection | one reader each ([security.md](security.md#secrets-inventory)) |
 | Deploy credential | Cloudflare | Delivery | Joseph | deploy steps in Actions | repository secret, in those steps' `env` | rotation in [operations.md](operations.md) |
 | Seed data | `crates/seed`: word lists, menu, venues, the 64 Salt Lake City places and their travel-time matrix (built in PR 9) | Platform; Presentation | Joseph, by pull request | Sandbox; the web build | compiled into both builds | per version; deterministic per seed |
@@ -317,7 +317,7 @@ sequenceDiagram
   Note over B,W: 0 Worker requests, 0 DO requests: $0.<br/>The cart is browser state until checkout.
 ```
 
-- Home, Menu, Catering, About, How it's built, Privacy and Status are static (Q6 · Q-public); the menu is the seed's.
+- Home, Menu, Catering, About, How it's built, Privacy and Status are static (Q6 · Q-public); the menu is the seed's. As built on 2026-11-06 (PR 12), all but Status existed, with the essay at `/how-its-built/single-writer/`; the build made 14 pages. PR 13 added `/status/` the same day, an island (policy class `island`) that calls `GET /v1/status` on load and every 60 s while visible and shows the API's counters, or the browser's last good answer with a note when the API is unreachable, for 15 pages. PR 14 (2026-11-06) added four more essays beside the first, at `/how-its-built/outbox/`, `/how-its-built/cache/`, `/how-its-built/rebuild/` and `/how-its-built/routes/`, one for each of the other four lab principles, so `pnpm --filter web build` makes 19 pages with both merged (counted on 2026-11-06). The five essays are static, with no island and the strict page policy. Every page shares one header, nav and footer made of plain links (`apps/web/src/layouts/Base.astro`), which add no script. About, How it's built and the five essays are reading pages with no island and the strict page policy; Home, Menu, Privacy and the API reference carry the tour's island, and Status its own. Their text is data or markup in `apps/web/`, so a view still costs $0.
 - A Custom Domain issues its own certificate for a two-level name like `api.bakery.ihaveasegway.com`; Universal SSL covers only the apex and one level.[^customdomains]
 
 ### Sign-in with Google, and a demo account
@@ -358,7 +358,7 @@ sequenceDiagram
   participant A as bakery-api
   participant C as Control DO
   participant S as Sandbox DO
-  participant K as About 36 children
+  participant K as 36 children
   B->>A: POST /v1/sandboxes, Idempotency-Key, Turnstile token if guest
   A->>A: Origin, rate limit per IP hash, siteverify for guests
   A->>C: admit
@@ -644,6 +644,7 @@ sequenceDiagram
 - **A client-side island on every screen,** shipped by `bakery-web` with no third-party script, so it adds nothing to the CSP and costs $0 to serve.
 - **One step per screen element.** Each step names what is shown; lists the events the visitor's last action produced, with their `cause`, from the activity feed the screen already holds; names the principle, with its lab page and ADR; and offers a copyable API request for the same action, filled with the visitor's own token when copied and masked on screen.
 - **The "How this works" drawer is one of its steps.** Steps are data in `apps/web/`, checked at build against `crates/contracts`, so a request in a step cannot drift from the API.
+- **The links, as built in PR 12 (2026-11-06).** A step's principle comes from the table behind the How it's built page (`apps/web/src/lib/how-its-built.ts`), so the card and the page are one source. The card reads "Principle: <name>. Read how it works: <Lab page> · ADR NNNN" with real links (`rel="noopener"`, same window): the lab page's URL is made from its name through one map of five slugs, the ADR's from its number and the file names in `docs/adr/` read at build, and a principle with no lab page links its section of `/how-its-built/` instead; the Raft step adds the essay. The tour's chunk grew from 39,288 B to 42,039 B (13,507 B at gzip -9) for the URLs, the page's prose being kept out of it. A weekly check fetches every external link in the built pages ([delivery.md](delivery.md#the-jobs-as-written)). As built in PR 14 (2026-11-06) every principle with a lab page has an essay, not only Raft: `ESSAYS` in `apps/web/src/lib/links.ts` holds the five (id, path, title), `principleOf()` attaches `essay: { url, title }` from it, and the card shows the essay's title as the link text. The Tour chunk is now 42,556 B (13,628 B at gzip -9), 517 B more than PR 12's figure of 42,039 B (and 121 B more at gzip -9 than 13,507 B), the five titles.
 
 ### The API token
 
@@ -668,6 +669,7 @@ Two shared resources: the account's bill on Paid, which has no spend cap,[^prici
 
 | Failure | Blast radius | What visitors see | Detection | Recovery |
 |---|---|---|---|---|
+| Analytics Engine SQL API down or its token missing | the status page's counters only | the page says stale (old numbers, with their time) or unavailable (no numbers); nothing else changes | `analytics_unconfigured` or `analytics_failed` in the cron's log; `counters_state` | the next good `*/15` run; [the runbook](operations.md#incident-the-status-page-says-stale-or-unavailable) |
 | Stripe sandbox down | payments in every sandbox | checkout says payments are unavailable; orders expire at 15 min | Billing errors in Analytics Engine | none; expiry releases slots, late webhooks dedupe |
 | Google or GitHub down | new sign-ins with that provider | an error; the other provider, guests and demo accounts work | sign-in failures by reason | wait; sessions last 24 h |
 | Queue backlog | reactions everywhere | writes succeed; board and timelines lag, the drawer shows it | backlog; oldest outbox row | catches up; retention 4 days[^queues] |
@@ -685,7 +687,7 @@ Two shared resources: the account's bill on Paid, which has no spend cap,[^prici
 | GitHub outage | builds, deploys, the morning check | nothing | GitHub status | wait |
 | A fall back to Free (Q27 · Q-plan chose Paid) | every sandbox | creation refused once `Control`'s share is spent | `Control`'s ledger | rows written bind first, 100,000 a day,[^dopricing] at about 20 sandboxes a day ([cost.md](cost.md)); 10 ms CPU and 50 subrequests[^limits] push argon2 and Clarke–Wright to the browser; no Email Service sends |
 
-**Kill switch**, the site's levels adapted: L0 `Control`'s breaker, L1 flags, L2 redeploy, L3 the prebuilt WAF rule, L4 detach the API's Custom Domain, the switch the own hostname buys (Q8 · Q-api-host). [operations.md](operations.md) owns the runbook.
+**Kill switch**, the site's levels adapted: L0 `Control`'s breaker, L1 flags, L2 redeploy (not built as a dispatch: use L1 `off`, or ship a change under `workers/api/` through the pipeline, which restarts every object; `ci.yml` at d778ff7, 2026-11-06), L3 the prebuilt WAF rule, L4 detach the API's Custom Domain, the switch the own hostname buys (Q8 · Q-api-host). [operations.md](operations.md) owns the runbook.
 
 ## Cross-cutting concerns
 

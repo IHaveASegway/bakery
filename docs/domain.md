@@ -508,26 +508,26 @@ All of them live and die with the sandbox, so none needs pruning. A command and 
 
 **Simulated traffic starts stopped.** No `Simulator` exists at seed; a signed-in visitor's first "Start traffic" registers one (Q40 · Q-traffic).
 
-**Approximate rows written at seed**, for [cost.md](cost.md), which prices the same table:
+**Approximate rows written at seed, as built on 2026-11-06** (sources: `workers/api/src/objects/sandbox.rs` for the 36 children, `crates/seed/src/dispatch.rs` for the Dispatch; the other rows are PR 4's estimates, not recounted; the sum is 40 + 106 + 460 + 120 + 13 + 72 + 107 + 13 + 942 + 241 + 4 = 2,118), for [cost.md](cost.md), which prices the same table:
 
 | Object | Instances | Tables | Rows |
 |---|---|---|---|
-| Sandbox | 1 | meta, a registry of 34, the clock, timers | 38 |
+| Sandbox | 1 | meta, a registry of 36, the clock, timers (planned 34 and 38) | 40 |
 | Catalog | 1 | 5 categories, 24 items, 48 variants, 24 availability rules, the version, events | 106 |
-| Schedule | 7 | 32 slots, 6 windows, capacities, 5 plan lines each (the PR 4 estimate; the day's real rows are not counted yet, spike S5) | 322 |
+| Schedule | 10 | 32 slots, 6 windows, capacities, 5 plan lines each (the PR 4 estimate; the day's real rows are not counted yet, spike S5); 7 days and 3 catering days, planned 7 × 46 = 322 | 460 |
 | Order | 12 open | 3 events, state, 3 lines, a key, a timer, outbox rows each | 120 |
 | Kitchen | 1 | the board, a timer | 13 |
 | CateringEvent | 8 | 5 events, state, the quote, 2 timers each | 72 |
 | Billing | 1 | 90 daily totals, 16 deposits and balances | 107 |
-| Dispatch | 1 | the open deliveries' stops (2 for seed 42 born 2026-11-07), 1 proposal | 13 |
+| Dispatch | 1 | the open deliveries' stops (2 for seed 42 born 2026-11-07, both paid), 1 proposal: 5 events, with their outbox rows, a meta row and 2 timer rows (planned 10 stops, 2 plans) | 13 |
 | Crm | 1 | 720 history events, 60 customers, 60 loyalty rows, segments, memberships, campaigns | 942 |
 | Inbox | 1 | 240 messages | 241 |
 | Account, Control | shared | the sandbox pointer; the ledger | 4 |
 | Customer | 0 | created on first touch | 0 |
 | Simulator | 0 | created stopped, on the first "Start traffic" | 0 |
-| Total | 34 objects | | 1,978, about 2,000 |
+| Total | 37 objects (the Sandbox and 36 children) | | 2,118, about 2,100 (planned 34 objects, 1,978) |
 
-That is close to the 2,000 rows [cost.md](cost.md) starts from; spike S5 measures the real figure, wipe included.
+That is close to the 2,000 rows [cost.md](cost.md) starts from (the plan counted 1,978 for 34 objects; the 3 catering days and the larger registry add 140); spike S5 measures the real figure, wipe included.
 
 **As built in PR 6 (2026-11-05).** A sandbox now seeds 22 children in four batches: the Catalog, the Kitchen and `Billing`, then the 7 `Schedule` days, then the 12 open orders (`workers/api/src/objects/sandbox.rs`). A `Schedule` day holds its place for each open order under the order's own id.
 
@@ -558,13 +558,15 @@ The row estimates above were not measured again: the Schedule is now 10 objects,
 
 Where each Lab principle runs in Proof of Concept (Q33 · Q-principles). Every screen's tour links its lab page and its ADR, in the step that was the "How this works" drawer, and each lab page links back (Q32 · Q-links, Q41 · Q-tour).
 
+**As built in PR 12 (2026-11-06).** The table is the page `/how-its-built/` as data: `PRINCIPLE_TABLE` in `apps/web/src/lib/how-its-built.ts` holds one row per principle with its lab name and one ADR, `lib/links.ts` turns the lab name into the site's URL and the ADR number into its file on GitHub, and the tour's cards read the same objects, so a tour step and the page cannot link differently. The page has one section per row below, in this order, with the anchors `#queue`, `#cache`, `#backfill`, `#routes`, `#raft`, `#idempotency-keys`, `#sagas`, `#leases`, `#admission`, `#cqrs`, `#load` and `#time-travel`; idempotency keys on payments and webhooks has a section of its own, `#payment-keys`, and the Raft section also linked the essay at `/how-its-built/single-writer/`. **PR 14 (2026-11-06) gave every lab principle an essay:** `/how-its-built/outbox/` (Queue Lab), `/how-its-built/cache/` (Cache Lab), `/how-its-built/rebuild/` (Backfill Lab) and `/how-its-built/routes/` (Route Lab) join `/how-its-built/single-writer/` (Raft Lab), each section links its own by title, and a principle with no lab page has none. The five are in `ESSAYS` in `lib/links.ts`. Three more sections are not in this table because they are how the demo is run, not lab principles: `#sandbox`, `#no-personal-data` and `#api`. Where this table lists two ADRs the page links one: Queue 0004, Backfill 0003, admission control 0005, time travel 0004, and idempotency keys 0004 for commands and 0007 for payments. `scripts/check-links.mjs` fetches every external link the built pages hold, the lab pages and the ADRs among them, each Monday ([delivery.md](delivery.md#the-jobs-as-written)); on 2026-11-06 it found 22 and all answered 2xx. "The story" is unchanged: the About page says the same (Salt Lake City, the counter's 07:00 to 15:00 from the bakery day below, 63 stops on Saturdays, six venues, 60 customers, 64 places), and its "who built it" names nobody.
+
 | Lab page on the site | Principle | Where it runs | What the visitor can do to see it | ADR |
 |---|---|---|---|---|
-| Queue Lab, `/lab/queue/` | transactional outbox, idempotent consumer, dead-letter queue | every aggregate's `outbox`; `bakery-events`; the `seen` tables; `bakery-events-dlq` | turn on the Inbox fault, place an order, watch three retries, a dead letter and a redrive; resend a command with the same key | [0003](adr/0003-durable-objects-as-the-system-of-record.md), [0004](adr/0004-queues-between-objects-and-alarms-for-time.md) |
-| Cache Lab, `/lab/cache/` | cache invalidation by version | `Catalog`'s `ETag`; the Cache API keyed by sandbox and version; `MenuPublished` | change a price, publish, watch the version and the cache miss | [0003](adr/0003-durable-objects-as-the-system-of-record.md) |
-| Backfill Lab, `/lab/backfill/` | rebuilding derived data from a log | Crm's rebuild, batch by batch | press "Rebuild projections" and watch the cursor; compare stats before and after | [0003](adr/0003-durable-objects-as-the-system-of-record.md), [0004](adr/0004-queues-between-objects-and-alarms-for-time.md) |
-| Route Lab, `/lab/routes/` | vehicle routing, and computing where it is free | VROOM in the browser; Clarke–Wright in `Dispatch`; the object publishes | plan Saturday's 63 stops both ways, compare, publish one | [0012](adr/0012-delivery-dispatch.md) |
-| Raft Lab, `/lab/raft/` | consensus, and when it is unnecessary | an essay: a single-writer object needs no consensus | open two tabs and try to take the last place in a slot | [0003](adr/0003-durable-objects-as-the-system-of-record.md) |
+| Queue Lab, `/lab/queue/` | transactional outbox, idempotent consumer, dead-letter queue | every aggregate's `outbox`; `bakery-events`; the `seen` tables; `bakery-events-dlq`; the essay at `/how-its-built/outbox/` | turn on the Inbox fault, place an order, watch three retries, a dead letter and a redrive; resend a command with the same key | [0003](adr/0003-durable-objects-as-the-system-of-record.md), [0004](adr/0004-queues-between-objects-and-alarms-for-time.md) |
+| Cache Lab, `/lab/cache/` | cache invalidation by version | `Catalog`'s `ETag`; the Cache API keyed by sandbox and version; `MenuPublished`; the essay at `/how-its-built/cache/` | change a price, publish, watch the version and the cache miss | [0003](adr/0003-durable-objects-as-the-system-of-record.md) |
+| Backfill Lab, `/lab/backfill/` | rebuilding derived data from a log | Crm's rebuild, batch by batch; the essay at `/how-its-built/rebuild/` | press "Rebuild projections" and watch the cursor; compare stats before and after | [0003](adr/0003-durable-objects-as-the-system-of-record.md), [0004](adr/0004-queues-between-objects-and-alarms-for-time.md) |
+| Route Lab, `/lab/routes/` | vehicle routing, and computing where it is free | VROOM in the browser; Clarke–Wright in `Dispatch`; the object publishes; the essay at `/how-its-built/routes/` | plan Saturday's 63 stops both ways, compare, publish one | [0012](adr/0012-delivery-dispatch.md) |
+| Raft Lab, `/lab/raft/` | consensus, and when it is unnecessary | the essay at `/how-its-built/single-writer/`: a single-writer object needs no consensus | open two tabs and try to take the last place in a slot | [0003](adr/0003-durable-objects-as-the-system-of-record.md) |
 | none yet | idempotency keys | commands, Stripe calls, webhooks | "Send again" in the drawer replays a request with its key | [0004](adr/0004-queues-between-objects-and-alarms-for-time.md), [0007](adr/0007-stripe-sandbox-and-a-payment-element-that-collects-nothing.md) |
 | none yet | sagas by alarm | `CateringEvent` | run a catering job end to end with time travel | [0004](adr/0004-queues-between-objects-and-alarms-for-time.md) |
 | none yet | leases and TTLs | slot holds, the 36 h backstop, the nightly wipe | let a checkout lapse; watch the wipe countdown | [0005](adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md) |

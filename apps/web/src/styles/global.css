@@ -24,7 +24,94 @@ body {
 main {
   max-width: 40rem;
   margin: 0 auto;
-  padding: 4rem 1rem;
+  padding: 2.5rem 1rem 4rem;
+}
+
+/* The public shell (layouts/Base.astro): the name and the nav, the footer. Full-width rules, with
+   the content kept to 64rem by the padding, so nothing needs a wrapper. Colors from tokens only. */
+.skip-link {
+  position: absolute;
+  top: -4rem;
+  left: 1rem;
+  z-index: 30;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid var(--ring);
+  border-radius: var(--radius-md);
+  background: var(--background);
+}
+
+.skip-link:focus {
+  top: 1rem;
+}
+
+main:focus {
+  outline: none;
+}
+
+.site-header,
+.site-footer {
+  box-sizing: border-box;
+  padding-inline: max(1rem, calc((100% - 64rem) / 2));
+}
+
+.site-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 2rem;
+  padding-block: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.site-name {
+  color: var(--foreground);
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.site-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-nav a {
+  display: inline-block;
+  padding-block: 0.25rem;
+  color: var(--foreground);
+  font-family: var(--font-wide);
+  font-size: 0.9375rem;
+  text-decoration: none;
+}
+
+.site-nav a:hover,
+.site-nav a[aria-current='page'] {
+  color: var(--primary);
+  text-decoration-line: underline;
+  text-decoration-thickness: 0.125em;
+  text-underline-offset: 0.3em;
+}
+
+.site-footer {
+  padding-block: 1.5rem 2rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 0.9375rem;
+}
+
+.site-footer p {
+  margin: 0.75rem 0 0;
+}
+
+/* Room under the footer for the tour's docked button, so it never covers a footer link. */
+.site-footer.with-tour {
+  padding-bottom: 5rem;
 }
 
 h1 {
@@ -43,15 +130,16 @@ a:focus-visible {
 }
 
 /* Links inside running text carry an underline as well as the colour (WCAG 1.4.1). Navigation
-   lists, buttons and link-styled controls (.action, .api-index) keep the plain look. */
-:where(p, li, td, th, dd, dt, figcaption, blockquote, h4, h5, h6) a:not(.action, .api-index a) {
+   lists (.site-nav, .api-index), buttons and link-styled controls (.action) keep the plain look. */
+:where(p, li, td, th, dd, dt, figcaption, blockquote, h4, h5, h6)
+  a:not(.action, .api-index a, .site-nav a) {
   text-decoration-line: underline;
   text-decoration-thickness: 0.0625em;
   text-underline-offset: 0.2em;
 }
 
 :where(p, li, td, th, dd, dt, figcaption, blockquote, h4, h5, h6)
-  a:not(.action, .api-index a):hover {
+  a:not(.action, .api-index a, .site-nav a):hover {
   text-decoration-thickness: 0.125em;
 }
 
@@ -217,6 +305,80 @@ td {
 .asof {
   margin-top: 2.5rem;
   color: var(--muted-foreground);
+}
+
+/* Pages of running text (the home, About, How it's built, the essay): paragraphs and lists keep
+   a line's space between them, which the reset takes away. */
+.prose :where(p, ul, ol, dl) {
+  margin: 0 0 1rem;
+}
+
+/* The launch home: the one line, said large, and the steps to try it. */
+.statement {
+  font-size: 1.25rem;
+  line-height: 1.45;
+}
+
+.try-steps {
+  padding-left: 1.5rem;
+  list-style: decimal;
+}
+
+.try-steps li {
+  margin-bottom: 0.5rem;
+}
+
+/* How it's built: one section a principle. */
+.contents {
+  columns: 16rem;
+  padding-left: 1.25rem;
+}
+
+.principle {
+  margin-top: 2.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+  scroll-margin-top: 1rem;
+}
+
+.principle h3 {
+  margin-top: 0.75rem;
+  font-size: 1.25rem;
+}
+
+.principle dl {
+  grid-template-columns: 9rem 1fr;
+}
+
+.principle .links {
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 40rem) {
+  .principle dl {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The essay: a long read in the reading face. */
+.essay p,
+.essay li {
+  font-family: var(--font-reading);
+  font-size: 1.125rem;
+  line-height: 1.6;
+}
+
+.essay h2 {
+  font-size: 1.375rem;
+}
+
+.essay ul {
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+
+.sources li {
+  margin-bottom: 0.5rem;
 }
 
 /* The storefront (menu, cart, checkout) and the console's kitchen. Colors come from tokens only. */

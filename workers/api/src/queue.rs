@@ -42,6 +42,7 @@
 use std::cell::RefCell;
 
 use bakery_app::Clock;
+use bakery_app::analytics::{Event, Point};
 use bakery_app::names::sandbox_object_name;
 use bakery_app::routing::{Subscriber, deliver_to, reference, strip_for};
 use bakery_contracts::{CateringResponse, Flag, OrderResponse};
@@ -50,6 +51,7 @@ use worker::{Cache, Context, Env, MessageBatch, MessageExt, Method, Result, cons
 
 use crate::clock::SystemClock;
 use crate::http::menu_cache_key;
+use crate::metrics;
 use crate::objects::sandbox::{self, CustomerBirth, DeadLetterIn, DeliveryError, RegisterCustomer};
 use crate::objects::sql::{call, call_empty};
 use crate::objects::{
@@ -191,8 +193,11 @@ async fn consume(batch: &MessageBatch<String>, env: &Env) -> Result<()> {
             Ok(e) => e,
             Err(p) => {
                 console_log!("{{\"event\":\"poison\",\"reason\":\"{}\"}}", p.code());
-                if let Some(sandbox) = sandbox_of(&body) {
-                    let _ = write_dead_letter(env, sandbox, body, Some(p.code().into())).await;
+                if let Some(sandbox) = sandbox_of(&body)
+                    && let Ok(200) =
+                        write_dead_letter(env, sandbox, body, Some(p.code().into())).await
+                {
+                    metrics::write(env, &Point::one(Event::Dlq));
                 }
                 message.ack();
                 poisoned += 1;
@@ -779,6 +784,7 @@ async fn dead_letters(batch: &MessageBatch<String>, env: &Env) -> Result<()> {
         match write_dead_letter(env, sandbox, body, None).await {
             Ok(200) => {
                 console_log!("{{\"event\":\"dlq\",\"outcome\":\"kept\",\"id\":{id:?}}}");
+                metrics::write(env, &Point::one(Event::Dlq));
                 message.ack();
             }
             Ok(410) => {

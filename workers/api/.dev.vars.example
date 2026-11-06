@@ -59,3 +59,19 @@ STRIPE_API_VERSION=
 # STRIPE_API_BASE=http://127.0.0.1:8791
 # STRIPE_SECRET_KEY=rk_test_not_a_key
 # STRIPE_WEBHOOK_SECRET=whsec_not_a_secret
+
+# The status page's counters (PR 13): the 15-minute cron runs the kept Analytics Engine queries
+# with these two and stores the answer in Control. With either unset the refresh is skipped
+# (analytics_unconfigured) and GET /v1/status says counters_state "unavailable".
+# A Cloudflare account token with Account Analytics Read only.
+ANALYTICS_API_TOKEN=
+# The account the bakery_events dataset is in; a secret only because the logs are public.
+ANALYTICS_ACCOUNT_ID=
+# Local fake of the SQL API (scripts/fake-analytics.mjs, port 8792); loopback hosts only, as
+# above, and analytics_base_refused is logged for any other. Unset means
+# https://api.cloudflare.com/client/v4. With the fake running, these three lines point the
+# Worker at it; its token and account id are fakes, not secrets:
+# ANALYTICS_API_BASE=http://127.0.0.1:8792
+# ANALYTICS_API_TOKEN=fake-analytics-token
+# ANALYTICS_ACCOUNT_ID=0000000000000000000000000000fake
+ANALYTICS_API_BASE=

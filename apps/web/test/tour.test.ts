@@ -26,6 +26,18 @@ import {
 } from '../src/lib/tour';
 import { check, type Document, type Json, type Schema } from '../src/lib/schema-check';
 import { HOW } from '../src/tour/how';
+import { PRINCIPLES, PRINCIPLE_TABLE } from '../src/lib/how-its-built';
+import {
+  ESSAYS,
+  LAB_SLUGS,
+  NO_LAB,
+  adrFile,
+  adrUrl,
+  essayOf,
+  labUrl,
+  type LabName,
+} from '../src/lib/links';
+import { RAFT } from '../src/tour/principles';
 import { TOURS } from '../src/tour';
 
 interface Operation {
@@ -203,6 +215,91 @@ describe('events, principles and targets', () => {
         `${step.id}: ADR ${step.principle.adr}`,
       ).toBe(true);
     }
+  });
+
+  // The site's five lab pages (IHaveASegway/website, apps/web/src/pages/lab/, read 2026-11-06).
+  const LAB_PAGES = [
+    'https://ihaveasegway.com/lab/queue/',
+    'https://ihaveasegway.com/lab/cache/',
+    'https://ihaveasegway.com/lab/backfill/',
+    'https://ihaveasegway.com/lab/raft/',
+    'https://ihaveasegway.com/lab/routes/',
+  ];
+
+  test('every principle with a lab page links one of the five, and one with none links no lab', () => {
+    for (const step of allSteps) {
+      const { lab, labUrl } = step.principle;
+      if (lab === 'none yet') expect(labUrl, step.id).toBeUndefined();
+      else expect(LAB_PAGES, `${step.id}: ${lab}`).toContain(labUrl);
+    }
+    // And the map of names to slugs is the map of the five pages, one to one.
+    expect(Object.keys(LAB_SLUGS).map((name) => labUrl(name as LabName))).toEqual(
+      expect.arrayContaining(LAB_PAGES),
+    );
+    expect(Object.keys(LAB_SLUGS)).toHaveLength(LAB_PAGES.length);
+    expect(labUrl(NO_LAB)).toBeUndefined();
+  });
+
+  test('every ADR URL names a file that exists in docs/adr/, on main', () => {
+    const adrs = new Set(
+      readdirSync(fileURLToPath(new URL('../../../docs/adr/', import.meta.url))),
+    );
+    const prefix = 'https://github.com/IHaveASegway/bakery/blob/main/docs/adr/';
+    for (const step of allSteps) {
+      const { adr, adrUrl } = step.principle;
+      expect(adrUrl.startsWith(prefix), step.id).toBe(true);
+      const file = adrUrl.slice(prefix.length);
+      expect(adrs.has(file), `${step.id}: ${file}`).toBe(true);
+      expect(file.startsWith(`${adr}-`), step.id).toBe(true);
+    }
+  });
+
+  test('the ADR file names come from the directory, and an unknown number is an error', () => {
+    expect(adrFile('0004')).toBe('0004-queues-between-objects-and-alarms-for-time.md');
+    expect(() => adrFile('0999')).toThrow(/no ADR numbered 0999/);
+    expect(() => adrFile('4')).toThrow();
+    expect(adrUrl('0001', ['0001-a-made-up-record.md'])).toBe(
+      'https://github.com/IHaveASegway/bakery/blob/main/docs/adr/0001-a-made-up-record.md',
+    );
+  });
+
+  test('every principle links its own section of How it’s built, and a lab principle its essay', () => {
+    for (const step of allSteps) {
+      expect(step.principle.howUrl, step.id).toBe(`/how-its-built/#${step.principle.id}`);
+      expect(step.principle.essay !== undefined, step.id).toBe(step.principle.lab !== 'none yet');
+      const essay = essayOf(step.principle.id);
+      expect(step.principle.essay, step.id).toEqual(
+        essay === undefined ? undefined : { url: essay.path, title: essay.title },
+      );
+    }
+    expect(RAFT.essay).toEqual({
+      url: '/how-its-built/single-writer/',
+      title: 'Why a single-writer object needs no consensus',
+    });
+    // Every essay is reached from at least one tour step.
+    const reached = new Set(
+      allSteps.flatMap((s) => (s.principle.essay ? [s.principle.essay.url] : [])),
+    );
+    expect([...reached].sort()).toEqual(
+      Object.values(ESSAYS)
+        .map((e) => e.path)
+        .sort(),
+    );
+  });
+
+  test('every principle is used by at least one tour step', () => {
+    const used = new Set(allSteps.map((s) => s.principle.id));
+    const unused = PRINCIPLE_TABLE.map((p) => p.id).filter((id) => !used.has(id));
+    expect(unused).toEqual([]);
+    // The six that PR 12 says must each have a step (docs/roadmap.md, PR 12).
+    for (const id of ['idempotency-keys', 'sagas', 'leases', 'admission', 'cqrs', 'time-travel']) {
+      expect(used.has(id), id).toBe(true);
+    }
+  });
+
+  test('a step’s principle is the page’s principle, the same object, not a copy', () => {
+    for (const step of allSteps)
+      expect(step.principle, step.id).toBe(PRINCIPLES[step.principle.id]);
   });
 
   test('every step’s target is a data-tour attribute that exists in a component or page', () => {
