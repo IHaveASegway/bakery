@@ -1,4 +1,4 @@
-//! Analytics Engine as data: the seven data points the Worker and its objects write, the kept
+//! Analytics Engine as data: the eight data points the Worker and its objects write, the kept
 //! queries the status page's counters come from, the SQL API's request and the reader of its
 //! answers (docs/operations.md, "Observability"; docs/cost.md, Analytics Engine).
 //!
@@ -51,10 +51,12 @@ pub enum Event {
     Wipe,
     /// The dead-letter writer kept a message.
     Dlq,
+    /// The 15-minute cron breaker raised its state (PR 17). Not a counted event.
+    Breaker,
 }
 
 impl Event {
-    pub const ALL: [Event; 7] = [
+    pub const ALL: [Event; 8] = [
         Event::SandboxCreated,
         Event::OrderPlaced,
         Event::PaymentSucceeded,
@@ -62,6 +64,7 @@ impl Event {
         Event::RefundIssued,
         Event::Wipe,
         Event::Dlq,
+        Event::Breaker,
     ];
 
     /// The name in the point's blob and index, and in the kept queries.
@@ -74,6 +77,7 @@ impl Event {
             Event::RefundIssued => "refund_issued",
             Event::Wipe => "wipe",
             Event::Dlq => "dlq",
+            Event::Breaker => "breaker",
         }
     }
 }
@@ -99,6 +103,15 @@ impl Point {
         Point {
             event: Event::Wipe,
             doubles: vec![f64::from(sandboxes), f64::from(objects), ms as f64],
+        }
+    }
+
+    /// The breaker's point: `double1` the level it rose to (1 `read-only`, 2 `off`), `double2`
+    /// the window's price in dollars.
+    pub fn breaker(level: u8, usd_micros: u64) -> Point {
+        Point {
+            event: Event::Breaker,
+            doubles: vec![f64::from(level), usd_micros as f64 / 1_000_000.0],
         }
     }
 
@@ -399,7 +412,8 @@ mod tests {
                 "payment_failed",
                 "refund_issued",
                 "wipe",
-                "dlq"
+                "dlq",
+                "breaker"
             ]
         );
         let p = Point::one(Event::OrderPlaced);
@@ -409,6 +423,9 @@ mod tests {
         let w = Point::wipe(7, 133, 4_210);
         assert_eq!(w.blobs(), ["wipe"]);
         assert_eq!(w.doubles, [7.0, 133.0, 4_210.0]);
+        let b = Point::breaker(2, 150_000);
+        assert_eq!(b.blobs(), ["breaker"]);
+        assert_eq!(b.doubles, [2.0, 0.15]);
     }
 
     #[test]
@@ -427,6 +444,8 @@ mod tests {
             assert!(COUNTS_24H.sql.contains(&format!("'{}'", e.name())), "{e:?}");
         }
         assert!(!COUNTED.contains(&Event::Wipe));
+        assert!(!COUNTED.contains(&Event::Breaker));
+        assert!(!COUNTS_24H.sql.contains("'breaker'"));
         assert_eq!(
             LAST_WIPE.sql,
             "SELECT timestamp AS at, double1 AS sandboxes, double2 AS objects, double3 AS ms FROM bakery_events WHERE index1 = 'wipe' ORDER BY timestamp DESC LIMIT 1 FORMAT JSON"

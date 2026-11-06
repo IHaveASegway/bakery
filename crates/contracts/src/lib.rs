@@ -136,6 +136,64 @@ pub enum CountersState {
     Unavailable,
 }
 
+/// The 15-minute cron breaker, as `Control` keeps it (kill switch L0; docs/cost.md,
+/// "Guardrails"). Every property is sent, `null` or empty when there is nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(transform = require_every_property)]
+pub struct BreakerStatus {
+    /// `unconfigured` until the breaker's first configured run, then `armed`, `read-only` or
+    /// `off`. It only rises; a person resets it.
+    pub state: BreakerState,
+    /// When the state last changed, an RFC 3339 UTC time; `null` while `unconfigured`.
+    pub since: Option<String>,
+    /// When the last run's window was handed to `Control`, an RFC 3339 UTC time.
+    pub last_run: Option<String>,
+    /// The last window's usage priced in dollars with four decimals, such as `"0.0123"`.
+    pub last_usd: Option<String>,
+    /// The meters the last run could not read, counted as 0, such as `["rows_written"]`.
+    pub unread: Vec<String>,
+}
+
+/// The breaker's state, in the order it rises.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "kebab-case")]
+pub enum BreakerState {
+    /// No run has had its token, ids and lines: the status keeps saying so.
+    Unconfigured,
+    /// Running, and no window has crossed a line.
+    Armed,
+    /// A window crossed a line: the flag was raised to `read-only`.
+    ReadOnly,
+    /// A window crossed the `off` line, or crossed a line again after `read-only`: the flag is
+    /// `off` and the WAF kill rule is enabled.
+    Off,
+}
+
+impl BreakerState {
+    /// The text stored in `Control`'s `breaker_state` table, the same as on the wire.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BreakerState::Unconfigured => "unconfigured",
+            BreakerState::Armed => "armed",
+            BreakerState::ReadOnly => "read-only",
+            BreakerState::Off => "off",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<BreakerState> {
+        match text {
+            "unconfigured" => Some(BreakerState::Unconfigured),
+            "armed" => Some(BreakerState::Armed),
+            "read-only" => Some(BreakerState::ReadOnly),
+            "off" => Some(BreakerState::Off),
+            _ => None,
+        }
+    }
+}
+
 /// The demo's mode, set in `Control` (kill switch L1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
