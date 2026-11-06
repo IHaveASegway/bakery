@@ -143,12 +143,11 @@ const SOURCES = [
       was meant would place an order nobody asked for.
     </p>
     <p>
-      A replay can be out of date. A hold released by its timer or by the compensation after the
-      Order refused would replay a stale “held”. The day therefore decides such a key again, as{' '}
-      <code>Retake</code>: the same place is held again with the retry’s own 15 minutes when there
-      is room, or the retry is refused with 409 <code>hold-lost</code>, naming the next free slot
-      (the hardening after PR 13, 2026-11-06, <code>workers/api/src/objects/schedule.rs</code>). The
-      release key carries the hold’s expiry, so a place taken again can be given back again.
+      A replay can be out of date. A hold released by its timer, or given back after the Order
+      refused, would replay a stale “held”. Since the hardening of 2026-11-06 the day decides such a
+      key again, as <code>Retake</code>: the same place is held again with the retry’s own 15
+      minutes when there is room, or the retry is refused with 409 <code>hold-lost</code>, naming
+      the next free slot.
     </p>
 
     <h2>The second edge: Stripe’s keys and Stripe’s clock</h2>
