@@ -242,7 +242,7 @@ write_dev_vars() {
     echo "ALLOWED_ORIGIN=$STOREFRONT"
     echo "API_ORIGIN=$BASE"
     echo "STRIPE_API_BASE=$STRIPE"
-    echo "STRIPE_SECRET_KEY=$STRIPE_KEY"
+    if [[ -n "${KEY_LINE:-}" ]]; then echo "$KEY_LINE"; fi
     echo "STRIPE_WEBHOOK_SECRET=$WEBHOOK_SECRET"
     echo "STRIPE_PUBLISHABLE_KEY=$PUBLISHABLE"
   } > "$DEV_VARS"
@@ -251,10 +251,16 @@ write_dev_vars() {
 
 if [[ -n "${WRANGLER:-}" ]]; then run_wrangler=(npx --yes "$WRANGLER"); else run_wrangler=(pnpm exec wrangler); fi
 
+# start_worker [PHASE]: a Worker on a state directory of its own and a .dev.vars whose
+# STRIPE_SECRET_KEY line is $KEY_LINE (the fake's sandbox key unless the phase sets another, or
+# none), then waits for health.
+KEY_LINE="STRIPE_SECRET_KEY=$STRIPE_KEY"
 start_worker() {
+  local phase="${1:-main}"
   write_dev_vars
   STATE="$TMP/state"
-  echo "--- starting ${run_wrangler[*]} dev on $BASE"
+  if [[ "$phase" != main ]]; then STATE="$TMP/state-$phase"; fi
+  echo "--- starting ${run_wrangler[*]} dev on $BASE ($phase)"
   local start_ms; start_ms="$(now_ms)"
   set -m
   (cd "$ROOT/workers/api" && exec "${run_wrangler[@]}" dev --local --ip 127.0.0.1 --port "$PORT" \
@@ -271,8 +277,9 @@ start_worker() {
     sleep 0.2
   done
   echo "first 200 after $(( $(now_ms) - start_ms )) ms"
-  echo "=== Worker ready" >> "$LOG"
+  echo "=== $phase: Worker ready" >> "$LOG"
 }
+stop_worker() { stop_pid "$SERVER_PID"; SERVER_PID=""; }
 
 
 # The bakery's calendar, in Node: America/Denver through Intl, closed Mondays (docs/domain.md,
@@ -377,6 +384,22 @@ signup() {
   SID="$(json_field "sandbox_$1" b.id)"
 }
 
+# refused NAME JAR IP SANDBOX CID PATH BODY STATUS RULE: a command the event's state refuses.
+# The answer is the catering problem naming RULE, and the event read after is byte for byte the
+# one read before, its log holding as many events as before.
+refused() {
+  local name="$1" jar_name="$2" ip="$3" id="$4" cid="$5" path="$6" body="$7" status="$8" rule="$9"
+  local object="catering:$id:$cid" before after
+  get_as "${name}_before" "$jar_name" "/v1/sandboxes/$id/catering/$cid"
+  before="$(sql_count CateringEvent "$object" "SELECT count(*) AS n FROM events")"
+  command_as "$name" "$jar_name" "$ip" POST "/v1/sandboxes/$id/catering/$cid/$path" "$body"
+  expect_problem "$name" "$status" catering
+  expect_json "$name" "new RegExp('\\\\b$rule\\\\b').test(b.detail)"
+  get_as "${name}_after" "$jar_name" "/v1/sandboxes/$id/catering/$cid"
+  after="$(sql_count CateringEvent "$object" "SELECT count(*) AS n FROM events")"
+  check "$name: the event, $(json_field "${name}_before" b.state), reads byte for byte as before and its log holds the same $before events" "cmp -s '$TMP/${name}_before.body' '$TMP/${name}_after.body' && (( $before == $after && $before > 0 ))"
+}
+
 # ---------- start ----------
 
 echo "starting the fake providers on $FAKE and the fake Stripe on $STRIPE"
@@ -437,6 +460,15 @@ for hc in 9 201; do
   expect_problem "headcount_$hc" 422 catering
   expect_json "headcount_$hc" "/\\bheadcount\\b/.test(b.detail)"
 done
+# A date that is not a day: right in shape but not on the calendar, and not a date at all.
+get_as list_before_date D "/v1/sandboxes/$AID/catering"
+for bad in 2026-02-30 tomorrow; do
+  command_as "date_$bad" D 192.0.2.92 POST "/v1/sandboxes/$AID/catering" "$(inquiry "$bad" 40)"
+  expect_problem "date_$bad" 422 catering
+  expect_json "date_$bad" "b.detail === 'The date is not a day such as 2026-11-21. The rule is date.' && !b.detail.includes('$bad')"
+done
+get_as list_after_date D "/v1/sandboxes/$AID/catering"
+check "the two refused dates registered no event: the list is as it was" "cmp -s '$TMP/list_before_date.body' '$TMP/list_after_date.body'"
 BRIEF_EMAIL="Questions to planner.mx7q@example.com please"
 BRIEF_PHONE="Call the venue on 801-555-0142 first"
 BRIEF_CARD="Bill card 4242 4242 4242 4242 for it"
@@ -603,6 +635,39 @@ get_as ledger_q E "/v1/sandboxes/$BID/billing/ledger"
 expect_json ledger_q "!b.entries.some(e => e.ref === '$Q' && e.kind === 'refund')"
 check "q, cancelled 3 days out, has no timer row left" "(( $(timers_of "$BID" "$Q") == 0 ))"
 
+# ---------- the refusals of the staff steps and a quote's total, on sandbox a ----------
+
+# Each step the event's state refuses is driven here with the event in a state that does not
+# take it: Y was lapsed back to quoted above, X closed, W invoiced, and the seed's confirmed event
+# has not started production. A refusal changes nothing (see `refused`).
+get_as a_list D "/v1/sandboxes/$AID/catering"
+SEED_INQ="$(json_field a_list "b.events.find(e => e.state === 'inquiry').catering")"
+SEED_CONF="$(json_field a_list "b.events.find(e => e.state === 'confirmed').catering")"
+get_as y_now D "/v1/sandboxes/$AID/catering/$Y"
+get_as x_now D "/v1/sandboxes/$AID/catering/$X"
+get_as w_now D "/v1/sandboxes/$AID/catering/$W"
+check "the states the refusals rely on: Y quoted, X closed, W invoiced, a seeded event confirmed and one an inquiry" "[[ '$(json_field y_now b.state)' == quoted && '$(json_field x_now b.state)' == closed && '$(json_field w_now b.state)' == invoiced && -n '$SEED_CONF' && -n '$SEED_INQ' ]]"
+DECLINE='{"reason":"other"}'
+CANCEL='{"reason":"other"}'
+refused decline_quoted D 192.0.2.92 "$AID" "$Y" decline "$DECLINE" 409 out-of-order
+refused decline_closed D 192.0.2.92 "$AID" "$X" decline "$DECLINE" 409 out-of-order
+refused production_quoted D 192.0.2.92 "$AID" "$Y" start-production "" 409 out-of-order
+refused production_closed D 192.0.2.92 "$AID" "$X" start-production "" 409 out-of-order
+refused delivered_confirmed D 192.0.2.92 "$AID" "$SEED_CONF" delivered "" 409 out-of-order
+refused delivered_quoted D 192.0.2.92 "$AID" "$Y" delivered "" 409 out-of-order
+refused cancel_quoted D 192.0.2.92 "$AID" "$Y" cancel "$CANCEL" 409 out-of-order
+refused cancel_invoiced D 192.0.2.92 "$AID" "$W" cancel "$CANCEL" 409 out-of-order
+refused staff_cancel_quoted D 192.0.2.92 "$AID" "$Y" staff-cancel "$CANCEL" 409 out-of-order
+refused staff_cancel_closed D 192.0.2.92 "$AID" "$X" staff-cancel "$CANCEL" 409 out-of-order
+# A quote's total of 0 or less is refused on an event that is still an inquiry (any other state
+# is out of order first), naming the rule and nothing else of the request.
+for total in 0 -500; do
+  refused "quote_total_$total" D 192.0.2.92 "$AID" "$SEED_INQ" quote "{\"total_cents\":$total}" 422 quote-total
+  expect_json "quote_total_$total" "b.detail === \"A quote's total is at least 1 cent. The rule is quote-total.\""
+done
+get_as seed_inq_after D "/v1/sandboxes/$AID/catering/$SEED_INQ"
+expect_json seed_inq_after "b.state === 'inquiry' && !b.total_cents"
+
 # ---------- the seed's quote expires after 14 business days ----------
 
 # A fresh quote cannot expire under the clock's 14-day cap (14 business days are 16 or more
@@ -695,6 +760,59 @@ set -e
 check "list-objects exits 0 after the wipe, the CateringEvents included" "(( LIST_EXIT == 0 )) && grep -q '\"class\":\"CateringEvent\"' '$TMP/list.out'"
 check "no alarm_guard was logged" "! log_has '\"event\":\"alarm_guard\"'"
 check "no brief's text reached the Worker's log" "! grep -qE 'Gluten-free|example\\.com|555-0142|4242 4242' '$LOG'"
+
+# ---------- a key of the other mode, and no key: the catering payment routes ----------
+
+# Two more Workers, each on a state of its own, with the fake Stripe still up. The guard is the
+# first thing `deposit` and `pay-balance` run after the session, so a seeded accepted event and a
+# seeded invoiced event are enough: neither moves, and nothing reaches the fake.
+# Put together here, so the prefix is in no file: Stripe's secret-key prefix with the mode word
+# the bakery never uses (as scripts/smoke-payments.sh does).
+MODE="$(printf '%s%s' li ve)"
+OTHER_KEY="sk_${MODE}_fake000000000000000000000000"
+stripe_phase() {
+  local phase="$1" want_type="$2"
+  LOG_FROM="$(wc -l < "$LOG")"
+  stop_worker
+  start_worker "$phase"
+  request "health_$phase" "$BASE/v1/health"
+  expect_status "health_$phase" 200
+  command_as "guest_$phase" "K$phase" 192.0.2.97 POST /v1/sandboxes '{"turnstile_token":"pass-1","replace":false}'
+  expect_status "guest_$phase" 201
+  local sid; sid="$(json_field "guest_$phase" b.id)"
+  check "$phase: seeding reaches live" "wait_live ${phase}_live 'K$phase' '$sid'"
+  get_as "${phase}_list" "K$phase" "/v1/sandboxes/$sid/catering"
+  expect_status "${phase}_list" 200
+  local acc inv
+  acc="$(json_field "${phase}_list" "b.events.find(e => e.state === 'accepted').catering")"
+  inv="$(json_field "${phase}_list" "b.events.find(e => e.state === 'invoiced').catering")"
+  check "$phase: the seed's accepted and invoiced events are there" "[[ -n '$acc' && -n '$inv' ]]"
+  get_as "${phase}_acc_before" "K$phase" "/v1/sandboxes/$sid/catering/$acc"
+  get_as "${phase}_inv_before" "K$phase" "/v1/sandboxes/$sid/catering/$inv"
+  stripe_requests "${phase}_reqs_before"
+  KEY="$acc" command_as "deposit_$phase" "K$phase" 192.0.2.97 POST "/v1/sandboxes/$sid/catering/$acc/deposit"
+  expect_problem "deposit_$phase" 503 "$want_type"
+  KEY="$inv" command_as "balance_$phase" "K$phase" 192.0.2.97 POST "/v1/sandboxes/$sid/catering/$inv/pay-balance"
+  expect_problem "balance_$phase" 503 "$want_type"
+  KEY="$(ulid)" command_as "deposit_unknown_$phase" "K$phase" 192.0.2.97 POST "/v1/sandboxes/$sid/catering/01JC8Z6K3W9QF2N4T7XRB5M0HD/deposit"
+  expect_problem "deposit_unknown_$phase" 503 "$want_type"
+  get_as "${phase}_acc_after" "K$phase" "/v1/sandboxes/$sid/catering/$acc"
+  get_as "${phase}_inv_after" "K$phase" "/v1/sandboxes/$sid/catering/$inv"
+  check "$phase: the accepted and the invoiced event read as they did, and the guard ran before the event was looked up" "cmp -s '$TMP/${phase}_acc_before.body' '$TMP/${phase}_acc_after.body' && cmp -s '$TMP/${phase}_inv_before.body' '$TMP/${phase}_inv_after.body'"
+  stripe_requests "${phase}_reqs_after"
+  check "$phase: no request reached the fake Stripe" "cmp -s '$TMP/${phase}_reqs_before.body' '$TMP/${phase}_reqs_after.body'"
+  tail -n "+$((LOG_FROM + 1))" "$LOG" > "$TMP/$phase.log"
+}
+
+KEY_LINE="STRIPE_SECRET_KEY=$OTHER_KEY"
+stripe_phase other-mode stripe-key
+REFUSED="$(grep -c '"event":"stripe_key_refused"' "$TMP/other-mode.log" || true)"
+check "other-mode: stripe_key_refused is logged once, naming the key's kind and never the key" "(( REFUSED == 1 )) && grep -q '\"event\":\"stripe_key_refused\",\"kind\":\"other-mode\"' '$TMP/other-mode.log' && ! grep -qF -- '$OTHER_KEY' '$TMP/other-mode.log'"
+
+KEY_LINE=""
+stripe_phase absent config
+expect_json deposit_absent "b.detail.includes('STRIPE_SECRET_KEY')"
+expect_json balance_absent "b.detail.includes('STRIPE_SECRET_KEY')"
 
 echo
 if (( FAILURES > 0 )); then

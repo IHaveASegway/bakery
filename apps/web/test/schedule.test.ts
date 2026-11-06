@@ -179,6 +179,33 @@ describe('a slot that filled first', () => {
     expect(slotConflict(error)).toEqual({ next_free: null });
   });
 
+  test('409 hold-lost offers its next free start as slot-full does, and else says what the API said', async () => {
+    fake = fakeFetch([
+      problem(409, 'hold-lost', 'The place this order held was given back', {
+        detail:
+          'The place this order held was given back before the order was placed, and that time is full now; the next free start that day is 2026-11-07T10:15:00-07:00. The rule is hold-lost.',
+        next_free: '2026-11-07T10:15:00-07:00',
+      }),
+      problem(409, 'hold-lost', 'The place this order held was given back', {
+        detail:
+          'The place this order held was given back before the order was placed, and there is no room for it now. The rule is hold-lost.',
+      }),
+    ]);
+    const first = await placeOrder('01JC8YV2D4QK7S1M9E3PZ6W8AN', ORDER, 'K5').catch(
+      (e: unknown) => e,
+    );
+    expect(slotConflict(first)).toEqual({ next_free: '2026-11-07T10:15:00-07:00' });
+    const second = await placeOrder('01JC8YV2D4QK7S1M9E3PZ6W8AN', ORDER, 'K5').catch(
+      (e: unknown) => e,
+    );
+    expect(slotConflict(second)).toBeNull();
+    expect(describeOrderError(second)).toEqual({
+      title: 'The place this order held was given back',
+      detail:
+        'The place this order held was given back before the order was placed, and there is no room for it now. The rule is hold-lost.',
+    });
+  });
+
   test('item-cap and other 409s are not a slot conflict, and say what the API said', async () => {
     fake = fakeFetch([
       problem(409, 'item-cap', 'Sold out for that day', {

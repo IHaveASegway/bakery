@@ -5,7 +5,9 @@
 # presence, its limits and its hibernation), the console's heartbeat, simulated traffic and
 # Control's minute ledger, and the wipe of every child. Since PR 5 the Simulator pays each order
 # it places, so the script also starts scripts/fake-stripe.mjs and points the Worker at it; the
-# payment paths themselves are scripts/smoke-payments.sh's. It proves each line of docs/roadmap.md's
+# payment paths themselves are scripts/smoke-payments.sh's. Since the hardening after PR 13 it also
+# drives a retried placement whose place was given back: 409 `hold-lost` with no room, and with
+# room the place held again and the order placed on it. It proves each line of docs/roadmap.md's
 # PR 4 "Done when" that can be proven locally, prints ok or FAIL per check as
 # scripts/smoke-auth.sh does, and exits non-zero on any failure.
 #
@@ -459,8 +461,56 @@ expect_json pause "b.version === 3"
 command_as paused_order D 192.0.2.42 POST "/v1/sandboxes/$DID/orders" "{\"kind\":\"pickup\",\"slot\":\"$DSLOT\",\"lines\":[{\"variant\":\"$DVARIANT\",\"qty\":1}]}"
 expect_problem paused_order 422 order
 expect_json paused_order "b.detail.includes('item-paused')"
+
+# A retried placement whose place was given back (the hardening after PR 13). While the item is
+# paused, a key's first attempt is refused before any hold; its retry is not decided first, so the
+# day holds the place and the Order refuses: the place is given back and no Order exists. A later
+# retry with the key must not place the order on that released hold: with no room it is 409
+# `hold-lost`, with room the place is held again and the order placed on it.
+LOST_DAY="${DSLOT:0:10}"
+LOST_HHMM="${DSLOT:11:5}"
+LOST_ORDER="{\"kind\":\"pickup\",\"slot\":\"$DSLOT\",\"lines\":[{\"variant\":\"$DVARIANT\",\"qty\":1}]}"
+slot_taken() { json_field "$1" "b.slots.find(s => s.start === '$DSLOT').$2"; }
+get_as lost_day_0 D "/v1/sandboxes/$DID/schedule/$LOST_DAY"
+LOST_TAKEN="$(slot_taken lost_day_0 taken)"
+LOST_CAP="$(slot_taken lost_day_0 capacity)"
+LOST_KEY="$(ulid)"
+FULL_KEY="$(ulid)"
+for k in LOST FULL; do
+  key_var="${k}_KEY"
+  KEY="${!key_var}" command_as "${k,,}_first" D 192.0.2.42 POST "/v1/sandboxes/$DID/orders" "$LOST_ORDER"
+  KEY="${!key_var}" command_as "${k,,}_retry" D 192.0.2.42 POST "/v1/sandboxes/$DID/orders" "$LOST_ORDER"
+  expect_problem "${k,,}_first" 422 order
+  expect_problem "${k,,}_retry" 422 order
+  expect_json "${k,,}_retry" "b.detail.includes('item-paused')"
+done
+get_as lost_day_1 D "/v1/sandboxes/$DID/schedule/$LOST_DAY"
+check "the two retries' places were given back: $DSLOT still has $LOST_TAKEN taken" "[[ '$(slot_taken lost_day_1 taken)' == '$LOST_TAKEN' ]]"
 command_as resume D 192.0.2.42 PATCH "/v1/sandboxes/$DID/menu/items/$DITEM" '{"status":"available"}'
 expect_json resume "b.version === 4"
+# No room: the slot cut to the places it holds, and the retry is refused naming the lost hold.
+command_as lost_cut D 192.0.2.42 PATCH "/v1/sandboxes/$DID/schedule/$LOST_DAY/capacity" "{\"target\":\"slot:$LOST_HHMM\",\"capacity\":$LOST_TAKEN}"
+expect_status lost_cut 200
+KEY="$FULL_KEY" command_as full_lost D 192.0.2.42 POST "/v1/sandboxes/$DID/orders" "$LOST_ORDER"
+expect_problem full_lost 409 hold-lost
+expect_json full_lost "b.detail.includes('given back') && b.detail.includes('The rule is hold-lost.') && (b.next_free === undefined || b.detail.includes(b.next_free))"
+get_as full_day D "/v1/sandboxes/$DID/schedule/$LOST_DAY"
+check "the refused retry held nothing: $DSLOT still has $LOST_TAKEN taken" "[[ '$(slot_taken full_day taken)' == '$LOST_TAKEN' ]]"
+command_as lost_uncut D 192.0.2.42 PATCH "/v1/sandboxes/$DID/schedule/$LOST_DAY/capacity" "{\"target\":\"slot:$LOST_HHMM\",\"capacity\":$LOST_CAP}"
+expect_status lost_uncut 200
+# Room again: the retry holds the place anew and the Order is placed on that live hold.
+KEY="$LOST_KEY" command_as lost_placed D 192.0.2.42 POST "/v1/sandboxes/$DID/orders" "$LOST_ORDER"
+expect_status lost_placed 201
+expect_json lost_placed "b.status === 'placed' && Date.parse(b.held_until) - Date.parse(b.placed_at) === 900000 && Date.parse(b.held_until) > Date.now()"
+get_as lost_day_2 D "/v1/sandboxes/$DID/schedule/$LOST_DAY"
+check "the placed retry holds a live place: $DSLOT taken $LOST_TAKEN to $(slot_taken lost_day_2 taken)" "[[ '$(slot_taken lost_day_2 taken)' == '$((LOST_TAKEN + 1))' ]]"
+KEY="$LOST_KEY" command_as lost_again D 192.0.2.42 POST "/v1/sandboxes/$DID/orders" "$LOST_ORDER"
+expect_status lost_again 200
+expect_header lost_again idempotent-replayed true
+expect_json lost_again "b.id === '$(json_field lost_placed b.id)'"
+get_as lost_day_3 D "/v1/sandboxes/$DID/schedule/$LOST_DAY"
+check "the replay asked for no second place" "[[ '$(slot_taken lost_day_3 taken)' == '$((LOST_TAKEN + 1))' ]]"
+check "the Schedule logged the place taken again" "log_has '\"event\":\"hold_retaken\"'"
 
 # Cancel, before payment.
 command_as to_cancel G 192.0.2.41 POST "/v1/sandboxes/$GID/orders" "{\"kind\":\"pickup\",\"slot\":\"$SLOT\",\"lines\":[{\"variant\":\"$VARIANT\",\"qty\":1}]}"
