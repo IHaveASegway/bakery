@@ -78,23 +78,11 @@ describe('the sections and the tour’s principles', () => {
     expect(() => principle('no-such-principle')).toThrow(/no How it's built section/);
   });
 
-  test('the five lab principles and four with no lab page have their essays, at their paths and by their titles, and no other principle has one', () => {
+  test('every principle has its essay, at its path and by its title', () => {
     const withEssay = Object.values(PRINCIPLES).filter((p) => p.essay !== undefined);
-    expect(withEssay.map((p) => p.id)).toEqual([
-      'queue',
-      'cache',
-      'backfill',
-      'routes',
-      'raft',
-      'idempotency-keys',
-      'payment-keys',
-      'sagas',
-      'leases',
-      'admission',
-    ]);
-    expect(Object.keys(ESSAYS)).toEqual(withEssay.map((p) => p.id));
-    // Every lab principle has one, whatever else does.
-    for (const s of sections().filter((x) => x.group === 'lab')) {
+    expect(withEssay.map((p) => p.id)).toEqual(PRINCIPLE_TABLE.map((p) => p.id));
+    expect(Object.keys(ESSAYS)).toEqual(PRINCIPLE_TABLE.map((p) => p.id));
+    for (const s of sections()) {
       expect(PRINCIPLES[s.id]?.essay, s.id).toBeDefined();
     }
     for (const p of withEssay) {
@@ -103,8 +91,10 @@ describe('the sections and the tour’s principles', () => {
       expect(essayUrl(p.id), p.id).toBe(essay.path);
       expect(essay.path, p.id).toMatch(/^\/how-its-built\/[a-z-]+\/$/);
     }
-    // The two idempotency principles share one page; every other page is one principle's.
+    // Three pairs of principles share a page; every other page is one principle's.
     expect(ESSAYS['payment-keys']).toEqual(ESSAYS['idempotency-keys']);
+    expect(ESSAYS.load).toEqual(ESSAYS.cqrs);
+    expect(ESSAYS['no-personal-data']).toEqual(ESSAYS.sandbox);
     expect(ESSAY_PAGES).toEqual([
       { path: '/how-its-built/outbox/', title: 'Why a paid order is never lost and never doubled' },
       { path: '/how-its-built/cache/', title: 'Why the menu is cached by version, not by time' },
@@ -130,9 +120,17 @@ describe('the sections and the tour’s principles', () => {
         path: '/how-its-built/admission/',
         title: 'Why a refusal is the cheapest thing the bakery does',
       },
+      {
+        path: '/how-its-built/lag/',
+        title: 'Why the CRM trails the orders, and why you can watch it',
+      },
+      { path: '/how-its-built/time-travel/', title: 'Why the bakery’s clock is yours to move' },
+      { path: '/how-its-built/sandbox/', title: 'Why nothing here is real, by construction' },
+      { path: '/how-its-built/api/', title: 'Why the console is just another client' },
     ]);
+    expect(ESSAY_PAGES).toHaveLength(13);
     expect(new Set(ESSAY_PAGES.map((e) => e.title)).size).toBe(ESSAY_PAGES.length);
-    expect(essayUrl('cqrs')).toBeUndefined();
+    expect(new Set(ESSAY_PAGES.map((e) => e.path)).size).toBe(ESSAY_PAGES.length);
   });
 });
 
