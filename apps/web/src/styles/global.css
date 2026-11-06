@@ -42,6 +42,19 @@ a:focus-visible {
   outline-offset: 2px;
 }
 
+/* Links inside running text carry an underline as well as the colour (WCAG 1.4.1). Navigation
+   lists, buttons and link-styled controls (.action, .api-index) keep the plain look. */
+:where(p, li, td, th, dd, dt, figcaption, blockquote, h4, h5, h6) a:not(.action, .api-index a) {
+  text-decoration-line: underline;
+  text-decoration-thickness: 0.0625em;
+  text-underline-offset: 0.2em;
+}
+
+:where(p, li, td, th, dd, dt, figcaption, blockquote, h4, h5, h6)
+  a:not(.action, .api-index a):hover {
+  text-decoration-thickness: 0.125em;
+}
+
 /* Forms and the console. Colors come from tokens.css only. */
 h2 {
   margin: 2.5rem 0 0.75rem;
