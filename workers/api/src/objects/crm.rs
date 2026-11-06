@@ -516,10 +516,10 @@ impl DurableObject for Crm {
         // Sends wait for the alarm after a rebuild ends, so a send never reads a partial
         // projection.
         let rebuilding_at_start = self.held()?.rebuilding();
-        let mut deferred = 0u32;
+        let mut deferred = Vec::new();
         for timer in stream::due(&storage.sql(), now)? {
             match timer.purpose.as_str() {
-                SEND if rebuilding_at_start => deferred += 1,
+                SEND if rebuilding_at_start => deferred.push(timer),
                 SEND => self.fire_send(&meta, &timer, now)?,
                 REBUILD => self.rebuild_step(&meta, now)?,
                 OUTBOX => stream::outbox_timer(&storage, &self.env, now, CLASS).await?,
@@ -531,10 +531,31 @@ impl DurableObject for Crm {
                 _ => stream::delete_timer(&storage.sql(), &timer.id)?,
             }
         }
-        if deferred > 0 {
-            // They go on the first alarm after the rebuild, which the re-arm sets for now.
+        if !deferred.is_empty() {
+            // A deferred send is due again when the rebuild's next step is, so the re-arm sets
+            // the alarm for that step and not for now, which would spin one alarm run after
+            // another (each counted by the loop guard) until the rebuild ends. Its business
+            // time is kept. When the step that ended the rebuild ran in this loop there is no
+            // rebuild timer left, and the sends stay due for the next alarm.
+            let sql = storage.sql();
+            if let Some(step) = stream::timers(&sql)?
+                .iter()
+                .find(|t| t.id == REBUILD)
+                .and_then(stream::Timer::due_wall)
+            {
+                for timer in &deferred {
+                    stream::set_timer(
+                        &sql,
+                        &timer.id,
+                        &timer.purpose,
+                        step,
+                        timer.due_business.as_deref(),
+                    )?;
+                }
+            }
             console_log!(
-                "{{\"event\":\"sends_deferred\",\"object\":\"{CLASS}\",\"sends\":{deferred}}}"
+                "{{\"event\":\"sends_deferred\",\"object\":\"{CLASS}\",\"sends\":{}}}",
+                deferred.len()
             );
         }
         stream::rearm(&storage, now, CLASS).await?;

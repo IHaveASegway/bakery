@@ -724,12 +724,15 @@ check "the note's and the brief's words never reached the Worker's log" "! grep 
 # ---------- the rebuild ----------
 
 # Quiet first: no delivery is still on its way (the projection the same twice, 1.5 s apart).
-for _ in $(seq 1 20); do
-  object_sql Crm "crm:$AID" "SELECT projection FROM crm" > "$TMP/q1.json" 2>/dev/null || true
-  sleep 1.5
-  object_sql Crm "crm:$AID" "SELECT projection FROM crm" > "$TMP/q2.json" 2>/dev/null || true
-  if cmp -s "$TMP/q1.json" "$TMP/q2.json"; then break; fi
-done
+wait_quiet() {
+  for _ in $(seq 1 20); do
+    object_sql Crm "crm:$AID" "SELECT projection FROM crm" > "$TMP/q1.json" 2>/dev/null || true
+    sleep 1.5
+    object_sql Crm "crm:$AID" "SELECT projection FROM crm" > "$TMP/q2.json" 2>/dev/null || true
+    if cmp -s "$TMP/q1.json" "$TMP/q2.json"; then break; fi
+  done
+}
+wait_quiet
 REBUILT=""
 for attempt in 1 2 3; do
   LOG_BEFORE="$(crm_log_len "$AID")"
@@ -769,6 +772,74 @@ check "rebuild_step was logged more than once" "(( $(grep -c '\"event\":\"rebuil
 sleep 1
 get_as rb_later D "/v1/sandboxes/$AID/rebuild"
 expect_json rb_later "b.state === 'finished'"
+
+# ---------- a send that falls due while a rebuild runs ----------
+
+# Campaign three to everyone is scheduled 20 business minutes ahead. The rebuild is started, and
+# the very next request advances the clock an hour, so Crm is told while the rebuild's runs (200
+# log entries each, 300 ms apart, six or more of them over about 1.5 s) are still going and the
+# send falls due inside them. Nothing sleeps between the two requests and nothing waits for a
+# moment: the proof is the log, which holds `sends_deferred` only if an alarm found the send due
+# with the rebuild running at its start. If the rebuild had ended before Crm was told (the line is
+# missing), the attempt is made again with a new campaign, as the rebuild above is.
+log_since_has() { tail -n "+$((LOG_FROM + 1))" "$LOG" > "$TMP/since.log"; grep -qF -- "$1" "$TMP/since.log"; }
+log_since_until() {
+  for _ in $(seq 1 50); do
+    if log_since_has "$1"; then return 0; fi
+    sleep 0.2
+  done
+  return 1
+}
+DEFERRED=""
+for attempt in 1 2 3; do
+  wait_quiet
+  C3="$(ulid)"
+  KEY="$C3" command_as c3 D 192.0.2.82 POST "/v1/sandboxes/$AID/campaigns" '{"subject":"thank-you","body":"announcement","segment":"everyone"}'
+  command_as c3_sched D 192.0.2.82 POST "/v1/sandboxes/$AID/campaigns/$C3/schedule" "{\"send_at\":\"$(biz_iso "$AID" D 20)\"}"
+  C3_LOG_LEN="$(crm_log_len "$AID")"
+  K_CLOCK="$(ulid)"
+  REARMS_BEFORE="$(sql_count Crm "crm:$AID" "SELECT coalesce(sum(n), 0) AS n FROM rearms")"
+  LOG_FROM="$(wc -l < "$LOG")"
+  command_as d_rb D 192.0.2.82 POST "/v1/sandboxes/$AID/rebuild"
+  KEY="$K_CLOCK" command_as d_clock D 192.0.2.82 POST "/v1/sandboxes/$AID/clock" '{"step":"1h"}'
+  get_as d_mid D "/v1/sandboxes/$AID/rebuild"
+  get_as d_mid_campaign D "/v1/sandboxes/$AID/campaigns/$C3"
+  until_json d_fin D "/v1/sandboxes/$AID/rebuild" "b.state === 'finished'" 100 || true
+  if log_since_until '"event":"sends_deferred"'; then DEFERRED=1; break; fi
+  echo "the rebuild ended before the clock reached Crm in attempt $attempt; again with a new campaign"
+done
+expect_status d_rb 202
+expect_json d_rb "b.state === 'rebuilding' && b.applied === 0 && b.total >= $C3_LOG_LEN"
+expect_status d_clock 200
+check "the rebuild finished" "[[ \"\$(json_field d_fin b.state)\" == finished ]]"
+check "the Worker's log holds sends_deferred, logged after the rebuild started" "[[ -n '$DEFERRED' ]]"
+MID_STATE="$(json_field d_mid b.state)"
+echo "    (the rebuild read '$MID_STATE' ($(json_field d_mid b.applied) of $(json_field d_mid b.total)) when the clock's answer came back)"
+check "the deferred send went after the rebuild: campaign three is sent, recipients and delivered above 0" "until_json c3_sent D '/v1/sandboxes/$AID/campaigns/$C3' \"b.state === 'sent' && b.recipients > 0 && b.delivered === b.recipients\""
+get_as d_after D "/v1/sandboxes/$AID/rebuild"
+expect_json d_after "b.state === 'finished' && b.applied === b.total && b.total >= $C3_LOG_LEN && Number.isInteger(b.ms) && b.ms >= 0"
+tail -n "+$((LOG_FROM + 1))" "$LOG" > "$TMP/defer.log"
+check "the log line of the rebuild's end says identical: true" "[[ \"\$(grep -c '\"event\":\"rebuild_finished\"' '$TMP/defer.log')\" == 1 ]] && grep -q '\"event\":\"rebuild_finished\".*\"identical\":true' '$TMP/defer.log'"
+line_of() { grep -n -m 1 -- "$1" "$TMP/defer.log" | cut -d: -f1 || true; }
+L_DEFER="$(line_of '"event":"sends_deferred"')"
+L_FINISH="$(line_of '"event":"rebuild_finished"')"
+L_SENT="$(line_of "\"event\":\"campaign_sent\".*$C3")"
+check "the log runs in order: sends_deferred ($L_DEFER), rebuild_finished ($L_FINISH), then campaign_sent for campaign three ($L_SENT)" "[[ -n '$L_DEFER' && -n '$L_FINISH' && -n '$L_SENT' ]] && (( L_DEFER < L_FINISH && L_FINISH < L_SENT ))"
+check "campaign three was sent once: one CampaignSent in Crm's log, none sent before the rebuild ended" "(( $(sql_count Crm "crm:$AID" "SELECT count(*) AS n FROM events WHERE type = 'CampaignSent' AND data LIKE '%$C3%'") == 1 )) && (( $(grep -c "\"event\":\"campaign_sent\".*$C3" "$LOG") == 1 ))"
+R3="$(json_field c3_sent b.recipients)"
+campaign_messages "$AID" D "$C3" c3_msgs
+check "one message per recipient ($R3), none lost to the rebuild" "node -e \"const b = JSON.parse(require('fs').readFileSync('$TMP/c3_msgs.body', 'utf8')); const m = b.messages.filter(m => m.ref === '$C3'); process.exit(m.length === $R3 && new Set(m.map(x => x.to)).size === $R3 ? 0 : 1)\""
+# A deferred send is made due again when the rebuild's next step is, so the wait costs about one
+# alarm run per rebuild step and not one per millisecond. Before that was fixed, the same wait
+# logged sends_deferred 72 to 74 times and spent 83 of the day's 100 re-arms (docs/architecture.md,
+# "The rules, restated for Rust", rule 4).
+DEFER_RUNS="$(grep -c '"event":"sends_deferred"' "$TMP/defer.log" || true)"
+STEPS="$(grep -c '"event":"rebuild_step"' "$TMP/defer.log" || true)"
+REARMS="$(sql_count Crm "crm:$AID" "SELECT coalesce(sum(n), 0) AS n FROM rearms")"
+SPENT=$(( REARMS - REARMS_BEFORE ))
+echo "    (sends_deferred was logged $DEFER_RUNS times over $STEPS rebuild steps in attempt $attempt; the wait spent $SPENT re-arms, $REARMS of 100 today)"
+check "sends_deferred is logged at most once per rebuild run ($DEFER_RUNS lines, $STEPS steps)" "(( DEFER_RUNS >= 1 && DEFER_RUNS <= STEPS + 1 ))"
+check "the wait spent at most 15 re-arms ($SPENT), and no alarm_guard was logged" "(( SPENT <= 15 )) && ! grep -q '\"event\":\"alarm_guard\"' '$TMP/defer.log'"
 
 # ---------- the wipe ----------
 
