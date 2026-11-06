@@ -32,7 +32,7 @@ Purpose first, then the language of the business, then the shape, then the parts
 | 6 | [cost.md](cost.md) | What does it cost, and what keeps it there? Price sheet, formulas, the per-sandbox meter, scenarios, the plan decision, guardrails, denial of wallet |
 | 7 | [delivery.md](delivery.md) | How does a change reach production? Repository layout, toolchain pins, the pipeline, environments, deploy and rollback for each Worker, quality gates, dependency policy |
 | 8 | [operations.md](operations.md) | How is it run alone? Access setup, observability, alerting, runbooks (deploy, rollback, wipe, kill switch, secret rotation, leak response), the maintenance calendar |
-| 9 | [roadmap.md](roadmap.md) | In what order? How we work, the definition of done, pull requests 1 to 13 with scope and estimates, spikes S1 to S7, decision gates, risks, what is explicitly later |
+| 9 | [roadmap.md](roadmap.md) | In what order? How we work, the definition of done, pull requests 1 to 15 with scope and estimates, spikes S1 to S7, decision gates, risks, what is explicitly later |
 | 10 | [adr/README.md](adr/README.md) | Which decisions are hard to reverse? The ADR format, the template, and the index of every ADR with its status |
 
 This table lists docs, not ADRs. The ADR index is the one owner of ADR titles and statuses. Copying it here would give the same facts two owners, the drift this plan avoids everywhere else.
