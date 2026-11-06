@@ -5,7 +5,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
 import Tour, { TourCard } from '../src/components/Tour';
-import { ESSAYS } from '../src/lib/links';
+import { ESSAYS, ESSAY_PAGES } from '../src/lib/links';
 import { SCREENS } from '../src/lib/tour';
 import { TOURS } from '../src/tour';
 
@@ -62,6 +62,10 @@ describe('the open card', () => {
     expect(html).toContain('<a href="/how-its-built/#idempotency-keys">How it’s built</a>');
     expect(html).toContain('/docs/adr/0004-queues-between-objects-and-alarms-for-time.md');
     expect(html).not.toContain('ihaveasegway.com/lab/');
+    // It has an essay of its own, which the payment-keys card links too.
+    expect(html).toContain(
+      '<a href="/how-its-built/idempotency/">Why pressing the button twice never orders twice</a>',
+    );
   });
 
   test('the Raft step links the lab page, the ADR and the essay', () => {
@@ -88,11 +92,7 @@ describe('the open card', () => {
         linked.add(essay.path);
       });
     }
-    expect([...linked].sort()).toEqual(
-      Object.values(ESSAYS)
-        .map((e) => e.path)
-        .sort(),
-    );
+    expect([...linked].sort()).toEqual(ESSAY_PAGES.map((e) => e.path).sort());
   });
 
   test('every card holds a principle link and an ADR link', () => {

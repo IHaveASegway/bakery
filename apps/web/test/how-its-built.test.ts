@@ -12,7 +12,7 @@ import {
   principle,
   sections,
 } from '../src/lib/how-its-built';
-import { ESSAYS, essayUrl } from '../src/lib/links';
+import { ESSAYS, ESSAY_PAGES, essayUrl } from '../src/lib/links';
 import * as tourPrinciples from '../src/tour/principles';
 
 const read = (relative: string) =>
@@ -78,17 +78,34 @@ describe('the sections and the tour’s principles', () => {
     expect(() => principle('no-such-principle')).toThrow(/no How it's built section/);
   });
 
-  test('every lab principle has its essay, at its path and by its title, and no other principle has one', () => {
+  test('the five lab principles and four with no lab page have their essays, at their paths and by their titles, and no other principle has one', () => {
     const withEssay = Object.values(PRINCIPLES).filter((p) => p.essay !== undefined);
-    expect(withEssay.map((p) => p.id)).toEqual(['queue', 'cache', 'backfill', 'routes', 'raft']);
+    expect(withEssay.map((p) => p.id)).toEqual([
+      'queue',
+      'cache',
+      'backfill',
+      'routes',
+      'raft',
+      'idempotency-keys',
+      'payment-keys',
+      'sagas',
+      'leases',
+      'admission',
+    ]);
     expect(Object.keys(ESSAYS)).toEqual(withEssay.map((p) => p.id));
+    // Every lab principle has one, whatever else does.
+    for (const s of sections().filter((x) => x.group === 'lab')) {
+      expect(PRINCIPLES[s.id]?.essay, s.id).toBeDefined();
+    }
     for (const p of withEssay) {
       const essay = ESSAYS[p.id as keyof typeof ESSAYS];
       expect(p.essay, p.id).toEqual({ url: essay.path, title: essay.title });
       expect(essayUrl(p.id), p.id).toBe(essay.path);
       expect(essay.path, p.id).toMatch(/^\/how-its-built\/[a-z-]+\/$/);
     }
-    expect(Object.values(ESSAYS)).toEqual([
+    // The two idempotency principles share one page; every other page is one principle's.
+    expect(ESSAYS['payment-keys']).toEqual(ESSAYS['idempotency-keys']);
+    expect(ESSAY_PAGES).toEqual([
       { path: '/how-its-built/outbox/', title: 'Why a paid order is never lost and never doubled' },
       { path: '/how-its-built/cache/', title: 'Why the menu is cached by version, not by time' },
       { path: '/how-its-built/rebuild/', title: 'Why the CRM can be thrown away and rebuilt' },
@@ -100,8 +117,22 @@ describe('the sections and the tour’s principles', () => {
         path: '/how-its-built/single-writer/',
         title: 'Why a single-writer object needs no consensus',
       },
+      {
+        path: '/how-its-built/idempotency/',
+        title: 'Why pressing the button twice never orders twice',
+      },
+      {
+        path: '/how-its-built/sagas/',
+        title: 'Why a catering job is a saga that only moves forward',
+      },
+      { path: '/how-its-built/leases/', title: 'Why every hold and every sandbox has an end' },
+      {
+        path: '/how-its-built/admission/',
+        title: 'Why a refusal is the cheapest thing the bakery does',
+      },
     ]);
-    expect(essayUrl('sagas')).toBeUndefined();
+    expect(new Set(ESSAY_PAGES.map((e) => e.title)).size).toBe(ESSAY_PAGES.length);
+    expect(essayUrl('cqrs')).toBeUndefined();
   });
 });
 

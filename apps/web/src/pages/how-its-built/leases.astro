@@ -1,0 +1,229 @@
+---
+import Base from '../../layouts/Base.astro';
+import { ESSAYS, HOW_PATH, SITE_LAB, adrUrl, howUrl } from '../../lib/links';
+
+// The essay the Leases and TTLs principle maps to (docs/domain.md, "The principle map"; Q25 ·
+// Q-ttl). The principle has no lab page yet, so the bakery explains it itself. Static, no
+// island. Every claim about Cloudflare's behaviour is as its documentation stated it on the
+// date in READ, and every number from the code names its file.
+const READ = '2026-11-06';
+const { title } = ESSAYS.leases;
+const SOURCES = [
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/api/alarms/',
+    title: 'Durable Objects alarms',
+    by: 'Cloudflare’s Durable Objects documentation',
+    for: 'one alarm at a time per object, at-least-once execution, and retries with exponential backoff from 2 seconds, up to 6',
+  },
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/',
+    title: 'SQLite-backed Durable Object Storage',
+    by: 'Cloudflare’s Durable Objects documentation',
+    for: 'deleteAll() also deletes an active alarm from a compatibility date of 2026-02-24, and point-in-time recovery reaches back 30 days',
+  },
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/platform/pricing/',
+    title: 'Durable Objects pricing',
+    by: 'Cloudflare’s Durable Objects documentation',
+    for: 'setting an alarm and every delete are each a row written, 100,000 a day on Free and 50 million a month on Paid, then $1.00 a million',
+  },
+  {
+    href: 'https://developers.cloudflare.com/workers/configuration/cron-triggers/',
+    title: 'Cron Triggers',
+    by: 'Cloudflare’s Workers documentation',
+    for: 'a cron trigger runs on UTC',
+  },
+  {
+    href: SITE_LAB,
+    title: 'The lab',
+    by: 'the lab index on ihaveasegway.com',
+    for: 'five lab pages, the Route, Queue, Cache, Backfill and Raft Labs, and none on leases, timeouts or expiry',
+  },
+];
+---
+
+<Base
+  title={`${title} | Proof of Concept Bakery`}
+  description="How Proof of Concept Bakery gives every held place and every sandbox an end written down at the start: the hold’s timer, the nightly wipe, the 36-hour backstop, and the late payment that goes past capacity."
+>
+  <article class="essay prose">
+    <p class="hint">
+      <a href={HOW_PATH}>How it’s built</a>
+    </p>
+    <h1>{title}</h1>
+    <p class="lead">
+      A place in a pickup slot and a sandbox to play in are both borrowed. This is how each loan
+      says when it ends, which object enforces that, what still ends a sandbox when the nightly wipe
+      fails, and the one case where the end arrives after the money.
+    </p>
+
+    <h2>A place nobody paid for</h2>
+    <p>
+      A visitor orders two cardamom buns for the 10:15 pickup, reaches the checkout and closes the
+      tab. The day’s Schedule object has already counted the order against the slot. Pickup slots
+      take 6 orders by default (<code>docs/domain.md</code>, as built on 2026-11-05), so five more
+      visitors can have 10:15 and the seventh is told <code>slot-full</code>, though the first order
+      will never be paid. A sandbox has the same shape: a visitor who does not come back leaves tens
+      of objects behind, about 2,500 rows written to seed them (<code>docs/adr/0005</code>
+      and <code>docs/cost.md</code>, estimates as of 2026-11-04), and they are billed until
+      something deletes them.
+    </p>
+
+    <h2>What a simpler design does, and where it breaks</h2>
+    <p>
+      The usual first design is a cleaner: a job that scans for holds and sandboxes that look
+      abandoned and removes them. It needs a definition of abandoned, and every definition races
+      with a visitor who is slow rather than gone. It is also one more thing that has to be running.
+      If a run is missed, nothing ends, and nobody sees it until the slot is full of unpaid orders.
+      No lab page shows this one yet. The{' '}
+      <a href={SITE_LAB} rel="noopener">
+        lab’s index
+      </a>{' '}
+      is where the lab explains the family of techniques around it; as read on {READ} it has five
+      labs and none on expiry.
+    </p>
+
+    <h2>A promise with its end written down</h2>
+    <p>
+      The older answer is the lease. Gray and Cheriton’s 1989 paper on file-cache consistency grants
+      a client rights for a fixed term, so that a server never has to find out whether the client is
+      alive: when the term runs out, the rights are the server’s again. The bakery uses the idea
+      more broadly than the paper. What matters is the order of events. The end is decided when the
+      loan is made, so nothing ever has to discover that something was abandoned, and the object
+      that granted the loan is the one that takes it back.
+    </p>
+
+    <h2>How the bakery writes the end down</h2>
+    <p>
+      <strong>A hold.</strong> Placing an order sends the Schedule a <code>Hold</code> whose{' '}
+      <code>expires_at</code> is 15 minutes of business time after placement; the Order’s{' '}
+      <code>held_until</code> is the same instant. In the transaction that writes the hold, the
+      Schedule (<code>workers/api/src/objects/schedule.rs</code>) keeps a{' '}
+      <code>hold:&lt;ref&gt;</code> row in its <code>timers</code> table and arms its one alarm for
+      the earliest. When it fires, the object decides <code>Release</code> with the reason{' '}
+      <code>hold_expired</code>, and the aggregate (<code>crates/domain/src/schedule.rs</code>)
+      frees the place only if the hold is still unpaid and its time has come. A duplicate or early
+      alarm changes nothing, which matters because Cloudflare’s alarms, as read on {READ}, run at
+      least once and retry after a failure. A paid order’s timer is deleted in the same transaction
+      as its confirmation.
+    </p>
+    <p>
+      <strong>Whose clock.</strong> A hold ends by business time, wall time plus the sandbox’s
+      offset, so a visitor can advance the clock and watch every unpaid hold come due. A sandbox
+      ends by wall time: <code>next_wipe_at</code> in <code>crates/app/src/wipe.rs</code> is the
+      first 10:00 UTC after its birth, and the offset never moves it. Each end uses the clock of the
+      thing it is about.
+    </p>
+    <p>
+      <strong>The wipe.</strong> The Sandbox has its own wipe timer, and the 10:00 UTC cron
+      (Cloudflare’s cron triggers run on UTC, as read on {READ}) asks <code>Control</code> to stamp
+      every sandbox not yet wiped as due. <code>Control</code> wipes 50 a run from its own alarm and
+      re-arms while rows remain, and the 15-minute cron stamps again any that did not finish. Each
+      run ends in the <code>wipe</code> data point.
+    </p>
+    <p>
+      <strong>The backstop.</strong> Every object arms a <code>backstop</code> timer 36 hours after
+      its first write (<code>BACKSTOP_HOURS</code> in <code>wipe.rs</code>; <code>child.rs</code>).
+      When it fires the object logs <code>backstop</code>, deletes its alarm and its storage. This
+      is a lease on the object itself. The nightly wipe depends on <code>Control</code>’s ledger and
+      the Sandbox’s registry; the backstop depends only on the object’s own alarm, so a sandbox the
+      wipe missed still ends, at most 36 hours after its objects were born.
+    </p>
+
+    <h2>A retry after the end</h2>
+    <p>
+      A lease can also end between a visitor’s request and its retry. If a placement is retried
+      under the same key after its hold was released, by the timer or by the router giving the place
+      back when the Order refused, the day no longer replays a stale “held”. The router first asks
+      whether the Order exists, and if it does the Order replays its own answer. If not, the
+      Schedule decides <code>Retake</code> (<code>crates/domain/src/schedule.rs</code>): the same
+      place is held again with the retry’s own 15 minutes when there is room, and otherwise the
+      answer is 409 <code>hold-lost</code>, naming the next free slot. Taking it back rather than
+      refusing it is the choice <code>docs/roadmap.md</code> records for the hardening of
+      2026-11-06: the visitor asked once, and the place was free.
+    </p>
+
+    <h2>The payment that arrives after the end</h2>
+    <p>
+      The Order’s expiry and the Schedule’s hold timer are two timers on two objects at one instant,
+      and either may fire first. Suppose the Schedule’s does, and the visitor’s payment is recorded
+      while the Order is still <code>placed</code>. The Order accepts it and emits{' '}
+      <code>OrderPaid</code>, and the Schedule’s <code>Confirm</code> finds the hold released.
+    </p>
+    <p>
+      The bakery takes the place back, past capacity if it must, and the event says{' '}
+      <code>revived: true</code>. Money has moved, and the alternative is to refuse the place and
+      refund. That is what the Order does once its own expiry has run: a payment after it emits{' '}
+      <code>OrderPaymentLate</code> and a refund request. The line between the two is where the
+      Order’s state says the payment landed. <code>docs/roadmap.md</code> (PR 6) lists the revival
+      as a reading for Joseph to confirm, and it is the one way a count passes its capacity.
+    </p>
+
+    <h2>What it costs</h2>
+    <ul>
+      <li>
+        <strong>A row and an alarm for every hold.</strong> Cloudflare’s pricing page, read on{' '}
+        {READ}, bills each <code>setAlarm()</code> and each delete as a row written.
+      </li>
+      <li>
+        <strong>A slot that can hold 7 of 6.</strong> A revived place is the one count above
+        capacity, and a visitor may see a slot that says full while it holds one more.
+      </li>
+      <li>
+        <strong>Up to 15 business minutes of a full slot.</strong> An order that will never be paid
+        keeps its place until its hold ends.
+      </li>
+      <li>
+        <strong>An end the platform does not share.</strong> The sandbox is gone to the bakery, yet
+        Cloudflare’s documentation, read on {READ}, keeps SQLite-backed storage recoverable for 30
+        days, and nothing here calls the recovery (<code>docs/security.md</code>).
+      </li>
+    </ul>
+
+    <h2>Try it</h2>
+    <p>
+      Order from <a href="/menu/">the menu</a> and stop at the checkout. Sign in, open{' '}
+      <a href="/app/">the console</a>, advance the clock by 15 minutes, and read the capacity
+      editor’s line for the slot: it says one fewer taken, and one more free. The console’s Deleted
+      line counts down to the sandbox’s own end, and Wipe now ends it on the spot.
+    </p>
+
+    <h2>Sources</h2>
+    <ul class="sources">
+      <li>
+        <em>
+          Leases: An Efficient Fault-Tolerant Mechanism for Distributed File Cache Consistency
+        </em>
+        , Cary G. Gray and David R. Cheriton, the 12th ACM Symposium on Operating Systems
+        Principles, 1989: a lease as rights for a fixed term, and the grantor’s freedom to take them
+        back. Cited as <code>docs/architecture.md</code> lists it; the paper itself was not read on{' '}
+        {READ}.
+      </li>
+      <li>
+        <em>Release It!</em>, Michael T. Nygard, 2nd edition, 2018: the stability patterns, chapter
+        5, among them timeouts, as the bakery’s <code>docs/architecture.md</code> cites them. The
+        book was not read on {READ}.
+      </li>
+      {SOURCES.map((s) => (
+        <li>
+          <a href={s.href} rel="noopener">
+            {s.title}
+          </a>
+          , {s.by}, read on {READ}: {s.for}.
+        </li>
+      ))}
+    </ul>
+    <p class="hint">
+      Back to <a href={howUrl('leases')}>the leases principle on How it’s built</a>, to the decision
+      that chose it,{' '}
+      <a href={adrUrl('0005')} rel="noopener">
+        ADR 0005
+      </a>
+      , or to{' '}
+      <a href={SITE_LAB} rel="noopener">
+        the lab
+      </a>
+      .
+    </p>
+  </article>
+</Base>

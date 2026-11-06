@@ -261,8 +261,8 @@ const PROSE: Record<PrincipleId, Prose> = {
     problem:
       'Stripe is a second system with its own state. A request to it can time out after it succeeded, and its webhooks arrive at least once, sometimes late and out of order.',
     technique:
-      'The order’s id as the idempotency key at Stripe, and each webhook event’s id as the record that it was applied.',
-    how: 'The Billing object asks Stripe for a payment with the order’s id as the key, so asking twice gets the same one. The order is paid only when Stripe’s signed webhook says so, and Billing keeps the id of every webhook event it has applied, so a redelivered one changes nothing. Everything runs in Stripe’s test mode: no money moves.',
+      'A key built from the sandbox and the order’s id as the idempotency key at Stripe, and each webhook event’s id as the record that it was applied.',
+    how: 'The Billing object asks Stripe for a payment with a key built from the sandbox and the order’s id, so asking twice gets the same one. The order is paid only when Stripe’s signed webhook says so, and Billing keeps the id of every webhook event it has applied, so a redelivered one changes nothing. Everything runs in Stripe’s test mode: no money moves.',
     where:
       'The Billing object, one per sandbox: payments, refunds and the webhook events it applied; PaymentSucceeded and OrderPaid.',
     see: 'Pay for an order with the test card 4242 4242 4242 4242, then find the payment once in the console’s ledger.',

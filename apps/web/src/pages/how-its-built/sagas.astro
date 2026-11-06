@@ -1,0 +1,231 @@
+---
+import Base from '../../layouts/Base.astro';
+import { ESSAYS, HOW_PATH, SITE_LAB, adrUrl, essayUrl, howUrl } from '../../lib/links';
+
+// The essay for sagas by alarm (docs/domain.md, "The principle map" and "CateringEvent";
+// docs/architecture.md, "The catering saga"; Q33 · Q-principles). No lab page shows it, so the
+// essay explains it itself and links the lab's index. Static, no island. Every claim about
+// Cloudflare's behaviour is as its documentation stated it on the date in READ, and every number
+// from the code names its file.
+const READ = '2026-11-06';
+const { title } = ESSAYS.sagas;
+const SOURCES = [
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/api/alarms/',
+    title: 'Alarms',
+    by: 'Cloudflare’s Durable Objects documentation',
+    for: 'one alarm at a time per object, a new one replacing the old, run at least once and retried with exponential backoff from 2 seconds, up to 6 retries',
+  },
+  {
+    href: 'https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/',
+    title: 'SQLite-backed Durable Object Storage',
+    by: 'Cloudflare’s Durable Objects documentation',
+    for: 'transactionSync() rolls back when its callback throws, and takes only synchronous storage operations',
+  },
+  {
+    href: 'https://microservices.io/patterns/data/saga.html',
+    title: 'Pattern: Saga',
+    by: 'Chris Richardson, after his Microservices Patterns (2018)',
+    for: 'a sequence of local transactions, choreographed by events or orchestrated from one place, with compensating transactions in place of a rollback and no isolation between sagas',
+  },
+  {
+    href: 'https://www.enterpriseintegrationpatterns.com/patterns/messaging/ProcessManager.html',
+    title: 'Process Manager',
+    by: 'Gregor Hohpe and Bobby Woolf, Enterprise Integration Patterns (2003)',
+    for: 'one central unit that keeps the state of a sequence and decides the next step from the results so far',
+  },
+  {
+    href: SITE_LAB,
+    title: 'The lab',
+    by: 'ihaveasegway.com',
+    for: 'five lab pages, none of them on sagas',
+  },
+];
+---
+
+<Base
+  title={`${title} | Proof of Concept Bakery`}
+  description="How Proof of Concept Bakery runs a catering job that lasts weeks: one transaction per step in one object, timers behind a single alarm, compensations instead of rollbacks, and a 409 for any step out of order."
+>
+  <article class="essay prose">
+    <p class="hint">
+      <a href={HOW_PATH}>How it’s built</a>
+    </p>
+    <h1>{title}</h1>
+    <p class="lead">
+      A catering job takes weeks and touches three objects and Stripe. No transaction can hold it.
+      This is how the bakery runs it as a chain of small ones, how it undoes a step without rolling
+      anything back, and why a step that comes in the wrong order is refused.
+    </p>
+
+    <h2>A breakfast for forty, over three weeks</h2>
+    <p>
+      An inquiry arrives for a breakfast spread for 40 people at a made-up venue, on a Saturday more
+      than seven open days ahead. Staff send a quote. A few days later the customer accepts it and
+      has 15 minutes of bakery time to pay a deposit of a quarter, or the day’s place goes back. Two
+      days before the event a reminder is due. The kitchen bakes, a van delivers, and a balance
+      invoice falls due seven days later. In the smoke test this job comes to 58,000 cents, deposit
+      and balance together.
+    </p>
+    <p>
+      Along the way the job holds one of the day’s two catering places in that day’s Schedule, takes
+      two payments through Billing and Stripe, and has to notice time passing when nobody touches
+      it.
+    </p>
+
+    <h2>What a simpler design does, and where it breaks</h2>
+    <p>
+      One transaction around the whole job would hold its locks for weeks, and no transaction spans
+      two Durable Objects, let alone Stripe. A process that waits in memory for the next step is
+      evicted long before the next step comes. A choreography where each object reacts to the
+      others’ events works until something has to be undone, and then nobody owns the question of
+      what “undone” means for this job.
+    </p>
+    <p>
+      The 1987 paper “Sagas”, by Hector Garcia-Molina and Kenneth Salem, gives the shape that
+      survives: a long transaction written as a sequence of short ones, each committed on its own,
+      with a compensating transaction for each step that undoes its effect in business terms. No lab
+      page shows this one yet, and{' '}
+      <a href={SITE_LAB} rel="noopener">
+        the lab
+      </a>{' '}
+      is where the family of techniques is explained.
+    </p>
+
+    <h2>One object, one step at a time</h2>
+    <p>
+      Each catering job is a <code>CateringEvent</code> object, one per inquiry. Its states are the
+      twelve of <code>CateringStatus</code> in <code>crates/domain/src/catering.rs</code>, from{' '}
+      <code>inquiry</code> through <code>quoted</code>, <code>accepted</code>,{' '}
+      <code>confirmed</code>, <code>in_production</code>, <code>delivered</code>,{' '}
+      <code>invoiced</code> and <code>paid</code> to <code>closed</code>, with <code>declined</code>
+      , <code>expired</code> and <code>cancelled</code> as the other three ends. Every step is one
+      command, decided against the state and committed with its events, its outbox rows and its key
+      in one <code>transactionSync</code>. A step is started by a person (a route), by an event from
+      the Queue, such as Billing’s <code>PaymentSucceeded</code>
+      becoming <code>RecordDeposit</code>, or by a timer.
+    </p>
+    <p>
+      The timers are a pure function of the state, <code>timers()</code> in the same file: the
+      follow-up reminder and the quote’s expiry while quoted, the deposit’s lapse while accepted,
+      the <code>event_soon</code> reminder while confirmed or in production, and{' '}
+      <code>invoice_due</code> while invoiced. The object rewrites its <code>timers</code> rows from
+      that list in the transaction of every change, so there are never more than two saga rows at
+      once. Each row holds an id such as <code>quote-expiry</code>, a purpose, a wall time and a
+      business time. Cloudflare’s documentation gives an object a single alarm at a time, so the
+      object arms it for its earliest row, and when the clock is moved in the console every wall
+      time is worked out again from its business time.
+    </p>
+    <p>
+      An alarm runs at least once, the same documentation says, and is retried when it fails. So
+      each timer runs its command under the key <code>timer:&lt;row&gt;:&lt;due&gt;</code>, and a
+      second run finds the key and appends nothing. A timer that fires when its condition no longer
+      holds, a lapse after the deposit was paid, emits nothing.
+    </p>
+    <p>
+      That makes the object the job’s process manager, in Hohpe and Woolf’s sense: one place that
+      keeps the state of the sequence and decides the next step. Because it is a{' '}
+      <a href={essayUrl('raft')}>single writer</a>, two steps never race inside it, and no other
+      service has to coordinate them.
+    </p>
+
+    <h2>Undone by a step of its own</h2>
+    <p>
+      A saga cannot roll back what already committed in another object, so each failure has a
+      compensation that is a new step. When the deposit does not come in time, the{' '}
+      <code>deposit-lapse</code> row runs <code>LapseDeposit</code>: the job goes from accepted back
+      to quoted, and <code>CateringDepositLapsed</code> tells the day’s Schedule to release the
+      place. When a confirmed job is cancelled, <code>CateringCancelled</code> releases the place,
+      and Billing refunds the deposit if the event was more than seven calendar days away.
+    </p>
+    <p>
+      A compensation can itself be a call to another system that fails. A deposit that lands after
+      the quote expired cannot confirm anything, so the object asks Billing to refund it in full at
+      Stripe, under the delivery’s id and the reason <code>goodwill</code>. While Billing cannot be
+      reached the object answers 503, the Queue delivers the event again, and the id makes the
+      repeat ask for the same refund. The undo is retried until it lands, the way the step was.
+    </p>
+    <p>
+      Some steps have no undo. Cancellation is taken from <code>confirmed</code> only, so once the
+      kitchen has started the job runs to delivery and its invoice. No saga step voids an invoice:
+      as built on {READ}, only the nightly wipe does, when Billing voids every open one at Stripe
+      before it deletes itself.
+    </p>
+
+    <h2>Only forward</h2>
+    <p>
+      The log only grows. Going from accepted back to quoted is a new event, not the acceptance
+      removed. A command that does not fit the current state is refused with 409 and the rule{' '}
+      <code>out-of-order</code>, and nothing is written: a start of production before the deposit, a
+      delivery before production, a cancellation after it. The bakery does not hold such a command
+      for later, because a step that arrives early was usually sent from an old page. Repeating a
+      step in the state it leads to is not an error and emits nothing.
+    </p>
+    <p>
+      Each of these refusals is proven over HTTP. On {READ} <code>scripts/smoke-catering.sh</code>{' '}
+      passed 238 checks, among them the five 409s of decline, start of production, delivery,
+      cancellation and staff cancellation, each from two states, each leaving the event byte for
+      byte as it was (<code>docs/roadmap.md</code>, PR 7).
+    </p>
+
+    <h2>What it costs</h2>
+    <ul>
+      <li>
+        <strong>A timer row and an alarm run per timed step.</strong> Alarm runs that arm again are
+        counted against <code>REARM_GUARD</code>, 100 a UTC day for one object (
+        <code>workers/api/src/objects/stream.rs</code>); past it the object waits for its next
+        command.
+      </li>
+      <li>
+        <strong>A 409 the client must handle.</strong> The catering pages read the rule and say
+        “That step is not open in the event’s current state. Refresh to see where it is.” (
+        <code>apps/web/src/lib/catering-errors.ts</code>), instead of trying again.
+      </li>
+      <li>
+        <strong>No isolation.</strong> Between steps the job is visible half done: a place held with
+        no deposit, a delivery with no invoice yet. Richardson lists this as the pattern’s price.
+      </li>
+      <li>
+        <strong>A quote you cannot watch expire.</strong> A quote is valid until the opening of the
+        14th open day after it was sent, 16 calendar days or more, and the clock moves at most 14
+        days (<code>MAX_OFFSET_S</code> in <code>crates/domain/src/clock.rs</code>). The expiry is
+        proven on the seed’s quoted job only.
+      </li>
+    </ul>
+
+    <h2>Try it</h2>
+    <p>
+      Sign in and send an inquiry from <a href="/catering/">the catering page</a>. Quote it in{' '}
+      <a href="/app/">the console</a>, accept it, then advance the clock by 15 minutes before
+      paying: the place is released and the job is quoted again. Accept again and pay the deposit
+      with the test card 4242 4242 4242 4242. Start production, then try to cancel: 409{' '}
+      <code>out-of-order</code>. Mark it delivered and pay the balance on the event’s page, and the
+      console’s list of reminders shows each one the job fired.
+    </p>
+
+    <h2>Sources</h2>
+    <ul class="sources">
+      <li>
+        <em>Sagas</em>, Hector Garcia-Molina and Kenneth Salem, Proceedings of the 1987 ACM SIGMOD
+        Conference: a long-lived transaction as a sequence of transactions, each with a compensating
+        transaction. Cited from print; not read on {READ}.
+      </li>
+      {SOURCES.map((s) => (
+        <li>
+          <a href={s.href} rel="noopener">
+            {s.title}
+          </a>
+          , {s.by}, read on {READ}: {s.for}.
+        </li>
+      ))}
+    </ul>
+    <p class="hint">
+      Back to <a href={howUrl('sagas')}>sagas by alarm on How it’s built</a>, to the decision that
+      chose them,{' '}
+      <a href={adrUrl('0004')} rel="noopener">
+        ADR 0004
+      </a>
+      , or to <a href={essayUrl('queue')}>how an event reaches the next object</a>.
+    </p>
+  </article>
+</Base>

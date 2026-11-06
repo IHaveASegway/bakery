@@ -38,6 +38,10 @@ const PAGES = [
   '/how-its-built/rebuild/',
   '/how-its-built/routes/',
   '/how-its-built/single-writer/',
+  '/how-its-built/idempotency/',
+  '/how-its-built/sagas/',
+  '/how-its-built/leases/',
+  '/how-its-built/admission/',
 ];
 
 function expectApiHeaders(res: APIResponse, type = 'application/json') {
