@@ -103,6 +103,16 @@
     // The API's own origin, for the OAuth redirect URIs, which must match the registered ones
     // exactly. Not read from the request: `wrangler dev` rewrites its host to the route's.
     "API_ORIGIN": "https://api.bakery.ihaveasegway.com",
+    // The public ids (docs/operations.md, step 6): in this file and not in the dashboard, because a
+    // deploy replaces the Worker's vars with these. None is a secret: the two OAuth client ids
+    // appear in every sign-in redirect, and the sandbox publishable key is public by Stripe's
+    // design (the Worker hands it to the browser only when it starts pk_test_).
+    "GOOGLE_CLIENT_ID": "881282247956-6qldvqs1u7p2fankitt6d59f2sbur9e6.apps.googleusercontent.com",
+    "GITHUB_CLIENT_ID": "Ov23lirkNRofP5sDHeIm",
+    "STRIPE_PUBLISHABLE_KEY": "pk_test_51UYHyyDxFY6SDo4KZsoZVvqADbX2JJXWSkVhMIBaKO6BubH6CzCDC5hkHbvglHll7dsXTr4shrraVcvpLH7X7PQW00zRx6X0YM",
+    // Sent as Stripe-Version: the sandbox account's default, read off the dashboard on 2026-11-06,
+    // and the version the production webhook endpoint is pinned to.
+    "STRIPE_API_VERSION": "2026-10-28.endive",
     "SANDBOX_CAP": "300",
     "GUEST_SANDBOX_CAP": "100",
     "DEMO_ACCOUNT_CAP": "100",
