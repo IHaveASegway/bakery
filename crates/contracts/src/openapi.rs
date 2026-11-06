@@ -691,12 +691,12 @@ mod tests {
             json!([{ "sessionCookie": [] }, { "bearerToken": [] }])
         );
         let conflict = place["responses"]["409"]["description"].as_str().unwrap();
-        for slug in ["`slot-full`", "`item-cap`", "`lead-time`"] {
+        for slug in ["`slot-full`", "`item-cap`", "`lead-time`", "`hold-lost`"] {
             assert!(conflict.contains(slug), "{conflict}");
         }
         assert_eq!(
             place["responses"]["409"]["x-problems"],
-            json!(["slot-full", "item-cap", "lead-time"])
+            json!(["slot-full", "item-cap", "lead-time", "hold-lost"])
         );
 
         let hook = &doc["paths"]["/v1/stripe/webhook"]["post"];

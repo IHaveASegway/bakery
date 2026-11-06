@@ -2235,7 +2235,7 @@
             ]
           },
           "next_free": {
-            "description": "An extension member (RFC 9457, section 3.2), set only on the `slot-full` problem: the\nstart of the next pickup slot with a place free that day, a business time such as\n`2026-11-07T10:15:00-07:00`. Absent when nothing later that day is free, and on every\nother problem.",
+            "description": "An extension member (RFC 9457, section 3.2), set only on the `slot-full` and `hold-lost`\nproblems: the start of the next pickup slot with a place free that day, a business time\nsuch as `2026-11-07T10:15:00-07:00`. Absent when nothing later that day is free, and on\nevery other problem.",
             "type": [
               "string",
               "null"
@@ -10676,11 +10676,12 @@
                 }
               }
             },
-            "description": "`slot-full`: with `next_free`, the next free start that day; `item-cap`: an item's daily cap is reached; `lead-time`: naming the hours, such as a 48 h cake for tomorrow",
+            "description": "`slot-full`: with `next_free`, the next free start that day; `item-cap`: an item's daily cap is reached; `lead-time`: naming the hours, such as a 48 h cake for tomorrow; `hold-lost`: a retry whose place was given back before any order was placed, with no room left; with `next_free`",
             "x-problems": [
               "slot-full",
               "item-cap",
-              "lead-time"
+              "lead-time",
+              "hold-lost"
             ]
           },
           "410": {

@@ -8,7 +8,9 @@
 # places taken keeps them, 422 `bad-target`, 403 `guest-scope`); the clock (a replayed advance
 # moves an order's expiry timer once; a day expires an unpaid order and frees its slot, with
 # `ClockAdvanced` on the console's feed; `next-opening` from a Sunday afternoon lands on Tuesday
-# 07:00; the 15th day is refused `offset-cap`); and every child empty after the wipe. It prints
+# 07:00; the 15th day is refused `offset-cap`); since the hardening after PR 13, a day born after
+# the seed (first touched by a read, or by the order that fills an item's cap) capped by the
+# published menu, before and after a publish; and every child empty after the wipe. It prints
 # ok or FAIL per check as scripts/smoke-orders.sh does, and exits non-zero on any failure.
 #
 # The loop guard's 101st re-arm is proven natively (workers/api/src/objects/stream.rs, its
@@ -404,7 +406,8 @@ expect_problem day_far 404 no-such-day
 LAST="$(cal 'day(Date.now() + 30 * 86400000)')"
 get_as day_last G "/v1/sandboxes/$GID/schedule/$LAST"
 expect_status day_last 200
-expect_json day_last "b.date === '$LAST' && b.menu_version === 0 && b.bake_list.version === 0"
+# Born by this read, after the seed: with the published menu's caps (the hardening after PR 13).
+expect_json day_last "b.date === '$LAST' && b.menu_version === 1 && b.items.filter(i => i.daily_cap !== null).length === 24 && b.bake_list.version === 0"
 get_as day_bad G "/v1/sandboxes/$GID/schedule/not-a-date"
 expect_problem day_bad 404 no-such-day
 
@@ -480,6 +483,61 @@ get_as guest_reads G "/v1/sandboxes/$GID/schedule/$TODAY"
 expect_status guest_reads 200
 get_as cross_day D "/v1/sandboxes/$GID/schedule/$TODAY"
 expect_status cross_day 404
+
+# ---------- a day born after the seed is capped (the hardening after PR 13) ----------
+
+# The menu's lowest cap among items baked on two open days no seed touched (10 or more days out),
+# in season and available. The menu API edits prices and status, not caps, so the "low cap" is
+# the seeded menu's own lowest. Day A is first touched by the order that fills the cap; day B is
+# read before a publish, then filled after it.
+LATE="$(cal '(() => {
+  const menu = JSON.parse(require("fs").readFileSync(a[0], "utf8"));
+  const items = menu.categories.flatMap(c => c.items).filter(i => i.status === "available").sort((x, y) => x.daily_cap - y.daily_cap);
+  const ten = (i) => Math.floor(Date.now() / 86400000) * 86400000 + i * 86400000 + 17 * 3600000;
+  for (const it of items) {
+    const days = [];
+    for (let i = 10; i <= 25 && days.length < 2; i++) { const t = ten(i); if (wd(t) !== "mon" && it.days_baked.includes(wd(t)) && inSeason(it.season, t)) days.push(t); }
+    if (days.length < 2) continue;
+    const v = [...it.variants].sort((x, y) => x.lead_minutes - y.lead_minutes)[0];
+    const slot = (t, m) => { const p = parts(t); let s = t - ((+p.hour * 60 + +p.minute) - m) * 60000; return iso(Math.floor(s / 60000) * 60000); };
+    return { item: it.slug, variant: v.slug, cap: it.daily_cap, a: day(days[0]), b: day(days[1]), a1: slot(days[0], 600), a2: slot(days[0], 615), b1: slot(days[1], 600), b2: slot(days[1], 615) };
+  }
+  return null;
+})()' "$TMP/dmenu.body")"
+late() { node -e "const v = (JSON.parse(process.argv[1]) || {})[process.argv[2]]; process.stdout.write(v === undefined ? '' : String(v))" "${LATE:-null}" "$1"; }
+LATE_ITEM="$(late item)"; LATE_VARIANT="$(late variant)"; LATE_CAP="$(late cap)"
+LATE_A="$(late a)"; LATE_B="$(late b)"
+check "two late days were found: $LATE_A and $LATE_B, $LATE_ITEM capped at $LATE_CAP" "[[ -n '$LATE_ITEM' && -n '$LATE_A' && -n '$LATE_B' && '$LATE_A' != '$LATE_B' ]]"
+# lines_for QTY: lines of LATE_VARIANT summing to QTY, 24 at most each (the Order's line limit).
+lines_for() { node -e "const q = Number(process.argv[1]), out = []; for (let n = q; n > 0; n -= 24) out.push({ variant: process.argv[2], qty: Math.min(24, n) }); process.stdout.write(JSON.stringify(out))" "$1" "$LATE_VARIANT"; }
+FILL="$(lines_for "${LATE_CAP:-1}")"
+get_as late_b_before D "/v1/sandboxes/$DID/schedule/$LATE_B"
+expect_status late_b_before 200
+expect_json late_b_before "b.menu_version === 1 && b.items.filter(i => i.daily_cap !== null).length === 24 && b.items.find(i => i.item === '$LATE_ITEM').daily_cap === $LATE_CAP"
+# A publish (a price change, so a new version), which the consumer takes to the registered days.
+command_as late_price D 192.0.2.82 PATCH "/v1/sandboxes/$DID/menu/items/$LATE_ITEM" '{"price_cents":1111}'
+expect_status late_price 200
+command_as late_publish D 192.0.2.82 POST "/v1/sandboxes/$DID/menu/publish"
+expect_status late_publish 200
+LATE_V="$(json_field late_publish b.version)"
+# The publish changed a price, not a cap, so day B's `RefreshCaps` for it changes nothing: the day
+# keeps the caps it was born with, and the version they came from.
+check "day B, born before the publish, keeps its caps through it" "schedule_until late_b_after D '$DID' '$LATE_B' \"b.menu_version === 1 && b.items.find(i => i.item === '$LATE_ITEM').daily_cap === $LATE_CAP\""
+check "day A was never touched: no Schedule object holds it yet" "! object_sql Schedule 'schedule:$DID:$LATE_A' 'SELECT 1' >/dev/null 2>&1"
+command_as late_a_fill D 192.0.2.82 POST "/v1/sandboxes/$DID/orders" "{\"kind\":\"pickup\",\"slot\":\"$(late a1)\",\"lines\":$FILL}"
+expect_status late_a_fill 201
+get_as late_a_day D "/v1/sandboxes/$DID/schedule/$LATE_A"
+expect_json late_a_day "b.menu_version === $LATE_V && b.items.filter(i => i.daily_cap !== null).length === 24 && b.items.find(i => i.item === '$LATE_ITEM').daily_cap === $LATE_CAP && b.items.find(i => i.item === '$LATE_ITEM').used === $LATE_CAP"
+check "day A was born by the hold with the caps in its first write: CapsRefreshed before SlotHeld" "[[ \"\$(object_sql Schedule 'schedule:$DID:$LATE_A' 'SELECT type FROM events ORDER BY seq' | node -e \"process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf8')).map(r => r.type).slice(0, 2).join(','))\")\" == 'CapsRefreshed,SlotHeld' ]]"
+command_as late_a_over D 192.0.2.82 POST "/v1/sandboxes/$DID/orders" "{\"kind\":\"pickup\",\"slot\":\"$(late a2)\",\"lines\":[{\"variant\":\"$LATE_VARIANT\",\"qty\":1}]}"
+expect_problem late_a_over 409 item-cap
+expect_json late_a_over "b.detail.includes('No more $LATE_ITEM can be made that day.') && b.detail.includes('The rule is item-cap.')"
+command_as late_b_fill D 192.0.2.82 POST "/v1/sandboxes/$DID/orders" "{\"kind\":\"pickup\",\"slot\":\"$(late b1)\",\"lines\":$FILL}"
+expect_status late_b_fill 201
+command_as late_b_over D 192.0.2.82 POST "/v1/sandboxes/$DID/orders" "{\"kind\":\"pickup\",\"slot\":\"$(late b2)\",\"lines\":[{\"variant\":\"$LATE_VARIANT\",\"qty\":1}]}"
+expect_problem late_b_over 409 item-cap
+expect_json late_b_over "b.detail.includes('No more $LATE_ITEM can be made that day.')"
+check "no day was refused its birth for want of caps" "! log_has '\"event\":\"schedule_birth_refused\"'"
 
 # ---------- the cake rule ----------
 

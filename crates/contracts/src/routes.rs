@@ -479,6 +479,11 @@ pub const ROUTES: &[RouteSpec] = &[
                 "naming the hours, such as a 48 h cake for tomorrow",
             ),
             no(
+                409,
+                "hold-lost",
+                "a retry whose place was given back before any order was placed, with no room left; with `next_free`",
+            ),
+            no(
                 422,
                 "no-such-slot",
                 "not a slot or window start, or a day outside the sandbox's",

@@ -184,10 +184,10 @@ pub struct Problem {
     /// The request path this occurrence concerns.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instance: Option<String>,
-    /// An extension member (RFC 9457, section 3.2), set only on the `slot-full` problem: the
-    /// start of the next pickup slot with a place free that day, a business time such as
-    /// `2026-11-07T10:15:00-07:00`. Absent when nothing later that day is free, and on every
-    /// other problem.
+    /// An extension member (RFC 9457, section 3.2), set only on the `slot-full` and `hold-lost`
+    /// problems: the start of the next pickup slot with a place free that day, a business time
+    /// such as `2026-11-07T10:15:00-07:00`. Absent when nothing later that day is free, and on
+    /// every other problem.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_free: Option<String>,
 }
