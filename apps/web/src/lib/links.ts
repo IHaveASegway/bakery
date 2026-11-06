@@ -54,10 +54,18 @@ export interface Essay {
   title: string;
 }
 
+/** The idempotency essay, which two principles share: keys on commands and keys at Stripe. */
+const IDEMPOTENCY_ESSAY = {
+  path: '/how-its-built/idempotency/',
+  title: 'Why pressing the button twice never orders twice',
+} as const satisfies Essay;
+
 /**
- * The essays, one for each lab principle, keyed by the id of its section on How it's built: each
- * says what the bakery does for real that the lab page shows in the small. A principle with no
- * entry has no essay, and its section and tour step link none.
+ * The essays, keyed by the id of the principle's section on How it's built. A lab principle's
+ * essay says what the bakery does for real that the lab page shows in the small; one with no lab
+ * page explains the principle itself and links the lab's index. Two ids may share one page, as the
+ * two idempotency principles do. A principle with no entry has no essay, and its section and tour
+ * step link none.
  */
 export const ESSAYS = {
   queue: {
@@ -77,7 +85,29 @@ export const ESSAYS = {
     path: '/how-its-built/single-writer/',
     title: 'Why a single-writer object needs no consensus',
   },
+  'idempotency-keys': IDEMPOTENCY_ESSAY,
+  'payment-keys': IDEMPOTENCY_ESSAY,
+  sagas: {
+    path: '/how-its-built/sagas/',
+    title: 'Why a catering job is a saga that only moves forward',
+  },
+  leases: {
+    path: '/how-its-built/leases/',
+    title: 'Why every hold and every sandbox has an end',
+  },
+  admission: {
+    path: '/how-its-built/admission/',
+    title: 'Why a refusal is the cheapest thing the bakery does',
+  },
 } as const satisfies Record<string, Essay>;
+
+/**
+ * Each essay page once, in the order of its first principle: the list How it's built gives and
+ * the pages the build has, whichever principles share them.
+ */
+export const ESSAY_PAGES: readonly Essay[] = Object.values(ESSAYS).filter(
+  (essay, i, all) => all.findIndex((e) => e.path === essay.path) === i,
+);
 
 export type EssayId = keyof typeof ESSAYS;
 

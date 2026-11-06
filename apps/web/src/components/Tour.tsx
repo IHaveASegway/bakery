@@ -230,7 +230,8 @@ export function TourCard({
 /**
  * The principle and where it is explained (Q32 · Q-links): its lab page on the site and its ADR on
  * GitHub, or, for a principle with no lab page, its section of the How it's built page and the
- * ADR; a lab principle adds its essay, by title. The URLs come with the principle (lib/how-its-built.ts).
+ * ADR; a principle with an essay adds it, by title. The URLs come with the principle
+ * (lib/how-its-built.ts).
  */
 export function Principle({ principle }: { principle: PrincipleData }) {
   return (

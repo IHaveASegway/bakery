@@ -1,0 +1,213 @@
+---
+import Base from '../../layouts/Base.astro';
+import { ESSAYS, HOW_PATH, SITE_LAB, adrUrl, howUrl } from '../../lib/links';
+
+// The essay the Admission control principle maps to (docs/domain.md, "The principle map"; Q24 ·
+// Q-guest, Q45 · Q-guest-scope). The principle has no lab page yet, so the bakery explains it
+// itself. Static, no island. Every claim about Cloudflare's behaviour is as its documentation
+// stated it on the date in READ, and every number from the code names its file.
+const READ = '2026-11-06';
+const { title } = ESSAYS.admission;
+const SOURCES = [
+  {
+    href: 'https://developers.cloudflare.com/turnstile/',
+    title: 'Turnstile',
+    by: 'Cloudflare’s Turnstile documentation',
+    for: 'a check that a visitor is a person, which works without showing a CAPTCHA',
+  },
+  {
+    href: 'https://developers.cloudflare.com/turnstile/get-started/server-side-validation/',
+    title: 'Server-side validation',
+    by: 'Cloudflare’s Turnstile documentation',
+    for: 'a token valid for 300 seconds, validated once, and a widget alone that protects nothing without the Siteverify call',
+  },
+  {
+    href: 'https://developers.cloudflare.com/turnstile/troubleshooting/testing/',
+    title: 'Testing',
+    by: 'Cloudflare’s Turnstile documentation',
+    for: 'dummy keys that always pass or always fail, for a build with no real keys',
+  },
+  {
+    href: 'https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/',
+    title: 'Rate Limiting',
+    by: 'Cloudflare’s Workers documentation',
+    for: 'a period of 10 or 60 seconds, counts kept in each location and eventually consistent, so a limit that is approximate',
+  },
+  {
+    href: SITE_LAB,
+    title: 'The lab',
+    by: 'the lab index on ihaveasegway.com',
+    for: 'five lab pages, and none on rate limits, caps or admission',
+  },
+];
+---
+
+<Base
+  title={`${title} | Proof of Concept Bakery`}
+  description="How Proof of Concept Bakery keeps a script from making thousands of sandboxes: a rate limit, a human check, a daily ledger in one object and a limit per token, each refusing what the next would pay for, and each saying when to come back."
+>
+  <article class="essay prose">
+    <p class="hint">
+      <a href={HOW_PATH}>How it’s built</a>
+    </p>
+    <h1>{title}</h1>
+    <p class="lead">
+      Every sandbox costs the bakery requests, rows and queue operations, and a script could ask for
+      thousands. This is the line of checks a request for one passes, why they sit in that order,
+      what each costs the one who is turned away, and what the bakery gives up so that a refusal
+      stays cheap.
+    </p>
+
+    <h2>A script at the door</h2>
+    <p>
+      Picture a loop that posts to <code>/v1/sandboxes</code> as fast as the network allows. Each
+      sandbox it is given means a seed of about 2,500 rows written and as many deleted at the wipe (
+      <code>docs/adr/0005</code>, estimate as of 2026-11-04). A design that says yes to the first
+      thousand has spent the money before it learns that the thousand were one script. A design that
+      says no to everything has no demo. The bakery says yes to a bounded number a day, and makes
+      the no cost almost nothing.
+    </p>
+
+    <h2>What one check does, and where it breaks</h2>
+    <p>
+      The simple design is one gate: a counter, and a refusal when it is full. It is correct and it
+      is expensive, because the counter lives in one place and every request, from a person or a
+      loop, has to reach it and be counted. When the loop is the traffic, the gate’s own cost is the
+      attack. It also fails the person: a full counter shuts the door on the visitor who arrived
+      second after the script arrived first. No lab page shows this one yet, so the bakery explains
+      it itself; the{' '}
+      <a href={SITE_LAB} rel="noopener">
+        lab’s index
+      </a>{' '}
+      is where the lab covers the family of techniques, and as read on {READ} it has five labs, none
+      on admission.
+    </p>
+
+    <h2>Four checks, each ahead of what the next would cost</h2>
+    <p>
+      Nygard’s <em>Release It!</em> asks a system to shed load early, and to keep one failure from
+      using up what another needs. The bakery’s checks run in the order of what they cost to run.
+    </p>
+    <p>
+      <strong>The rate limit.</strong> The router asks a Rate Limiting binding before any handler
+      runs: one sandbox a minute per hashed address, 60 commands a minute per session, 6 socket
+      upgrades a minute (<code>workers/api/wrangler.jsonc</code>). Cloudflare’s documentation, read
+      on {READ}, says those counts are kept per location and are eventually consistent, so the limit
+      is approximate. The bakery treats it as a courtesy and never as a budget, and when the binding
+      is unavailable the code lets the request through and logs <code>rate_limit_unavailable</code>{' '}
+      once.
+    </p>
+    <p>
+      <strong>The human check.</strong> A guest’s request, and a demo account’s, then needs a
+      Turnstile token, which <code>workers/api/src/http/outbound.rs</code> sends to Siteverify.
+      Without a token it is refused <code>turnstile-missing</code>; if Siteverify cannot be reached,
+      that is a refusal too, never a pass. Cloudflare’s documentation, read on {READ}, makes a token
+      valid for 300 seconds and good for one check. Until launch the page uses Cloudflare’s
+      always-pass test key, so this layer is built and does not yet turn anyone away.
+    </p>
+    <p>
+      <strong>The ledger.</strong> Then the router asks <code>Control</code>, the one object that
+      counts the day. Its <code>admit</code> runs in one transaction: a retry with the same{' '}
+      <code>Idempotency-Key</code> gets the first answer, without taking a second place, even when
+      the day has filled in between. Otherwise the pure decision in{' '}
+      <code>crates/app/src/admission.rs</code> checks the flag, the day’s cap of 300, and for a
+      guest the share of 100. A yes bumps the counts and writes the sandbox’s row. A no writes
+      nothing, so a refused request leaves the ledger as it found it. Demo accounts have a cap of
+      100, and an account may make 3 sandboxes a day.
+    </p>
+    <p>
+      <strong>The token’s own limit.</strong> A script that has a sandbox can still lean on it, so
+      every request an API token makes spends <code>TOKEN_LIMIT</code>, 60 a minute, before the
+      Sandbox is asked. Simulated traffic has its own ledger in <code>Control</code>: 30 minutes a
+      sandbox a UTC day, taken before the run starts and returned if it stops early.
+    </p>
+
+    <h2>A refusal that says when to come back</h2>
+    <p>
+      The layers are cheap in different currencies. A Turnstile pass costs the visitor a moment at
+      the sign-in screen. A rate-limit refusal costs the Worker one binding call. A cap refusal
+      costs one request to <code>Control</code> and a few reads. The order follows from that: the
+      free refusals come before the one that touches an object.
+    </p>
+    <p>
+      Each answer says what to do. A rate limit is a 429 with <code>Retry-After: 60</code>. A cap is
+      a 503 whose <code>Retry-After</code> counts the seconds to the next 00:00 UTC, and the page
+      turns it into words such as “about 3 hours”. A flag set to off or read-only has no known end
+      and carries none. A refusal that gave no time would send the visitor back at once, and a loop
+      would not wait at all.
+    </p>
+
+    <h2>What it costs</h2>
+    <ul>
+      <li>
+        <strong>A visitor turned away on a busy day.</strong> The cap is 300 sandboxes a UTC day,
+        100 of them for guests. A guest who arrives after the hundredth is refused with “come back
+        after 00:00 UTC”, though the other 200 places are not open to guests, and may sign in for
+        one of their own.
+      </li>
+      <li>
+        <strong>A widget on the creation screens.</strong> Every guest and demo sign-up loads
+        Turnstile’s script from Cloudflare and spends a moment on a check. The script comes from
+        Cloudflare, and no essay loads it.
+      </li>
+      <li>
+        <strong>A rate limit that is not exact.</strong> Because it is approximate, it bounds one
+        sender’s churn and nothing more; the daily count is exact only because one object keeps it.
+      </li>
+      <li>
+        <strong>A breaker that is not built.</strong> <code>docs/cost.md</code> designs a cron that
+        reads real usage and sets <code>Control</code> to read-only. As of 2026-11-06 the cron holds
+        no breaker, and the counts above are what stands between the account and a flood. At those
+        caps cost.md works the worst month out at $5.29, 5.3% of the $100 ceiling, with limits as of
+        2026-11-04.
+      </li>
+    </ul>
+    <p>
+      That is the trade <code>docs/security.md</code> names: the cap turns a denial of wallet into a
+      denial of service. The money stays bounded, and the visitors who lose are the ones who arrive
+      after the day is full.
+    </p>
+
+    <h2>Try it</h2>
+    <p>
+      Open <a href="/signin/">sign-in</a> and continue as a guest. Then ask{' '}
+      <code>GET /v1/status</code> on the API, or read the counters on{' '}
+      <a href="/status/">the status page</a>, and compare today’s sandboxes with the caps. In the
+      console, start traffic and stop it early: the minutes you did not use are returned to the
+      day’s ledger.
+    </p>
+
+    <h2>Sources</h2>
+    <ul class="sources">
+      <li>
+        <em>Release It!</em>, Michael T. Nygard, 2nd edition, 2018: bulkheads and the shedding of
+        load, as the bakery’s <code>docs/architecture.md</code> cites them. The book was not read on{' '}
+        {READ}.
+      </li>
+      {SOURCES.map((s) => (
+        <li>
+          <a href={s.href} rel="noopener">
+            {s.title}
+          </a>
+          , {s.by}, read on {READ}: {s.for}.
+        </li>
+      ))}
+    </ul>
+    <p class="hint">
+      Back to <a href={howUrl('admission')}>the admission principle on How it’s built</a>, to the
+      decisions that chose it,{' '}
+      <a href={adrUrl('0005')} rel="noopener">
+        ADR 0005
+      </a>{' '}
+      and{' '}
+      <a href={adrUrl('0010')} rel="noopener">
+        ADR 0010
+      </a>
+      , or to{' '}
+      <a href={SITE_LAB} rel="noopener">
+        the lab
+      </a>
+      .
+    </p>
+  </article>
+</Base>
