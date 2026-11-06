@@ -2,7 +2,7 @@
 
 Why the bakery demo exists, who it is for, what Joseph asked for on 2026-11-04, the principles it is built under, the content firewall it lives under, and the open decisions that block each pull request. The shape is in [architecture.md](architecture.md), the language and the events in [domain.md](domain.md), each hard-to-reverse decision in [adr/](adr/README.md), and the order of work in [roadmap.md](roadmap.md). This doc owns the goals, the questions and the answers; every other doc links here for them.
 
-Status: Draft for review in PR 1 · 2026-11-04
+Status: Updated in PR 16 · 2026-11-06
 
 Prices, limits and versions are as of 2026-11-04, with sources.
 

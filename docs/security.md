@@ -2,7 +2,7 @@
 
 What the system of the made-up bakery, Proof of Concept Bakery, protects, from whom, and how. This doc owns the threat model, the headers, the Content Security Policy (CSP) and CORS, sign-in and sessions, sandbox isolation, the privacy and data inventory, the wipe as a privacy control, payments safety, the secrets inventory, the content firewall here, commit identities, the supply chain and account continuity. Money and denial of wallet are in [cost.md](cost.md); how the Durable Object (DO) classes fit together is in [architecture.md](architecture.md); rotation, leak response and the Stripe sandbox reset are runbooks in [operations.md](operations.md). The decisions are [ADR 0005](adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md) (sandbox), 0006 (sign-in), 0007 (Stripe) and 0009 (the API hostname) ([ADR index](adr/README.md)).
 
-Status: Updated in PR 8 · 2026-11-05
+Status: Updated in PR 16 · 2026-11-06
 
 Prices, limits and versions are as of 2026-11-04, with sources.
 
