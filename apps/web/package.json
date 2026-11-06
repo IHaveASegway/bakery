@@ -9,6 +9,7 @@
     "serve": "wrangler dev --local --ip 127.0.0.1 --port 8787 --show-interactive-dev-session=false",
     "typecheck": "astro check",
     "test": "vitest run",
+    "e2e": "node e2e/run.mjs",
     "contracts": "node scripts/contracts.mjs",
     "menu": "node scripts/menu.mjs"
   },
@@ -25,6 +26,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "0.9.12",
+    "@playwright/test": "catalog:",
     "@types/culori": "^4.0.1",
     "@types/node": "^26.6.5",
     "@types/react": "19.3.0",

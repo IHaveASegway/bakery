@@ -1,0 +1,7 @@
+# Its own root, so `pnpm install` here reads this file and this lockfile, never the bakery's
+# workspace (docs/stack.md: @lhci/cli 0.15.1). Only the `lighthouse` job installs it.
+packages:
+  - .
+
+# No package here may run an install script.
+allowBuilds: {}

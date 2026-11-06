@@ -1,28 +1,70 @@
-# The pipeline before launch: three jobs, and nothing deploys (docs/delivery.md, "Before launch").
-# Deploy, preview, e2e and Lighthouse jobs arrive in PR 11, the launch pull request, with the
-# deploy token; until then no job holds a Cloudflare credential. The shape follows the site's
-# ci.yml, whose steps are named in plain sentences.
+# The pipeline (docs/delivery.md, "Pipeline"; ADR 0011). The shape follows the site's ci.yml,
+# whose steps are named in plain sentences.
 #
-# The hardening rules are delivery.md's "Hardening rules", marked where they apply. Rules 4, 5, 10
-# and 11 have nothing to mark yet: no job holds a deploy token, and the only actions are
-# GitHub-created ones plus pnpm/action-setup. Rule 12 is the bakery's own: cargo installs are
-# --locked and --version-pinned.
+# DORMANT UNTIL LAUNCH DAY. verify, firewall and firewall-selftest run as they have since PR 2.
+# Every job below them (preview, e2e, lighthouse, preview-cleanup, deploy, prod-smoke,
+# prod-verdict, rollback) runs only when the repository variable LAUNCHED is 'true'
+# (Settings, Secrets and variables, Actions, Variables). It does not exist yet, so none of them
+# runs, and none holds a credential, until Joseph sets it on launch day (docs/operations.md,
+# "Launch"). Unsetting it, or setting anything but 'true', makes them dormant again.
+#
+# Secrets, by name only, each in the env of the steps that use it (rule 2), with the Cloudflare
+# permissions each job's commands need, from docs/operations.md's access setup:
+#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID (step 1, the deploy token, account-owned)
+#     preview          Account: Workers Scripts Edit (a preview is a version upload), Account
+#                      Settings Read (Wrangler reads the account and its workers.dev subdomain)
+#     preview-cleanup  Account: Workers Scripts Edit
+#     deploy           all of step 1: Account: Workers Scripts Edit, Account Settings Read, and the
+#                      assumed Queues Edit (the API binds bakery-events and its consumer); Zone
+#                      ihaveasegway.com: Workers Routes Edit and Zone Read (the two Custom Domains),
+#                      and the assumed DNS Edit (a Custom Domain adds its record). Launch day's
+#                      first deploy confirms the list (ADR 0011, decision 8)
+#     rollback         Account: Workers Scripts Edit, Account Settings Read
+#   STRIPE_E2E_SECRET_KEY (step 7): read by nothing yet. Until spike S3 the e2e payment step pays
+#     at the fake Stripe (scripts/fake-stripe.mjs), and a key no step uses is a key no step holds.
+#   CLOUDFLARE_READ_TOKEN (step 8) belongs to scheduled.yml's bakery-objects, never to this file.
+#   FIREWALL_RULES (step 7, both stores): firewall, as before.
+# The GitHub token: pull-requests: write for preview's one comment, issues: write for
+# prod-verdict's incident issue; contents: read everywhere else.
+#
+# The hardening rules are delivery.md's "Hardening rules", marked where they apply. Rule 4: the
+# jobs that hold the deploy token use GitHub-created actions and pnpm/action-setup only, Wrangler
+# from the lockfile, and never compile Rust. Rule 11: none of them restores a cache. The launch
+# jobs pin each action by commit, with its release in the comment. Rule 12 is the bakery's own:
+# cargo installs are --locked and --version-pinned.
 name: ci
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened] # a title or body edited later: pr-text.yml
+    # A title or body edited later: pr-text.yml. Closed: preview-cleanup only.
+    types: [opened, synchronize, reopened, closed]
   push:
     branches: [main]
   schedule:
     - cron: '17 7 * * 1' # the weekly rebuild, Monday 07:17 UTC: off the hour, when GitHub drops fewer runs
+  workflow_dispatch: # the rollback job only (docs/operations.md, "Rollback")
+    inputs:
+      worker:
+        description: The Worker to roll back
+        type: choice
+        options: [web, api]
+        required: true
+      rollback_to:
+        description: The version id to roll back to (from the prod-verdict issue or a deploy summary)
+        type: string
+        required: true
+      reason:
+        description: Why, in a few words; it becomes the deployment's message
+        type: string
+        required: true
 
 permissions: {} # rule 1: each job grants only what its row in delivery.md says
 
 concurrency:
   # Rule 8: a new push to a pull request cancels its superseded run. Every other run waits for
-  # its turn in the group and is never cancelled.
-  group: ci-${{ github.ref }}
+  # its turn in the group and is never cancelled. A dispatch (a rollback) has a group of its own,
+  # so it never waits behind a whole main run; it waits only for deploy, in deploy-production.
+  group: ci-${{ github.event_name == 'workflow_dispatch' && 'dispatch-' || '' }}${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -32,6 +74,8 @@ env:
 
 jobs:
   verify:
+    # Not on a closed pull request (preview-cleanup's) or a dispatch (rollback's).
+    if: github.event_name != 'workflow_dispatch' && github.event.action != 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 25 # rule 9: a cold Rust build is slow, hence the cache below
     permissions:
@@ -216,6 +260,8 @@ jobs:
 
   firewall:
     needs: verify
+    # Not on a closed pull request (preview-cleanup's) or a dispatch (rollback's).
+    if: github.event_name != 'workflow_dispatch' && github.event.action != 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -251,6 +297,8 @@ jobs:
     # (scripts/firewall/scanner-changed.sh): otherwise main's scanner is the one its pull request's
     # run proved. The check is a step, not a paths filter, so the job always reports a result.
     # The weekly rebuild always runs it: a new git on the runner image is the drift that run is for.
+    # Not on a closed pull request (preview-cleanup's) or a dispatch (rollback's).
+    if: github.event_name != 'workflow_dispatch' && github.event.action != 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 15 # rule 9
     permissions:
@@ -278,3 +326,657 @@ jobs:
       - name: Firewall self-test, with throwaway rules only
         if: steps.scope.outputs.run == 'true'
         run: scripts/firewall/test.sh
+
+  # ---------------------------------------------------------------------------------------------
+  # The launch jobs (PR 11). Each starts with vars.LAUNCHED == 'true': dormant until launch day.
+  # Timeouts (rule 9) are this file's own; delivery.md names verify's 25 minutes only.
+  # ---------------------------------------------------------------------------------------------
+
+  preview:
+    # The web Worker only, until spike S4 (ADR 0011, decision 4): `wrangler preview` of the
+    # scanned dist/, on workers.dev with noindex, calling the production API (whose CORS allows
+    # only the storefront, so signed-in screens fail there by design). Pull requests from this
+    # repository only, never Dependabot's: neither gets the deploy token.
+    needs: firewall
+    if: >-
+      vars.LAUNCHED == 'true' && github.event_name == 'pull_request' &&
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write # the one comment with the preview's URL
+    outputs:
+      url: ${{ steps.publish.outputs.url }}
+    env:
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # rule 7
+          fetch-depth: 0 # the scanner check compares the pull request with its base
+      - name: Does this pull request change the scanner? Then no preview, since nothing has proved it yet
+        id: scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          changed="$(scripts/firewall/scanner-changed.sh "$BASE" HEAD)"
+          if [ "$changed" = false ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            note="No preview: this pull request changes the scanner, and a scanner its self-test has not proved cannot clear a public page."
+            echo "::notice::$note"
+            echo "$note" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        if: steps.scope.outputs.publish == 'true'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.scope.outputs.publish == 'true'
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false # rule 11: no cache next to the deploy token
+      - if: steps.scope.outputs.publish == 'true'
+        run: pnpm install --frozen-lockfile
+      - if: steps.scope.outputs.publish == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build
+          path: .
+      - name: Production exists? A preview publishes nothing before the first deploy from main
+        id: production
+        if: steps.scope.outputs.publish == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }} # rule 2: this step and Publish only
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if pnpm exec wrangler deployments list --name bakery-web --json > /dev/null 2> "$RUNNER_TEMP/err"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif grep -qiE '10007|not found|does not exist' "$RUNNER_TEMP/err"; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No preview: bakery-web has no production yet; the first deploy from main creates it."
+          else
+            cat "$RUNNER_TEMP/err" >&2
+            exit 1
+          fi
+      - name: Publish the preview (web only, the scanned dist/)
+        id: publish
+        if: steps.production.outputs.exists == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          pnpm exec wrangler preview --config apps/web/wrangler.jsonc --name "pr-$PR" \
+            --message "pr-$PR@${HEAD_SHA:0:8}" --json > "$RUNNER_TEMP/preview.json"
+          # The first workers.dev URL Wrangler reports (confirm the JSON's shape on launch day).
+          url="$(grep -oE 'https://[A-Za-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/preview.json" | head -n 1)"
+          if [ -z "$url" ]; then
+            echo "::error::wrangler preview reported no workers.dev URL"
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Wait for the preview, and require noindex
+        if: steps.publish.outputs.url != ''
+        env:
+          URL: ${{ steps.publish.outputs.url }}
+        run: |
+          for _ in $(seq 1 60); do
+            code="$(curl -sS -o /dev/null -D "$RUNNER_TEMP/headers" -w '%{http_code}' "$URL/" || true)"
+            [ "$code" = 200 ] && break
+            sleep 2
+          done
+          if [ "$code" != 200 ]; then
+            echo "::error::the preview answered $code, not 200, within two minutes"
+            exit 1
+          fi
+          if ! tr -d '\r' < "$RUNNER_TEMP/headers" | grep -qiE '^x-robots-tag:.*noindex'; then
+            echo "::error::the preview has no X-Robots-Tag: noindex, so a search engine may index it"
+            exit 1
+          fi
+          echo "Preview: $URL (noindex)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Post the preview's URL, in one comment the job edits on each push
+        if: steps.publish.outputs.url != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          URL: ${{ steps.publish.outputs.url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          body="Preview of the storefront at ${HEAD_SHA:0:8}: $URL (noindex; it calls the production API, so signed-in screens fail here by design)."
+          gh pr comment "$PR" --repo "$REPO" --edit-last --body "$body" 2> /dev/null ||
+            gh pr comment "$PR" --repo "$REPO" --body "$body"
+
+  e2e:
+    # Both Workers on wrangler dev from the scanned artifacts, with the fakes, Playwright in its
+    # image at the lockfile's version (apps/web/e2e/run.mjs). Runs for Dependabot's pull requests
+    # too; a fork's never gets here, because firewall fails closed without its secret.
+    # STRIPE_E2E_SECRET_KEY is not read: until spike S3 the payment spec pays at the fake Stripe.
+    needs: [verify, firewall, preview]
+    if: >-
+      always() && vars.LAUNCHED == 'true' && github.event_name == 'pull_request' &&
+      github.event.action != 'closed' &&
+      needs.verify.result == 'success' && needs.firewall.result == 'success' &&
+      (needs.preview.result == 'success' || needs.preview.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      # The lockfile's Playwright, 1.64.1 (docs/stack.md), by digest as well as tag.
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
+      options: --ipc=host # Chromium's shared memory
+    permissions:
+      contents: read
+    env:
+      PLAYWRIGHT_IMAGE: '1.64.1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # rule 7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm # no secret in this job
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build
+          path: .
+      - name: The image's Playwright is the lockfile's
+        run: |
+          locked="$(pnpm --filter web exec playwright --version | awk '{ print $2 }')"
+          echo "lockfile: $locked; image: $PLAYWRIGHT_IMAGE"
+          if [ "$locked" != "$PLAYWRIGHT_IMAGE" ]; then
+            echo "::error::the lockfile's Playwright is $locked and the image's $PLAYWRIGHT_IMAGE; move both together"
+            exit 1
+          fi
+      - name: End-to-end suite, both Workers on wrangler dev with the fakes
+        run: pnpm --filter web e2e
+      - name: Keep the traces and the servers' logs of a failed run
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-results
+          path: apps/web/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  lighthouse:
+    # Lighthouse CI against the preview, with the budgets in apps/web/lighthouserc.json. Its own
+    # lockfile (tools/lighthouse), so its dependency tree stays out of the workspace's install and
+    # audit. The image supplies the Chromium. Reports stay in this run (upload target filesystem).
+    needs: preview
+    if: vars.LAUNCHED == 'true' && needs.preview.outputs.url != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
+      options: --ipc=host
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # rule 7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install Lighthouse CI from its own lockfile
+        working-directory: tools/lighthouse
+        run: pnpm install --frozen-lockfile
+      - name: Lighthouse against the preview's pages
+        working-directory: apps/web
+        env:
+          URL: ${{ needs.preview.outputs.url }}
+        run: |
+          CHROME_PATH="$(find /ms-playwright -path '*/chrome-linux*/chrome' -type f | head -n 1)"
+          export CHROME_PATH
+          urls=()
+          for page in / /menu/ /catering/ /checkout/ /privacy/ /signin/; do
+            urls+=("--collect.url=${URL%/}$page")
+          done
+          ../../tools/lighthouse/node_modules/.bin/lhci autorun --config=lighthouserc.json "${urls[@]}"
+      - name: Keep the reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lighthouse
+          path: apps/web/lighthouse-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  preview-cleanup:
+    # A closed pull request's preview, deleted. The same pull requests as preview.
+    if: >-
+      vars.LAUNCHED == 'true' && github.event_name == 'pull_request' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # rule 7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false # rule 11
+      - run: pnpm install --frozen-lockfile
+      - name: Delete the pull request's preview
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }} # rule 2
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          # By Worker name, not config: the config's assets directory is not built in this job.
+          if pnpm exec wrangler preview delete --worker-name bakery-web --name "pr-$PR" --skip-confirmation 2> "$RUNNER_TEMP/err"; then
+            echo "Deleted the preview pr-$PR." >> "$GITHUB_STEP_SUMMARY"
+          elif grep -qiE 'not found|does not exist' "$RUNNER_TEMP/err"; then
+            echo "::notice::No preview pr-$PR to delete (none was published)."
+          else
+            cat "$RUNNER_TEMP/err" >&2
+            exit 1
+          fi
+
+  deploy:
+    # On a push to main (ADR 0011, decisions 5, 9 and 10). Stops unless the commit is main's tip.
+    # Stage 1, the API, when workers/api/, crates/ or the Rust manifests changed since the commit
+    # the live API runs (read from its deployment's message): `wrangler deploy` of the scanned
+    # bundle with no build and no bundling, then a health and CORS check through its hostname.
+    # Stage 2, the web Worker, after stage 1 passes or is skipped: a version upload, a smoke of its
+    # Version URL, main's tip checked again, then that version at 100%. The first deploy runs
+    # `wrangler deploy` for each Worker instead, which creates it and attaches its Custom Domain.
+    # A Durable Object class lifecycle change ships alone: with one, any other change in the range
+    # stops the job, and the web stage waits for the next merge.
+    needs: [verify, firewall, firewall-selftest]
+    if: vars.LAUNCHED == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: deploy-production # rule 8: shared with rollback, never cancelled
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    outputs:
+      ran: ${{ steps.tip.outputs.go }}
+      api: ${{ steps.api.outputs.deployed }}
+      api_before: ${{ steps.live.outputs.api_version }}
+      api_after: ${{ steps.api.outputs.version }}
+      web: ${{ steps.web.outputs.deployed }}
+      web_before: ${{ steps.live.outputs.web_version }}
+      web_after: ${{ steps.web.outputs.version }}
+    env:
+      SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # rule 7
+          fetch-depth: 0 # the API's paths are compared with the commit production runs
+      - name: Stop unless this commit is main's tip
+        id: tip
+        run: |
+          tip="$(git ls-remote origin refs/heads/main | cut -f 1)"
+          if [ "$tip" = "$SHA" ]; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::main is at ${tip:0:12} now, not ${SHA:0:12}; that commit's own run deploys it."
+          fi
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        if: steps.tip.outputs.go == 'true'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.tip.outputs.go == 'true'
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false # rule 11
+      - if: steps.tip.outputs.go == 'true'
+        run: pnpm install --frozen-lockfile
+      - if: steps.tip.outputs.go == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build
+          path: .
+      - name: The API's deploy config, next to its scanned bundle (no build, no bundling)
+        if: steps.tip.outputs.go == 'true'
+        run: node scripts/api-deploy-config.mjs
+      - name: Read what production runs now
+        id: live
+        if: steps.tip.outputs.go == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }} # rule 2
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          # Prints "<version id> <commit>" of the Worker's newest deployment, or nothing when the
+          # Worker does not exist yet. The --json shape is the API's (confirm on launch day).
+          live() {
+            if ! pnpm exec wrangler deployments list --name "$1" --json > "$RUNNER_TEMP/$1.json" 2> "$RUNNER_TEMP/$1.err"; then
+              if grep -qiE '10007|not found|does not exist' "$RUNNER_TEMP/$1.err"; then return 0; fi
+              cat "$RUNNER_TEMP/$1.err" >&2
+              return 1
+            fi
+            jq -r 'sort_by(.created_on) | last // empty
+              | "\(.versions[0].version_id // "") \(((.annotations["workers/message"] // "")
+                  | [capture("main@(?<s>[0-9a-f]{40})")] | .[0].s) // "")"' \
+              "$RUNNER_TEMP/$1.json"
+          }
+          api_live="$(live bakery-api)" # an error here stops the job: never a guess at production
+          web_live="$(live bakery-web)"
+          read -r api_version api_commit <<< "$api_live"
+          read -r web_version _ <<< "$web_live"
+          {
+            echo "api_version=${api_version:-}"
+            echo "api_commit=${api_commit:-}"
+            echo "web_version=${web_version:-}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Live before: bakery-api ${api_version:-none} (main@${api_commit:0:8}), bakery-web ${web_version:-none}" >> "$GITHUB_STEP_SUMMARY"
+      - name: Did the API change since the commit production runs?
+        id: scope
+        if: steps.tip.outputs.go == 'true'
+        env:
+          LIVE: ${{ steps.live.outputs.api_commit }}
+          LIVE_VERSION: ${{ steps.live.outputs.api_version }}
+        run: |
+          # Fails toward deploying: no live API, or a live commit this clone does not hold.
+          paths=(workers/api crates Cargo.toml Cargo.lock rust-toolchain.toml)
+          if [ -z "$LIVE_VERSION" ]; then
+            changed=true; why="no bakery-api yet: the first deploy"
+          elif [ -z "$LIVE" ] || ! git cat-file -e "$LIVE^{commit}" 2> /dev/null; then
+            changed=true; why="the live deployment names no commit this clone holds"
+          elif git diff --quiet "$LIVE" HEAD -- "${paths[@]}"; then
+            changed=false; why="nothing under ${paths[*]} changed since main@${LIVE:0:8}"
+          else
+            changed=true; why="changed since main@${LIVE:0:8}"
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "API: $why" >> "$GITHUB_STEP_SUMMARY"
+          # A Durable Object class lifecycle change (a class bound, exported, renamed or deleted)
+          # is a rollback boundary, so it ships alone (ADR 0011, decision 9).
+          alone=false
+          if [ "$changed" = true ] && [ -n "$LIVE" ] && git cat-file -e "$LIVE^{commit}" 2> /dev/null; then
+            git show "$LIVE:workers/api/wrangler.jsonc" > "$RUNNER_TEMP/live.jsonc"
+            if ! node --input-type=module -e "
+              import { readFileSync } from 'node:fs';
+              import { durableObjectClasses } from './scripts/api-deploy-config.mjs';
+              const [a, b] = [process.argv[1], 'workers/api/wrangler.jsonc'].map((f) => durableObjectClasses(readFileSync(f, 'utf8')));
+              process.exit(JSON.stringify(a) === JSON.stringify(b) ? 0 : 1);
+            " "$RUNNER_TEMP/live.jsonc"; then
+              alone=true
+              others="$(git diff --name-only "$LIVE" HEAD | grep -vE '^(workers/api/|crates/|docs/|Cargo\.(toml|lock)$)' || true)"
+              if [ -n "$others" ]; then
+                echo "::error::a Durable Object class change ships alone, and this range also changes: $(echo "$others" | tr '\n' ' ')"
+                exit 1
+              fi
+              echo "A Durable Object class change: the API deploys alone, the web stage waits for the next merge." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          echo "alone=$alone" >> "$GITHUB_OUTPUT"
+      - name: Stage 1, the API, deployed from the scanned bundle
+        id: api
+        if: steps.tip.outputs.go == 'true' && steps.scope.outputs.changed == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }} # rule 2
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          # Every API deploy restarts every object and drops every kitchen socket; the boards
+          # reconnect and take a snapshot (delivery.md, "The API").
+          pnpm exec wrangler deploy --config workers/api/dist/wrangler.json --no-bundle \
+            --message "main@$SHA" --var "BUILD_COMMIT:$SHA" | tee "$RUNNER_TEMP/api-deploy.log"
+          version="$(grep -oE 'Current Version ID: [0-9a-f-]{36}' "$RUNNER_TEMP/api-deploy.log" | awk '{ print $4 }' | tail -n 1)"
+          echo "deployed=true" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "bakery-api deployed: ${version:-see the log} (main@${SHA:0:8})" >> "$GITHUB_STEP_SUMMARY"
+      - name: Stage 1's check, health and CORS through the API's hostname
+        if: steps.api.outputs.deployed == 'true'
+        run: |
+          api=https://api.bakery.ihaveasegway.com
+          for _ in $(seq 1 60); do
+            commit="$(curl -sS "$api/v1/health" | jq -r '.commit // empty' 2> /dev/null || true)"
+            [ "$commit" = "$SHA" ] && break
+            sleep 2
+          done
+          if [ "$commit" != "$SHA" ]; then
+            echo "::error::/v1/health reports ${commit:-nothing}, not $SHA, after two minutes"
+            exit 1
+          fi
+          allow="$(curl -sS -o /dev/null -D - -H 'Origin: https://bakery.ihaveasegway.com' "$api/v1/health" | tr -d '\r' | grep -i '^access-control-allow-origin:' | cut -d ' ' -f 2-)"
+          if [ "$allow" != "https://bakery.ihaveasegway.com" ]; then
+            echo "::error::the storefront's origin got Access-Control-Allow-Origin '$allow'"
+            exit 1
+          fi
+          if curl -sS -o /dev/null -D - -H 'Origin: https://example.com' "$api/v1/health" | grep -qi '^access-control-'; then
+            echo "::error::another origin got a CORS header"
+            exit 1
+          fi
+          echo "bakery-api answers with main@${SHA:0:8} and exact CORS" >> "$GITHUB_STEP_SUMMARY"
+      - name: Stage 2, the web Worker, uploaded, smoked on its Version URL, then promoted
+        id: web
+        if: steps.tip.outputs.go == 'true' && steps.scope.outputs.alone != 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }} # rule 2
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          LIVE_VERSION: ${{ steps.live.outputs.web_version }}
+        run: |
+          config=apps/web/wrangler.jsonc
+          if [ -z "$LIVE_VERSION" ]; then
+            # The first deploy: routes and Custom Domains are not part of a version (delivery.md).
+            pnpm exec wrangler deploy --config "$config" --message "main@$SHA" | tee "$RUNNER_TEMP/web.log"
+            version="$(grep -oE 'Current Version ID: [0-9a-f-]{36}' "$RUNNER_TEMP/web.log" | awk '{ print $4 }' | tail -n 1)"
+          else
+            pnpm exec wrangler versions upload --config "$config" --tag "${SHA:0:8}" --message "main@$SHA" | tee "$RUNNER_TEMP/web.log"
+            version="$(grep -oE 'Worker Version ID: [0-9a-f-]{36}' "$RUNNER_TEMP/web.log" | awk '{ print $4 }' | tail -n 1)"
+            preview="$(grep -oE 'https://[A-Za-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/web.log" | head -n 1)"
+            if [ -z "$version" ] || [ -z "$preview" ]; then
+              echo "::error::the upload reported no version id or Version URL (confirm Wrangler's output on launch day)"
+              exit 1
+            fi
+            # The Version URL smoke: each page answers 200 with the policy, and is the artifact.
+            for page in / /menu/ /catering/ /checkout/ /privacy/ /signin/; do
+              file="apps/web/dist${page}index.html"
+              code="$(curl -sS -o "$RUNNER_TEMP/page.html" -D "$RUNNER_TEMP/page.headers" -w '%{http_code}' "$preview$page")"
+              if [ "$code" != 200 ] || ! cmp -s "$RUNNER_TEMP/page.html" "$file" ||
+                ! tr -d '\r' < "$RUNNER_TEMP/page.headers" | grep -qi '^content-security-policy:'; then
+                echo "::error::the Version URL's $page answered $code, or differs from the artifact, or has no policy; nothing was promoted"
+                exit 1
+              fi
+            done
+            tip="$(git ls-remote origin refs/heads/main | cut -f 1)"
+            if [ "$tip" != "$SHA" ]; then
+              echo "::notice::main moved to ${tip:0:12} during the deploy; its own run promotes it."
+              exit 0
+            fi
+            pnpm exec wrangler versions deploy "$version@100%" --name bakery-web --message "main@$SHA" --yes
+          fi
+          echo "deployed=true" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "bakery-web deployed: $version (was ${LIVE_VERSION:-none})" >> "$GITHUB_STEP_SUMMARY"
+
+  rollback:
+    # workflow_dispatch from main with worker, rollback_to and reason (docs/operations.md,
+    # "Rollback"); in deploy's group, so it never races a deploy. Only a version id.
+    if: vars.LAUNCHED == 'true' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    outputs:
+      worker: ${{ steps.inputs.outputs.worker }}
+      before: ${{ steps.rollback.outputs.before }}
+      to: ${{ steps.inputs.outputs.to }}
+    steps:
+      - name: Check the inputs, a Worker and a version id and nothing else
+        id: inputs
+        env:
+          # Rule 3: dispatch text reaches the script through env only.
+          WORKER: ${{ inputs.worker }}
+          TO: ${{ inputs.rollback_to }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          case "$WORKER" in web | api) ;; *) echo "::error::worker is web or api"; exit 1 ;; esac
+          if ! printf '%s' "$TO" | grep -Eqx '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'; then
+            echo "::error::rollback_to is a version id (a UUID), from the prod-verdict issue or a deploy summary"
+            exit 1
+          fi
+          if [ -z "$REASON" ] || [ "${#REASON}" -gt 200 ] || printf '%s' "$REASON" | grep -q '[^[:print:]]'; then
+            echo "::error::reason is one line of at most 200 printable characters"
+            exit 1
+          fi
+          echo "worker=$WORKER" >> "$GITHUB_OUTPUT"
+          echo "to=$TO" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # rule 7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false # rule 11
+      - run: pnpm install --frozen-lockfile
+      - name: Roll back
+        id: rollback
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }} # rule 2
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          NAME: bakery-${{ steps.inputs.outputs.worker }}
+          TO: ${{ steps.inputs.outputs.to }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          before="$(pnpm exec wrangler deployments list --name "$NAME" --json | jq -r 'sort_by(.created_on) | last | .versions[0].version_id // empty')"
+          echo "before=$before" >> "$GITHUB_OUTPUT"
+          pnpm exec wrangler rollback "$TO" --name "$NAME" --message "rollback: $REASON" --yes
+          {
+            echo "$NAME rolled back from ${before:-unknown} to $TO: $REASON"
+            echo
+            echo "A rollback undoes code, not data. Cloudflare refuses a rollback of bakery-api across a"
+            echo "Durable Object class change (created, deleted, renamed or transferred): if it refused, set"
+            echo "the API to read-only or off with L1 in Control's flags and fix forward (operations.md,"
+            echo "\"Rollback\"). Fix or revert on main next, since the next merge deploys main again."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  prod-smoke:
+    # docs/delivery.md's smoke table through both hostnames, in Playwright's image, after deploy or
+    # rollback (apps/web/e2e/prod/). After a deploy it also compares every page with the artifact,
+    # and /v1/health with this commit when the API deployed.
+    needs: [deploy, rollback]
+    if: >-
+      always() && vars.LAUNCHED == 'true' &&
+      ((needs.deploy.result == 'success' && needs.deploy.outputs.ran == 'true') ||
+      needs.rollback.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
+      options: --ipc=host
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # rule 7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - run: pnpm install --frozen-lockfile
+      - if: needs.deploy.outputs.web == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build
+          path: .
+      - name: Smoke production through the zone
+        working-directory: apps/web
+        env:
+          SMOKE_TARGET: production
+          SMOKE_COMMIT: ${{ needs.deploy.outputs.api == 'true' && github.sha || '' }}
+          WEB_DEPLOYED: ${{ needs.deploy.outputs.web }}
+        run: |
+          if [ "$WEB_DEPLOYED" = true ]; then export SMOKE_DIST="$PWD/dist"; fi
+          pnpm exec playwright test --config e2e/prod/playwright.config.ts
+      - name: Keep the traces of a failed smoke
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: prod-smoke
+          path: apps/web/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  prod-verdict:
+    # When prod-smoke fails, or the API's own check after its deploy does: an Incident issue with
+    # the exact rollback command for each Worker that changed. On the runner, with the GitHub
+    # token only.
+    needs: [deploy, rollback, prod-smoke]
+    if: >-
+      always() && vars.LAUNCHED == 'true' &&
+      (needs.prod-smoke.result == 'failure' ||
+      (needs.deploy.result == 'failure' && needs.deploy.outputs.api == 'true'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write # the Incident issue
+    steps:
+      - name: Open an Incident issue with the exact rollback command
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EVENT: ${{ github.event_name }}
+          API_DEPLOYED: ${{ needs.deploy.outputs.api }}
+          API_BEFORE: ${{ needs.deploy.outputs.api_before }}
+          WEB_DEPLOYED: ${{ needs.deploy.outputs.web }}
+          WEB_BEFORE: ${{ needs.deploy.outputs.web_before }}
+          RB_WORKER: ${{ needs.rollback.outputs.worker }}
+          RB_BEFORE: ${{ needs.rollback.outputs.before }}
+          RB_TO: ${{ needs.rollback.outputs.to }}
+        run: |
+          short="${SHA:0:8}"
+          command() { # worker version reason
+            echo '```sh'
+            echo "gh workflow run ci.yml --repo $REPO --ref main -f worker=$1 -f rollback_to=$2 -f reason=\"$3\""
+            echo '```'
+          }
+          {
+            if [ "$EVENT" = workflow_dispatch ]; then
+              title="Incident: prod-smoke failed after rolling back bakery-$RB_WORKER to $RB_TO"
+              echo "prod-smoke failed after a rollback of bakery-$RB_WORKER to $RB_TO ($RUN)."
+              echo
+              if [ -n "$RB_BEFORE" ]; then
+                echo "The version live before the rollback was $RB_BEFORE. To return to it:"
+                command "$RB_WORKER" "$RB_BEFORE" "rollback smoke failed"
+              fi
+            else
+              title="Incident: prod-smoke failed on main@$short"
+              echo "prod-smoke failed after the deploy of main@$short ($RUN)."
+              echo
+              if [ "$API_DEPLOYED" = true ]; then
+                echo "bakery-api changed. Roll it back to the version live before (deployed first, so roll it back last):"
+                command api "${API_BEFORE:-<no earlier version: the first deploy; fix forward>}" "prod-smoke failed on main@$short"
+              fi
+              if [ "$WEB_DEPLOYED" = true ]; then
+                echo "bakery-web changed. Roll it back to the version live before:"
+                command web "${WEB_BEFORE:-<no earlier version: the first deploy; fix forward>}" "prod-smoke failed on main@$short"
+              fi
+            fi
+            echo
+            echo "A rollback of bakery-api is refused across a Durable Object class change: then set the API"
+            echo "to read-only or off with L1 and fix forward (docs/operations.md, \"Rollback\")."
+            echo "Close this issue with the cause and the check that would have caught it."
+          } > "$RUNNER_TEMP/body.md"
+          labels=()
+          if gh label list --repo "$REPO" --search incident --json name --jq '.[].name' | grep -qx incident; then
+            labels=(--label incident)
+          fi
+          gh issue create --repo "$REPO" --title "$title" --body-file "$RUNNER_TEMP/body.md" "${labels[@]}"

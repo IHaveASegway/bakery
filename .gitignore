@@ -21,6 +21,8 @@ playwright-report/
 test-results/
 blob-report/
 coverage/
+.lighthouseci/
+lighthouse-results/
 
 # Editors and operating systems
 .DS_Store

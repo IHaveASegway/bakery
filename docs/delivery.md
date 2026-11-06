@@ -2,7 +2,7 @@
 
 How a commit becomes the bakery: the repository layout, the toolchain pins, the pipeline that builds, gates, previews and deploys two Workers (the API holds every Durable Object (DO) class), the environments it writes to, and how a deploy is verified and undone. Until the launch pull request (PR 11) the pipeline is three jobs and nothing deploys ([speed first, Q44](#before-launch)); the rest of the page describes the pipeline as it stands from PR 11. It is written for one maintainer with one pull request in flight, and it follows the site's [delivery.md](https://github.com/IHaveASegway/website/blob/main/docs/delivery.md) wherever the bakery has the same problem. The deploy owner is decided in [ADR 0011](adr/0011-github-actions-owns-deploys-for-both-workers.md); the API's hostname and CORS in [ADR 0009](adr/0009-the-api-on-its-own-hostname.md); everything else on this page is a two-way door without an ADR. Header and CSP policy, the firewall's design and the secrets inventory are in [security.md](security.md); access setup and runbooks are in [operations.md](operations.md); prices are in [cost.md](cost.md); versions and their sources are in [stack.md](stack.md).
 
-Status: Updated in PR 8 · 2026-11-05
+Status: Updated in PR 11, launch preparation (draft) · 2026-11-06
 
 Prices, limits and versions are as of 2026-11-04, with sources. Every YAML, JSONC and TOML block is a sketch: confirm against current docs when building.
 
@@ -154,7 +154,7 @@ Q44 · Q-posture, Joseph's direction of 2026-11-04: speed first until launch. No
 | `firewall` | as `verify` | `verify` | The full-history and artifact scan, as in the table below |
 | `firewall-selftest` | as `verify` | none | Throwaway rules prove exits 0, 1 and 2 |
 
-Arriving in PR 11, with the deploy token and the account on Workers Paid: `preview`, `e2e`, `lighthouse`, `deploy`, `rollback`, `prod-smoke`, `prod-verdict` and `preview-cleanup`, and `bakery-objects` (the morning object check) with them. Until then no job holds a Cloudflare credential, so the hardening rules about the deploy token are satisfied by there being none. Cost of the posture: a regression a browser test or a preview would have caught reaches Joseph's read, and nothing reaches an audience. Two-way door; revisit when PR 11 starts.
+Arriving in PR 11, with the deploy token and the account on Workers Paid: `preview`, `e2e`, `lighthouse`, `deploy`, `rollback`, `prod-smoke`, `prod-verdict` and `preview-cleanup`, and `bakery-objects` (the morning object check) and `audit` (the Monday audit) with them. As of 2026-11-06 they are written (`.github/workflows/ci.yml` and `scheduled.yml`, the launch branch at d778ff7) and dormant: each runs only while the repository variable `LAUNCHED` is `true` ([operations.md](operations.md#launch) step 4). Until then no job holds a Cloudflare credential, so the hardening rules about the deploy token are satisfied by there being none. Cost of the posture: a regression a browser test or a preview would have caught reaches Joseph's read, and nothing reaches an audience. Two-way door; revisit when PR 11 starts.
 
 ### From launch
 
@@ -190,18 +190,18 @@ Job names follow the site's `ci.yml`, whose steps are named in plain sentences (
 | `firewall` | as `verify` | `verify` | `FIREWALL_RULES` (the Dependabot copy on Dependabot PRs) | Full history and both artifacts; gitleaks installed after a sha256 check; `scripts/firewall/check.sh` over the tree, `dist/` and the API bundle, wasm strings included ([site ADR 0017](https://github.com/IHaveASegway/website/blob/main/docs/adr/0017-firewall-reads-webassembly.md)). Exits 1 and 2 fail |
 | `firewall-selftest` | as `verify` | none | none | `scripts/firewall/test.sh` with throwaway rules proves exits 0, 1 and 2 and that no term is ever printed. `deploy` needs it |
 | `preview` | PR from this repository, not Dependabot's | `firewall` | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | Web only until spike S4: `wrangler preview --name pr-<n>`, waits for it, requires `X-Robots-Tag: noindex`, posts one comment. Publishes nothing until PR 11's first deploy from `main` has created production |
-| `e2e` | PR | `verify`, `firewall`, `preview` (run or skipped) | `STRIPE_E2E_SECRET_KEY` (restricted sandbox key), in the payment step only | Playwright in its image at the lockfile's version. Both Workers run on `wrangler dev` from the scanned artifacts (web 8787, API 8788, local HTTPS), with Chromium's host resolver mapping both production hostnames to them, so the bytes under test keep their origins, cookies and CORS. Suites: public pages (axe, headers, CSP, 320 px), sign-in and sandbox, order to kitchen board over a real WebSocket, payment with the test card, the wipe; the API's integration tests run on the same `wrangler dev`. Dependabot and fork PRs have no Stripe key, so payment specs skip with an annotation and `main`'s run exercises them |
-| `lighthouse` | PR from this repository, not Dependabot's | `preview` | none | Lighthouse against the web preview's URL; fails when a category misses the budget [stack.md](stack.md) names (confirm the settings when building) |
-| `preview-cleanup` | PR closed, not Dependabot's | none | as `preview` | `wrangler preview delete --name pr-<n> --skip-confirmation`, and the API's preview and DO namespaces if S4 passes |
+| `e2e` | PR | `verify`, `firewall`, `preview` (run or skipped) | none (`STRIPE_E2E_SECRET_KEY` is named in a comment and read by nothing until S3) | Playwright in its image at the lockfile's version, checked against the lockfile. Both Workers run on `wrangler dev` from the scanned artifacts (web 8797, API 8798, local HTTPS), with Chromium's host resolver mapping both production hostnames to them and refusing every other name, so the bytes under test keep their origins, cookies and CORS. The suite and its shape are under [The e2e suite](#the-e2e-suite). Dependabot's PRs run it too, since it needs no secret |
+| `lighthouse` | when `preview` produced a URL | `preview` | none | Lighthouse CI against the web preview's URL, in Playwright's image for its Chromium; fails when a category's median of 3 runs misses a budget. The budgets are proposals: [Lighthouse](#lighthouse) |
+| `preview-cleanup` | PR closed, from this repository, not Dependabot's | none | as `preview` | `wrangler preview delete --name pr-<n> --skip-confirmation`, and the API's preview and DO namespaces if S4 passes |
 | `pr-text` | PR title or body edited | none | `FIREWALL_RULES` | `check.sh --pr-text` on title, body and branch name |
 | `deploy` | push to `main` | `verify`, `firewall`, `firewall-selftest` | as `preview` | Group `deploy-production`, never cancelled; stops unless the commit is `main`'s tip. **Stage 1, the API,** when its paths changed since the live deployment's message: `wrangler deploy --no-bundle` of the scanned bundle, then a health and CORS check. **Stage 2, the web Worker,** after stage 1 passes or is skipped: `versions upload`, smoke the Version URL, `versions deploy <id>@100%` |
-| `rollback` | dispatch with `worker` (`web` or `api`) and `rollback_to` | none | as `preview` | Only from `main`, only a version id, in the `deploy-production` group: `wrangler rollback <id> --message "rollback: <reason>" --yes` |
+| `rollback` | dispatch with `worker` (`web` or `api`), `rollback_to` (a version id, a UUID) and `reason` | none | as `preview` | Only from `main`, only a version id, in the `deploy-production` group: `wrangler rollback <id> --name bakery-<worker> --message "rollback: <reason>" --yes` |
 | `prod-smoke` | after `deploy` or `rollback` | those | none | In Playwright's image: waits for both hostnames, then runs the smoke table below through the zone |
-| `prod-verdict` | when `prod-smoke` failed | `deploy`, `rollback`, `prod-smoke` | none | On the runner (`issues: write`): opens an `Incident:` issue with the exact rollback command for the Worker that changed |
-| `scheduled` | Monday 07:17 UTC | none | none | Token-free zone audit, external links, `cargo audit` and `cargo deny check advisories` against the newest database, `compatibility_date` age for both Workers |
-| `bakery-objects` | daily 12:17 UTC, from PR 11 | none | `CLOUDFLARE_READ_TOKEN` | Lists each sandbox-scoped namespace's objects and opens an issue for any holding data after the 10:00 UTC wipe ([operations.md](operations.md#the-nightly-wipe)) |
+| `prod-verdict` | when `prod-smoke` failed, or `deploy` failed after the API changed | `deploy`, `rollback`, `prod-smoke` | none | On the runner (`issues: write`): opens an `Incident:` issue with the exact rollback command (`--ref main` and the three inputs) for the Worker that changed, labelled `incident` only if that label exists |
+| `audit` (in `scheduled.yml`) | Monday 07:17 UTC; a dispatch | none | none | `cargo audit` and `cargo deny check advisories` (both `--locked`, versions read from the Cargo metadata), `pnpm audit --audit-level moderate`, Dependabot pull requests open more than 14 days, Dependabot alerts when the token can read them, `compatibility_date` older than 180 days. On a finding it opens or updates "Weekly audit" and fails. A zone audit and an external-link check are not in it |
+| `bakery-objects` (in `scheduled.yml`) | daily 09:47 and 12:17 UTC; a dispatch | none | `CLOUDFLARE_READ_TOKEN` (as the token) and `CLOUDFLARE_ACCOUNT_ID`, one step | The 09:47 run keeps a listing of the objects holding data (hashes, classes and counts); the 12:17 run lists again and compares, because the account API gives no object ages. An object holding data at both times survived the 10:00 UTC wipe: it opens or updates "Objects survived the wipe" and fails ([operations.md](operations.md#the-nightly-wipe)). A listing error fails the job without an issue |
 
-Every job has `permissions: {}` at the top and `contents: read` below, plus `pull-requests: write` for `preview` and `issues: write` for `prod-verdict` and `bakery-objects`.
+Every workflow has `permissions: {}` at the top and each job grants only what [the table below](#the-jobs-as-written) says.
 
 Six notes on the graph:
 
@@ -213,6 +213,63 @@ Six notes on the graph:
 - **Scheduled runs use 07:17 and 12:17,** not the hour, because GitHub delays and drops runs at the top of it ([GitHub](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows)).
 
 **Concurrency.** Pull request runs share `ci-pr-<n>` and cancel superseded runs. `deploy` and `rollback` share `deploy-production` and never cancel, so a deploy is not killed halfway and a rollback never races one. `scheduled.yml` jobs share `scheduled`, and `bakery-objects` never cancels.
+
+### The jobs as written
+
+As of 2026-11-06, from `.github/workflows/ci.yml` and `scheduled.yml` on the launch branch at d778ff7 (the PR 11 preparation, in draft PR #17). Nothing has run against the account. Every job in the second group needs `vars.LAUNCHED == 'true'`; the three before it do not. The table above says what each job does; this one says when it runs, what it holds and how long it may take. Timeouts other than `verify`'s 25 minutes are the workflow's own choices, set on 2026-11-05 and not measured.
+
+| Job | Runs when | Secrets | GitHub token permissions | Timeout (minutes) |
+|---|---|---|---|---|
+| `verify` | PR (not closed); push to `main`; Monday 07:17 UTC | none | contents read | 25 |
+| `firewall` | as `verify` | `FIREWALL_RULES` | contents read | 10 |
+| `firewall-selftest` | as `verify` | none | contents read | 15 |
+| `preview` | PR from this repository, not Dependabot's, not closed; needs `firewall` | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | contents read, pull-requests write | 10 |
+| `e2e` | PR, Dependabot's too; needs `verify` and `firewall`, `preview` succeeded or skipped | none | contents read | 20 |
+| `lighthouse` | `preview` produced a URL | none | contents read | 10 |
+| `preview-cleanup` | PR closed, same filters as `preview` | the two Cloudflare secrets | contents read | 5 |
+| `deploy` | push to `main`; needs `verify`, `firewall`, `firewall-selftest` | the two Cloudflare secrets | contents read | 20 |
+| `rollback` | dispatch from `main` with `worker`, `rollback_to`, `reason` | the two Cloudflare secrets | contents read | 10 |
+| `prod-smoke` | after `deploy` (if it ran) or a `rollback` | none | contents read | 10 |
+| `prod-verdict` | `prod-smoke` failed, or `deploy` failed after the API changed | none | contents read, issues write | 5 |
+| `bakery-objects` | daily 09:47 and 12:17 UTC | `CLOUDFLARE_READ_TOKEN` (as the token), `CLOUDFLARE_ACCOUNT_ID` | contents read, actions read, issues write | 10 |
+| `audit` | Monday 07:17 UTC | none | contents read, issues write, pull-requests read, security-events read | 25 |
+
+- **Dormant by default.** Without `LAUNCHED` set to `true`, the launch jobs and the scheduled runs are skipped, and `verify`, `firewall` and `firewall-selftest` run as they have since PR 2. A `workflow_dispatch` of `scheduled.yml` runs the chosen job (`bakery-objects` or `audit`) whatever `LAUNCHED` says: the pre-launch dry run ([operations.md](operations.md#launch)). The three older jobs carry `if: github.event_name != 'workflow_dispatch' && github.event.action != 'closed'`, because the `closed` and dispatch triggers are new and `firewall` exits 2 on a dispatch.
+- **Concurrency.** A dispatch has a group of its own (`ci-dispatch-<ref>`), so a rollback never queues behind a 25-minute `main` run; `deploy` and `rollback` share `deploy-production`.
+- **Actions are pinned by commit** in the launch jobs, with the release in a comment (checkout v7.0.1, setup-node v7.1.0, upload-artifact v7.0.2, download-artifact v8.0.2, pnpm/action-setup v6.1.1); the three older jobs keep their tags. Playwright's image is pinned by digest as well as by tag (`v1.64.1-noble`).
+- **When the API deploys.** Stage 1 runs when `workers/api/`, `crates/`, `Cargo.toml`, `Cargo.lock` or `rust-toolchain.toml` changed since the commit named in the live deployment's message. `pnpm-lock.yaml` is not on the list, so a Wrangler bump does not redeploy the API. A change to a Durable Object class (the class sets compared) fails the job if the range also touches anything outside those paths and `docs/`, and skips the web stage.
+- **Assumptions only launch day can confirm:** the deploy token's two assumed permissions (Queues Edit, DNS Edit); that Workers Scripts Read is enough for the read token; the JSON shapes of `wrangler deployments list --json` and `wrangler preview --json`, and the "Current Version ID", "Worker Version ID" and workers.dev URL lines the jobs read from Wrangler's output; that `wrangler preview delete --worker-name` works without a config; that previews and Version URLs work with `workers_dev: false` and `preview_urls: true`, and send `noindex`; that `bakery-events` and `bakery-events-dlq` exist before the first API deploy; that the first `wrangler deploy` attaches both Custom Domains; that the workflow token can read Dependabot alerts with `security-events: read`; that a pending rollback is never replaced in `deploy-production` (GitHub replaces a pending job when another queues, and `deploy`'s tip check limits the damage).
+
+### The e2e suite
+
+Run by the `e2e` job and locally with `pnpm --filter web e2e` (`apps/web/e2e/run.mjs`; it needs the two built artifacts). As of 2026-11-05, on the preparation stream's machine: 11 tests in 4 specs, and the last three runs passed 11 of 11 in 25.0, 21.8 and 23.4 s of Playwright time (26 to 30 s wall clock with the servers), at a machine load of 2.4 to 3.4. Two earlier runs at a load of 4.8 to 6.5 failed on a 30 s seeding poll and on a race between two correct outcomes of "Wipe now"; the poll now waits 60 s, test and expect timeouts are 90 s and 20 s, and the wipe test accepts either answer. Headless Chromium, `deviceScaleFactor` 1, traces on failure only, a 5-minute global budget. The job has not run on GitHub.
+
+| Spec | Covers |
+|---|---|
+| `public` | 6 pages carry [security.md](security.md)'s headers, with no HSTS; the 404 page |
+| `signin` | a demo account created through the form, signed out, signed in again with the username and password, then "New sandbox" until the board says Live |
+| `order` | an order placed and paid from the page as the storefront calls the API; the confirm is made at the fake Stripe with `pm_card_visa`, and the card moves from Pending to Confirmed over the socket with no reload, with `OrderPaid` in the feed. The Payment Element is not mounted: Stripe.js comes from js.stripe.com, which this browser cannot reach, and the fake is not Stripe |
+| `wipe` | "Wipe now"; then the 10:00 cron through `/cdn-cgi/local/scheduled`, after which `list-objects.mjs` exits 0 and shows `Control` was listed |
+
+- **Every test is guarded:** a CSP violation or console error fails it, except API statuses the test declares (401 on public pages, 410 after a wipe, 404 for the 404 page).
+- **Origins.** The production origins over local HTTPS; a small relay passes the fake Stripe's plain-HTTP webhooks to the HTTPS API; Turnstile's script is a local stand-in that passes at once, as the test site key does; each test gets its own TEST-NET-1 address (192.0.2.x) because sandbox creation is limited to one a minute per address. Ports: web 8797, API 8798, fake providers 8799, fake Stripe 8800, relay 8801, inspectors 9347 and 9348; the smoke scripts keep 8787 to 8791.
+- **No proxy.** Chromium follows the proxy environment variables and its host-resolver rules do not apply through a proxy, so the runner passes `--no-proxy-server` and removes the proxy variables from Playwright's environment. A runner behind a proxy would otherwise send the public hostnames out.
+- **`prod-smoke`'s rehearsal.** `E2E_SUITE=prod-smoke pnpm --filter web e2e` runs the production smoke spec against `wrangler dev`: 16 of 16 passed on 2026-11-05. It refuses to start without `SMOKE_TARGET=production` or `SMOKE_LOCAL=1`.
+
+### Lighthouse
+
+Lighthouse CI 0.15.1, the pin [stack.md](stack.md) names (0.16.0 is out), runs in `tools/lighthouse/`, which has its own `pnpm-workspace.yaml`, lockfile and `allowBuilds: {}`; only the `lighthouse` job installs it. Adding it to the workspace brought 7 new `pnpm audit` advisories (5 of them high) on 2026-11-05, against main's 1 moderate. Reports are saved with the filesystem target, so nothing is uploaded to public storage.
+
+The budgets are proposals, in `apps/web/lighthouserc.json`; neither this page nor stack.md named a figure before 2026-11-06. Each is the median of 3 runs, and the `is-crawlable` audit is skipped because previews are `noindex` by design. Measured on 2026-11-05 on `wrangler dev`, offline, by the preparation stream:
+
+| Category | Proposed minimum | Measured |
+|---|---|---|
+| Performance | 0.90 | 0.99 to 1 |
+| Accessibility | 0.95 | **0.89 on `/`**, 0.95 to 0.96 on the other pages |
+| Best practices | 0.95 | 0.96 |
+| SEO | 0.90 | 1 |
+
+`/` fails the proposed accessibility budget today. Every page fails the `link-in-text-block` audit (links that rely on colour alone), so a fix to the storefront's link styling clears it; that is a storefront change and was not made. Until it is, the `lighthouse` job fails on its first run, or Joseph lowers the proposal; `lighthouse` is not among the checks the ruleset requires, so it does not block a merge ([operations.md](operations.md#7-github-repository-settings) requires `e2e`, not `lighthouse`). Best practices loses a point for a 404 on `/favicon.ico` (the site has no favicon) and for the anonymous `/v1/session` 401 that pages log.
 
 ### Actions minutes
 
@@ -244,10 +301,10 @@ The site's blue/green in miniature ([site delivery.md](https://github.com/IHaveA
 
 ### The API
 
-`wrangler deploy` of the scanned bundle, with `--no-bundle` and `--message main@<sha>` (confirm the flags when building).
+`wrangler deploy` of the scanned bundle, with `--no-bundle` and `--message main@<sha>` (confirm the flags when building). Wrangler always runs a config's `build.command`, so `scripts/api-deploy-config.mjs` writes `workers/api/dist/wrangler.json` next to the bundle: the reviewed config with `build` removed, `main: shim.js` and `no_bundle: true`. `deploy` and `e2e` both use it, and `BUILD_COMMIT` is passed with `--var`, so `/v1/health` reports the commit. **No `--keep-vars`:** a deploy without it deletes variables set only in the dashboard, so every public var (`GOOGLE_CLIENT_ID`, `GITHUB_CLIENT_ID`, `STRIPE_PUBLISHABLE_KEY`, `API_ORIGIN`, `ALLOWED_ORIGIN`) is a `vars` entry in `wrangler.jsonc` at launch ([operations.md](operations.md#6-worker-secrets)).
 
 - **No Version URL,** so no smoke on the edge before traffic.
-- **Every deploy drops every live WebSocket.** The kitchen board reconnects and receives a snapshot (protocol v1). Kill-switch L2 uses this on purpose ([operations.md](operations.md#kill-switch-l0-to-l4)).
+- **Every deploy drops every live WebSocket.** The kitchen board reconnects and receives a snapshot (protocol v1). Kill-switch L2 relies on this, but as of 2026-11-06 it is not a dispatch: a redeploy needs a fresh `verify` and `firewall` run, so it goes through a merge ([operations.md](operations.md#kill-switch-l0-to-l4)).
 - **A DO class change is a rollback boundary:** creating, deleting, renaming or transferring a class cannot be rolled back across ([Cloudflare](https://developers.cloudflare.com/workers/configuration/versions-and-deployments/rollbacks/)). It ships alone, in its own pull request, deployed alone.
 - **Expand, migrate, contract,** across pull requests: add the new column or class; move reads and writes and backfill; delete the old one later. Each step is a deploy a rollback can undo.
 - **The API deploys first, then the web Worker.** The web app calls the API, and a new web build may need a new endpoint; the reverse order serves pages whose calls fail. So the API keeps every endpoint the previous web build calls for one deploy, and the contracts diff shows the change. If the API deploy fails, the web Worker stays on its old version.
@@ -262,7 +319,7 @@ From PR 11, run by `prod-smoke` through the zone after `deploy` or `rollback`, a
 | web | every page and file in the artifact; the 404 page; the other form of each URL | 200 with its canonical link and the headers in [security.md](security.md); HTML equal to the artifact byte for byte; unknown path serves the 404 page; slashless forms redirect |
 | API | health | `GET /v1/health` answers 200 with the build commit and runs no DO |
 | API | CORS preflight | `OPTIONS /v1/sandboxes` from `Origin: https://bakery.ihaveasegway.com` answers 204 with that exact origin and `Access-Control-Allow-Credentials: true`; from `https://example.com` it carries no `Access-Control-Allow-Origin` |
-| API | sign-in redirect | `GET /v1/auth/google` answers 302 to Google's authorization endpoint with `scope=openid` only, a `state`, and a `__Host-` cookie that is `HttpOnly`, `Secure`, `SameSite=Strict` (path assumed until ADR 0013, written in PR 10) |
+| API | sign-in redirect | `GET /v1/auth/google` answers 302 to Google's authorization endpoint with `scope=openid` only, a `state`, and a `__Host-oauth` cookie that is `HttpOnly`, `Secure` and `SameSite=Lax` (`Lax`, not `Strict`, because the provider's redirect back is a cross-site navigation, which a `Strict` cookie would miss; [security.md](security.md), [ADR 0006](adr/0006-sign-in-that-learns-nothing.md); `prod-smoke` checks `Lax`, 2026-11-06). The `__Host-session` cookie set at the callback is the `Strict` one (path assumed until ADR 0013, written in PR 10) |
 | API | GitHub sign-in redirect | `GET /v1/auth/github` answers 302 to GitHub's authorization endpoint with a `state` and no `scope`, and the same `__Host-` cookie attributes (path assumed until ADR 0013; [GitHub](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app), as of 2026-11-04) |
 | API | Stripe webhook | `POST /v1/stripe/webhook` with a wrong signature answers 400 problem+json, proving the route and verifier are live. A signed test event from the Stripe dashboard is part of the monthly review and of every secret rotation, because CI holds no webhook secret |
 
