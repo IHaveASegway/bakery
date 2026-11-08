@@ -132,6 +132,21 @@ export function draftsFrom(response: MenuDraftsResponse): Drafts {
 }
 
 /**
+ * The slugs the server holds a draft for that the page did not know of: a price drafted in another
+ * tab. Null `shown` means the drafts have not been read yet, so nothing can be new.
+ */
+export function unseenDrafts(shown: string[] | null, read: string[]): string[] {
+  if (shown === null) return [];
+  return read.filter((slug) => !shown.includes(slug));
+}
+
+/** What Publish says when the look it takes first finds drafts the page did not show. */
+export function anotherTabText(names: string[]): string {
+  const one = names.length === 1;
+  return `Another tab drafted a price for ${andList(names)}. ${one ? 'It is' : 'They are'} listed now. Press Publish menu again to put everything that waits on sale.`;
+}
+
+/**
  * The line beside Publish, from the drafts the server holds (`GET .../menu/drafts` on load and
  * after a publish, and every edit's answer after that). Null while they are being read.
  */

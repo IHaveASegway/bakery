@@ -14,6 +14,8 @@ import {
   VroomError,
   buildProblem,
   completable,
+  dayFromQuery,
+  queryWithDay,
   dispatchDays,
   parseIsochrones,
   parseRouteData,
@@ -123,6 +125,23 @@ export default function Dispatch() {
   const days = useMemo(() => dispatchDays(clockOffsetS), [clockOffsetS]);
   const [chosen, setChosen] = useState('');
   const date = days.includes(chosen) ? chosen : (days[0] ?? '');
+
+  // The chosen day rides in the address (?day=2026-11-10), so a reload or a shared link keeps it.
+  // Read once on load, in an effect so the server render and the first paint agree; written with
+  // replaceState, so the Back button is not filled with days. Nothing goes in browser storage.
+  useEffect(() => {
+    const fromAddress = dayFromQuery(window.location.search);
+    if (fromAddress !== null) setChosen(fromAddress);
+  }, []);
+  const chooseDay = (next: string) => {
+    setChosen(next);
+    const search = queryWithDay(window.location.search, next, days[0] ?? next);
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}${search}${window.location.hash}`,
+    );
+  };
 
   const route = useRouteData();
   const [day, setDay] = useState<DispatchResponse | null>(null);
@@ -369,7 +388,7 @@ export default function Dispatch() {
           id="dispatch-day"
           value={date}
           disabled={busy !== null}
-          onChange={(e) => setChosen(e.target.value)}
+          onChange={(e) => chooseDay(e.target.value)}
         >
           {days.map((d) => (
             <option key={d} value={d}>

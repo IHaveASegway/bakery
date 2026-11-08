@@ -77,9 +77,30 @@ export default function CateringQueue({
 
   usePoll(() => load(true));
 
+  // The card an action changed, once its button may be gone: a card in a new state moves to its
+  // new group and is drawn again, and the button that had the focus goes with the old one.
+  const refocus = useRef<string | null>(null);
   const take = useCallback((event: CateringResponse) => {
-    setEvents((list) => (list ?? []).map((e) => (e.catering === event.catering ? event : e)));
+    setEvents((list) => {
+      const before = (list ?? []).find((e) => e.catering === event.catering);
+      if (before?.state !== event.state) refocus.current = event.catering;
+      return (list ?? []).map((e) => (e.catering === event.catering ? event : e));
+    });
   }, []);
+
+  // Focus goes to the changed card, but only when it has been dropped to the page: a visitor who
+  // has moved on is left where they are.
+  useEffect(() => {
+    const id = refocus.current;
+    if (id === null) return;
+    refocus.current = null;
+    const active = document.activeElement;
+    if (active !== null && active !== document.body) return;
+    (
+      document.getElementById(`catering-card-${id}`) ??
+      document.getElementById('catering-queue-heading')
+    )?.focus();
+  }, [events]);
 
   const groups = groupByState(events ?? []);
   const reminders = upcomingReminders(events ?? []);
@@ -196,6 +217,8 @@ export function QueueCard({
       ? { total_cents: typed.total_cents, ...splitTotal(typed.total_cents) }
       : guess;
 
+  // Busy is aria-disabled, not disabled, on every button below: a disabled button drops the
+  // keyboard's focus to the top of the page, and a refused action should leave it where it was.
   async function act(run: () => Promise<CateringResponse>, afterwards?: () => Promise<void>) {
     setBusy(true);
     setError(null);
@@ -222,7 +245,7 @@ export function QueueCard({
   }
 
   return (
-    <li>
+    <li id={`catering-card-${id}`} tabIndex={-1}>
       <CateringFigures event={event} />
       {event.brief && <p className="brief">Brief: {event.brief}</p>}
       {event.state === 'delivered' && (
@@ -252,18 +275,20 @@ export function QueueCard({
           <p>
             <button
               type="button"
-              disabled={busy || !typed.ok}
-              onClick={() =>
-                void act(() =>
-                  sendQuote(
-                    sandboxId,
-                    id,
-                    typed.ok && typed.total_cents !== null
-                      ? { total_cents: typed.total_cents }
-                      : {},
-                  ),
-                )
-              }
+              disabled={!typed.ok}
+              aria-disabled={busy || undefined}
+              onClick={() => {
+                if (!busy)
+                  void act(() =>
+                    sendQuote(
+                      sandboxId,
+                      id,
+                      typed.ok && typed.total_cents !== null
+                        ? { total_cents: typed.total_cents }
+                        : {},
+                    ),
+                  );
+              }}
             >
               {STAFF_ACTION_LABELS.quote}
             </button>
@@ -287,8 +312,10 @@ export function QueueCard({
           </select>{' '}
           <button
             type="button"
-            disabled={busy}
-            onClick={() => void act(() => declineInquiry(sandboxId, id, { reason: decline }))}
+            aria-disabled={busy || undefined}
+            onClick={() => {
+              if (!busy) void act(() => declineInquiry(sandboxId, id, { reason: decline }));
+            }}
           >
             {STAFF_ACTION_LABELS.decline}
           </button>
@@ -300,8 +327,10 @@ export function QueueCard({
           {actions.includes('start-production') && (
             <button
               type="button"
-              disabled={busy}
-              onClick={() => void act(() => startCateringProduction(sandboxId, id))}
+              aria-disabled={busy || undefined}
+              onClick={() => {
+                if (!busy) void act(() => startCateringProduction(sandboxId, id));
+              }}
             >
               {STAFF_ACTION_LABELS['start-production']}
             </button>
@@ -309,8 +338,10 @@ export function QueueCard({
           {actions.includes('delivered') && (
             <button
               type="button"
-              disabled={busy}
-              onClick={() => void act(() => markCateringDelivered(sandboxId, id), untilInvoiced)}
+              aria-disabled={busy || undefined}
+              onClick={() => {
+                if (!busy) void act(() => markCateringDelivered(sandboxId, id), untilInvoiced);
+              }}
             >
               {STAFF_ACTION_LABELS.delivered}
             </button>
@@ -334,8 +365,10 @@ export function QueueCard({
           </select>{' '}
           <button
             type="button"
-            disabled={busy}
-            onClick={() => void act(() => staffCancelCatering(sandboxId, id, { reason: cancel }))}
+            aria-disabled={busy || undefined}
+            onClick={() => {
+              if (!busy) void act(() => staffCancelCatering(sandboxId, id, { reason: cancel }));
+            }}
           >
             {STAFF_ACTION_LABELS['staff-cancel']}
           </button>

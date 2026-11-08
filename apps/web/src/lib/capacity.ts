@@ -6,7 +6,25 @@
 import type { CapacityRequest, ScheduleResponse } from '../contracts';
 import { ApiError } from './api';
 import { describeError, type Message } from './messages';
+import { pollUntil, type PollOptions, type Polled } from './payment';
 import { mountainLocal, ZONES } from './slots';
+
+/**
+ * After a publish, reads the day until it reports the menu version that was published. The
+ * Schedule takes the new item caps from the `MenuPublished` event, a moment after the publish
+ * answers, so the first look can still show the old version. A bounded wait, not a loop that
+ * goes on: `paid` here means "the day has caught up", `timeout` means it had not in the limit.
+ */
+export const catchUpToMenu = (
+  read: () => Promise<number | null>,
+  version: number,
+  options: PollOptions,
+): Promise<Polled<number>> =>
+  pollUntil(
+    async () => (await read()) ?? 0,
+    (seen) => (seen >= version ? 'paid' : null),
+    { limitMs: 8_000, ...options },
+  );
 
 export type TargetKind = 'slot' | 'zone' | 'item' | 'catering';
 

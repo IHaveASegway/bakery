@@ -1,4 +1,11 @@
-import { placeName, statusText, stopRows, zoneText, type RouteData } from '../lib/dispatch';
+import {
+  dropOffNote,
+  placeName,
+  statusText,
+  stopRows,
+  zoneText,
+  type RouteData,
+} from '../lib/dispatch';
 import { windowText } from '../lib/when';
 import type { DispatchResponse } from '../contracts';
 
@@ -48,7 +55,7 @@ export default function DispatchStops({
         </thead>
         <tbody>
           {rows.map((row) => {
-            const name = placeName(data, row.place);
+            const note = dropOffNote(row.label, placeName(data, row.place));
             return (
               <tr key={row.order}>
                 <td>
@@ -58,7 +65,7 @@ export default function DispatchStops({
                 <td>
                   <Label name="Place" />
                   {row.label}
-                  {name !== null && <span className="hint">Drop-off spot: {name}</span>}
+                  {note !== null && <span className="hint">{note}</span>}
                 </td>
                 <td>
                   <Label name="Window" />

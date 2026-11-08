@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CateringResponse } from '../contracts';
 import { listCatering } from '../lib/api';
-import { bakeryDate, earliestDate, packageLabel, stateLabel } from '../lib/catering';
+import {
+  CATERING_SIGNED_OUT,
+  bakeryDate,
+  earliestDate,
+  packageLabel,
+  stateLabel,
+} from '../lib/catering';
 import { describeError, type Message as Text } from '../lib/messages';
 import { dollars } from '../lib/money';
 import { dateLabel } from '../lib/schedule';
@@ -86,7 +92,7 @@ export default function Catering() {
 
   return (
     <>
-      <StatusLine phase={phase} />
+      <StatusLine phase={phase} signedOut={CATERING_SIGNED_OUT} />
 
       {sandboxId !== null && earliest !== null ? (
         <CateringInquiryForm

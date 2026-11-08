@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ScheduleResponse } from '../contracts';
 import { setCapacity } from '../lib/api';
 import {
@@ -6,6 +6,7 @@ import {
   MAX_CAPACITY,
   buildTarget,
   capacityRequest,
+  catchUpToMenu,
   changedText,
   describeCapacityError,
   parseCapacity,
@@ -86,10 +87,16 @@ export default function CapacityEditor({
   sandboxId,
   isGuest,
   clockOffsetS,
+  menuTick = 0,
+  menuVersion = 0,
 }: {
   sandboxId: string;
   isGuest: boolean;
   clockOffsetS: number;
+  /** Rises each time the menu changes on this page; the day is read again on it. */
+  menuTick?: number;
+  /** The version the menu reached then. */
+  menuVersion?: number;
 }) {
   // The editor looks at the bakery's days from business today on, like the checkout.
   const dates = useMemo(() => horizonDates(Date.now() + clockOffsetS * 1000), [clockOffsetS]);
@@ -103,6 +110,28 @@ export default function CapacityEditor({
   const [error, setError] = useState<Text | null>(null);
   const [said, setSaid] = useState('');
   const schedule = live.schedule;
+
+  // The day's item caps follow the menu, a moment after a publish (the Schedule hears of it by an
+  // event), so read the day again until it reports the version that was published.
+  const refreshDay = useRef(live.refresh);
+  refreshDay.current = live.refresh;
+  const wanted = useRef(menuVersion);
+  wanted.current = menuVersion;
+  useEffect(() => {
+    if (menuTick === 0) return;
+    let stopped = false;
+    void catchUpToMenu(
+      async () => (await refreshDay.current())?.menu_version ?? null,
+      wanted.current,
+      {
+        sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+        stopped: () => stopped,
+      },
+    );
+    return () => {
+      stopped = true;
+    };
+  }, [menuTick]);
 
   const firstSlot = schedule?.slots[0] ? slotTime(schedule.slots[0].start) : '';
   const chosen = kind === 'slot' ? value || firstSlot : kind === 'zone' ? value || 'z1' : value;

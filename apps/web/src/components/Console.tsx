@@ -223,24 +223,7 @@ export default function Console() {
   }
 
   if (view.name === 'deleted' || view.name === 'wiped') {
-    return (
-      <section>
-        {header}
-        <h3>
-          {view.name === 'wiped'
-            ? 'Your sandbox is wiped'
-            : 'Your sandbox was deleted at 10:00 UTC'}
-        </h3>
-        <p>
-          {view.name === 'wiped'
-            ? 'Everything in it is gone. '
-            : 'Every sandbox is deleted each night. '}
-          Make a new one for a fresh start.
-        </p>
-        {another}
-        <Message error={error} />
-      </section>
-    );
+    return <Gone wiped={view.name === 'wiped'} header={header} another={another} error={error} />;
   }
 
   const { sandbox } = view;
@@ -270,6 +253,42 @@ export default function Console() {
         }
         onReplace={() => void newSandbox(true)}
       />
+    </section>
+  );
+}
+
+/**
+ * The view after a sandbox is gone. After this page's own Wipe now the button that had the focus is
+ * gone with the sandbox, so the heading takes it; a sandbox deleted by the night's wipe arrives
+ * unasked, and leaves the focus where it was.
+ */
+export function Gone({
+  wiped,
+  header,
+  another,
+  error,
+}: {
+  wiped: boolean;
+  header: React.ReactNode;
+  another: React.ReactNode;
+  error: Text | null;
+}) {
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (wiped) heading.current?.focus();
+  }, [wiped]);
+  return (
+    <section>
+      {header}
+      <h3 id="gone-heading" ref={heading} tabIndex={-1}>
+        {wiped ? 'Your sandbox is wiped' : 'Your sandbox was deleted at 10:00 UTC'}
+      </h3>
+      <p>
+        {wiped ? 'Everything in it is gone. ' : 'Every sandbox is deleted each night. '}
+        Make a new one for a fresh start.
+      </p>
+      {another}
+      <Message error={error} />
     </section>
   );
 }
