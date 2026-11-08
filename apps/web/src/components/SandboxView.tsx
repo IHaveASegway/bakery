@@ -51,6 +51,9 @@ export default function SandboxView({
   const [ledgerTick, setLedgerTick] = useState(0);
   // Bumped when something the CRM screens derive from changes: a consent flag, a finished rebuild.
   const [crmTick, setCrmTick] = useState(0);
+  // Bumped, with the version it reached, when the menu is published or an item is paused or
+  // resumed: the capacity panel reads the day again, since the day's caps follow the menu.
+  const [menuChange, setMenuChange] = useState({ tick: 0, version: 0 });
   const live = sandbox.state !== 'seeding';
 
   return (
@@ -101,11 +104,17 @@ export default function SandboxView({
           />
           <Ledger sandboxId={sandbox.id} refresh={ledgerTick} />
           <Traffic sandboxId={sandbox.id} isGuest={isGuest} />
-          <MenuEditor sandboxId={sandbox.id} isGuest={isGuest} />
+          <MenuEditor
+            sandboxId={sandbox.id}
+            isGuest={isGuest}
+            onPublished={(version) => setMenuChange((c) => ({ tick: c.tick + 1, version }))}
+          />
           <CapacityEditor
             sandboxId={sandbox.id}
             isGuest={isGuest}
             clockOffsetS={sandbox.clock_offset_s}
+            menuTick={menuChange.tick}
+            menuVersion={menuChange.version}
           />
           <CateringQueue sandboxId={sandbox.id} isGuest={isGuest} />
           <Customers

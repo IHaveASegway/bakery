@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MenuItemStatus, MenuResponse } from '../contracts';
 import { getMenu, getMenuDrafts, patchMenuItem, publishMenu } from '../lib/api';
-import { draftsFrom, priceSetsText, statusSaid, waitingText } from '../lib/menu';
+import {
+  anotherTabText,
+  draftsFrom,
+  priceSetsText,
+  statusSaid,
+  unseenDrafts,
+  waitingText,
+} from '../lib/menu';
 import { describeError, type Message as Text } from '../lib/messages';
 import { dollars, dollarsField, parseDollars } from '../lib/money';
 import GuestNote from './GuestNote';
@@ -24,13 +31,20 @@ const BAD_PRICE: Text = {
  * reload, or in another tab, is shown with its price. Between reads each edit's answer keeps the
  * list of waiting items current. A guest cannot read the drafts (the route is signed-in only) and
  * cannot publish, so a guest's page reads the menu alone.
+ *
+ * A price drafted in another tab is read in again when this window regains the focus or becomes
+ * visible, and once more before Publish acts: a draft the page had not shown stops that Publish,
+ * lists it, and asks for another press, so nothing goes on sale unseen. No timer asks in between.
  */
 export default function MenuEditor({
   sandboxId,
   isGuest,
+  onPublished,
 }: {
   sandboxId: string;
   isGuest: boolean;
+  /** The menu changed (a publish, a pause or a resume): the version it is now. */
+  onPublished?: (version: number) => void;
 }) {
   const [menu, setMenu] = useState<MenuResponse | null>(null);
   // The waiting price of each item with a draft: the server's on load, then this page's edits.
@@ -71,6 +85,45 @@ export default function MenuEditor({
     void load();
   }, [load]);
 
+  // What the page shows and is doing, for the listeners below and for Publish.
+  const shown = useRef<string[] | null>(null);
+  shown.current = pending;
+  const working = useRef(false);
+  working.current = busy;
+  const reading = useRef<Promise<string[]> | null>(null);
+
+  /** Reads the drafts the server holds into the page and returns their slugs; throws if it cannot. */
+  const reread = useCallback((): Promise<string[]> => {
+    // Focus and visibility often arrive together: one read answers both.
+    if (reading.current !== null) return reading.current;
+    const read = getMenuDrafts(sandboxId)
+      .then(draftsFrom)
+      .then((got) => {
+        setPending(got.pending);
+        setDrafts(got.prices);
+        return got.pending;
+      })
+      .finally(() => {
+        reading.current = null;
+      });
+    reading.current = read;
+    return read;
+  }, [sandboxId]);
+
+  useEffect(() => {
+    if (isGuest) return;
+    const again = () => {
+      if (document.visibilityState !== 'visible' || working.current) return;
+      reread().catch(() => undefined);
+    };
+    window.addEventListener('focus', again);
+    document.addEventListener('visibilitychange', again);
+    return () => {
+      window.removeEventListener('focus', again);
+      document.removeEventListener('visibilitychange', again);
+    };
+  }, [isGuest, reread]);
+
   async function act(run: () => Promise<void>) {
     setBusy(true);
     setError(null);
@@ -99,6 +152,7 @@ export default function MenuEditor({
       setPending(edit.pending);
       // Published already: read the menu again, so the version and the item's status are the new ones.
       await load();
+      onPublished?.(edit.version);
       setSaid(statusSaid(name, status === 'paused', edit.version));
     });
 
@@ -224,11 +278,22 @@ export default function MenuEditor({
           onClick={() => {
             if (busy) return;
             void act(async () => {
+              // Look first: a price drafted elsewhere since the last read goes on sale with this one.
+              const known = shown.current;
+              const unseen = unseenDrafts(known, await reread());
+              if (unseen.length > 0) {
+                const names = new Map(
+                  (menu?.categories ?? []).flatMap((c) => c.items.map((i) => [i.slug, i.name])),
+                );
+                setSaid(anotherTabText(unseen.map((slug) => names.get(slug) ?? slug)));
+                return;
+              }
               const published = await publishMenu(sandboxId);
               setDrafts({});
               setPending([]);
               setFields({});
               await load();
+              onPublished?.(published.version);
               setSaid(`Menu published. It is now version ${published.version}.`);
             });
           }}
