@@ -32,8 +32,10 @@
 #   reached by its window's close.
 # - A stop is completed only once its order is ready (finding 7): a delivery paid and planned
 #   but not yet made stays confirmed when the plan is published, and its completion is 409
-#   `dispatch` `not-ready`; made ready on the kitchen socket, its completion goes through, and
-#   the Order goes out for delivery on van-1 and is delivered in one step, so the board clears.
+#   `dispatch` `not-ready`; made ready on the kitchen socket, it goes out for delivery at once on
+#   van-1, stop 1 (the day's one `StopReady`, since 2026-11-08), the board shows it out on van-1,
+#   and the plan now stands (409 `published`); its completion then delivers it, and the board
+#   clears.
 # - The wipe: scripts/list-objects.mjs exits 0, the Dispatch objects included.
 #
 # It prints ok or FAIL per check as scripts/smoke-crm.sh does, and exits non-zero on any failure.
@@ -725,7 +727,18 @@ check "the kitchen board shows E confirmed" "node -e \"
   const card = snap && snap.board.cards.find((c) => c.order === '$OE');
   process.exit(card && card.state === 'confirmed' ? 0 : 1);\""
 node "${PROBE[@]}" --cmd "$(ulid):$OE:start_production" --cmd "$(ulid):$OE:mark_ready" --wait-evt OrderReady:1 --timeout 20 > "$TMP/ws_e_ready.out" 2>&1 || true
-check "E is ready, and not out for delivery: the plan was published before it was" "until_json e2_ready D '/v1/sandboxes/$AID/orders/$OE' \"b.status === 'ready'\""
+check "E, made after the plan was published, goes out for delivery when it is ready" "until_json e2_out D '/v1/sandboxes/$AID/orders/$OE' \"b.status === 'out_for_delivery'\""
+check "the day sent E out once: one StopReady, van-1, stop 1" "(( $(sql_count Dispatch "dispatch:$AID:$DAY2" "SELECT count(*) AS n FROM events WHERE type = 'StopReady'") == 1 )) && (( $(sql_count Dispatch "dispatch:$AID:$DAY2" "SELECT count(*) AS n FROM events WHERE type = 'StopReady' AND json_extract(data, '\$.order') = '$OE' AND json_extract(data, '\$.route') = 'van-1' AND json_extract(data, '\$.stop') = 1") == 1 ))"
+check "E's own log went out on van-1, stop 1, before its stop was completed" "(( $(sql_count Order "order:$AID:$OE" "SELECT count(*) AS n FROM events WHERE type = 'OrderOutForDelivery' AND json_extract(data, '\$.route') = 'van-1' AND json_extract(data, '\$.stop') = 1") == 1 )) && (( $(sql_count Order "order:$AID:$OE" "SELECT count(*) AS n FROM events WHERE type = 'OrderDelivered'") == 0 ))"
+sleep 1
+node "${PROBE[@]}" --until snapshot --timeout 15 > "$TMP/ws_e_out.out" 2>&1 || true
+check "the kitchen board shows E out for delivery on van-1, stop 1" "node -e \"
+  const lines = require('fs').readFileSync('$TMP/ws_e_out.out', 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return {}; } });
+  const snap = lines.map((l) => l.frame).find((f) => f && f.t === 'snapshot');
+  const card = snap && snap.board.cards.find((c) => c.order === '$OE');
+  process.exit(card && card.state === 'out_for_delivery' && card.van === 'van-1' && card.stop === 1 ? 0 : 1);\""
+dispatch_post e2_republish D 192.0.2.92 "$DAY2" publish '{"plan":"proposed"}'
+expect_rule e2_republish 409 published
 dispatch_post e2_complete D 192.0.2.92 "$DAY2" complete '{"stop":1}'
 expect_status e2_complete 200
 expect_json e2_complete "b.stops[0].status === 'completed'"

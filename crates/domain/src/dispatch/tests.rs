@@ -1075,3 +1075,100 @@ fn a_stop_completed_before_the_route_was_recorded_still_folds() {
         })
     );
 }
+
+// -------------------------------------------------------------------------------------------
+// An order made ready after its stop was published
+// -------------------------------------------------------------------------------------------
+
+fn ready(order: u128) -> DispatchCommand {
+    DispatchCommand::ReadyStop { order: ulid(order) }
+}
+
+#[test]
+fn an_order_made_after_its_stop_was_published_goes_out_when_it_is_ready() {
+    // Before any publish, a ready order needs nothing: `RoutePublished` will find it ready.
+    let s = step(day(), submit(&[(1, &[2, 1]), (2, &[3])]));
+    assert_eq!(Dispatch::decide(&s, &ready(3), &ctx(1)), Ok(vec![]));
+    let (s, _) = run(s, &publish(PlanChoice::Submitted), 1);
+    // Made after the publish: it goes out on its van, as its stop number.
+    let (s, events) = run(s, &ready(3), 2);
+    assert_eq!(
+        events,
+        vec![DispatchEvent::StopReady {
+            date: date(),
+            plan_v: 1,
+            stop: 3,
+            order: ulid(3),
+            route: "van-2".into(),
+        }]
+    );
+    // Once per order, whatever the event's id.
+    assert_eq!(Dispatch::decide(&s, &ready(3), &ctx(3)), Ok(vec![]));
+    // A provisional stop, and an order that is no stop of the day, are not sent anywhere.
+    assert_eq!(Dispatch::decide(&s, &ready(4), &ctx(4)), Ok(vec![]));
+    assert_eq!(Dispatch::decide(&s, &ready(9), &ctx(5)), Ok(vec![]));
+    // A van has left on the plan, though the Order may not have heard yet: it is not replaced.
+    let again = step(s.clone(), submit(&[(1, &[1, 2, 3])]));
+    assert_eq!(refused(&again, publish(PlanChoice::Submitted)), "published");
+    // Its stop is still completed as before, with the same route.
+    let (done, events) = run(s.clone(), &complete(3), 6);
+    assert_eq!(
+        events,
+        vec![DispatchEvent::StopCompleted {
+            date: date(),
+            stop: 3,
+            order: ulid(3),
+            route: Some("van-2".into()),
+        }]
+    );
+    // A completed stop's order sends nothing more.
+    assert_eq!(
+        Dispatch::decide(&done, &ready(1), &ctx(7)).map(|e| e.len()),
+        Ok(1)
+    );
+    let (done, _) = run(done, &complete(2), 8);
+    assert_eq!(Dispatch::decide(&done, &ready(1), &ctx(9)), Ok(vec![]));
+}
+
+#[test]
+fn a_stop_confirmed_after_the_publish_is_on_no_plan_and_waits_for_the_next() {
+    let s = step(day(), submit(&[(1, &[2, 1]), (2, &[3])]));
+    let (s, _) = run(s, &publish(PlanChoice::Submitted), 1);
+    let s = step(s, confirm(4));
+    assert_eq!(Dispatch::decide(&s, &ready(4), &ctx(2)), Ok(vec![]));
+    // The next plan carries it, and then it goes out.
+    let s = step(s, submit(&[(1, &[2, 1, 4]), (2, &[3])]));
+    let (s, _) = run(s, &publish(PlanChoice::Submitted), 3);
+    let (_, events) = run(s, &ready(4), 4);
+    assert_eq!(
+        events,
+        vec![DispatchEvent::StopReady {
+            date: date(),
+            plan_v: 2,
+            stop: 3,
+            order: ulid(4),
+            route: "van-1".into(),
+        }]
+    );
+}
+
+#[test]
+fn a_stop_ready_round_trips_and_folds() {
+    let s = step(day(), submit(&[(1, &[1, 2, 3])]));
+    let (s, mut log) = run(s, &publish(PlanChoice::Submitted), 1);
+    let (s, events) = run(s, &ready(2), 2);
+    let e = &events[0];
+    assert!(DispatchEvent::NAMES.contains(&e.name()));
+    assert_eq!(e.name(), "StopReady");
+    let data = e.to_data();
+    assert_eq!(data["route"], "van-1");
+    assert_eq!(data["stop"], 2);
+    assert_eq!(data["plan_v"], 1);
+    assert_eq!(
+        DispatchEvent::from_parts("StopReady", &data).as_ref(),
+        Ok(e)
+    );
+    log.extend(events);
+    let start = step(day(), submit(&[(1, &[1, 2, 3])]));
+    assert_eq!(replay_from::<Dispatch>(start, &log), s);
+}
