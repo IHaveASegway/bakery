@@ -510,6 +510,11 @@ button.link:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+.qty-hint {
+  flex: 1 0 100%;
+  order: 1;
+}
+
 .qty {
   display: inline-block;
   margin: 0;

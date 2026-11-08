@@ -30,6 +30,27 @@ export const EMPTY_CART: Cart = { lines: [], note: '', kind: 'pickup', zone: 'z1
 
 export const clampQty = (qty: number) => Math.min(MAX_QTY, Math.max(1, Math.trunc(qty) || 1));
 
+/** The sentence shown, once, when a typed quantity had to be moved into range. */
+export const QTY_HINT = `Quantities run from 1 to ${MAX_QTY}.`;
+
+/** A typed quantity that is already a whole number in range, else null (the field is mid-edit). */
+export function validQty(text: string): number | null {
+  if (!/^\d+$/.test(text.trim())) return null;
+  const n = Number(text.trim());
+  return n >= 1 && n <= MAX_QTY ? n : null;
+}
+
+/**
+ * What a quantity field settles to when the visitor is done with it (blur or Enter): the number
+ * moved into range, and whether it had to be, so the page can say the range once.
+ */
+export function commitQty(text: string): { qty: number; clamped: boolean } {
+  const valid = validQty(text);
+  if (valid !== null) return { qty: valid, clamped: false };
+  const n = text.trim() === '' ? Number.NaN : Number(text);
+  return { qty: clampQty(n), clamped: true };
+}
+
 /** Adds one of a variant, or raises its line; a 21st distinct line is refused. */
 export function addLine(cart: Cart, variant: string): { cart: Cart; refused: 'full' | null } {
   const existing = cart.lines.find((l) => l.variant === variant);
