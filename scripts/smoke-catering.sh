@@ -370,10 +370,14 @@ saga_to() {
 }
 
 # advance_days JAR IP SANDBOX N: N steps of 1d on the sandbox's clock.
+# A short pause between the steps: a session spends COMMAND_LIMIT (60 commands a minute) on every
+# command it sends, and a fast run with a long advance has reached the wipe inside that minute with
+# the limit spent (429 rate-limit, 2026-11-08); the pause keeps the whole run under it.
 advance_days() {
   local n
   for n in $(seq 1 "$4"); do
     command_as "clock_$3_$n" "$1" "$2" POST "/v1/sandboxes/$3/clock" '{"step":"1d"}'
+    sleep 0.3
   done
 }
 
