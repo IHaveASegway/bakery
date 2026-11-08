@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { getOrder, refundOrder } from '../lib/api';
 import { describeError, type Message as Text } from '../lib/messages';
 import { dollars } from '../lib/money';
@@ -9,6 +9,9 @@ import Message from './Message';
  * "Refund" (all that is left) and "Refund part" (an amount in dollars) on an order card, for
  * signed-in staff. The API checks the amount against what was paid less what was refunded; the
  * page checks it against the order’s total first, so a typo costs no request.
+ *
+ * What a refund did is said by the board (`onRefunded`), not here: a refund of the whole order
+ * cancels it, and its card, this component with it, leaves the board as soon as the Kitchen hears.
  */
 export default function RefundControls({
   sandboxId,
@@ -20,26 +23,33 @@ export default function RefundControls({
   order: string;
   /** The short id the card shows, for the buttons’ accessible names. */
   label: string;
-  onRefunded: () => void;
+  /** Called with the sentence to announce; `whole` when the order is now refunding in full. */
+  onRefunded: (said: string, whole: boolean) => void;
 }) {
   const [part, setPart] = useState(false);
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Text | null>(null);
-  const [done, setDone] = useState<string | null>(null);
   const field = `refund-amount-${order}`;
+  // The part form closes on success, taking its button with it; focus goes back to its toggle.
+  const toggle = useRef<HTMLButtonElement>(null);
 
-  async function run(body: () => Promise<number | null>) {
+  async function run(body: () => Promise<{ cents: number; status: string } | null>) {
     setBusy(true);
     setError(null);
-    setDone(null);
     try {
-      const cents = await body();
-      if (cents === null) return;
-      setDone(`Refunded ${dollars(cents)} on order ${label}.`);
+      const done = await body();
+      if (done === null) return;
+      const whole = done.status === 'refund_pending';
+      onRefunded(
+        whole
+          ? `Refunded ${dollars(done.cents)} on order ${label}, all that was left. A full refund cancels the order, so its card leaves the board.`
+          : `Refunded ${dollars(done.cents)} on order ${label}.`,
+        whole,
+      );
       setPart(false);
       setAmount('');
-      onRefunded();
+      toggle.current?.focus();
     } catch (e) {
       setError(describeError(e));
     } finally {
@@ -55,7 +65,7 @@ export default function RefundControls({
         return null;
       }
       const refund = await refundOrder(sandboxId, order, { reason: 'goodwill' });
-      return refund.amount_cents;
+      return { cents: refund.amount_cents, status: refund.status };
     });
 
   const partial = () =>
@@ -70,27 +80,33 @@ export default function RefundControls({
         amount_cents: checked.cents,
         reason: 'goodwill',
       });
-      return refund.amount_cents;
+      return { cents: refund.amount_cents, status: refund.status };
     });
 
   return (
     <div className="refunds" data-tour="kitchen-refund">
+      {/* Busy is aria-disabled, not disabled, so the keyboard's focus stays where it was. */}
       <p className="actions">
         <button
           type="button"
-          disabled={busy}
+          aria-disabled={busy || undefined}
           aria-label={`Refund order ${label}`}
-          onClick={() => void full()}
+          onClick={() => {
+            if (!busy) void full();
+          }}
         >
           Refund
         </button>
         <button
+          ref={toggle}
           type="button"
-          disabled={busy}
+          aria-disabled={busy || undefined}
           aria-expanded={part}
           aria-controls={field + '-form'}
           aria-label={`Refund part of order ${label}`}
-          onClick={() => setPart((p) => !p)}
+          onClick={() => {
+            if (!busy) setPart((p) => !p);
+          }}
         >
           Refund part
         </button>
@@ -101,7 +117,7 @@ export default function RefundControls({
           aria-label={`Refund part of order ${label}`}
           onSubmit={(e) => {
             e.preventDefault();
-            void partial();
+            if (!busy) void partial();
           }}
         >
           <label htmlFor={field}>Amount in dollars</label>
@@ -118,13 +134,13 @@ export default function RefundControls({
             Up to the order’s total, such as 4 or 4.50.
           </span>
           <p>
-            <button type="submit" disabled={busy || amount.trim() === ''}>
+            <button type="submit" disabled={amount.trim() === ''} aria-disabled={busy || undefined}>
               Send refund
             </button>
           </p>
         </form>
       )}
-      <Message error={error}>{done !== null && <p className="hint">{done}</p>}</Message>
+      <Message error={error} />
     </div>
   );
 }

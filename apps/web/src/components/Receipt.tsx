@@ -1,6 +1,7 @@
 import type { OrderResponse } from '../contracts';
 import { findVariant } from '../lib/menu';
 import { dollars } from '../lib/money';
+import { whenText } from '../lib/when';
 import type { useLiveMenu } from '../lib/use-live-menu';
 
 /** What the API answered about an order: its numbers, not the page's. Paid once the webhook says so. */
@@ -25,7 +26,7 @@ export default function Receipt({
         <dd>{order.status}</dd>
         <dt>{order.kind === 'pickup' ? 'Pickup' : `Delivery, zone ${order.zone ?? ''}`}</dt>
         <dd>
-          <time dateTime={order.slot}>{order.slot}</time>
+          <time dateTime={order.slot}>{whenText(order.slot)}</time>
         </dd>
         <dt>Menu version</dt>
         <dd>{order.menu_version}</dd>

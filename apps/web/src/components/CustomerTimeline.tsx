@@ -10,6 +10,7 @@ import {
   zoneLabel,
 } from '../lib/crm';
 import { describeCrmError } from '../lib/crm-errors';
+import { timesIn } from '../lib/when';
 import { describeError, type Message as Text } from '../lib/messages';
 import Message from './Message';
 
@@ -86,8 +87,12 @@ export default function CustomerTimeline({
           <input
             type="checkbox"
             checked={customer.marketing}
-            disabled={busy || !allowed}
-            onChange={(e) => void toggle(e.target.checked)}
+            // Busy is aria-disabled, not disabled, so the keyboard's focus stays on the toggle.
+            disabled={!allowed}
+            aria-disabled={busy || undefined}
+            onChange={(e) => {
+              if (!busy) void toggle(e.target.checked);
+            }}
           />{' '}
           {consentLabel(customer.marketing)}
         </label>
@@ -106,7 +111,7 @@ export default function CustomerTimeline({
         <ol className="feed" aria-label={`Timeline of ${customer.display_name}, newest first`}>
           {newestFirst(entries).map((e) => (
             <li key={`${e.at}-${e.type}-${e.ref}`}>
-              <time dateTime={e.at}>{whenText(e.at)}</time>: {e.label}
+              <time dateTime={e.at}>{whenText(e.at)}</time>: {timesIn(e.label)}
             </li>
           ))}
         </ol>
