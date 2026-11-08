@@ -158,6 +158,10 @@ jobs:
       - run: pnpm build
         env:
           PUBLIC_TURNSTILE_SITE_KEY: ${{ vars.TURNSTILE_SITE_KEY }}
+      - name: Say so when the storefront was built with Turnstile's test site key
+        if: vars.TURNSTILE_SITE_KEY == ''
+        run: |
+          echo "::warning::the repository variable TURNSTILE_SITE_KEY is unset, so apps/web/dist carries Turnstile's test site key, which is fine for a preview and refused by the deploy job (docs/operations.md, step 5)."
       # ADR 0007, decision 2: the firewall's half of the key guard. After the builds, so the
       # storefront's bundle (apps/web/dist) and the API's (workers/api/dist) are searched too.
       # The pattern is put together from parts, so this step's text never matches it, and the
@@ -664,6 +668,20 @@ jobs:
         with:
           name: build
           path: .
+      # The storefront bakes PUBLIC_TURNSTILE_SITE_KEY in at build time (verify, from the repository
+      # variable TURNSTILE_SITE_KEY, operations.md step 5); unset, the component falls back to
+      # Turnstile's always-pass test key. On 2026-11-08 the deployed bundle was found carrying that
+      # key, so production's only bot check on guest sandboxes and demo accounts was the test one.
+      # The deploy stops here rather than publish such a bundle again. The key below is Cloudflare's
+      # documented test site key, public by design.
+      - name: The storefront's bundle carries a real Turnstile site key, not the test one
+        if: steps.tip.outputs.go == 'true'
+        run: |
+          if grep -rq '1x00000000000000000000AA' apps/web/dist; then
+            echo "::error::apps/web/dist carries Turnstile's test site key, so the repository variable TURNSTILE_SITE_KEY was unset when verify built it (docs/operations.md, step 5). Set it under Settings, Secrets and variables, Actions, Variables, then rerun this workflow or push again."
+            exit 1
+          fi
+          echo "the storefront's bundle carries a real Turnstile site key"
       - name: The API's deploy config, next to its scanned bundle (no build, no bundling)
         if: steps.tip.outputs.go == 'true'
         run: node scripts/api-deploy-config.mjs
