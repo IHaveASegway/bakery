@@ -43,6 +43,7 @@ const render = (state: SandboxResponse['state'], isGuest = false) =>
       busy: false,
       error: null,
       onReload: () => undefined,
+      onBoardWiped: () => undefined,
       onFault: () => undefined,
       onWipe: () => undefined,
       onReplace: () => undefined,

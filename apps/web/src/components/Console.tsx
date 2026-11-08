@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SandboxResponse, SessionResponse } from '../contracts';
 import {
   ApiError,
@@ -36,6 +36,12 @@ export default function Console() {
   const [view, setView] = useState<View>({ name: 'loading' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Text | null>(null);
+  // This page's own Wipe now or replace, while its request is in flight. The board's socket closes
+  // with "wiped" before that request answers. A reload then would ask for the old sandbox with
+  // whichever cookie the browser holds when it asks: the old one names the sandbox and gets 410,
+  // the one the answer re-issues names none and gets 404 (the e2e race of 2026-11-08). So the
+  // request's own answer decides the view, and a close it hid reloads only if the request fails.
+  const ownWipe = useRef<'idle' | 'running' | 'closed'>('idle');
 
   const load = useCallback(async () => {
     try {
@@ -80,19 +86,33 @@ export default function Console() {
     return () => clearInterval(timer);
   }, [seedingId]);
 
-  /** Runs one action: busy while it runs, any problem shown in the live region. */
-  async function act(run: () => Promise<void>) {
+  /**
+   * Runs one action: busy while it runs, any problem shown in the live region. `wipes`: the
+   * action wipes this sandbox (Wipe now, or a replace), so the board's "wiped" close waits for it.
+   */
+  async function act(run: () => Promise<void>, wipes = false) {
     setBusy(true);
     setError(null);
+    if (wipes) ownWipe.current = 'running';
     try {
       await run();
     } catch (e) {
       if (e instanceof ApiError && e.status === 410) await load();
-      else setError(describeError(e));
+      else {
+        setError(describeError(e));
+        if (ownWipe.current === 'closed') await load();
+      }
     } finally {
+      if (wipes) ownWipe.current = 'idle';
       setBusy(false);
     }
   }
+
+  /** The board's socket closed with "wiped": the nightly wipe, or this page's own. */
+  const boardWiped = useCallback(() => {
+    if (ownWipe.current === 'idle') void load();
+    else ownWipe.current = 'closed';
+  }, [load]);
 
   switch (view.name) {
     case 'loading':
@@ -155,7 +175,7 @@ export default function Console() {
       }
       const sandbox = await createSandbox({ replace });
       setView({ name: 'sandbox', session: { ...session, sandbox: sandbox.id }, sandbox });
-    });
+    }, replace);
 
   const leave = () =>
     act(async () => {
@@ -233,6 +253,7 @@ export default function Console() {
         busy={busy}
         error={error}
         onReload={() => void load()}
+        onBoardWiped={boardWiped}
         onFault={(fault, on) =>
           void act(async () => {
             const { faults } = await setFault(sandbox.id, { fault, on });
@@ -245,7 +266,7 @@ export default function Console() {
               return;
             await wipeSandbox(sandbox.id);
             setView({ name: 'wiped', session });
-          })
+          }, true)
         }
         onReplace={() => void newSandbox(true)}
       />

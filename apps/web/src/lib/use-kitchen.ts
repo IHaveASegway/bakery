@@ -185,21 +185,25 @@ export function useKitchen(sandboxId: string, onWiped: () => void): Kitchen {
     };
   }, [sandboxId, nonce]);
 
-  // The heartbeat: while the socket is not open, tell the API the console is still here.
+  // The heartbeat: while the socket is not open, tell the API the console is still here. Not after
+  // the server ended it with "wiped": there is no sandbox to beat for, and after Wipe now the
+  // cookie may already name none, so the beat would ask about another sandbox's id (a 404).
   const open = state.status === 'open';
+  const gone = state.ended === 'wiped';
   const wasOpen = useRef(false);
   useEffect(() => {
     if (open) {
       wasOpen.current = true;
       return;
     }
+    if (gone) return;
     const beat = () => void heartbeat(sandboxId).catch(() => undefined);
     // A socket that just closed beats at once, so the Simulator's 90 s window starts fresh.
     if (wasOpen.current) beat();
     wasOpen.current = false;
     const timer = setInterval(beat, 30_000);
     return () => clearInterval(timer);
-  }, [open, sandboxId]);
+  }, [open, gone, sandboxId]);
 
   const send = useCallback((order: string, action: Action) => {
     const socket = socketRef.current;

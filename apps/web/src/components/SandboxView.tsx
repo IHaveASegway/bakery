@@ -29,6 +29,8 @@ interface Props {
   error: Text | null;
   /** Ask the API for the sandbox again. */
   onReload: () => void;
+  /** The board's socket closed with "wiped". */
+  onBoardWiped: () => void;
   onFault: (fault: 'kitchen' | 'inbox', on: boolean) => void;
   onWipe: () => void;
   onReplace: () => void;
@@ -41,6 +43,7 @@ export default function SandboxView({
   busy,
   error,
   onReload,
+  onBoardWiped,
   onFault,
   onWipe,
   onReplace,
@@ -93,7 +96,7 @@ export default function SandboxView({
             sandboxId={sandbox.id}
             isGuest={isGuest}
             clockOffsetS={sandbox.clock_offset_s}
-            onWiped={onReload}
+            onWiped={onBoardWiped}
             onRefunded={() => setLedgerTick((n) => n + 1)}
           />
           <Ledger sandboxId={sandbox.id} refresh={ledgerTick} />
