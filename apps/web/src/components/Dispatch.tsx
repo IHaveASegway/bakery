@@ -322,7 +322,12 @@ export default function Dispatch() {
   };
 
   if (phase.name !== 'live') {
-    return <StatusLine phase={phase} />;
+    return (
+      <StatusLine
+        phase={phase}
+        signedOut="You have no sandbox yet, so there is nothing to dispatch."
+      />
+    );
   }
 
   const staff = !isGuest;

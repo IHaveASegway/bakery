@@ -1,7 +1,14 @@
 import type { Phase } from '../lib/use-session';
 
 /** One sentence about the visitor's sandbox, for the storefront pages. A live region. */
-export default function StatusLine({ phase }: { phase: Phase }) {
+export default function StatusLine({
+  phase,
+  signedOut,
+}: {
+  phase: Phase;
+  /** The sentence for a visitor with no sandbox, for a screen where "ordering is off" is not the point. */
+  signedOut?: React.ReactNode;
+}) {
   let text: React.ReactNode = null;
   switch (phase.name) {
     case 'loading':
@@ -20,7 +27,8 @@ export default function StatusLine({ phase }: { phase: Phase }) {
     case 'nosandbox':
       text = (
         <>
-          You have no sandbox yet, so this is the demo’s seed menu and ordering is off.{' '}
+          {signedOut ??
+            'You have no sandbox yet, so this is the demo’s seed menu and ordering is off.'}{' '}
           <a href="/signin/">Sign in or try it as a guest</a>.
         </>
       );

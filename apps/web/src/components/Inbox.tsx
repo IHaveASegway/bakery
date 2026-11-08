@@ -85,7 +85,7 @@ export default function Inbox() {
 
   return (
     <>
-      <StatusLine phase={phase} />
+      <StatusLine phase={phase} signedOut="You have no sandbox yet, so the inbox is empty." />
       {sandboxId !== null && (
         <>
           <p data-tour="inbox-list">
