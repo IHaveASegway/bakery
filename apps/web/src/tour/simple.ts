@@ -70,8 +70,8 @@ export const SIGNIN: TourStep[] = [
     screen: 'signin',
     target: 'signin-demo',
     title: 'A demo account',
-    what: 'A generated username and a password you choose, with no email. A check that you are a person (Turnstile) guards the sign-up, because it makes an account and a sandbox.',
-    events: ['SandboxSeeded'],
+    what: 'A generated username and a password you choose, with no email. A check that you are a person (Turnstile) guards the sign-up, because it makes an account. The account has no sandbox yet: you sign in with it and make one in the console.',
+    events: [],
     principle: ADMISSION,
     api: {
       routeId: 'demo-signup',
@@ -102,22 +102,8 @@ export const SIGNIN: TourStep[] = [
   },
 ];
 
+// The steps run down the page: the cart, the list, then the note about where the menu came from.
 export const MENU: TourStep[] = [
-  {
-    id: 'menu-how',
-    screen: 'menu',
-    target: 'menu-how',
-    title: 'Where the menu came from',
-    what: HOW.menuSeed,
-    events: ['MenuPublished'],
-    principle: CACHE,
-    api: {
-      routeId: 'get-menu',
-      method: 'GET',
-      path: '/v1/sandboxes/{id}/menu',
-      note: 'Returns the menu with an ETag. Send it back as If-None-Match and an unchanged menu costs a 304 and no body; the Bakery-Cache header says whether the API’s cache answered.',
-    },
-  },
   {
     id: 'menu-cart',
     screen: 'menu',
@@ -151,6 +137,21 @@ export const MENU: TourStep[] = [
       method: 'GET',
       path: '/v1/sandboxes/{id}/menu',
       note: 'The same menu the page draws, as JSON with prices in integer cents.',
+    },
+  },
+  {
+    id: 'menu-how',
+    screen: 'menu',
+    target: 'menu-how',
+    title: 'Where the menu came from',
+    what: HOW.menuSeed,
+    events: ['MenuPublished'],
+    principle: CACHE,
+    api: {
+      routeId: 'get-menu',
+      method: 'GET',
+      path: '/v1/sandboxes/{id}/menu',
+      note: 'Returns the menu with an ETag. Send it back as If-None-Match and an unchanged menu costs a 304 and no body; the Bakery-Cache header says whether the API’s cache answered.',
     },
   },
 ];
