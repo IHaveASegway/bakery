@@ -7,7 +7,8 @@
 # it places, so the script also starts scripts/fake-stripe.mjs and points the Worker at it; the
 # payment paths themselves are scripts/smoke-payments.sh's. Since the hardening after PR 13 it also
 # drives a retried placement whose place was given back: 409 `hold-lost` with no room, and with
-# room the place held again and the order placed on it. It proves each line of docs/roadmap.md's
+# room the place held again and the order placed on it. Since 2026-11-08 it reads the menu's
+# drafts route after a price edit and after the publish. It proves each line of docs/roadmap.md's
 # PR 4 "Done when" that can be proven locally, prints ok or FAIL per check as
 # scripts/smoke-auth.sh does, and exits non-zero on any failure.
 #
@@ -379,6 +380,8 @@ command_as guest_patch G 192.0.2.41 PATCH "/v1/sandboxes/$GID/menu/items/x" '{"p
 expect_problem guest_patch 403 guest-scope
 command_as guest_publish G 192.0.2.41 POST "/v1/sandboxes/$GID/menu/publish"
 expect_problem guest_publish 403 guest-scope
+get_as guest_drafts G "/v1/sandboxes/$GID/menu/drafts"
+expect_problem guest_drafts 403 guest-scope
 
 get_as dmenu_1 D "/v1/sandboxes/$DID/menu"
 expect_header dmenu_1 bakery-cache miss
@@ -386,6 +389,11 @@ ITEM="$(json_field dmenu_1 "b.categories[0].items[0].slug")"
 command_as price D 192.0.2.42 PATCH "/v1/sandboxes/$DID/menu/items/$ITEM" '{"price_cents":1234}'
 expect_status price 200
 expect_json price "b.version === 1 && b.pending.includes('$ITEM')"
+# The drafts route lists what waits, so the console's editor shows it after a reload.
+get_as drafts_1 D "/v1/sandboxes/$DID/menu/drafts"
+expect_status drafts_1 200
+expect_header drafts_1 cache-control no-store
+expect_json drafts_1 "b.version === 1 && b.pending.length === 1 && b.pending[0].slug === '$ITEM' && b.pending[0].variants.length > 0 && b.pending[0].variants.every(v => v.price_cents === 1234)"
 get_as dmenu_draft D "/v1/sandboxes/$DID/menu"
 expect_header dmenu_draft etag '"v1"'
 expect_header dmenu_draft bakery-cache hit
@@ -396,6 +404,9 @@ expect_status publish 200
 expect_json publish "b.version === 2 && b.pending.length === 0"
 command_as publish_again D 192.0.2.42 POST "/v1/sandboxes/$DID/menu/publish"
 expect_problem publish_again 422 menu
+get_as drafts_2 D "/v1/sandboxes/$DID/menu/drafts"
+expect_status drafts_2 200
+expect_json drafts_2 "b.version === 2 && b.pending.length === 0"
 get_as dmenu_v2 D "/v1/sandboxes/$DID/menu"
 expect_header dmenu_v2 etag '"v2"'
 expect_header dmenu_v2 bakery-cache miss
