@@ -1,8 +1,22 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { demoSignin, demoSignup } from '../lib/api';
 import { describeError, type Message as Text } from '../lib/messages';
 import Message from './Message';
 import Turnstile from './Turnstile';
+
+/**
+ * Text typed before the island hydrated sits in the DOM field, and React's controlled value would
+ * wipe it. On mount, take what the field already holds into state (audit C25).
+ */
+function useKeepTyped(setters: [React.RefObject<HTMLInputElement | null>, (v: string) => void][]) {
+  useEffect(() => {
+    for (const [ref, set] of setters) {
+      const typed = ref.current?.value ?? '';
+      if (typed !== '') set(typed);
+    }
+    // Once, on mount: later typing is the controlled value's business.
+  }, []);
+}
 
 function CreateAccount() {
   const id = useId();
@@ -14,6 +28,8 @@ function CreateAccount() {
   const [username, setUsername] = useState<string | null>(null);
   const [copied, setCopied] = useState<'yes' | 'no' | null>(null);
   const [resetKey, setResetKey] = useState(0);
+  const passwordRef = useRef<HTMLInputElement>(null);
+  useKeepTyped([[passwordRef, setPassword]]);
 
   async function submit(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -78,6 +94,7 @@ function CreateAccount() {
       <p>
         <label htmlFor={`${id}-password`}>Password</label>
         <input
+          ref={passwordRef}
           id={`${id}-password`}
           type="password"
           autoComplete="new-password"
@@ -111,6 +128,12 @@ function SignIn() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Text | null>(null);
+  const usernameRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
+  useKeepTyped([
+    [usernameRef, setUsername],
+    [passwordRef, setPassword],
+  ]);
 
   async function submit(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -131,6 +154,7 @@ function SignIn() {
       <p>
         <label htmlFor={`${id}-username`}>Username</label>
         <input
+          ref={usernameRef}
           id={`${id}-username`}
           type="text"
           autoComplete="username"
@@ -144,6 +168,7 @@ function SignIn() {
       <p>
         <label htmlFor={`${id}-password`}>Password</label>
         <input
+          ref={passwordRef}
           id={`${id}-password`}
           type="password"
           autoComplete="current-password"
