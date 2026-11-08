@@ -3,7 +3,8 @@
 // the page asks every second until it is live).
 import { useEffect, useState } from 'react';
 import type { SessionKind } from '../contracts';
-import { ApiError, NetworkError, getSandbox, getSession } from './api';
+import { ApiError, NetworkError, getSandbox } from './api';
+import { readSession } from './session';
 
 export type Phase =
   | { name: 'loading' }
@@ -24,7 +25,7 @@ export function useSandboxPhase(): Phase {
     async function look(id: string | null, kind: SessionKind | null) {
       try {
         if (id === null || kind === null) {
-          const session = await getSession();
+          const session = await readSession();
           if (stopped) return;
           if (!session.sandbox) return setPhase({ name: 'nosandbox' });
           return look(session.sandbox, session.kind);

@@ -1,0 +1,24 @@
+---
+// The header's "Sign in" link becomes "Console" when the API says there is a session. The link is
+// plain HTML in Base.astro, correct with no script. This script runs only on pages that carry the
+// tour island, which are the pages the page policy lets call the API; the essays, the about page and
+// the 404 have no script at all (ADR 0008) and keep "Sign in".
+---
+
+<script>
+  import { readSession, rememberedSignedIn, sessionLink, watchSession } from '../lib/session';
+
+  const link = document.querySelector<HTMLAnchorElement>('a[data-session-link]');
+  if (link) {
+    watchSession((signedIn) => {
+      const next = sessionLink(signedIn, location.pathname);
+      link.href = next.href;
+      link.textContent = next.label;
+      if (next.current) link.setAttribute('aria-current', 'page');
+      else link.removeAttribute('aria-current');
+    });
+    // A page whose islands ask anyway shares that one answer. A page with none asks only when this
+    // browser last saw a session, so an anonymous visitor to a static page logs nothing.
+    if (rememberedSignedIn()) readSession().catch(() => undefined);
+  }
+</script>
