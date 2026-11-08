@@ -1556,6 +1556,8 @@ pub enum StopStatus {
     Provisional,
     /// Paid: every plan must carry it.
     Confirmed,
+    /// Its order has gone out on its van: still in the plan, not yet delivered.
+    OutForDelivery,
     /// Expired or cancelled.
     Removed,
     /// Delivered.
@@ -2656,6 +2658,7 @@ mod tests {
         for (status, text) in [
             (StopStatus::Provisional, "provisional"),
             (StopStatus::Confirmed, "confirmed"),
+            (StopStatus::OutForDelivery, "out_for_delivery"),
             (StopStatus::Removed, "removed"),
             (StopStatus::Completed, "completed"),
         ] {

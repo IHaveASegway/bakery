@@ -524,7 +524,9 @@ units a van), never published. Its only timers are the outbox's and the backstop
   `stop`; `StopCompleted` goes to its Order, `MarkDelivered`. Since 2026-11-08 `OrderReady`
   reaches the day too (`ReadyStop`): an order made after its stop was published gets
   `StopReady {route, stop}`, once, and its Order decides `MarkOutForDelivery`, so it goes out
-  when it is ready rather than when its stop is completed.
+  when it is ready rather than when its stop is completed. `OrderOutForDelivery` reaches the day
+  as well (`DepartStop`), and the stop reads `out_for_delivery` (`StopDeparted`) until it is
+  completed.
 - **A plan stands once a van has left.** Before a publish over a published plan the object asks
   that plan's Orders for their status; if one is out for delivery, delivered or closed, or the
   day has sent a stop out with `StopReady`, the aggregate refuses `published` (409). Completing

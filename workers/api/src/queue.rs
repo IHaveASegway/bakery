@@ -31,7 +31,8 @@
 //! `MarkDelivered`. `all(Kitchen)` on `RoutePublished` is the sandbox's board, which labels its
 //! cards with their vans. Since 2026-11-08 `OrderReady` reaches the day of the order's window as
 //! the other order events do, and the Dispatch's `StopReady` the order it names, which goes out
-//! for delivery.
+//! for delivery; `OrderOutForDelivery` reaches the day as well, whose stop then reads out for
+//! delivery.
 //!
 //! `Control`'s flag is read once a minute per isolate: `off` retries everything, so the
 //! messages drain to the DLQ after 3 retries rather than being lost (docs/architecture.md,

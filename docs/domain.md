@@ -307,8 +307,9 @@ As built in PR 9 (2026-11-05; `crates/domain/src/dispatch.rs`, [ADR 0012](adr/00
 | `Publish {plan, departed}` | staff, `plan` being `proposed` or `submitted` | `RoutePublished` as `plan_v + 1`, superseding the last | `no-plan`, `stop-missing`, `no-stops`, the validator's rules again, and `published` when `departed` |
 | `CompleteStop {stop}` | staff, or a driver | `StopCompleted`, with the stop's route | `no-plan`, `stop-unknown`, `not-ready` (the stop's order is not ready yet). Nothing the second time |
 | `ReadyStop {order}` | `OrderReady` (since 2026-11-08) | `StopReady`, with the stop's route and number, when the order is a confirmed stop of the published plan | never; nothing before a publish, for a stop on no published plan, or for an order already sent out |
+| `DepartStop {order, route, stop}` | `OrderOutForDelivery` (since 2026-11-08) | `StopDeparted`, with the route and number the Order's event names, when the stop is confirmed: the stop is out for delivery | never; nothing for a stop already out, delivered or removed |
 
-Events: `StopAdded`, `StopConfirmed`, `StopRemoved`, `RouteProposed`, `PlanSubmitted`, `RoutePublished`, `StopCompleted` and `StopReady` ([the catalog](#the-event-catalog)). The first three and `PlanSubmitted` have no subscriber and are the Dispatch's own log, like the Schedule's `SlotHeld`. The stop's status runs provisional, confirmed, then removed or completed.
+Events: `StopAdded`, `StopConfirmed`, `StopRemoved`, `RouteProposed`, `PlanSubmitted`, `RoutePublished`, `StopCompleted`, `StopReady` and `StopDeparted` ([the catalog](#the-event-catalog)). The first three, `PlanSubmitted` and `StopDeparted` have no subscriber and are the Dispatch's own log, like the Schedule's `SlotHeld`. The stop's status runs provisional, confirmed, out for delivery, then removed or completed; a stop completed while its order was only ready goes from confirmed to completed.
 
 The rules, by the slug a problem document names them with (a refused command is a `dispatch` problem; [security.md](security.md#sandbox-isolation) lists the statuses):
 
@@ -325,7 +326,7 @@ The rules, by the slug a problem document names them with (a refused command is 
 | `over-capacity` | No van carries more units than the capacity |
 | `stop-missing` | Every confirmed stop not yet delivered appears |
 | `no-plan` | A publish names a plan that exists, and a completion needs a published plan |
-| `published` | A plan is not replaced once a van has left, which a `StopReady` in the day's log also counts as (since 2026-11-08) |
+| `published` | A plan is not replaced once a van has left, which a `StopReady` or a stop out for delivery in the day's log also counts as (since 2026-11-08) |
 | `window` | Each van reaches every stop by its delivery window's close: the vans leave at 09:00, a van early at a door waits for the window to open, and it spends 3 minutes at each door (since 2026-11-08) |
 | `not-ready` | A stop is completed only once its order is ready, out for delivery or delivered (since 2026-11-08) |
 
@@ -336,6 +337,8 @@ Invariants: a published plan covers every confirmed, undelivered stop exactly on
 **Completing a stop, since the same audit (finding 7).** The object asks the stop's Order for its status before `CompleteStop`, as it asks for `departed` before a publish, and hands the aggregate whether the order is ready, out for delivery, delivered or closed; otherwise the completion is refused `not-ready` (409). `StopCompleted` carries the stop's route, `van-<n>`, an addition within envelope v1, so an order that became ready after the plan was published goes out for delivery on its way to delivered ([Order](#order)).
 
 **Sending a late order out, since 2026-11-08.** That left such an order in Ready until its stop was completed. `OrderReady` now reaches the day of the order's window, as `OrderPaid` does (the consumer reads the slot and kind from the Order, and acks a pickup's unsent), and becomes `ReadyStop`. When the order is a confirmed stop of the published plan, the day emits `StopReady {date, plan_v, stop, order, route}` once for that order, and the Order goes out for delivery on it. An order ready before the publish needs nothing, since `RoutePublished` finds it ready; one confirmed after the publish is on no plan yet, so the next publish carries it. A `StopReady` counts as a van that has left: a later publish over that plan is refused `published` even while the Order has not yet heard it, so the stop number the Order gets is never superseded. Whichever of the Dispatch and the publish runs first, the order goes out once, because the Dispatch decides both in its one log.
+
+**A stop that has left, since the UI audit of 2026-11-08 (second pass, N3).** An order out for delivery read "Confirmed" in the Stops table, because a stop's status had no word for it. `OrderOutForDelivery` now reaches the day of the order's window too and becomes `DepartStop`; a confirmed stop emits `StopDeparted` and reads `out_for_delivery`. The mark follows the Order's event, not the Dispatch's own `RoutePublished` or `StopReady`, for two reasons: the Order is the one that decides whether it goes out (it refuses an order that is not ready, so marking on `StopReady` would claim a departure the Order might refuse), and an order that was ready before the publish leaves on `RoutePublished` with no `StopReady` at all. A stop out for delivery is still plannable and is completed as a confirmed one is. Heard after its completion (a completion that overtook the order's `StopReady` makes the Order go out and be delivered in one step), it changes nothing, and the event's id in `seen` makes a redelivery `duplicate`. Proven by `scripts/smoke-dispatch.sh` (168 checks on 2026-11-08): after the orders go out, the day's stops read `out_for_delivery`, and a late-ready order's stop does too, with one `StopDeparted`.
 
 ### Simulator
 
@@ -372,7 +375,7 @@ Every event, past tense, by producer. Types: `id` is a ULID string, `cents` an `
 | `OrderCancelled` | Order | `by: customer or staff` | Schedule; Kitchen; Dispatch; Crm | releases; removes; removes; timeline |
 | `OrderProductionStarted` | Order | `{}` | Kitchen; Crm | moves the card; timeline |
 | `OrderReady` | Order | `{}` | Kitchen; Inbox; Crm; Dispatch | moves the card; "ready" message; timeline; sends a stop of the published plan out (a pickup has none) |
-| `OrderOutForDelivery` | Order | `route: string, stop: u16` | Kitchen; Inbox | moves the card; "on its way" message |
+| `OrderOutForDelivery` | Order | `route: string, stop: u16` | Kitchen; Inbox; Dispatch | moves the card; "on its way" message; marks the stop out for delivery (since 2026-11-08) |
 | `OrderPickedUp`, `OrderDelivered` | Order | `at_stop: u16?` | Kitchen; Crm | clears the card; timeline |
 | `OrderRefunded` | Order | `refund: id, amount_cents, full: bool` | Crm; Customer; Inbox | timeline; reverses loyalty; refund notice |
 | `OrderClosed` | Order; the seed for history | `total_cents, refunded_cents`; history only: `lines, customer: id, kind, slot: time, zone: string?` | Schedule; Crm | fulfils the reservation; customer stats |
@@ -411,6 +414,7 @@ Every event, past tense, by producer. Types: `id` is a ULID string, `cents` an `
 | `RoutePublished` | Dispatch | `date, plan_v: u16, source: server or browser, vans: [{van: u8, stops: [order id]}], minutes: u32, publish: id?` | Order (each stop); Kitchen | out for delivery; van labels |
 | `StopCompleted` | Dispatch | `date, stop: u16, order: id, route: string?` | Order | delivered (out for delivery first when the order was only ready) |
 | `StopReady` | Dispatch | `date, plan_v: u16, stop: u16, order: id, route: string` | Order | out for delivery: the order was made after its stop was published (since 2026-11-08) |
+| `StopDeparted` | Dispatch | `date, order: id, route: string, stop: u16` | none | the stop's status, out for delivery, in the Dispatch's own log, from the order's `OrderOutForDelivery` (since 2026-11-08) |
 | `CustomerRegistered` | Customer | `customer: id, profile: {display_name, preferences: [item], home_zone, place, billing_line}, marketing: bool, opening_points: u32` | none | the Customer's own record of its first touch, from the seed's persona |
 | `ConsentChanged` | Customer | `marketing: bool` | Crm | segment input |
 | `LoyaltyPointsEarned` | Customer | `order: id, points: i32, refund: id?` | Crm | timeline, balance column |

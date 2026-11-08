@@ -80,6 +80,7 @@ fn stop_status(status: StopStatus) -> wire::StopStatus {
     match status {
         StopStatus::Provisional => wire::StopStatus::Provisional,
         StopStatus::Confirmed => wire::StopStatus::Confirmed,
+        StopStatus::OutForDelivery => wire::StopStatus::OutForDelivery,
         StopStatus::Removed => wire::StopStatus::Removed,
         StopStatus::Completed => wire::StopStatus::Completed,
     }
@@ -235,6 +236,24 @@ mod tests {
         let text = serde_json::to_value(&r).unwrap();
         let back: wire::DispatchResponse = serde_json::from_value(text).unwrap();
         assert_eq!(back, r);
+        // Its order gone out on van 1: the stop reads out for delivery, in the plan still.
+        s = run(
+            s,
+            DispatchCommand::DepartStop {
+                order: ulid(1),
+                route: "van-1".into(),
+                stop: 1,
+            },
+            4,
+        );
+        let r = dispatch_response(&s, &matrix);
+        let first = &r.stops[0];
+        assert_eq!(first.status, wire::StopStatus::OutForDelivery);
+        assert_eq!((first.stop, first.van), (Some(1), Some(1)));
+        assert_eq!(
+            serde_json::to_value(first).unwrap()["status"],
+            "out_for_delivery"
+        );
     }
 
     #[test]

@@ -3079,6 +3079,11 @@
             "type": "string"
           },
           {
+            "const": "out_for_delivery",
+            "description": "Its order has gone out on its van: still in the plan, not yet delivered.",
+            "type": "string"
+          },
+          {
             "const": "removed",
             "description": "Expired or cancelled.",
             "type": "string"

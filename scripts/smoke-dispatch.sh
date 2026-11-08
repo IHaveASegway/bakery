@@ -19,8 +19,8 @@
 #   a total sent with it is 400 `body`.
 # - Publish twice with one key: one plan (`plan_v` 1), one `RoutePublished` in the Dispatch's log,
 #   `Idempotent-Replayed: true` on the second; the stops' Orders (made ready on the kitchen
-#   socket) go out for delivery, and the kitchen board's cards show `van-1` and `van-2` with their
-#   stop numbers. Complete a stop: its Order is delivered. A second publish after a van left: 409
+#   socket) go out for delivery, the day's stops read `out_for_delivery`, and the kitchen board's
+#   cards show `van-1` and `van-2` with their stop numbers. Complete a stop: its Order is delivered. A second publish after a van left: 409
 #   `dispatch` `published`. 409 `no-plan` before any plan; 422 `stop-unknown` for a stop the plan
 #   lacks.
 # - The guest reads the day and gets 403 `guest-scope` for every staff command; another sandbox's
@@ -34,8 +34,8 @@
 #   but not yet made stays confirmed when the plan is published, and its completion is 409
 #   `dispatch` `not-ready`; made ready on the kitchen socket, it goes out for delivery at once on
 #   van-1, stop 1 (the day's one `StopReady`, since 2026-11-08), the board shows it out on van-1,
-#   and the plan now stands (409 `published`); its completion then delivers it, and the board
-#   clears.
+#   the day's stops show it out for delivery (one `StopDeparted`, the UI audit's N3), and the plan
+#   now stands (409 `published`); its completion then delivers it, and the board clears.
 # - The wipe: scripts/list-objects.mjs exits 0, the Dispatch objects included.
 #
 # It prints ok or FAIL per check as scripts/smoke-crm.sh does, and exits non-zero on any failure.
@@ -664,6 +664,7 @@ check "the two orders ride different vans, van-1 and van-2" "[[ '$VAN_A $VAN_B' 
 check "A goes out for delivery" "until_json a_out_a D '/v1/sandboxes/$AID/orders/$OA' \"b.status === 'out_for_delivery'\""
 check "B goes out for delivery" "until_json a_out_b D '/v1/sandboxes/$AID/orders/$OB' \"b.status === 'out_for_delivery'\""
 check "A's own log says $VAN_A, stop $STOP_A" "(( $(sql_count Order "order:$AID:$OA" "SELECT count(*) AS n FROM events WHERE type = 'OrderOutForDelivery' AND json_extract(data, '\$.route') = '$VAN_A' AND json_extract(data, '\$.stop') = $STOP_A") == 1 ))"
+check "the day's stops show A and B out for delivery, still on their vans" "until_json a_day_out D '/v1/sandboxes/$AID/dispatch/$DAY' \"['$OA', '$OB'].every((o) => { const s = b.stops.find((x) => x.order === o); return s && s.status === 'out_for_delivery' && s.van !== null && s.stop !== null; })\""
 check "B's own log says $VAN_B, stop $STOP_B" "(( $(sql_count Order "order:$AID:$OB" "SELECT count(*) AS n FROM events WHERE type = 'OrderOutForDelivery' AND json_extract(data, '\$.route') = '$VAN_B' AND json_extract(data, '\$.stop') = $STOP_B") == 1 ))"
 sleep 1
 node "${PROBE[@]}" --until snapshot --timeout 15 > "$TMP/ws_board.out" 2>&1 || true
@@ -686,7 +687,7 @@ dispatch_post complete_99 D 192.0.2.92 "$DAY" complete '{"stop":99}'
 expect_rule complete_99 422 stop-unknown
 dispatch_post complete D 192.0.2.92 "$DAY" complete "{\"stop\":$STOP_A}"
 expect_status complete 200
-expect_json complete "b.stops.find((s) => s.order === '$OA').status === 'completed' && b.stops.find((s) => s.order === '$OB').status === 'confirmed'"
+expect_json complete "b.stops.find((s) => s.order === '$OA').status === 'completed' && b.stops.find((s) => s.order === '$OB').status === 'out_for_delivery'"
 check "A, completed, is delivered" "until_json a_delivered D '/v1/sandboxes/$AID/orders/$OA' \"b.status === 'delivered'\""
 dispatch_post complete_again D 192.0.2.92 "$DAY" complete "{\"stop\":$STOP_A}"
 expect_status complete_again 200
@@ -729,6 +730,8 @@ check "the kitchen board shows E confirmed" "node -e \"
 node "${PROBE[@]}" --cmd "$(ulid):$OE:start_production" --cmd "$(ulid):$OE:mark_ready" --wait-evt OrderReady:1 --timeout 20 > "$TMP/ws_e_ready.out" 2>&1 || true
 check "E, made after the plan was published, goes out for delivery when it is ready" "until_json e2_out D '/v1/sandboxes/$AID/orders/$OE' \"b.status === 'out_for_delivery'\""
 check "the day sent E out once: one StopReady, van-1, stop 1" "(( $(sql_count Dispatch "dispatch:$AID:$DAY2" "SELECT count(*) AS n FROM events WHERE type = 'StopReady'") == 1 )) && (( $(sql_count Dispatch "dispatch:$AID:$DAY2" "SELECT count(*) AS n FROM events WHERE type = 'StopReady' AND json_extract(data, '\$.order') = '$OE' AND json_extract(data, '\$.route') = 'van-1' AND json_extract(data, '\$.stop') = 1") == 1 ))"
+check "the day's stops show E out for delivery on van 1, stop 1" "until_json e2_day_out D '/v1/sandboxes/$AID/dispatch/$DAY2' \"b.stops[0].order === '$OE' && b.stops[0].status === 'out_for_delivery' && b.stops[0].van === 1 && b.stops[0].stop === 1\""
+check "the day marked E's stop out once: one StopDeparted, van-1, stop 1" "(( $(sql_count Dispatch "dispatch:$AID:$DAY2" "SELECT count(*) AS n FROM events WHERE type = 'StopDeparted'") == 1 )) && (( $(sql_count Dispatch "dispatch:$AID:$DAY2" "SELECT count(*) AS n FROM events WHERE type = 'StopDeparted' AND json_extract(data, '\$.order') = '$OE' AND json_extract(data, '\$.route') = 'van-1' AND json_extract(data, '\$.stop') = 1") == 1 ))"
 check "E's own log went out on van-1, stop 1, before its stop was completed" "(( $(sql_count Order "order:$AID:$OE" "SELECT count(*) AS n FROM events WHERE type = 'OrderOutForDelivery' AND json_extract(data, '\$.route') = 'van-1' AND json_extract(data, '\$.stop') = 1") == 1 )) && (( $(sql_count Order "order:$AID:$OE" "SELECT count(*) AS n FROM events WHERE type = 'OrderDelivered'") == 0 ))"
 sleep 1
 node "${PROBE[@]}" --until snapshot --timeout 15 > "$TMP/ws_e_out.out" 2>&1 || true

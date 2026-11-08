@@ -56,7 +56,8 @@ impl Subscriber {
 /// day of the order's window: `OrderPlaced` for a delivery adds its stop, `OrderPaid` confirms
 /// it, `OrderExpired` and `OrderCancelled` remove it). PR 9 also delivers the Order's
 /// `RoutePublished` (each stop) and `StopCompleted` routes, and since 2026-11-08 `OrderReady` to the
-/// day's Dispatch and `StopReady` to its Order. The consumer delivers to no other;
+/// day's Dispatch and `StopReady` to its Order, and `OrderOutForDelivery` to the day's Dispatch,
+/// which marks the stop out for delivery. The consumer delivers to no other;
 /// Control joins as its pull request builds it.
 pub const LIVE: &[Subscriber] = &[
     Subscriber::Kitchen,
@@ -159,7 +160,10 @@ pub const ROUTES: &[(&str, &[Route])] = &[
         "OrderReady",
         &[all(Kitchen), all(Inbox), all(Crm), all(Dispatch)],
     ),
-    ("OrderOutForDelivery", &[all(Kitchen), all(Inbox)]),
+    (
+        "OrderOutForDelivery",
+        &[all(Kitchen), all(Inbox), all(Dispatch)],
+    ),
     ("OrderPickedUp", &[all(Kitchen), all(Crm)]),
     ("OrderDelivered", &[all(Kitchen), all(Crm)]),
     ("OrderRefunded", &[all(Crm), all(Customer), all(Inbox)]),
@@ -223,6 +227,7 @@ pub const ROUTES: &[(&str, &[Route])] = &[
     ("RoutePublished", &[scoped(Order, EachStop), all(Kitchen)]),
     ("StopCompleted", &[all(Order)]),
     ("StopReady", &[all(Order)]),
+    ("StopDeparted", &[]),
     ("CustomerRegistered", &[]),
     ("ConsentChanged", &[all(Crm)]),
     ("LoyaltyPointsEarned", &[all(Crm)]),
@@ -424,7 +429,7 @@ mod tests {
         assert_eq!(in_table, in_doc);
         assert_eq!(ROUTES.len(), in_table.len(), "an event is listed twice");
         // The table has as many rows as the catalog has events.
-        assert_eq!(in_doc.len(), 71);
+        assert_eq!(in_doc.len(), 72);
     }
 
     #[test]
@@ -600,11 +605,23 @@ mod tests {
             classes(deliver_to(&envelope("StopReady", json!({})))),
             ["Order"]
         );
+        // An order gone out reaches its day's Dispatch too, whose stop then reads out for
+        // delivery.
+        assert_eq!(
+            classes(deliver_to(&envelope("OrderOutForDelivery", json!({})))),
+            ["Kitchen", "Inbox", "Dispatch"]
+        );
         assert_eq!(
             classes(deliver_to(&envelope("RouteProposed", json!({})))),
             ["Crm"]
         );
-        for name in ["StopAdded", "StopConfirmed", "StopRemoved", "PlanSubmitted"] {
+        for name in [
+            "StopAdded",
+            "StopConfirmed",
+            "StopRemoved",
+            "PlanSubmitted",
+            "StopDeparted",
+        ] {
             assert!(deliver_to(&envelope(name, json!({}))).is_empty(), "{name}");
         }
         assert_eq!(

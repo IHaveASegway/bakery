@@ -24,6 +24,7 @@ import {
   report,
   routePoints,
   solveOptions,
+  statusText,
   stopMarks,
   stopNumbers,
   stopRows,
@@ -364,14 +365,23 @@ describe('the stop numbering', () => {
     expect(completable(d).map((r) => r.stop)).toEqual([2]);
   });
 
-  test('only confirmed stops are planned', () => {
+  test('only confirmed stops, and ones out for delivery, are planned', () => {
     const d = day([
       stop(1, 1, 5, { status: 'provisional' }),
       stop(2, 2, 5),
       stop(3, 3, 5, { status: 'removed' }),
       stop(4, 4, 5, { status: 'completed' }),
+      stop(5, 5, 5, { status: 'out_for_delivery' }),
     ]);
-    expect(plannable(d).map((s) => s.order)).toEqual([orderId(2)]);
+    expect(plannable(d).map((s) => s.order)).toEqual([orderId(2), orderId(5)]);
+  });
+
+  test('a stop out for delivery says so, and can still be completed', () => {
+    expect(statusText('out_for_delivery')).toBe('Out for delivery');
+    expect(statusText('confirmed')).toBe('Confirmed');
+    expect(statusText('completed')).toBe('Delivered');
+    const d = day([stop(1, 1, 5, { van: 1, stop: 1, status: 'out_for_delivery' })]);
+    expect(completable(d).map((r) => r.stop)).toEqual([1]);
   });
 });
 
