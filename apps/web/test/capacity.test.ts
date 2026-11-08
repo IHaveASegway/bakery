@@ -87,6 +87,22 @@ describe('sending a capacity', () => {
 });
 
 describe('the refusals', () => {
+  test('422 unknown-item says the item is not on the menu and nothing changed', async () => {
+    fake = fakeFetch([
+      problem(422, 'schedule', 'Bad request', {
+        detail: 'No item no-such-thing is on the day’s menu. The rule is unknown-item.',
+      }),
+    ]);
+    const e = await setCapacity(SANDBOX, '2026-11-07', {
+      target: 'item:no-such-thing',
+      capacity: 1,
+    }).catch((x: unknown) => x);
+    const message = describeCapacityError(e);
+    expect(message.title).toBe('That item is not on the day’s menu');
+    expect(message.detail).toMatch(/Nothing was changed/);
+    expect(message.detail).toMatch(/no-such-thing/);
+  });
+
   test('422 bad-target is shown with what the API said', async () => {
     fake = fakeFetch([
       problem(422, 'schedule', 'Bad request', { detail: 'bad-target: unknown target kind' }),

@@ -73,3 +73,43 @@ export function leadText(minutes: number): string {
   }
   return `${minutes} minutes`;
 }
+
+/** "Whole and Half", "Small, Medium and Large": a list of labels as a sentence says it. */
+export function andList(words: string[]): string {
+  if (words.length <= 1) return words[0] ?? '';
+  return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+}
+
+/**
+ * What the editor's one price field sets, said beside it: the price goes on every variant of the
+ * item (the Catalog's `SetPrice` for each), so a half loaf gets what a whole one does. Null for an
+ * item with one variant, where there is nothing to warn about.
+ */
+export function priceSetsText(item: Pick<ItemView, 'variants'>): string | null {
+  if (item.variants.length < 2) return null;
+  return `Sets ${andList(item.variants.map((v) => v.label))} to the same price.`;
+}
+
+/**
+ * The editor's sentence after a pause or a resume. Neither is a draft: the Catalog publishes it at
+ * once as a version of its own (crates/domain/src/catalog.rs, the module comment), and any price
+ * drafts keep waiting.
+ */
+export function statusSaid(name: string, paused: boolean, version: number): string {
+  return paused
+    ? `${name} is paused. That was published at once as version ${version}: the storefront shows it paused now. Price drafts still wait for Publish.`
+    : `${name} is on sale again. That was published at once as version ${version}. Price drafts still wait for Publish.`;
+}
+
+/**
+ * The line beside Publish. Every edit's answer lists the items the server holds drafts for, so
+ * after one this page knows them all (`known`). Before the first, it knows none: no route lists the
+ * drafts, and a draft from before a reload is still applied by Publish, so the line says so.
+ */
+export function waitingText(waiting: number, known: boolean): string {
+  if (!known) {
+    return 'Price drafts made before this page loaded are kept by the server but not listed here, and Publish applies them too.';
+  }
+  if (waiting === 0) return 'No item waits for Publish.';
+  return `${waiting} ${waiting === 1 ? 'item has a price' : 'items have prices'} waiting for Publish.`;
+}

@@ -103,7 +103,7 @@ export function changedText(target: string, capacity: number, schedule: Schedule
     : `${base} ${now.taken} taken, ${capacity - now.taken} free. A lowered capacity never drops a reservation.`;
 }
 
-/** The words for a refused capacity change: `guest-scope` (403), `bad-target` (422), the rest as usual. */
+/** The words for a refused capacity change: `guest-scope` (403), `unknown-item` and `bad-target` (422), the rest as usual. */
 export function describeCapacityError(error: unknown): Message {
   if (error instanceof ApiError) {
     const text = `${error.detail ?? ''} ${error.slug}`.toLowerCase();
@@ -111,6 +111,14 @@ export function describeCapacityError(error: unknown): Message {
       return {
         title: 'Guests cannot change capacities',
         detail: 'Sign in to set a capacity. A guest sees the schedule and nothing more.',
+      };
+    }
+    if (error.status === 422 && text.includes('unknown-item')) {
+      return {
+        title: 'That item is not on the day’s menu',
+        detail:
+          'An item cap names an item the published menu sells, by its slug as the day’s list shows it. Nothing was changed.' +
+          (error.detail ? ` It said: ${error.detail}` : ''),
       };
     }
     if (error.status === 422 && text.includes('bad-target')) {

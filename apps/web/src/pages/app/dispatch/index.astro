@@ -2,6 +2,9 @@
 import Base from '../../../layouts/Base.astro';
 import Dispatch from '../../../components/Dispatch';
 import attribution from '../../../../public/app/dispatch/data/ATTRIBUTION.txt?raw';
+import { ODBL_URL, OSM_COPYRIGHT_URL, routeCredit } from '../../../lib/dispatch';
+
+const { orsVersion } = routeCredit(attribution);
 ---
 
 <Base
@@ -20,10 +23,12 @@ import attribution from '../../../../public/app/dispatch/data/ATTRIBUTION.txt?ra
   <Dispatch client:load />
   <section>
     <h2>Map and route data</h2>
-    <p class="fine">{attribution.trim()}</p>
-    <p>
-      <a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a>; routing by
-      openrouteservice (self-hosted).
+    <p class="fine">
+      <a href={OSM_COPYRIGHT_URL}>© OpenStreetMap contributors</a>, under the{' '}
+      <a href={ODBL_URL}>Open Database License 1.0</a>. Travel times and reachable areas were
+      computed offline with openrouteservice {orsVersion}, self-hosted, over an OpenStreetMap
+      extract, by <code>tools/route-data/</code> in this repository. Free-flow times: no traffic.
+      The places are public places; the bakery is made up.
     </p>
   </section>
   <p>

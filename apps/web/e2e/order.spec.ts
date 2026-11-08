@@ -68,4 +68,14 @@ test('an order paid with the test card turns confirmed on the board over its soc
     `/v1/sandboxes/${sandbox.id}/orders/${order.body.id}`,
   );
   expect(read.body.status).toBe('confirmed');
+
+  // The keyboard's focus follows the card to its new column: Start production, pressed with the
+  // keyboard, leaves the focus on the card's next button, never on the page's body.
+  await confirmed.getByRole('button', { name: `Start production for order ${short}` }).focus();
+  await page.keyboard.press('Enter');
+  const inProduction = page.locator('section[aria-labelledby="board-in_production"]');
+  await expect(inProduction.locator('code', { hasText: short })).toBeVisible();
+  await expect(
+    inProduction.getByRole('button', { name: `Mark ready for order ${short}` }),
+  ).toBeFocused();
 });

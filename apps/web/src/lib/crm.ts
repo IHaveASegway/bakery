@@ -18,7 +18,7 @@ import type {
 } from '../contracts';
 import { attemptFor, keepKeyAfter, type Attempt } from './attempt';
 import { pollUntil, type PollOptions, type Polled } from './payment';
-import { dateLabel, dateOfStart, startText } from './schedule';
+import { whenText } from './when';
 import { businessTime, mountainToMs } from './slots';
 
 // ---- Segments: a fixed list, evaluated by the API over its projection ----
@@ -149,7 +149,7 @@ export const campaignStateLabel = (state: string): string =>
 export const cancelLabel = (state: CampaignState): string =>
   state === 'scheduled' ? 'Unschedule (back to draft)' : 'Cancel campaign';
 
-/** One sentence on what a state means, for the card. */
+/** One sentence on what a state means, for the card, after the state's own label. */
 export function stateSays(state: CampaignState): string {
   switch (state) {
     case 'draft':
@@ -157,9 +157,9 @@ export function stateSays(state: CampaignState): string {
     case 'scheduled':
       return 'Waiting for its send time. Advance the clock past it and it sends.';
     case 'sent':
-      return 'Sent. The recipients were fixed at the moment it sent.';
+      return 'The recipients were fixed at the moment it sent.';
     case 'cancelled':
-      return 'Cancelled. Nothing was sent.';
+      return 'Nothing was sent.';
   }
 }
 
@@ -196,7 +196,7 @@ export function sendAtFromInput(value: string): string | null {
 
 /** "Sunday 2026-11-08 at 9:30 am" for a send time; the wire text when it cannot be read. */
 export function sendAtText(wire: string): string {
-  return Number.isNaN(Date.parse(wire)) ? wire : startText(wire);
+  return Number.isNaN(Date.parse(wire)) ? wire : whenText(wire);
 }
 
 // ---- The stats ----
@@ -327,12 +327,8 @@ export const canChangeConsent = (
 export const consentLabel = (marketing: boolean): string =>
   marketing ? 'Marketing email: yes' : 'Marketing email: no';
 
-/** A bakery date or a business time, in words; the text itself when it is neither. */
-export function whenText(value: string | null | undefined): string {
-  if (value == null || value === '') return 'never';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return dateLabel(value);
-  return dateOfStart(value) === '' ? value : startText(value);
-}
+/** A bakery date or a business time, in words (lib/when.ts, the one formatter). */
+export { whenText };
 
 /** The timeline newest first. The sort is stable, so entries at one instant keep the API's order. */
 export function newestFirst<T extends Pick<TimelineEntry, 'at'>>(entries: T[]): T[] {

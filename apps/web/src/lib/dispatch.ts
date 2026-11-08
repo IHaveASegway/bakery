@@ -103,6 +103,26 @@ export function parseIsochrones(value: unknown): Isochrones {
   return v as unknown as Isochrones;
 }
 
+/** The licence and copyright pages the route data's attribution names. */
+export const ODBL_URL = 'https://opendatacommons.org/licenses/odbl/1-0/';
+export const OSM_COPYRIGHT_URL = 'https://www.openstreetmap.org/copyright';
+
+/**
+ * What the dispatch page's credit line needs from ATTRIBUTION.txt, which tools/route-data/ writes
+ * beside the data: the openrouteservice version the times were computed with. The page says the
+ * rest in its own words, with the two URLs as links rather than printed inline, so a phone does
+ * not get the file's hard line breaks. A file that no longer names the version or the two pages
+ * throws, so the build stops rather than publish a credit that has drifted from the data.
+ */
+export function routeCredit(attribution: string): { orsVersion: string } {
+  const version = /openrouteservice (v\d+(?:\.\d+)*)/.exec(attribution)?.[1];
+  if (version === undefined) throw new Error('ATTRIBUTION.txt: no openrouteservice version');
+  for (const url of [ODBL_URL, OSM_COPYRIGHT_URL]) {
+    if (!attribution.includes(url)) throw new Error(`ATTRIBUTION.txt: ${url} is not named`);
+  }
+  return { orsVersion: version };
+}
+
 // ---- Days, stops and numbers ----------------------------------------------------------------
 
 /** The bakery days the screen offers, today first: the sandbox's own days (404 `no-such-day` beyond). */
@@ -606,6 +626,17 @@ export function completable(day: DispatchResponse): StopRow[] {
   return stopRows(day).filter((r) => r.stop !== null && r.status !== 'completed');
 }
 
+/** "Proposed a plan that uses 1 of the 2 vans.": the vans the plan uses, not the number asked for. */
+export function proposedSaid(plan: PlanView | null | undefined, vans: number): string {
+  const used = plan?.vans.filter((v) => v.stops.length > 0).length ?? 0;
+  const of = `${vans} ${vans === 1 ? 'van' : 'vans'}`;
+  if (used === vans) {
+    const all = vans === 1 ? 'the van' : vans === 2 ? 'both vans' : `all ${of}`;
+    return `Proposed a plan that uses ${all}.`;
+  }
+  return `Proposed a plan that uses ${used} of the ${of}.`;
+}
+
 // ---- The comparison --------------------------------------------------------------------------
 
 /** What the screen says about one plan, all of it from the API's `PlanView`. */
@@ -661,10 +692,44 @@ export interface Report {
   readonly compared: boolean;
 }
 
+/** Every stop a plan was made over, placed or left out, as a sorted list of order ids. */
+export function planStops(plan: PlanView): string[] {
+  return [...plan.vans.flatMap((v) => v.stops), ...plan.unassigned].sort(cmp);
+}
+
+/** Whether two plans were made over the same stops, so their totals can be set side by side. */
+export function sameStops(a: PlanView, b: PlanView): boolean {
+  const x = planStops(a);
+  const y = planStops(b);
+  return x.length === y.length && x.every((order, i) => order === y[i]);
+}
+
+/**
+ * The comparison as the screen says it. The API compares the last proposal with the last browser
+ * plan whatever stops each was made over; after a stop is delivered or a new one is paid, one of
+ * them may cover stops the other does not, and their totals then say nothing about the methods.
+ * So the screen sets the gap out only when both plans cover the same stops, and otherwise says why.
+ */
 export function report(day: DispatchResponse | null, solver: BrowserSolver): Report {
   const published = day?.plan_v ?? 0;
   const server = figuresOf(day?.proposed, published);
   const browser = figuresOf(day?.submitted, published);
+  if (
+    day?.proposed &&
+    day.submitted &&
+    server &&
+    browser &&
+    !sameStops(day.proposed, day.submitted)
+  ) {
+    const a = planStops(day.proposed).length;
+    const b = planStops(day.submitted).length;
+    return {
+      server,
+      browser,
+      compared: false,
+      summary: `The two plans were made over different stops (the server’s over ${a}, the browser’s over ${b}), so their drive times are not compared. Propose and plan in the browser again to compare them over the same stops.`,
+    };
+  }
   if (day?.comparison && server && browser) {
     return { server, browser, summary: gapText(day.comparison), compared: true };
   }

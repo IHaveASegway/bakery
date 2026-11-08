@@ -54,9 +54,17 @@ export function engagementText(m: Pick<MessageResponse, 'opened_at' | 'clicked_a
   return m.clicked_at ? `${opened}, clicked ${whenText(m.clicked_at)}` : opened;
 }
 
-/** The line above the list: how many are shown of how many the sandbox holds. */
-export function countText(shown: number, total: number): string {
-  if (total === 0) return 'The inbox is empty.';
+/**
+ * The line above the list: how many are shown of how many the sandbox holds. With a kind chosen,
+ * none of it says "No receipt messages.", since the inbox itself may not be empty.
+ */
+export function countText(shown: number, total: number, kind: string = ALL_KINDS): string {
+  if (total === 0) {
+    const known = MESSAGE_KINDS.find((k) => k.kind === kind);
+    return known === undefined
+      ? 'The inbox is empty.'
+      : `No ${known.label.toLowerCase()} messages.`;
+  }
   return shown >= total
     ? `${total} ${total === 1 ? 'message' : 'messages'}.`
     : `Showing the newest ${shown} of ${total} messages.`;

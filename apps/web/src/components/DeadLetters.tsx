@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { DeadLetter } from '../contracts';
 import { getDeadLetters, redrive } from '../lib/api';
 import { describeError, type Message as Text } from '../lib/messages';
+import { whenText } from '../lib/when';
 import GuestNote from './GuestNote';
 import Message from './Message';
 
@@ -73,7 +74,7 @@ export default function DeadLetters({
                 Error: <code>{letter.error}</code>
               </p>
               <p className="hint">
-                <time dateTime={letter.at}>{letter.at}</time>
+                <time dateTime={letter.at}>{whenText(letter.at, { seconds: true })}</time>
               </p>
               <button
                 type="button"
