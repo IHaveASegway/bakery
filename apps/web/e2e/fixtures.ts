@@ -10,7 +10,7 @@ import { test as base, expect, type Page } from '@playwright/test';
 
 export const STOREFRONT = 'https://bakery.ihaveasegway.com';
 export const API = 'https://api.bakery.ihaveasegway.com';
-const API_DIRECT = `https://127.0.0.1:${process.env.E2E_API_PORT || 8798}`;
+export const API_DIRECT = `https://127.0.0.1:${process.env.E2E_API_PORT || 8798}`;
 const FAKE_STRIPE = `http://127.0.0.1:${process.env.E2E_STRIPE_PORT || 8800}`;
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
