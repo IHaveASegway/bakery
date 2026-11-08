@@ -53,6 +53,7 @@ pub enum RouteId {
     GetMenu,
     PatchMenuItem,
     PublishMenu,
+    GetMenuDrafts,
     PlaceOrder,
     GetOrder,
     CancelOrder,
@@ -285,6 +286,14 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/menu/publish",
         Scope::SignedIn,
         Limit::Command,
+        Bearer::Yes,
+    ),
+    route(
+        RouteId::GetMenuDrafts,
+        "GET",
+        "/v1/sandboxes/{id}/menu/drafts",
+        Scope::SignedIn,
+        Limit::None,
         Bearer::Yes,
     ),
     route(
@@ -920,6 +929,13 @@ mod tests {
             match_route("GET", &format!("/v1/sandboxes/{s}/menu/publish")),
             Matched::MethodNotAllowed("POST, OPTIONS".into())
         );
+        assert_eq!(
+            id_of(match_route(
+                "GET",
+                &format!("/v1/sandboxes/{s}/menu/drafts")
+            )),
+            Some((RouteId::GetMenuDrafts, some(s)))
+        );
     }
 
     #[test]
@@ -1252,6 +1268,7 @@ mod tests {
             RouteId::SetFault,
             RouteId::PatchMenuItem,
             RouteId::PublishMenu,
+            RouteId::GetMenuDrafts,
             RouteId::Redrive,
             RouteId::AdvanceClock,
             RouteId::StartTraffic,

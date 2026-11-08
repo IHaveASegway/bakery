@@ -338,6 +338,7 @@ async fn checked(
         RouteId::GetMenu => menu::get(cx, req, id.as_deref()).await,
         RouteId::PatchMenuItem => menu::patch_item(cx, req, id.as_deref(), sub).await,
         RouteId::PublishMenu => menu::publish(cx, id.as_deref()).await,
+        RouteId::GetMenuDrafts => menu::drafts(cx, id.as_deref()).await,
         RouteId::PlaceOrder => orders::place(cx, req, id.as_deref()).await,
         RouteId::GetOrder => orders::get(cx, id.as_deref(), sub).await,
         RouteId::CancelOrder => orders::cancel(cx, id.as_deref(), sub).await,

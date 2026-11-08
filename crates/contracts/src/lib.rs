@@ -686,6 +686,31 @@ pub struct MenuResponse {
     pub categories: Vec<MenuCategory>,
 }
 
+/// One item with edits waiting for a publish, as its draft copy stands: the variants carry
+/// their draft prices.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MenuDraft {
+    pub slug: String,
+    pub name: String,
+    /// The draft copy's status: `draft` for an item never published, else the published one,
+    /// since a pause or a resume is never a draft.
+    pub status: MenuItemState,
+    pub variants: Vec<MenuVariant>,
+}
+
+/// `GET /v1/sandboxes/{id}/menu/drafts`, signed-in sessions only: every item with a draft
+/// waiting for `POST .../menu/publish`, in slug order, and the published version. The console's
+/// menu editor reads it with `GET .../menu` on load and again after a publish, and shows each
+/// item's waiting price under its published one, so a draft made before a reload is still shown.
+/// The published prices are in the menu it already holds, so they are not repeated here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MenuDraftsResponse {
+    pub version: u32,
+    pub pending: Vec<MenuDraft>,
+}
+
 /// `POST /v1/sandboxes/{id}/traffic`, signed-in sessions only: simulated orders a minute.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1841,6 +1866,10 @@ pub fn schemas() -> Vec<(&'static str, String)> {
         ("MenuItemPatch.schema.json", render::<MenuItemPatch>()),
         ("MenuEditResponse.schema.json", render::<MenuEditResponse>()),
         ("MenuResponse.schema.json", render::<MenuResponse>()),
+        (
+            "MenuDraftsResponse.schema.json",
+            render::<MenuDraftsResponse>(),
+        ),
         ("TrafficRequest.schema.json", render::<TrafficRequest>()),
         ("TrafficResponse.schema.json", render::<TrafficResponse>()),
         ("DeadLetter.schema.json", render::<DeadLetter>()),

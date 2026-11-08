@@ -62,6 +62,7 @@ const CALLS: Record<string, () => Promise<unknown>> = {
   stopTraffic: () => api.stopTraffic(X),
   patchMenuItem: () => api.patchMenuItem(X, X, B),
   publishMenu: () => api.publishMenu(X),
+  getMenuDrafts: () => api.getMenuDrafts(X),
   getDeadLetters: () => api.getDeadLetters(X),
   redrive: () => api.redrive(X, X),
   advanceClock: () => api.advanceClock(X, 5),

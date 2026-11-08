@@ -42,6 +42,7 @@ export type { InboxResponse, MessageKind, MessageResponse } from './InboxRespons
 export type { LeadPipelineResponse, LeadStage, LeadStageView } from './LeadPipelineResponse';
 export type { LedgerEntry, LedgerKind, LedgerResponse, PaymentPurpose } from './LedgerResponse';
 export type { MatrixPlace, MatrixResponse } from './MatrixResponse';
+export type { MenuDraft, MenuDraftsResponse } from './MenuDraftsResponse';
 export type { MenuEditResponse } from './MenuEditResponse';
 export type { MenuItemPatch, MenuItemStatus } from './MenuItemPatch';
 export type {
