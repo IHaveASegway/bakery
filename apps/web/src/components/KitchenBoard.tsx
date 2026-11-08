@@ -7,6 +7,7 @@ import {
   routeWords,
   type Card,
 } from '../lib/kitchen';
+import { AFTER_BOARD } from '../lib/console-sections';
 import { dateOf, mountainLocal } from '../lib/slots';
 import { useKitchen, type Command } from '../lib/use-kitchen';
 import { whenText } from '../lib/when';
@@ -190,7 +191,9 @@ export default function KitchenBoard({
 
   return (
     <>
-      <h3 data-tour="kitchen-board">Kitchen board</h3>
+      <h3 id="board-heading" tabIndex={-1} data-tour="kitchen-board">
+        Kitchen board
+      </h3>
       <p aria-live="polite">{status}</p>
       <p className="hint">
         {kitchen.sockets === null
@@ -218,6 +221,9 @@ export default function KitchenBoard({
           </p>
         ))}
       </div>
+      <a className="skip-inline" href={`#${AFTER_BOARD}`}>
+        Skip the board’s cards
+      </a>
       {groups.map((group) => (
         <section key={group.state} aria-labelledby={`board-${group.state}`} className="column">
           <h4 id={`board-${group.state}`} tabIndex={-1}>
@@ -257,7 +263,9 @@ export default function KitchenBoard({
 
       <BakeList lists={bakeLists} today={today} />
 
-      <h3 id="feed-heading">Activity feed</h3>
+      <h3 id="feed-heading" tabIndex={-1}>
+        Activity feed
+      </h3>
       <p className="hint">The last 50 events the board applied, newest first.</p>
       {kitchen.feed.length === 0 ? (
         <p className="hint">No events yet since this page connected.</p>

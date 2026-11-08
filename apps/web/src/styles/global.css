@@ -48,6 +48,48 @@ main:focus {
   outline: none;
 }
 
+/* A skip link inside the page, for the console's kitchen board: hidden until it has the focus, then
+   in the flow where it stands, so focusing it does not scroll the page away from the board. */
+.skip-inline:not(:focus) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.skip-inline:focus {
+  display: inline-block;
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid var(--ring);
+  border-radius: var(--radius-md);
+  background: var(--background);
+}
+
+/* The console's "On this page" list: a wrapped row of links, on a phone as on a desktop. */
+.page-nav ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0 0 1.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.page-nav a {
+  display: inline-block;
+  padding-block: 0.25rem;
+}
+
+/* A heading takes the focus when an in-page link lands on it, so Tab goes on from there. */
+h3[tabindex='-1']:focus-visible,
+h4[tabindex='-1']:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
 .site-header,
 .site-footer {
   box-sizing: border-box;

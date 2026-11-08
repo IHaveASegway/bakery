@@ -71,7 +71,9 @@ export default function ApiToken({ sandboxId, isGuest }: { sandboxId: string; is
   const hasToken = canRotate(info);
   return (
     <section aria-labelledby="token-heading" data-tour="console-token">
-      <h3 id="token-heading">API token</h3>
+      <h3 id="token-heading" tabIndex={-1}>
+        API token
+      </h3>
       <p>
         A bearer token lets <code>curl</code> call this sandbox’s API without the cookie. It lasts
         24 hours, stops when the sandbox is wiped or the token is rotated, and goes in an{' '}
