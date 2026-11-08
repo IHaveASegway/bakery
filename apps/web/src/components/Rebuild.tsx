@@ -89,7 +89,9 @@ export default function Rebuild({
 
   return (
     <section aria-labelledby="rebuild-heading" data-tour="crm-rebuild">
-      <h3 id="rebuild-heading">Rebuild projections</h3>
+      <h3 id="rebuild-heading" tabIndex={-1}>
+        Rebuild projections
+      </h3>
       <p>
         <button
           type="button"

@@ -11,7 +11,7 @@ import { HOW } from '../tour/how';
 export default function BakeList({ lists, today }: { lists: Day[]; today: string }) {
   return (
     <>
-      <h3 id="bake-heading" data-tour="kitchen-bake">
+      <h3 id="bake-heading" tabIndex={-1} data-tour="kitchen-bake">
         Bake list
       </h3>
       {lists.length === 0 ? (

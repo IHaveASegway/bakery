@@ -29,7 +29,7 @@ export default function Customers({
 
   return (
     <section aria-labelledby="customers-heading">
-      <h3 id="customers-heading" data-tour="crm-customers">
+      <h3 id="customers-heading" tabIndex={-1} data-tour="crm-customers">
         Customers
       </h3>
       <p>

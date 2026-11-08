@@ -316,8 +316,10 @@ describe('events, principles and targets', () => {
     walk(new URL('../src/', import.meta.url));
     const text = files.join('\n');
     for (const step of allSteps) {
-      expect(text, `${step.id}: data-tour="${step.target}"`).toContain(
-        `data-tour="${step.target}"`,
+      // Written as data-tour="x", or as data-tour={cond ? 'x' : undefined} where only one of many
+      // elements is the target (the menu's first card).
+      expect(text, `${step.id}: data-tour="${step.target}"`).toMatch(
+        new RegExp(`data-tour=(?:"${step.target}"|\\{[^}]*'${step.target}')`),
       );
     }
   });

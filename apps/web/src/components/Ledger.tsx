@@ -41,7 +41,9 @@ export default function Ledger({ sandboxId, refresh }: { sandboxId: string; refr
 
   return (
     <section aria-labelledby="ledger-heading" data-tour="kitchen-ledger">
-      <h3 id="ledger-heading">Ledger</h3>
+      <h3 id="ledger-heading" tabIndex={-1}>
+        Ledger
+      </h3>
       <p className="hint">
         Payments and refunds as Stripe’s sandbox reported them. No money moved.
       </p>

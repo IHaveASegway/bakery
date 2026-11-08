@@ -38,7 +38,7 @@ export default function LeadPipeline({
 
   return (
     <section aria-labelledby="leads-heading">
-      <h3 id="leads-heading" data-tour="crm-leads">
+      <h3 id="leads-heading" tabIndex={-1} data-tour="crm-leads">
         Catering lead pipeline
       </h3>
       <p>Every catering inquiry is a lead. It moves right as the event does.</p>
