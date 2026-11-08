@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "CompleteStopRequest",
-  "description": "`POST /v1/sandboxes/{id}/dispatch/{date}/complete`, staff only: a stop of the published plan\nis delivered. Again for a delivered stop changes nothing.",
+  "description": "`POST /v1/sandboxes/{id}/dispatch/{date}/complete`, staff only: a stop of the published plan\nis delivered. Again for a delivered stop changes nothing. Refused 409 `not-ready` while the\nstop's order is still confirmed or in production: the kitchen marks it ready first.",
   "type": "object",
   "properties": {
     "stop": {

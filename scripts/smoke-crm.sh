@@ -22,7 +22,9 @@
 #   some campaign messages opened, a day more some clicked, the counts inside the bounds and the
 #   same in both sandboxes.
 # - Loyalty: points on the paid order equal to its whole dollars, taken back by the full refund,
-#   never below zero. The lead pipeline and the activity feed reflect the run.
+#   never below zero. The lead pipeline and the activity feed reflect the run: the feed has the
+#   seeded orders' payments, the seeded catering steps and each campaign sent, and no count
+#   reads "1 vans" (the console audit of 2026-11-08, findings 13 and 36).
 # - Consent by a guest on its own persona (200) and on another's (403 `guest-scope`); a guest's
 #   staff actions are 403; unknown customers, segments, campaigns and messages are 404.
 # - Free text: an order placed with a note and an inquiry with a brief; neither's words appear
@@ -30,8 +32,8 @@
 #   Worker's log.
 # - The rebuild: every CRM response and Crm's stored projection read, the rebuild started (202;
 #   409 `rebuild` while it runs), `applied` climbing to `total` over several alarms, then every
-#   response and the projection byte-identical, and `ProjectionRebuildFinished` with `events` =
-#   the log's length.
+#   response and the projection byte-identical (the activity feed gains only the rebuild's own
+#   row), and `ProjectionRebuildFinished` with `events` = the log's length.
 # - The wipe: scripts/list-objects.mjs exits 0, the Customer, Crm and Inbox objects included.
 #
 # The Mailbox rule ("no Mailbox implementation can address a non-sandbox recipient") is proven
@@ -404,7 +406,9 @@ for s in $(seq 1 80); do
     const p = g.customers[0];
     const since = Date.now() - 31 * 86400000;
     const cake = (o) => o.lines.some((l) => cakes.has(l.variant.split('/')[0]));
-    const counted = [...g.history, ...g.open_orders.filter((o) => ['confirmed', 'in_production', 'ready'].includes(o.state))];
+    // An order only placed whose slot is near at birth is paid then (Generated::born_at), so it counts too.
+    const near = (o) => o.state === 'placed' && Date.parse(o.slot_start) < Date.now() + 20 * 60000;
+    const counted = [...g.history, ...g.open_orders.filter((o) => ['confirmed', 'in_production', 'ready'].includes(o.state) || near(o))];
     const member = counted.some((o) => o.customer === p.id && cake(o) && Date.parse(o.slot_start) >= since);
     process.exit(!member && p.marketing ? 0 : 1);" 2>/dev/null; then SEED="$s"; break; fi
 done
@@ -668,6 +672,13 @@ expect_json a_tl2 "['ConsentChanged', 'CateringInquiryReceived', 'OrderRefunded'
 get_as a_activity D "/v1/sandboxes/$AID/activity?limit=500"
 expect_json a_activity "b.entries.filter(e => e.type === 'ClockAdvanced').length >= 3 && b.entries.some(e => e.type === 'PaymentIntentCreated') && b.entries.every((e, i) => i === 0 || Date.parse(b.entries[i - 1].at) >= Date.parse(e.at))"
 expect_json a_activity "b.entries.some(e => e.type === 'SandboxSeeded' && /born \\d{4}-\\d{2}-\\d{2}$/.test(e.summary))"
+check "the feed has the seeded orders' payments, the seeded catering steps and the campaigns sent (audit 2026-11-08, finding 13)" "node -e \"
+  const b = JSON.parse(require('fs').readFileSync('$TMP/a_activity.body', 'utf8'));
+  const has = (t, re) => b.entries.some(e => e.type === t && re.test(e.summary));
+  process.exit(has('OrderPaid', /^Order paid: .\\d+\\.\\d{2}, (pickup|delivery)$/)
+    && b.entries.some(e => e.type.startsWith('Catering') && /^Catering /.test(e.summary))
+    && b.entries.filter(e => e.type === 'CampaignSent' && /^Campaign sent to \\d+ customers?$/.test(e.summary)).length >= 2 ? 0 : 1);\""
+check "no activity row says '1 vans', '1 minutes' or '1 orders' (finding 36)" "! grep -qE '\\b1 (vans|minutes|orders|customers)\\b' '$TMP/a_activity.body'"
 get_as a_activity_3 D "/v1/sandboxes/$AID/activity?limit=3"
 expect_json a_activity_3 "b.entries.length === 3"
 
@@ -763,9 +774,16 @@ check "applied climbed to total over several alarms" "node -e \"const rows = req
 check "a read while it ran said Projection-State: rebuilding" "grep -q rebuilding '$TMP/rb_states.txt'"
 get_as rb_done D "/v1/sandboxes/$AID/rebuild"
 expect_json rb_done "b.state === 'finished' && b.applied === $LOG_BEFORE && b.total === $LOG_BEFORE && Number.isInteger(b.ms) && b.ms >= 0"
-for what in customers timeline segments campaigns leads activity projection; do
+for what in customers timeline segments campaigns leads projection; do
   check "$what: byte-identical after the rebuild" "cmp -s '$TMP/before_$what.body' '$TMP/after_$what.body' 2>/dev/null || cmp -s '$TMP/before_$what.json' '$TMP/after_$what.json'"
 done
+# The feed gains one row, the rebuild's own, and is otherwise the same.
+check "activity: identical after the rebuild but for the rebuild's own row" "node -e \"
+  const read = (f) => JSON.parse(require('fs').readFileSync(f, 'utf8')).entries;
+  const before = read('$TMP/before_activity.body'), after = read('$TMP/after_activity.body');
+  const rest = (es) => JSON.stringify(es.filter(e => e.type !== 'ProjectionRebuildFinished'));
+  const added = after.filter(e => e.type === 'ProjectionRebuildFinished').length - before.filter(e => e.type === 'ProjectionRebuildFinished').length;
+  process.exit(rest(before) === rest(after) && added === 1 && /^CRM projection rebuilt: $LOG_BEFORE events replayed in \\d+ ms$/.test(after.find(e => e.type === 'ProjectionRebuildFinished').summary) ? 0 : 1);\""
 check "the stored projection was read, not empty" "(( $(wc -c < "$TMP/after_projection.json") > 100000 ))"
 check "ProjectionRebuildFinished with events = the log's length, logged identical" "(( $(sql_count Crm "crm:$AID" "SELECT count(*) AS n FROM events WHERE type = 'ProjectionRebuildFinished' AND data LIKE '%\"events\":$LOG_BEFORE,%'") >= 1 )) && log_has '\"event\":\"rebuild_finished\",\"object\":\"Crm\",\"events\":$LOG_BEFORE,' && log_has '\"identical\":true'"
 check "rebuild_step was logged more than once" "(( $(grep -c '\"event\":\"rebuild_step\"' "$LOG") >= 2 ))"

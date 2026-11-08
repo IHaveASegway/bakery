@@ -74,8 +74,9 @@ export interface ComparisonView {
  */
 export interface PlanView {
   /**
-   * When the last van is back, a business time: the vans leave at 09:00 and drive the
-   * matrix's minutes, with no time at the door counted.
+   * When the last van is back, a business time: the vans leave at 09:00, drive the matrix's
+   * minutes, spend 3 minutes at each door and wait at a door they reach before its window
+   * opens.
    */
   last_back: string;
   /**
@@ -153,7 +154,9 @@ export interface StopView {
    */
   van?: number | null;
   /**
-   * The delivery window's start, a business time.
+   * The delivery window's start, a business time (RFC 3339 with the bakery's offset). The
+   * window is 2 hours long: it closes 120 minutes after this. A plan must reach the stop
+   * between the two, waiting at the door when it is early (rule `window`).
    */
   window: string;
   /**

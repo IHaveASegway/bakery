@@ -16,7 +16,7 @@ import type {
   StopView,
 } from '../contracts';
 import { HORIZON_DAYS, horizonDates } from './schedule';
-import { clockLabel, mountainLocal } from './slots';
+import { clockLabel, mountainLocal, mountainToMs } from './slots';
 
 // ---- The static route data -------------------------------------------------------------------
 
@@ -160,6 +160,35 @@ export function stopNumbers(plan: PlanView | null | undefined): Map<string, Stop
   return numbers;
 }
 
+// ---- A van's day ------------------------------------------------------------------------------
+
+// The numbers the API checks a plan's times with, copied from the domain: DEPARTURE_MINUTES and
+// SERVICE_MINUTES in crates/domain/src/dispatch.rs, WINDOW_MINUTES in crates/domain/src/calendar.rs,
+// and the arithmetic in crates/domain/src/dispatch/windows.rs. The vans leave at 09:00 on the plan's
+// day; a van that reaches a door before its window opens waits; it may start serving up to the
+// window's close and spends 3 minutes at the door. A plan that starts serving a stop later than the
+// close is refused (`window`).
+
+/** When the vans leave, local minutes after midnight: 09:00, the first window's start. */
+export const DEPARTURE_MINUTES = 9 * 60;
+/** Seconds at each door, the domain's 3 minutes. */
+export const SERVICE_SECONDS = 180;
+/** How long a delivery window is open from its start. */
+export const WINDOW_MINUTES = 120;
+
+/**
+ * A business time as seconds after the vans leave on `date`, the one time axis of the VROOM
+ * problem. The time is read with its own offset (RFC 3339, `2026-11-07T11:00:00-07:00`) and the
+ * departure is 09:00 on the bakery's clock on `date`, so the answer is the same whatever offset the
+ * wire used. Whole minutes, rounded down, as windows.rs measures a window's opening. No clock is read.
+ */
+export function secondsAfterDeparture(time: string, date: string): number {
+  const ms = Date.parse(time);
+  if (!/T\d{2}:\d{2}/.test(time) || Number.isNaN(ms)) throw new Error(`Not a time: ${time}`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`Not a date: ${date}`);
+  return Math.floor((ms - mountainToMs(date, DEPARTURE_MINUTES)) / 60_000) * 60;
+}
+
 // ---- The VROOM problem and its answer -------------------------------------------------------
 
 /** VROOM's input format (VROOM docs/API.md), as much of it as the screen uses. */
@@ -169,12 +198,16 @@ export interface VroomInput {
     start_index: number;
     end_index: number;
     capacity: [number];
+    /** Seconds after the vans leave: from 0, when they leave, to the latest a van can be back. */
+    time_window: [number, number];
   }[];
   readonly jobs: readonly {
     id: number;
     location_index: number;
     delivery: [number];
     service: number;
+    /** When service may start: the window's start and its close, in seconds after the vans leave. */
+    time_windows: [number, number][];
   }[];
   readonly matrices: { readonly car: { durations: number[][] } };
 }
@@ -208,21 +241,29 @@ export interface VroomProblem {
 export type Metric = 'minutes' | 'seconds';
 
 /**
- * VROOM's input for these stops and vans, built the way the site's Route Lab builds it: vehicles
- * with a capacity that start and end at the bakery, jobs with a delivery amount and the service
- * time, and the travel matrix cut to the bakery and the stops, in that order, so location `k` is the
- * `k`-th of them. A job's id is its 1-based position among the stops sorted by order id, not its
- * place: two stops can share a drop-off spot.
+ * VROOM's input for these stops and vans on `date`, built the way the site's Route Lab builds it:
+ * vehicles with a capacity that start and end at the bakery, jobs with a delivery amount, and the
+ * travel matrix cut to the bakery and the stops, in that order, so location `k` is the `k`-th of
+ * them. A job's id is its 1-based position among the stops sorted by order id, not its place: two
+ * stops can share a drop-off spot.
+ *
+ * Time is the API's (windows.rs): one axis in seconds after the vans leave at 09:00 on `date`. Each
+ * job may start service from its window's start to 120 minutes later and takes 180 seconds; each
+ * vehicle's window runs from 0 to the latest a van that keeps to the windows can be back, the last
+ * close plus a door and the drive home. VROOM lets a van wait for a window to open, as the API does.
  *
  * `metric: 'minutes'` (the default) rounds every leg up to whole minutes, which is the matrix the
  * Dispatch object plans and measures with (matrix.json: minutes rounded up from the seconds), so
- * VROOM minimises the figure the API will compare. `'seconds'` hands VROOM the raw durations.
+ * VROOM minimises the figure the API will compare and its times are the ones the API checks the
+ * windows with. `'seconds'` hands VROOM the raw durations, which are shorter, so a plan made with
+ * them may reach a door later than VROOM thought.
  */
 export function buildProblem(
   data: RouteData,
-  stops: readonly Pick<StopView, 'order' | 'place' | 'units'>[],
+  stops: readonly Pick<StopView, 'order' | 'place' | 'units' | 'window'>[],
   vans: number,
   capacity: number,
+  date: string,
   metric: Metric = 'minutes',
 ): VroomProblem {
   if (!Number.isInteger(vans) || vans < 1) throw new Error('A plan needs at least one van');
@@ -238,6 +279,14 @@ export function buildProblem(
     const seconds = data.durations[from * n + to] ?? 0;
     return metric === 'minutes' ? Math.ceil(seconds / 60) * 60 : seconds;
   };
+  const windows = sorted.map((stop): [number, number] => {
+    const open = secondsAfterDeparture(stop.window, date);
+    return [open, open + WINDOW_MINUTES * 60];
+  });
+  const back = Math.max(
+    0,
+    ...windows.map(([, close], k) => close + SERVICE_SECONDS + leg(places[k + 1]!, DEPOT)),
+  );
   return {
     input: {
       vehicles: Array.from({ length: vans }, (_, v) => ({
@@ -245,12 +294,14 @@ export function buildProblem(
         start_index: 0,
         end_index: 0,
         capacity: [capacity] as [number],
+        time_window: [0, back] as [number, number],
       })),
       jobs: sorted.map((stop, k) => ({
         id: k + 1,
         location_index: k + 1,
         delivery: [stop.units] as [number],
-        service: data.serviceSeconds,
+        service: SERVICE_SECONDS,
+        time_windows: [windows[k]!],
       })),
       matrices: { car: { durations: places.map((a) => places.map((b) => leg(a, b))) } },
     },
@@ -554,15 +605,6 @@ export function bandLabels(iso: Isochrones, box: ViewBox, margin = 40): BandLabe
 }
 
 // ---- Words -----------------------------------------------------------------------------------
-
-/** "9:00 am to 11:00 am", for a delivery window's start. */
-export function windowText(start: string): string {
-  const ms = Date.parse(start);
-  if (Number.isNaN(ms)) return start;
-  const l = mountainLocal(ms);
-  const from = l.hour * 60 + l.minute;
-  return `${clockLabel(from)} to ${clockLabel(from + 120)}`;
-}
 
 /** "10:42 am", for a business time. */
 export function clockText(time: string): string {

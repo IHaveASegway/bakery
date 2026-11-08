@@ -259,6 +259,7 @@ mod tests {
         let publish = DispatchCommand::Publish {
             plan: PlanChoice::Proposed,
             departed: false,
+            matrix: Arc::new(city_matrix()),
         };
         assert!(Dispatch::decide(&day.state, &publish, &ctx).is_ok());
     }

@@ -190,6 +190,7 @@ mod tests {
             DispatchCommand::Publish {
                 plan: plan_choice(&publish),
                 departed: false,
+                matrix: matrix.clone(),
             },
             3,
         );
@@ -209,14 +210,20 @@ mod tests {
         let published = r.published.as_ref().unwrap();
         assert_eq!(published.source, wire::PlanSource::Browser);
         assert_eq!(published.vans.len(), 2);
-        // Back last: the longest of each van's drive plus 3 minutes at each of its doors.
+        // Back last: each van drives to its one stop, waits for the 11:00 window to open,
+        // spends 3 minutes at the door and drives back; the longest day ends last.
+        assert!(published.vans.iter().all(|v| v.stops.len() == 1));
+        let place = |o: &str| r.stops.iter().find(|s| s.order == o).unwrap().place;
         let longest = published
             .vans
             .iter()
-            .map(|v| v.minutes + 3 * v.stops.len() as u32)
+            .map(|v| {
+                let p = place(&v.stops[0]);
+                let out = matrix.minutes(0, p).unwrap();
+                out.max(120) + 3 + matrix.minutes(p, 0).unwrap()
+            })
             .max()
             .unwrap();
-        assert!(published.vans.iter().all(|v| v.stops.len() == 1));
         assert_eq!(
             published.last_back,
             date.at_local(9 * 60 + longest as u16).to_string()

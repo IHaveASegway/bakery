@@ -12,9 +12,10 @@
 //! A rule the object refuses is a `dispatch` problem whose `detail` names the rule as a whole
 //! word ("The rule is stop-twice."), the status by route: 422 for a proposal (`vans`, `capacity`,
 //! `no-stops`, `place-unknown`) and for the browser's plan (`route-ends`, `vans`, `stop-unknown`,
-//! `stop-twice`, `over-capacity`, `stop-missing`, `no-stops`); 409 for a publish (`no-plan`,
-//! `stop-missing`, `published` once a van has left, and the plan's own rules again when stops came
-//! or went since it was stored); for a completion 409 `no-plan` and 422 `stop-unknown`.
+//! `stop-twice`, `over-capacity`, `stop-missing`, `window`, `no-stops`); 409 for a publish
+//! (`no-plan`, `stop-missing`, `published` once a van has left, and the plan's own rules again
+//! when stops came or went since it was stored); for a completion 409 `no-plan` and `not-ready`
+//! (the stop's order is not ready yet) and 422 `stop-unknown`.
 
 use bakery_app::dispatch_view::{plan_choice, submitted_routes};
 use bakery_app::names::sandbox_object_name;
@@ -58,7 +59,7 @@ impl Step {
     /// request that breaks a rule as sent.
     pub fn status(self, rule: &str) -> u16 {
         match (self, rule) {
-            (Step::Publish, _) | (Step::Complete, "no-plan") => 409,
+            (Step::Publish, _) | (Step::Complete, "no-plan" | "not-ready") => 409,
             _ => 422,
         }
     }
@@ -236,6 +237,8 @@ mod tests {
             assert_eq!(Step::Publish.status(rule), 409, "{rule}");
         }
         assert_eq!(Step::Complete.status("no-plan"), 409);
+        assert_eq!(Step::Complete.status("not-ready"), 409);
+        assert_eq!(Step::Plan.status("window"), 422);
         assert_eq!(Step::Complete.status("stop-unknown"), 422);
     }
 }

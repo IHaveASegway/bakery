@@ -25,6 +25,13 @@ export function slice(n: number): RouteData {
   };
 }
 
+/** The fixtures' day, a Saturday in standard time (-07:00). */
+export const DATE = '2026-11-07';
+
+/** A window's start on the fixtures' day, as the API writes it: `windowAt(11)` is 11:00 -07:00. */
+export const windowAt = (hour: 9 | 11 | 13): string =>
+  `${DATE}T${String(hour).padStart(2, '0')}:00:00-07:00`;
+
 /** A made-up order id: 26 Crockford characters, the last digits a counter. */
 export const orderId = (k: number): string => `01JD0ORDER${String(k).padStart(16, '0')}`;
 
@@ -40,7 +47,7 @@ export const stop = (
   place_label: `p${place + 1}`,
   status: 'confirmed',
   units,
-  window: '2026-11-07T09:00:00-07:00',
+  window: windowAt(9),
   zone: 'z1',
   ...extra,
 });
@@ -67,7 +74,7 @@ export function plan(
 }
 
 export function day(stops: StopView[], extra: Partial<DispatchResponse> = {}): DispatchResponse {
-  return { date: '2026-11-07', vans: 2, capacity: 250, plan_v: 0, stops, ...extra };
+  return { date: DATE, vans: 2, capacity: 250, plan_v: 0, stops, ...extra };
 }
 
 /** Six stops over places 1 to 5 (two share place 3): the 6-place slice's day. */

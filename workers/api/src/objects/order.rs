@@ -532,6 +532,10 @@ impl Order {
                 .next()
                 .and_then(|o| o.parse::<Ulid>().ok())
         };
+        // A completed stop's route: an order that was not yet ready when the plan was published
+        // goes out for delivery on it first, then is delivered, two of the order's own
+        // commands in one commit.
+        let mut route_of_stop: Option<String> = None;
         let (cmd, reference) = match envelope.event_type.as_str() {
             "RoutePublished" | "StopCompleted" => {
                 let Some(me) = own() else {
@@ -545,7 +549,10 @@ impl Order {
                         .into_iter()
                         .find(|(o, _, _)| *o == me)
                         .map(|(_, route, stop)| OrderCommand::MarkOutForDelivery { route, stop }),
-                    DispatchEvent::StopCompleted { order, stop, .. } if order == me => {
+                    DispatchEvent::StopCompleted {
+                        order, stop, route, ..
+                    } if order == me => {
+                        route_of_stop = route;
                         Some(OrderCommand::MarkDelivered { stop })
                     }
                     _ => None,
@@ -592,7 +599,26 @@ impl Order {
             now: meta.business(now),
             id: envelope.id,
         };
-        let (state, events) = match execute::<OrderAggregate>(state, &cmd, &ctx) {
+        let ready = state
+            .record()
+            .is_some_and(|r| r.status == OrderStatus::Ready);
+        let first = match (&cmd, route_of_stop, ready) {
+            (OrderCommand::MarkDelivered { stop }, Some(route), true) => {
+                Some(OrderCommand::MarkOutForDelivery { route, stop: *stop })
+            }
+            _ => None,
+        };
+        let decided = match &first {
+            Some(out) => {
+                execute::<OrderAggregate>(state, out, &ctx).and_then(|(state, mut events)| {
+                    let (state, more) = execute::<OrderAggregate>(state, &cmd, &ctx)?;
+                    events.extend(more);
+                    Ok((state, events))
+                })
+            }
+            None => execute::<OrderAggregate>(state, &cmd, &ctx),
+        };
+        let (state, events) = match decided {
             Ok(done) => done,
             Err(e) => {
                 console_log!(

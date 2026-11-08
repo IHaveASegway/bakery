@@ -1,11 +1,5 @@
-import {
-  placeName,
-  statusText,
-  stopRows,
-  windowText,
-  zoneText,
-  type RouteData,
-} from '../lib/dispatch';
+import { placeName, statusText, stopRows, zoneText, type RouteData } from '../lib/dispatch';
+import { windowText } from '../lib/when';
 import type { DispatchResponse } from '../contracts';
 
 /** The column names, said in the table's head and, on a phone, before each value. */
