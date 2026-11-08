@@ -62,6 +62,10 @@
       "description": "One line of the bake list.",
       "type": "object",
       "properties": {
+        "catering": {
+          "description": "True for a catering event's line: `item` is the package's slug and `qty` the people it\nfeeds, not a count of items. Absent for an order's line.",
+          "type": "boolean"
+        },
         "item": {
           "description": "The item's slug.",
           "type": "string"

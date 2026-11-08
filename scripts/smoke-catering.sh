@@ -503,6 +503,10 @@ command_as quote_x D 192.0.2.92 POST "/v1/sandboxes/$AID/catering/$X/quote" '{}'
 expect_status quote_x 200
 expect_json quote_x "b.state === 'quoted' && b.total_cents === 58000 && b.deposit_cents === 14500 && b.balance_cents === 43500 && typeof b.valid_until === 'string' && b.reminders.length === 1 && b.reminders[0].kind === 'follow_up'"
 TOTAL_X="$(json_field quote_x b.total_cents)"
+# The event is 7 open days out, so its production day (the day before) comes before 14 business
+# days: the quote is valid until midnight starting it (since the console audit of 2026-11-08).
+PROD_X="$(cal 'addDays(a[0], -1)' "$EARLIEST")"
+expect_json quote_x "b.valid_until.startsWith('${PROD_X}T00:00:00')"
 command_as quote_x_again D 192.0.2.92 POST "/v1/sandboxes/$AID/catering/$X/quote" '{}'
 expect_problem quote_x_again 409 catering
 command_as deposit_early D 192.0.2.92 POST "/v1/sandboxes/$AID/catering/$X/deposit"
@@ -531,26 +535,13 @@ get_as ledger_x D "/v1/sandboxes/$AID/billing/ledger"
 expect_json ledger_x "b.entries.filter(e => e.ref === '$X' && e.kind === 'payment' && e.purpose === 'deposit').length === 1"
 check "the confirmed day puts 40 breakfast-spread on its bake list" "schedule_until bake_x D '$AID' '$EARLIEST' \"b.catering.taken === 1 && b.bake_list.lines.some(l => l.item === 'breakfast-spread' && l.qty === 40)\""
 expect_json x_confirmed "b.reminders.length === 1 && b.reminders[0].kind === 'event_soon'"
-command_as prod_x D 192.0.2.92 POST "/v1/sandboxes/$AID/catering/$X/start-production"
-expect_status prod_x 200
-expect_json prod_x "b.state === 'in_production'"
-command_as delivered_x D 192.0.2.92 POST "/v1/sandboxes/$AID/catering/$X/delivered"
-expect_status delivered_x 200
-expect_json delivered_x "b.state === 'delivered'"
-DUE_X="$(cal 'addDays(a[0], 7)' "$TODAY_A")"
-check "InvoiceIssued comes back: invoiced, due $DUE_X" "catering_until x_invoiced D '$AID' '$X' \"b.state === 'invoiced' && typeof b.invoice === 'string' && b.invoice_due === '$DUE_X' && b.reminders.some(r => r.kind === 'invoice_due')\""
-check "one CateringBalanceInvoiced in the event's log" "(( $(events_of "$AID" "$X" CateringBalanceInvoiced) == 1 ))"
+# Production is refused before the day before the event, and nothing changes (since the console
+# audit of 2026-11-08, which started it 8 days early). The rest of X's saga runs once the clock
+# has moved to its days, below.
+refused prod_x_early D 192.0.2.92 "$AID" "$X" start-production "" 409 too-early
+expect_json prod_x_early "b.detail.includes('$PROD_X')"
 command_as pay_early G 192.0.2.91 POST "/v1/sandboxes/$GID/catering/$G_INQ/pay-balance"
 expect_problem pay_early 409 catering
-KEY="$X" command_as pay_x D 192.0.2.92 POST "/v1/sandboxes/$AID/catering/$X/pay-balance"
-expect_status pay_x 202
-expect_json pay_x "['invoiced', 'paid', 'closed'].includes(b.state)"
-check "the balance's invoice.paid closes the event" "catering_until x_closed D '$AID' '$X' \"b.state === 'closed' && b.reminders.length === 0\""
-expect_json x_closed "b.deposit_cents + b.balance_cents === b.total_cents && b.total_cents === $TOTAL_X"
-get_as ledger_x2 D "/v1/sandboxes/$AID/billing/ledger"
-expect_json ledger_x2 "b.entries.filter(e => e.ref === '$X' && e.kind === 'payment').reduce((n, e) => n + e.amount_cents, 0) === $TOTAL_X && b.entries.some(e => e.ref === '$X' && e.purpose === 'balance')"
-check "the closed event keeps no timer row" "(( $(timers_of "$AID" "$X") == 0 ))"
-check "the closed event's place is fulfilled: still counted" "schedule_until day_x2 D '$AID' '$EARLIEST' 'b.catering.taken === 1'"
 
 # ---------- a full day, and a lapsed hold ----------
 
@@ -580,16 +571,6 @@ LATER="$(cal 'nthOpen(a[0], 8)' "$TODAY_A2")"
 saga_to w D 192.0.2.92 "$AID" "$LATER" confirmed
 W="$CID"
 check "w: confirmed" "[[ '$(json_field w_confirmed b.state)' == confirmed ]]"
-command_as w_prod D 192.0.2.92 POST "/v1/sandboxes/$AID/catering/$W/start-production"
-command_as w_delivered D 192.0.2.92 POST "/v1/sandboxes/$AID/catering/$W/delivered"
-expect_status w_delivered 200
-check "w: invoiced" "catering_until w_invoiced D '$AID' '$W' \"b.state === 'invoiced'\""
-stripe_requests reqs_w
-W_IN="$(json_field reqs_w "b.filter(r => r.method === 'POST' && /^\\/v1\\/invoices\\/[^/]+\\/finalize$/.test(r.path) && r.status === 200).map(r => r.path.split('/')[3]).pop()")"
-expect_json reqs_w "b.filter(r => r.method === 'POST' && r.path === '/v1/customers' && r.status === 200).length === 1"
-stripe_call w_invoice GET "/v1/invoices/$W_IN"
-expect_json w_invoice "b.status === 'open' && b.amount_due === 43500 && b.collection_method === 'send_invoice'"
-W_CUS="$(json_field w_invoice b.customer)"
 
 # ---------- reminders and cancellations, on sandbox b ----------
 
@@ -638,27 +619,22 @@ check "q, cancelled 3 days out, has no timer row left" "(( $(timers_of "$BID" "$
 # ---------- the refusals of the staff steps and a quote's total, on sandbox a ----------
 
 # Each step the event's state refuses is driven here with the event in a state that does not
-# take it: Y was lapsed back to quoted above, X closed, W invoiced, and the seed's confirmed event
-# has not started production. A refusal changes nothing (see `refused`).
+# take it: Y was lapsed back to quoted above, and the seed's confirmed event has not started
+# production; X closed and W invoiced, once the clock has moved below. A refusal changes nothing
+# (see `refused`). These run before the clock moves, while Y's quote is still valid.
 get_as a_list D "/v1/sandboxes/$AID/catering"
 SEED_INQ="$(json_field a_list "b.events.find(e => e.state === 'inquiry').catering")"
 SEED_CONF="$(json_field a_list "b.events.find(e => e.state === 'confirmed').catering")"
 get_as y_now D "/v1/sandboxes/$AID/catering/$Y"
-get_as x_now D "/v1/sandboxes/$AID/catering/$X"
-get_as w_now D "/v1/sandboxes/$AID/catering/$W"
-check "the states the refusals rely on: Y quoted, X closed, W invoiced, a seeded event confirmed and one an inquiry" "[[ '$(json_field y_now b.state)' == quoted && '$(json_field x_now b.state)' == closed && '$(json_field w_now b.state)' == invoiced && -n '$SEED_CONF' && -n '$SEED_INQ' ]]"
+check "the states the first refusals rely on: Y quoted, a seeded event confirmed and one an inquiry" "[[ '$(json_field y_now b.state)' == quoted && -n '$SEED_CONF' && -n '$SEED_INQ' ]]"
 DECLINE='{"reason":"other"}'
 CANCEL='{"reason":"other"}'
 refused decline_quoted D 192.0.2.92 "$AID" "$Y" decline "$DECLINE" 409 out-of-order
-refused decline_closed D 192.0.2.92 "$AID" "$X" decline "$DECLINE" 409 out-of-order
 refused production_quoted D 192.0.2.92 "$AID" "$Y" start-production "" 409 out-of-order
-refused production_closed D 192.0.2.92 "$AID" "$X" start-production "" 409 out-of-order
 refused delivered_confirmed D 192.0.2.92 "$AID" "$SEED_CONF" delivered "" 409 out-of-order
 refused delivered_quoted D 192.0.2.92 "$AID" "$Y" delivered "" 409 out-of-order
 refused cancel_quoted D 192.0.2.92 "$AID" "$Y" cancel "$CANCEL" 409 out-of-order
-refused cancel_invoiced D 192.0.2.92 "$AID" "$W" cancel "$CANCEL" 409 out-of-order
 refused staff_cancel_quoted D 192.0.2.92 "$AID" "$Y" staff-cancel "$CANCEL" 409 out-of-order
-refused staff_cancel_closed D 192.0.2.92 "$AID" "$X" staff-cancel "$CANCEL" 409 out-of-order
 # A quote's total of 0 or less is refused on an event that is still an inquiry (any other state
 # is out of order first), naming the rule and nothing else of the request.
 for total in 0 -500; do
@@ -667,6 +643,55 @@ for total in 0 -500; do
 done
 get_as seed_inq_after D "/v1/sandboxes/$AID/catering/$SEED_INQ"
 expect_json seed_inq_after "b.state === 'inquiry' && !b.total_cents"
+
+# ---------- X and W on their own days: production, delivery, the invoice and the balance ----------
+
+# The clock moves to X's production day (the day before the event), where production starts and
+# delivery is still refused; then to the event day, where X is delivered, its balance falling due
+# 7 days after the event's date; then to W's day, so W is delivered and its invoice left open for
+# the wipe. The whole move is under the clock's 14-day cap: W is 8 open days out, 10 days at most.
+TODAY_A3="$(biz_today "$AID" D)"
+advance_days D 192.0.2.92 "$AID" "$(cal 'between(a[0], a[1])' "$TODAY_A3" "$PROD_X")"
+check "a's business day is X's production day, $PROD_X" "[[ '$(biz_today "$AID" D)' == '$PROD_X' ]]"
+command_as prod_x D 192.0.2.92 POST "/v1/sandboxes/$AID/catering/$X/start-production"
+expect_status prod_x 200
+expect_json prod_x "b.state === 'in_production'"
+refused delivered_x_early D 192.0.2.92 "$AID" "$X" delivered "" 409 too-early
+expect_json delivered_x_early "b.detail.includes('$EARLIEST')"
+advance_days D 192.0.2.92 "$AID" 1
+command_as delivered_x D 192.0.2.92 POST "/v1/sandboxes/$AID/catering/$X/delivered"
+expect_status delivered_x 200
+expect_json delivered_x "b.state === 'delivered'"
+DUE_X="$(cal 'addDays(a[0], 7)' "$EARLIEST")"
+check "InvoiceIssued comes back: invoiced, due $DUE_X" "catering_until x_invoiced D '$AID' '$X' \"b.state === 'invoiced' && typeof b.invoice === 'string' && b.invoice_due === '$DUE_X' && b.reminders.some(r => r.kind === 'invoice_due')\""
+check "one CateringBalanceInvoiced in the event's log" "(( $(events_of "$AID" "$X" CateringBalanceInvoiced) == 1 ))"
+KEY="$X" command_as pay_x D 192.0.2.92 POST "/v1/sandboxes/$AID/catering/$X/pay-balance"
+expect_status pay_x 202
+expect_json pay_x "['invoiced', 'paid', 'closed'].includes(b.state)"
+check "the balance's invoice.paid closes the event" "catering_until x_closed D '$AID' '$X' \"b.state === 'closed' && b.reminders.length === 0\""
+expect_json x_closed "b.deposit_cents + b.balance_cents === b.total_cents && b.total_cents === $TOTAL_X"
+get_as ledger_x2 D "/v1/sandboxes/$AID/billing/ledger"
+expect_json ledger_x2 "b.entries.filter(e => e.ref === '$X' && e.kind === 'payment').reduce((n, e) => n + e.amount_cents, 0) === $TOTAL_X && b.entries.some(e => e.ref === '$X' && e.purpose === 'balance')"
+check "the closed event keeps no timer row" "(( $(timers_of "$AID" "$X") == 0 ))"
+check "the closed event's place is fulfilled: still counted" "schedule_until day_x2 D '$AID' '$EARLIEST' 'b.catering.taken === 1'"
+advance_days D 192.0.2.92 "$AID" "$(cal 'between(a[0], a[1])' "$EARLIEST" "$LATER")"
+command_as w_prod D 192.0.2.92 POST "/v1/sandboxes/$AID/catering/$W/start-production"
+command_as w_delivered D 192.0.2.92 POST "/v1/sandboxes/$AID/catering/$W/delivered"
+expect_status w_delivered 200
+check "w: invoiced" "catering_until w_invoiced D '$AID' '$W' \"b.state === 'invoiced'\""
+stripe_requests reqs_w
+W_IN="$(json_field reqs_w "b.filter(r => r.method === 'POST' && /^\\/v1\\/invoices\\/[^/]+\\/finalize$/.test(r.path) && r.status === 200).map(r => r.path.split('/')[3]).pop()")"
+expect_json reqs_w "b.filter(r => r.method === 'POST' && r.path === '/v1/customers' && r.status === 200).length === 1"
+stripe_call w_invoice GET "/v1/invoices/$W_IN"
+expect_json w_invoice "b.status === 'open' && b.amount_due === 43500 && b.collection_method === 'send_invoice'"
+W_CUS="$(json_field w_invoice b.customer)"
+get_as x_now D "/v1/sandboxes/$AID/catering/$X"
+get_as w_now D "/v1/sandboxes/$AID/catering/$W"
+check "the states the last refusals rely on: X closed, W invoiced" "[[ '$(json_field x_now b.state)' == closed && '$(json_field w_now b.state)' == invoiced ]]"
+refused decline_closed D 192.0.2.92 "$AID" "$X" decline "$DECLINE" 409 out-of-order
+refused production_closed D 192.0.2.92 "$AID" "$X" start-production "" 409 out-of-order
+refused cancel_invoiced D 192.0.2.92 "$AID" "$W" cancel "$CANCEL" 409 out-of-order
+refused staff_cancel_closed D 192.0.2.92 "$AID" "$X" staff-cancel "$CANCEL" 409 out-of-order
 
 # ---------- the seed's quote expires after 14 business days ----------
 
@@ -716,7 +741,8 @@ if [[ -n "$PICK" ]]; then
   check "the seeded accepted event lapses back to quoted when the clock moves" "catering_until sa_lapsed $J '$CSB' '$SA' \"b.state === 'quoted'\""
   advance_days "$J" "$IP_C" "$CSB" "$((ADVANCE - 1))"
   check "after $ADVANCE days the seeded quote ($VALID) is expired" "catering_until sq_expired $J '$CSB' '$SQ' \"b.state === 'expired' && b.reminders.length === 0\""
-  check "CateringQuoteExpired names the 14 business days" "[[ \"\$(object_sql CateringEvent 'catering:$CSB:$SQ' \"SELECT data FROM events WHERE type = 'CateringQuoteExpired'\")\" == *'14 business days'* ]]"
+  # A seeded event close enough has its quote capped by its production day (since 2026-11-08).
+  check "CateringQuoteExpired names the 14 business days or the day before the event" "[[ \"\$(object_sql CateringEvent 'catering:$CSB:$SQ' \"SELECT data FROM events WHERE type = 'CateringQuoteExpired'\")\" == *'14 business days'* || \"\$(object_sql CateringEvent 'catering:$CSB:$SQ' \"SELECT data FROM events WHERE type = 'CateringQuoteExpired'\")\" == *'the day before the event'* ]]"
   check "the expired event has no timer row left" "(( $(timers_of "$CSB" "$SQ") == 0 ))"
   command_as sq_accept "$J" "$IP_C" POST "/v1/sandboxes/$CSB/catering/$SQ/accept"
   expect_problem sq_accept 409 catering

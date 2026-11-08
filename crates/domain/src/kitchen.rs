@@ -652,6 +652,7 @@ mod tests {
                 item: "fern-loaf".into(),
                 qty,
                 start: format!("{date}T09:00:00-07:00").parse().unwrap(),
+                catering: false,
             }],
         }
     }

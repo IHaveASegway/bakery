@@ -842,6 +842,10 @@ pub struct BakeLineView {
     pub qty: u32,
     /// The slot or window start the quantity is for; an item ordered for two starts has two lines.
     pub start: String,
+    /// True for a catering event's line: `item` is the package's slug and `qty` the people it
+    /// feeds, not a count of items. Absent for an order's line.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub catering: bool,
 }
 
 /// The day's production plan, from the reserved and fulfilled places only; a held place waiting
@@ -2307,16 +2311,28 @@ mod tests {
             },
             bake_list: BakeListView {
                 version: 1,
-                lines: vec![BakeLineView {
-                    item: "croissant".into(),
-                    qty: 2,
-                    start: "2026-07-14T14:45:00-06:00".into(),
-                }],
+                lines: vec![
+                    BakeLineView {
+                        item: "croissant".into(),
+                        qty: 2,
+                        start: "2026-07-14T14:45:00-06:00".into(),
+                        catering: false,
+                    },
+                    BakeLineView {
+                        item: "breakfast-spread".into(),
+                        qty: 40,
+                        start: "2026-07-14T07:00:00-06:00".into(),
+                        catering: true,
+                    },
+                ],
             },
             menu_version: 1,
         };
         let value = serde_json::to_value(&day).unwrap();
         assert_eq!(value["items"][0]["daily_cap"], json!(null));
+        // An order's line carries no `catering`; a catering line says it counts people.
+        assert!(value["bake_list"]["lines"][0].get("catering").is_none());
+        assert_eq!(value["bake_list"]["lines"][1]["catering"], json!(true));
         let back: ScheduleResponse = serde_json::from_value(value).unwrap();
         assert_eq!(back, day);
     }

@@ -306,6 +306,7 @@ pub fn response_of(state: &ScheduleState) -> ScheduleResponse {
                     item: l.item.clone(),
                     qty: l.qty,
                     start: l.start.to_string(),
+                    catering: l.catering,
                 })
                 .collect(),
         },
