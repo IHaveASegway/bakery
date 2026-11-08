@@ -587,6 +587,10 @@ export const waitForInvoice = (
   options: PollOptions,
 ): Promise<Polled<CateringResponse>> => pollUntil(read, invoiceOutcome, options);
 
+/** The line under /catering/ for a visitor with no sandbox: the page shows no menu, so it says nothing of one. */
+export const CATERING_SIGNED_OUT =
+  'You have no sandbox yet, so there are no catering events to show.';
+
 /** The words for the end of a wait that did not find what it waited for. */
 export function timeoutText(waiting: 'deposit' | 'balance' | 'invoice'): string {
   switch (waiting) {
