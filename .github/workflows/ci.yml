@@ -521,7 +521,10 @@ jobs:
     needs: preview
     if: vars.LAUNCHED == 'true' && needs.preview.outputs.url != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Twenty-four pages at three runs each: a run took 11 to 27 s against the preview on 2026-11-08
+    # (runs 146 and 147), about fifteen minutes in all after a minute of setup. Ten minutes cancelled
+    # both runs during the fifteenth page.
+    timeout-minutes: 25
     container:
       image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
       options: --ipc=host
