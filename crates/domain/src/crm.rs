@@ -826,10 +826,7 @@ impl CrmProjection {
         let catering = stream_id(&envelope.stream, "catering")?;
         if matches!(
             event,
-            CateringEvent::CateringDepositLapsed {}
-                | CateringEvent::CateringReminderDue { .. }
-                | CateringEvent::CateringProductionStarted {}
-                | CateringEvent::CateringDelivered { .. }
+            CateringEvent::CateringDepositLapsed {} | CateringEvent::CateringReminderDue { .. }
         ) {
             return Ok(Outcome::NotForCrm);
         }
@@ -891,6 +888,15 @@ impl CrmProjection {
             CateringEvent::CateringDepositPaid { amount_cents, .. } => (
                 LeadStage::Won,
                 format!("Deposit paid: {}", amount_cents.dollars()),
+            ),
+            // Since 2026-11-08 (the console audit's finding 13, the part left open): the two
+            // kitchen steps between the deposit and the balance.
+            CateringEvent::CateringProductionStarted {} => {
+                (LeadStage::Won, "Production started".to_owned())
+            }
+            CateringEvent::CateringDelivered { balance_cents, .. } => (
+                LeadStage::Won,
+                format!("Delivered; balance {}", balance_cents.dollars()),
             ),
             CateringEvent::CateringBalanceInvoiced { amount_cents, .. } => (
                 LeadStage::Won,
@@ -1157,6 +1163,13 @@ fn catering_activity(event: &CateringEvent) -> String {
         CateringEvent::CateringDepositPaid { amount_cents, .. } => {
             format!("Catering deposit paid: {}", amount_cents.dollars())
         }
+        CateringEvent::CateringProductionStarted {} => "Catering production started".to_owned(),
+        CateringEvent::CateringDelivered {
+            balance_cents, due, ..
+        } => format!(
+            "Catering delivered: balance {} due {due}",
+            balance_cents.dollars()
+        ),
         CateringEvent::CateringBalanceInvoiced { amount_cents, .. } => {
             format!("Catering balance invoiced: {}", amount_cents.dollars())
         }

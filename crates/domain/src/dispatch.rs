@@ -52,6 +52,15 @@
 //!   delivery or already delivered; an order still confirmed or in production is refused
 //!   `not-ready`. `StopCompleted` carries the stop's route, `van-<n>`, so an order that became
 //!   ready after the plan was published goes out for delivery and is delivered in one step.
+//! - **An order made ready after its stop was published goes out when it is ready** (since
+//!   2026-11-08). The Dispatch hears `OrderReady`, as it hears `OrderPaid`, and `ReadyStop`
+//!   emits `StopReady` with the stop's route and number when the order is a confirmed stop of the
+//!   published plan, once per order; the Order hears it and runs `MarkOutForDelivery`. The edge
+//!   lives here because this log is the one that knows the published plan: an Order cannot tell
+//!   whether a later publish moved or renumbered its stop. A `StopReady` counts as a van that
+//!   has left, so the plan it was sent on is not replaced (`published`) even before the Order
+//!   has heard it. An order ready before the publish needs nothing: `RoutePublished` finds it
+//!   ready.
 //! - **The time the last van is back counts the doors and the waits**: each stop adds
 //!   [`SERVICE_MINUTES`] (the route data's `serviceSeconds`, 180 s) to its van's drive (the same
 //!   decision, question 5), and a van early at a door waits there for the window to open. A
@@ -396,6 +405,9 @@ pub enum DispatchCommand {
     /// whether the stop's order is ready, out for delivery or delivered, which the object reads
     /// from the Order before deciding: an order not yet ready is refused `not-ready`.
     CompleteStop { stop: u16, ready: bool },
+    /// From `OrderReady`: the order is made. When it is a confirmed stop of the published plan,
+    /// it goes out on its route now; otherwise nothing.
+    ReadyStop { order: Ulid },
 }
 
 /// The Dispatch's rows in docs/domain.md, "The event catalog".
@@ -456,6 +468,15 @@ pub enum DispatchEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         route: Option<String>,
     },
+    /// A stop of the published plan whose order became ready after the plan was published: the
+    /// Order goes out for delivery on `route`, as stop number `stop` of plan `plan_v`.
+    StopReady {
+        date: BakeryDate,
+        plan_v: u16,
+        stop: u16,
+        order: Ulid,
+        route: String,
+    },
 }
 
 impl DomainEvent for DispatchEvent {
@@ -467,6 +488,7 @@ impl DomainEvent for DispatchEvent {
         "PlanSubmitted",
         "RoutePublished",
         "StopCompleted",
+        "StopReady",
     ];
 
     fn name(&self) -> &'static str {
@@ -478,6 +500,7 @@ impl DomainEvent for DispatchEvent {
             DispatchEvent::PlanSubmitted { .. } => "PlanSubmitted",
             DispatchEvent::RoutePublished { .. } => "RoutePublished",
             DispatchEvent::StopCompleted { .. } => "StopCompleted",
+            DispatchEvent::StopReady { .. } => "StopReady",
         }
     }
 }
@@ -556,6 +579,10 @@ pub struct DispatchState {
     /// The published plan's version; 0 before the first publish.
     plan_v: u16,
     publish_keys: BTreeSet<Ulid>,
+    /// Orders sent out on the published plan by `StopReady`, each once. Any one means a van has
+    /// left on that plan.
+    #[serde(default)]
+    sent_out: BTreeSet<Ulid>,
 }
 
 impl DispatchState {
@@ -573,6 +600,7 @@ impl DispatchState {
             published: None,
             plan_v: 0,
             publish_keys: BTreeSet::new(),
+            sent_out: BTreeSet::new(),
         }
     }
 
@@ -875,7 +903,8 @@ impl Aggregate for Dispatch {
                 if state.publish_keys.contains(&ctx.id) {
                     return Ok(vec![]);
                 }
-                if *departed && state.published.is_some() {
+                // A `StopReady` is a van that has left, whether or not its Order has heard it.
+                if (*departed || !state.sent_out.is_empty()) && state.published.is_some() {
                     return Err(DispatchError::Published);
                 }
                 let chosen = match plan {
@@ -924,6 +953,33 @@ impl Aggregate for Dispatch {
                     }]),
                     _ => Err(DispatchError::StopUnknown { order }),
                 }
+            }
+            DispatchCommand::ReadyStop { order } => {
+                let Some(published) = state.published.as_ref() else {
+                    // No plan yet: `RoutePublished` will find the order ready.
+                    return Ok(vec![]);
+                };
+                let confirmed = state
+                    .stops
+                    .get(order)
+                    .is_some_and(|s| s.status == StopStatus::Confirmed);
+                if !confirmed || state.sent_out.contains(order) {
+                    return Ok(vec![]);
+                }
+                let (Some(stop), Some(route)) = (
+                    published.stop_number(*order),
+                    published.routes.iter().find(|r| r.stops.contains(order)),
+                ) else {
+                    // Confirmed after the publish: on no plan yet, so the next one carries it.
+                    return Ok(vec![]);
+                };
+                Ok(vec![DispatchEvent::StopReady {
+                    date,
+                    plan_v: published.plan_v,
+                    stop,
+                    order: *order,
+                    route: route_label(route.van),
+                }])
             }
         }
     }
@@ -1033,6 +1089,9 @@ impl Aggregate for Dispatch {
                 if let Some(s) = state.stops.get_mut(order) {
                     s.status = StopStatus::Completed;
                 }
+            }
+            DispatchEvent::StopReady { order, .. } => {
+                state.sent_out.insert(*order);
             }
         }
         state

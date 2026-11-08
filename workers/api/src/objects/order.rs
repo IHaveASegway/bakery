@@ -27,7 +27,9 @@
 //!   asked for) is logged by its rule and acknowledged, since a retry cannot fix it. Since PR 9,
 //!   the day's `Dispatch` events too: `RoutePublished` is `MarkOutForDelivery {route: van-<n>,
 //!   stop}` for the stop the plan gives this order (none: `ignored`), and `StopCompleted` naming
-//!   this order is `MarkDelivered {stop}`, under the same `evt:<event id>` keys. An order that is
+//!   this order is `MarkDelivered {stop}`, under the same `evt:<event id>` keys; since 2026-11-08
+//!   `StopReady` naming this order is `MarkOutForDelivery {route, stop}`, the Dispatch's word
+//!   that its stop was published before it was made and it is ready now. An order that is
 //!   not ready yet refuses to leave (`out-of-order`), which is logged and acknowledged like any
 //!   other rule.
 //! - `POST /_seed {birth, events, at}` → 201: one of the seed's open orders, its events written
@@ -537,28 +539,18 @@ impl Order {
         // commands in one commit.
         let mut route_of_stop: Option<String> = None;
         let (cmd, reference) = match envelope.event_type.as_str() {
-            "RoutePublished" | "StopCompleted" => {
+            "RoutePublished" | "StopCompleted" | "StopReady" => {
                 let Some(me) = own() else {
                     return refuse(422, "envelope");
                 };
                 let Ok(event) = DispatchEvent::from_envelope(&envelope) else {
                     return refuse(422, "envelope");
                 };
-                let cmd = match event {
-                    DispatchEvent::RoutePublished { vans, .. } => deliveries(&vans)
-                        .into_iter()
-                        .find(|(o, _, _)| *o == me)
-                        .map(|(_, route, stop)| OrderCommand::MarkOutForDelivery { route, stop }),
-                    DispatchEvent::StopCompleted {
-                        order, stop, route, ..
-                    } if order == me => {
+                match dispatch_command(event, me) {
+                    Some((cmd, route)) => {
                         route_of_stop = route;
-                        Some(OrderCommand::MarkDelivered { stop })
+                        (cmd, me)
                     }
-                    _ => None,
-                };
-                match cmd {
-                    Some(cmd) => (cmd, me),
                     None => return json(&serde_json::json!({ "outcome": "ignored" }), 200),
                 }
             }
@@ -599,26 +591,7 @@ impl Order {
             now: meta.business(now),
             id: envelope.id,
         };
-        let ready = state
-            .record()
-            .is_some_and(|r| r.status == OrderStatus::Ready);
-        let first = match (&cmd, route_of_stop, ready) {
-            (OrderCommand::MarkDelivered { stop }, Some(route), true) => {
-                Some(OrderCommand::MarkOutForDelivery { route, stop: *stop })
-            }
-            _ => None,
-        };
-        let decided = match &first {
-            Some(out) => {
-                execute::<OrderAggregate>(state, out, &ctx).and_then(|(state, mut events)| {
-                    let (state, more) = execute::<OrderAggregate>(state, &cmd, &ctx)?;
-                    events.extend(more);
-                    Ok((state, events))
-                })
-            }
-            None => execute::<OrderAggregate>(state, &cmd, &ctx),
-        };
-        let (state, events) = match decided {
+        let (state, events) = match decide_delivery(state, &cmd, route_of_stop, &ctx) {
             Ok(done) => done,
             Err(e) => {
                 console_log!(
@@ -895,6 +868,50 @@ fn via_json<T: Serialize, U: serde::de::DeserializeOwned>(value: T) -> Option<U>
     serde_json::from_value(serde_json::to_value(value).ok()?).ok()
 }
 
+/// What one of the day's Dispatch events asks of order `me`: the command, and for a completed
+/// stop its route, on which an order only ready goes out first. `None` when the event asks
+/// nothing of it. `RoutePublished` sends each of its stops out; `StopReady` (since 2026-11-08)
+/// sends out the one order made after the plan was published; `StopCompleted` delivers.
+fn dispatch_command(event: DispatchEvent, me: Ulid) -> Option<(OrderCommand, Option<String>)> {
+    match event {
+        DispatchEvent::RoutePublished { vans, .. } => deliveries(&vans)
+            .into_iter()
+            .find(|(o, _, _)| *o == me)
+            .map(|(_, route, stop)| (OrderCommand::MarkOutForDelivery { route, stop }, None)),
+        DispatchEvent::StopReady {
+            order, route, stop, ..
+        } if order == me => Some((OrderCommand::MarkOutForDelivery { route, stop }, None)),
+        DispatchEvent::StopCompleted {
+            order, stop, route, ..
+        } if order == me => Some((OrderCommand::MarkDelivered { stop }, route)),
+        _ => None,
+    }
+}
+
+/// A consumer's command decided over the order: a completed stop whose order is only ready
+/// (its `StopReady` not heard yet, or written before there was one) goes out for delivery on
+/// `route_of_stop` first, both in one commit.
+fn decide_delivery(
+    state: OrderState,
+    cmd: &OrderCommand,
+    route_of_stop: Option<String>,
+    ctx: &DecideContext,
+) -> std::result::Result<(OrderState, Vec<OrderEvent>), OrderError> {
+    let ready = state
+        .record()
+        .is_some_and(|r| r.status == OrderStatus::Ready);
+    match (cmd, route_of_stop, ready) {
+        (OrderCommand::MarkDelivered { stop }, Some(route), true) => {
+            let out = OrderCommand::MarkOutForDelivery { route, stop: *stop };
+            let (state, mut events) = execute::<OrderAggregate>(state, &out, ctx)?;
+            let (state, more) = execute::<OrderAggregate>(state, cmd, ctx)?;
+            events.extend(more);
+            Ok((state, events))
+        }
+        _ => execute::<OrderAggregate>(state, cmd, ctx),
+    }
+}
+
 pub fn response_of(state: &OrderState, events: &[Envelope]) -> Option<OrderResponse> {
     let r = state.record()?;
     Some(OrderResponse {
@@ -999,6 +1016,108 @@ mod tests {
         assert_eq!(r.events_seq, 1);
         assert_eq!(r.lines[0].unit_cents, 950);
         assert_eq!(r.total_cents, 2_090);
+    }
+
+    /// A paid delivery made ready: its log from `OrderPlaced` to `OrderReady`.
+    fn a_ready_delivery(order: Ulid) -> Vec<OrderEvent> {
+        let t: BusinessTime = "2026-11-07T09:00:00-07:00".parse().unwrap();
+        vec![
+            OrderEvent::OrderPlaced {
+                order,
+                customer: Ulid::from_parts(1, 3),
+                kind: OrderKind::Delivery,
+                slot: t.plus_minutes(180).unwrap(),
+                zone: Some("z2".into()),
+                lines: vec![Line {
+                    item: "fern-loaf".into(),
+                    variant: "fern-loaf/whole".into(),
+                    qty: 2,
+                    unit_cents: Cents(950),
+                }],
+                subtotal_cents: Cents(1_900),
+                tax_cents: Cents(190),
+                total_cents: Cents(2_090),
+                note: None,
+                menu_version: 1,
+                held_until: t.plus_minutes(15).unwrap(),
+            },
+            OrderEvent::OrderPaid {
+                payment: Ulid::from_parts(1, 4),
+                amount_cents: Cents(2_090),
+            },
+            OrderEvent::OrderProductionStarted {},
+            OrderEvent::OrderReady {},
+        ]
+    }
+
+    #[test]
+    fn a_stop_ready_sends_its_order_out_and_its_completion_then_delivers_it() {
+        let me = Ulid::from_parts(1, 2);
+        let other = Ulid::from_parts(1, 5);
+        let date: bakery_domain::BakeryDate = "2026-11-07".parse().unwrap();
+        let ctx = DecideContext {
+            now: "2026-11-07T10:00:00-07:00".parse().unwrap(),
+            id: Ulid::from_parts(1, 9),
+        };
+        let stop_ready = |order| DispatchEvent::StopReady {
+            date,
+            plan_v: 1,
+            stop: 2,
+            order,
+            route: "van-1".into(),
+        };
+        // Another order's `StopReady` asks nothing of this one.
+        assert!(dispatch_command(stop_ready(other), me).is_none());
+        let (cmd, route) = dispatch_command(stop_ready(me), me).unwrap();
+        assert_eq!(
+            cmd,
+            OrderCommand::MarkOutForDelivery {
+                route: "van-1".into(),
+                stop: 2
+            }
+        );
+        assert_eq!(route, None);
+        let ready = replay::<OrderAggregate>(&a_ready_delivery(me));
+        let (out, events) = decide_delivery(ready.clone(), &cmd, None, &ctx).unwrap();
+        assert_eq!(
+            events,
+            vec![OrderEvent::OrderOutForDelivery {
+                route: "van-1".into(),
+                stop: 2
+            }]
+        );
+        assert_eq!(out.record().unwrap().status, OrderStatus::OutForDelivery);
+        // The same word again (a second `StopReady` cannot come, but a redelivery under a new
+        // key could) changes nothing.
+        assert_eq!(
+            decide_delivery(out.clone(), &cmd, None, &ctx).unwrap().1,
+            vec![]
+        );
+        // Its completion now only delivers: the order went out once.
+        let completed = DispatchEvent::StopCompleted {
+            date,
+            stop: 2,
+            order: me,
+            route: Some("van-1".into()),
+        };
+        let (deliver, route) = dispatch_command(completed.clone(), me).unwrap();
+        let (done, events) = decide_delivery(out, &deliver, route.clone(), &ctx).unwrap();
+        assert_eq!(
+            events,
+            vec![OrderEvent::OrderDelivered { at_stop: Some(2) }]
+        );
+        assert_eq!(done.record().unwrap().status, OrderStatus::Delivered);
+        // A completion that overtakes the `StopReady` still passes through out for delivery,
+        // and the late `StopReady` is then refused as out of order, which is acknowledged.
+        let (done, events) = decide_delivery(ready, &deliver, route, &ctx).unwrap();
+        assert_eq!(
+            events.iter().map(DomainEvent::name).collect::<Vec<_>>(),
+            ["OrderOutForDelivery", "OrderDelivered"]
+        );
+        assert_eq!(
+            decide_delivery(done, &cmd, None, &ctx).unwrap_err().rule(),
+            "out-of-order"
+        );
     }
 
     #[test]

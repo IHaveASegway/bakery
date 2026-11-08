@@ -29,7 +29,9 @@
 //! `RoutePublished` is each order of the plan, and `all(Order)` on `StopCompleted` the order it
 //! names: each gets the envelope at its `/_event`, which turns it into `MarkOutForDelivery` or
 //! `MarkDelivered`. `all(Kitchen)` on `RoutePublished` is the sandbox's board, which labels its
-//! cards with their vans.
+//! cards with their vans. Since 2026-11-08 `OrderReady` reaches the day of the order's window as
+//! the other order events do, and the Dispatch's `StopReady` the order it names, which goes out
+//! for delivery.
 //!
 //! `Control`'s flag is read once a minute per isolate: `off` retries everything, so the
 //! messages drain to the DLQ after 3 retries rather than being lost (docs/architecture.md,
@@ -251,7 +253,7 @@ async fn deliver(env: &Env, envelope: &Envelope) -> std::result::Result<(), Stri
         if route.to == Subscriber::Order
             && matches!(
                 envelope.event_type.as_str(),
-                "RoutePublished" | "StopCompleted"
+                "RoutePublished" | "StopCompleted" | "StopReady"
             )
         {
             deliver_to_stops(env, envelope).await?;
@@ -524,8 +526,8 @@ async fn persona_place(
     }
 }
 
-/// `Order (each stop)` on `RoutePublished` and `all(Order)` on `StopCompleted`: each order the
-/// event names gets it. An order that is gone (410) has nothing to mark.
+/// `Order (each stop)` on `RoutePublished` and `all(Order)` on `StopCompleted` and `StopReady`:
+/// each order the event names gets it. An order that is gone (410) has nothing to mark.
 async fn deliver_to_stops(env: &Env, envelope: &Envelope) -> std::result::Result<(), String> {
     use bakery_domain::DomainEvent;
     use bakery_domain::dispatch::{DispatchEvent, deliveries};
@@ -533,7 +535,9 @@ async fn deliver_to_stops(env: &Env, envelope: &Envelope) -> std::result::Result
         Ok(DispatchEvent::RoutePublished { vans, .. }) => {
             deliveries(&vans).into_iter().map(|(o, _, _)| o).collect()
         }
-        Ok(DispatchEvent::StopCompleted { order, .. }) => vec![order],
+        Ok(DispatchEvent::StopCompleted { order, .. } | DispatchEvent::StopReady { order, .. }) => {
+            vec![order]
+        }
         Ok(_) => Vec::new(),
         Err(_) => return Err("a dispatch event could not be read".to_owned()),
     };

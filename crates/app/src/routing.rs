@@ -55,7 +55,8 @@ impl Subscriber {
 /// `OrderRefunded`), Crm and the Inbox (the sandbox's one of each), and since PR 9 Dispatch (the
 /// day of the order's window: `OrderPlaced` for a delivery adds its stop, `OrderPaid` confirms
 /// it, `OrderExpired` and `OrderCancelled` remove it). PR 9 also delivers the Order's
-/// `RoutePublished` (each stop) and `StopCompleted` routes. The consumer delivers to no other;
+/// `RoutePublished` (each stop) and `StopCompleted` routes, and since 2026-11-08 `OrderReady` to the
+/// day's Dispatch and `StopReady` to its Order. The consumer delivers to no other;
 /// Control joins as its pull request builds it.
 pub const LIVE: &[Subscriber] = &[
     Subscriber::Kitchen,
@@ -154,7 +155,10 @@ pub const ROUTES: &[(&str, &[Route])] = &[
         &[all(Schedule), all(Kitchen), all(Dispatch), all(Crm)],
     ),
     ("OrderProductionStarted", &[all(Kitchen), all(Crm)]),
-    ("OrderReady", &[all(Kitchen), all(Inbox), all(Crm)]),
+    (
+        "OrderReady",
+        &[all(Kitchen), all(Inbox), all(Crm), all(Dispatch)],
+    ),
     ("OrderOutForDelivery", &[all(Kitchen), all(Inbox)]),
     ("OrderPickedUp", &[all(Kitchen), all(Crm)]),
     ("OrderDelivered", &[all(Kitchen), all(Crm)]),
@@ -178,8 +182,8 @@ pub const ROUTES: &[(&str, &[Route])] = &[
         &[all(Schedule), all(Crm), all(Inbox)],
     ),
     ("CateringReminderDue", &[all(Inbox)]),
-    ("CateringProductionStarted", &[all(Kitchen)]),
-    ("CateringDelivered", &[all(Billing), all(Kitchen)]),
+    ("CateringProductionStarted", &[all(Kitchen), all(Crm)]),
+    ("CateringDelivered", &[all(Billing), all(Kitchen), all(Crm)]),
     ("CateringBalanceInvoiced", &[all(Inbox), all(Crm)]),
     (
         "CateringBalancePaid",
@@ -218,6 +222,7 @@ pub const ROUTES: &[(&str, &[Route])] = &[
     ("PlanSubmitted", &[]),
     ("RoutePublished", &[scoped(Order, EachStop), all(Kitchen)]),
     ("StopCompleted", &[all(Order)]),
+    ("StopReady", &[all(Order)]),
     ("CustomerRegistered", &[]),
     ("ConsentChanged", &[all(Crm)]),
     ("LoyaltyPointsEarned", &[all(Crm)]),
@@ -419,7 +424,7 @@ mod tests {
         assert_eq!(in_table, in_doc);
         assert_eq!(ROUTES.len(), in_table.len(), "an event is listed twice");
         // The table has as many rows as the catalog has events.
-        assert_eq!(in_doc.len(), 70);
+        assert_eq!(in_doc.len(), 71);
     }
 
     #[test]
@@ -454,7 +459,10 @@ mod tests {
         );
         assert_eq!(schedule_and("CateringClosed"), ["Schedule", "Crm", "Inbox"]);
         // The balance invoice: raised on delivery, recorded by the job, paid by purpose.
-        assert_eq!(schedule_and("CateringDelivered"), ["Billing", "Kitchen"]);
+        assert_eq!(
+            schedule_and("CateringDelivered"),
+            ["Billing", "Kitchen", "Crm"]
+        );
         assert_eq!(schedule_and("InvoiceIssued"), ["CateringEvent"]);
         let balance = envelope("PaymentSucceeded", json!({ "purpose": "balance" }));
         assert_eq!(classes(routes_for(&balance)), ["CateringEvent"]);
@@ -582,6 +590,16 @@ mod tests {
             classes(deliver_to(&envelope("StopCompleted", json!({})))),
             ["Order"]
         );
+        // An order made ready reaches its day's Dispatch, which sends a planned stop out
+        // through its Order.
+        assert_eq!(
+            classes(deliver_to(&envelope("OrderReady", json!({})))),
+            ["Kitchen", "Inbox", "Crm", "Dispatch"]
+        );
+        assert_eq!(
+            classes(deliver_to(&envelope("StopReady", json!({})))),
+            ["Order"]
+        );
         assert_eq!(
             classes(deliver_to(&envelope("RouteProposed", json!({})))),
             ["Crm"]
@@ -697,7 +715,8 @@ mod tests {
         for (name, to) in [
             ("CateringDepositPaid", &["Schedule", "Crm", "Inbox"][..]),
             ("CateringDepositLapsed", &["Schedule"]),
-            ("CateringDelivered", &["Billing", "Kitchen"]),
+            ("CateringDelivered", &["Billing", "Kitchen", "Crm"]),
+            ("CateringProductionStarted", &["Kitchen", "Crm"]),
             ("CateringClosed", &["Schedule", "Crm", "Inbox"]),
             ("CateringCancelled", &["Schedule", "Billing", "Crm"]),
             ("InvoiceIssued", &["CateringEvent"]),
