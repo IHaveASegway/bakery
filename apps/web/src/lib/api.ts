@@ -27,6 +27,7 @@ import type {
   FaultsResponse,
   InboxResponse,
   LeadPipelineResponse,
+  MenuDraftsResponse,
   MenuEditResponse,
   MenuItemPatch,
   MenuResponse,
@@ -238,6 +239,9 @@ export const patchMenuItem = (id: string, slug: string, patch: MenuItemPatch) =>
   });
 export const publishMenu = (id: string) =>
   request<MenuEditResponse>('POST', `${sandboxPath(id)}/menu/publish`);
+/** `GET /v1/sandboxes/{id}/menu/drafts`: the draft copy of every item waiting for Publish. */
+export const getMenuDrafts = (id: string) =>
+  request<MenuDraftsResponse>('GET', `${sandboxPath(id)}/menu/drafts`);
 
 export const getDeadLetters = async (id: string): Promise<DeadLetter[]> => {
   const list = await request<unknown>('GET', `${sandboxPath(id)}/dead-letters`);

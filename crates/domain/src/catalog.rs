@@ -482,6 +482,16 @@ impl CatalogState {
         Some((item, self.draft.variants_of(&item.slug).collect()))
     }
 
+    /// The draft copy of every item with edits not yet published, in slug order: what the
+    /// console's menu editor shows as waiting for a publish. A pause or a resume is published at
+    /// once, so it never lists an item on its own; a new item, never published, is listed.
+    pub fn drafts(&self) -> Vec<(&Item, Vec<&Variant>)> {
+        self.pending
+            .iter()
+            .filter_map(|s| self.draft_item(s))
+            .collect()
+    }
+
     /// An item's state on the date of `on`: its published copy's, or `draft` before it is first
     /// published; `scheduled` when available but out of season.
     pub fn item_state(&self, slug: &str, on: BusinessTime) -> Option<ItemState> {
@@ -1245,6 +1255,123 @@ pub(crate) mod tests {
             Cents(1_000)
         );
         assert_eq!(state.pending().count(), 0);
+    }
+
+    /// `(slug, status, [(variant, price)])`: one draft as the console reads it.
+    type Draft = (String, ItemStatus, Vec<(String, i64)>);
+
+    fn drafts(state: &CatalogState) -> Vec<Draft> {
+        state
+            .drafts()
+            .into_iter()
+            .map(|(item, variants)| {
+                (
+                    item.slug.clone(),
+                    item.status,
+                    variants
+                        .iter()
+                        .map(|v| (v.slug.clone(), v.price_cents.0))
+                        .collect(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_drafts_list_each_pending_item_until_published() {
+        assert!(fixture().drafts().is_empty());
+        let mut state = fixture();
+        for (variant, price) in [("moss-tea/small", 325), ("fern-loaf/whole", 1_000)] {
+            state = run(
+                state,
+                CatalogCommand::SetPrice {
+                    variant: variant.into(),
+                    price: Cents(price),
+                },
+            )
+            .unwrap()
+            .0;
+        }
+        // In slug order, each with every variant's draft price.
+        assert_eq!(
+            drafts(&state),
+            [
+                (
+                    "fern-loaf".to_owned(),
+                    ItemStatus::Available,
+                    vec![
+                        ("fern-loaf/whole".to_owned(), 1_000),
+                        ("fern-loaf/half".to_owned(), 550)
+                    ]
+                ),
+                (
+                    "moss-tea".to_owned(),
+                    ItemStatus::Available,
+                    vec![("moss-tea/small".to_owned(), 325)]
+                ),
+            ]
+        );
+        let (state, _) = run(state, CatalogCommand::PublishMenu).unwrap();
+        assert!(state.drafts().is_empty());
+    }
+
+    #[test]
+    fn a_pause_is_never_a_draft() {
+        let (state, events) = run(
+            fixture(),
+            CatalogCommand::Pause {
+                item: "thyme-cake".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(events.len(), 2);
+        assert!(state.drafts().is_empty());
+        // A price drafted on a paused item lists it, paused.
+        let (state, _) = run(
+            state,
+            CatalogCommand::SetPrice {
+                variant: "thyme-cake/slice".into(),
+                price: Cents(700),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            drafts(&state),
+            [(
+                "thyme-cake".to_owned(),
+                ItemStatus::Paused,
+                vec![
+                    ("thyme-cake/6-inch".to_owned(), 3_800),
+                    ("thyme-cake/slice".to_owned(), 700)
+                ]
+            )]
+        );
+    }
+
+    #[test]
+    fn a_new_item_is_listed_as_a_draft() {
+        let new = CatalogCommand::EditItem {
+            item: "clover-bun".into(),
+            fields: ItemFields {
+                name: Some("Clover bun".into()),
+                category: Some("pastries".into()),
+                daily_cap: Some(30),
+                days_baked: Some(vec![Weekday::Sat, Weekday::Sun]),
+                variants: Some(vec![variant("clover-bun", "single", "Single", 475, 120)]),
+                ..ItemFields::default()
+            },
+        };
+        let (state, _) = run(fixture(), new).unwrap();
+        assert_eq!(
+            drafts(&state),
+            [(
+                "clover-bun".to_owned(),
+                ItemStatus::Draft,
+                vec![("clover-bun/single".to_owned(), 475)]
+            )]
+        );
+        let (state, _) = run(state, CatalogCommand::PublishMenu).unwrap();
+        assert!(state.drafts().is_empty());
     }
 
     #[test]

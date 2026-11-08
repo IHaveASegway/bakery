@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MenuDraftsResponse",
+  "description": "`GET /v1/sandboxes/{id}/menu/drafts`, signed-in sessions only: every item with a draft\nwaiting for `POST .../menu/publish`, in slug order, and the published version. The console's\nmenu editor reads it with `GET .../menu` on load and again after a publish, and shows each\nitem's waiting price under its published one, so a draft made before a reload is still shown.\nThe published prices are in the menu it already holds, so they are not repeated here.",
+  "type": "object",
+  "properties": {
+    "pending": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/MenuDraft"
+      }
+    },
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "pending"
+  ],
+  "$defs": {
+    "MenuDraft": {
+      "description": "One item with edits waiting for a publish, as its draft copy stands: the variants carry\ntheir draft prices.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "status": {
+          "description": "The draft copy's status: `draft` for an item never published, else the published one,\nsince a pause or a resume is never a draft.",
+          "$ref": "#/$defs/MenuItemState"
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MenuVariant"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "slug",
+        "name",
+        "status",
+        "variants"
+      ]
+    },
+    "MenuItemState": {
+      "description": "An item's stored lifecycle; the menu lists `available` and `paused` items.",
+      "type": "string",
+      "enum": [
+        "draft",
+        "available",
+        "paused",
+        "retired"
+      ]
+    },
+    "MenuVariant": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "lead_minutes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "price_cents": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "slug": {
+          "description": "`<item slug>/<suffix>`, such as `croissant/box-6`.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "slug",
+        "label",
+        "price_cents",
+        "lead_minutes"
+      ]
+    }
+  }
+}
