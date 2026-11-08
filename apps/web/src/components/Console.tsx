@@ -55,6 +55,12 @@ export default function Console() {
   const [ledgerTick, setLedgerTick] = useState(0);
   // Bumped when something the CRM screens derive from changes: a consent flag, a finished rebuild.
   const [crmTick, setCrmTick] = useState(0);
+  // This page's own Wipe now or replace, while its request is in flight. The board's socket closes
+  // with "wiped" before that request answers. A reload then would ask for the old sandbox with
+  // whichever cookie the browser holds when it asks: the old one names the sandbox and gets 410,
+  // the one the answer re-issues names none and gets 404 (the e2e race of 2026-11-08). So the
+  // request's own answer decides the view, and a close it hid reloads only if the request fails.
+  const ownWipe = useRef<'idle' | 'running' | 'closed'>('idle');
 
   const load = useCallback(async () => {
     try {
@@ -99,19 +105,33 @@ export default function Console() {
     return () => clearInterval(timer);
   }, [seedingId]);
 
-  /** Runs one action: busy while it runs, any problem shown in the live region. */
-  async function act(run: () => Promise<void>) {
+  /**
+   * Runs one action: busy while it runs, any problem shown in the live region. `wipes`: the
+   * action wipes this sandbox (Wipe now, or a replace), so the board's "wiped" close waits for it.
+   */
+  async function act(run: () => Promise<void>, wipes = false) {
     setBusy(true);
     setError(null);
+    if (wipes) ownWipe.current = 'running';
     try {
       await run();
     } catch (e) {
       if (e instanceof ApiError && e.status === 410) await load();
-      else setError(describeError(e));
+      else {
+        setError(describeError(e));
+        if (ownWipe.current === 'closed') await load();
+      }
     } finally {
+      if (wipes) ownWipe.current = 'idle';
       setBusy(false);
     }
   }
+
+  /** The board's socket closed with "wiped": the nightly wipe, or this page's own. */
+  const boardWiped = useCallback(() => {
+    if (ownWipe.current === 'idle') void load();
+    else ownWipe.current = 'closed';
+  }, [load]);
 
   switch (view.name) {
     case 'loading':
@@ -174,7 +194,7 @@ export default function Console() {
       }
       const sandbox = await createSandbox({ replace });
       setView({ name: 'sandbox', session: { ...session, sandbox: sandbox.id }, sandbox });
-    });
+    }, replace);
 
   const leave = () =>
     act(async () => {
@@ -276,7 +296,7 @@ export default function Console() {
             sandboxId={sandbox.id}
             isGuest={isGuest}
             clockOffsetS={sandbox.clock_offset_s}
-            onWiped={() => void load()}
+            onWiped={boardWiped}
             onRefunded={() => setLedgerTick((n) => n + 1)}
           />
           <Ledger sandboxId={sandbox.id} refresh={ledgerTick} />
@@ -374,7 +394,7 @@ export default function Console() {
                 return;
               await wipeSandbox(sandbox.id);
               setView({ name: 'wiped', session });
-            })
+            }, true)
           }
         >
           Wipe now
