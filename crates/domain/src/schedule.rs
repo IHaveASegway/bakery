@@ -24,7 +24,9 @@
 //!   key whose hold was released (by its timer, or by the router giving the place back after the
 //!   Order refused) before any Order was placed: the same place, at the same start with the same
 //!   lines, is held again with the retry's own `expires_at` when the day still has room, and
-//!   refused `hold-lost` (naming `next_free` as `slot-full` does) when it has none. A place still
+//!   refused `hold-lost` (naming `next_free` as `slot-full` does) when the slot, zone or
+//!   catering day has none; an item over its cap is refused `item-cap`, as a first hold is, since
+//!   the cap covers the whole day. A place still
 //!   held, reserved or fulfilled is left as it is. The hardening after PR 13 added it, so a retry
 //!   never places an order whose place is gone.
 //! - **Events carry what the fold needs.** `SlotHeld` carries the zone and lines and
@@ -864,7 +866,8 @@ fn replan(state: &ScheduleState, reference: Ulid, status: HoldStatus) -> Option<
 }
 
 /// `Hold`, or with `retake` the placement's `Retake`: a released place under the same ref is
-/// held again at the same start with the same lines, and a capacity refusal is `hold-lost`.
+/// held again at the same start with the same lines; a full slot, zone or catering day is
+/// `hold-lost`, and an item over its cap is `item-cap`, as for a first hold.
 fn hold(
     state: &ScheduleState,
     req: &HoldRequest,
@@ -927,13 +930,12 @@ fn hold(
             };
         }
     }
-    // A retake of a place the key never held is a first hold, refused as one.
+    // A retake of a place the key never held is a first hold, refused as one. A retake the
+    // item cap refuses is refused `item-cap` as a first hold is: the cap covers the whole day,
+    // so no start would take those lines, and `hold-lost` names `next_free` for a slot only.
     let retaking = retake && state.holds.contains_key(&req.reference);
     let lost = |e: ScheduleError| match e {
         ScheduleError::SlotFull { next_free } if retaking => ScheduleError::HoldLost { next_free },
-        ScheduleError::ItemCapExceeded { .. } if retaking => {
-            ScheduleError::HoldLost { next_free: None }
-        }
         e => e,
     };
     match req.kind {
@@ -1585,7 +1587,7 @@ mod tests {
         let s = ok(s, set(2));
         assert_eq!(run(s, &again).unwrap().1.len(), 1);
 
-        // An item at its cap is lost the same way, with no start to offer.
+        // An item at its cap is refused as a first hold is: the cap covers the whole day.
         let caps = ScheduleCommand::RefreshCaps {
             menu_version: 1,
             caps: vec![ItemCap {
@@ -1599,8 +1601,63 @@ mod tests {
         s = ok(s, pickup(2, "10:00", &[("croissant", 1)]));
         assert_eq!(
             run(s, &again),
-            Err(ScheduleError::HoldLost { next_free: None })
+            Err(ScheduleError::ItemCapExceeded {
+                item: "croissant".into(),
+                free: 0
+            })
         );
+    }
+
+    #[test]
+    fn a_lost_hold_the_item_cap_now_refuses_is_refused_item_cap() {
+        // The case the property test found on main's run of 2026-11-06: a hold, released, its
+        // item capped to 0, then retaken while later slots have room.
+        let caps = ScheduleCommand::RefreshCaps {
+            menu_version: 1,
+            caps: vec![
+                ItemCap {
+                    item: "scone".into(),
+                    daily_cap: 3,
+                },
+                ItemCap {
+                    item: "baguette".into(),
+                    daily_cap: 5,
+                },
+            ],
+        };
+        let mut s = ok(fresh(), caps);
+        s = ok(s, pickup(1, "07:00", &[("baguette", 3)]));
+        s = ok(
+            s,
+            ScheduleCommand::Release {
+                reference: id(1),
+                reason: ReleaseReason::Expired,
+            },
+        );
+        s = ok(
+            s,
+            ScheduleCommand::SetCapacity {
+                target: Target::Item("baguette".into()),
+                capacity: 0,
+            },
+        );
+        let again = retake(1, "07:00", &[("baguette", 3)], "2026-11-07T06:45:00-07:00");
+        let refused = run(s.clone(), &again).unwrap_err();
+        assert_eq!(
+            refused,
+            ScheduleError::ItemCapExceeded {
+                item: "baguette".into(),
+                free: 0
+            }
+        );
+        assert_eq!(refused.rule(), "item-cap");
+        // The slot itself had room: the refusal is the cap's, not a lost slot's.
+        assert!(
+            s.slots()[1..]
+                .iter()
+                .any(|v| v.taken < u32::from(v.capacity))
+        );
+        assert_eq!(s.hold(id(1)).unwrap().status, HoldStatus::Released);
     }
 
     #[test]

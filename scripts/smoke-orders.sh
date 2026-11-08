@@ -494,7 +494,15 @@ command_as lost_cut D 192.0.2.42 PATCH "/v1/sandboxes/$DID/schedule/$LOST_DAY/ca
 expect_status lost_cut 200
 KEY="$FULL_KEY" command_as full_lost D 192.0.2.42 POST "/v1/sandboxes/$DID/orders" "$LOST_ORDER"
 expect_problem full_lost 409 hold-lost
-expect_json full_lost "b.detail.includes('given back') && b.detail.includes('The rule is hold-lost.') && (b.next_free === undefined || b.detail.includes(b.next_free))"
+# The refusal names the first later start that had room on the day as read before the cut, and
+# none when $DSLOT is the day's last slot (a run 4 h before closing picks 14:45).
+LOST_NEXT="$(json_field lost_day_0 "(b.slots.find(s => Date.parse(s.start) > Date.parse('$DSLOT') && s.taken < s.capacity) || {}).start")"
+expect_json full_lost "b.detail.includes('given back') && b.detail.includes('The rule is hold-lost.')"
+if [[ -n "$LOST_NEXT" ]]; then
+  expect_json full_lost "b.next_free === '$LOST_NEXT' && b.detail.includes(b.next_free)"
+else
+  expect_json full_lost "b.next_free === undefined"
+fi
 get_as full_day D "/v1/sandboxes/$DID/schedule/$LOST_DAY"
 check "the refused retry held nothing: $DSLOT still has $LOST_TAKEN taken" "[[ '$(slot_taken full_day taken)' == '$LOST_TAKEN' ]]"
 command_as lost_uncut D 192.0.2.42 PATCH "/v1/sandboxes/$DID/schedule/$LOST_DAY/capacity" "{\"target\":\"slot:$LOST_HHMM\",\"capacity\":$LOST_CAP}"

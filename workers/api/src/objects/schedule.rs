@@ -228,7 +228,10 @@ pub struct Refusal {
 impl Refusal {
     fn of(e: &ScheduleError) -> Refusal {
         let (next_free, item, free) = match e {
-            ScheduleError::SlotFull { next_free } => (next_free.map(|t| t.to_string()), None, None),
+            // A lost hold names the next free start as a full slot does.
+            ScheduleError::SlotFull { next_free } | ScheduleError::HoldLost { next_free } => {
+                (next_free.map(|t| t.to_string()), None, None)
+            }
             ScheduleError::ItemCapExceeded { item, free } => {
                 (None, Some(item.clone()), Some(*free))
             }
@@ -1399,5 +1402,35 @@ mod tests {
         assert_eq!(place_of(&e, "order"), None);
         e.stream = format!("catalog:{sandbox}");
         assert_eq!(place_of(&e, "order"), None);
+    }
+
+    #[test]
+    fn a_refusal_names_the_next_free_start_for_a_full_slot_and_a_lost_hold() {
+        let t: BusinessTime = "2026-11-07T10:15:00-07:00".parse().unwrap();
+        for e in [
+            ScheduleError::SlotFull { next_free: Some(t) },
+            ScheduleError::HoldLost { next_free: Some(t) },
+        ] {
+            let r = Refusal::of(&e);
+            assert_eq!(r.rule.as_deref(), Some(e.rule()));
+            assert_eq!(r.next_free.as_deref(), Some("2026-11-07T10:15:00-07:00"));
+            assert_eq!((r.item, r.free), (None, None));
+        }
+        let none = Refusal::of(&ScheduleError::HoldLost { next_free: None });
+        assert_eq!(none.rule.as_deref(), Some("hold-lost"));
+        assert_eq!(none.next_free, None);
+        let cap = Refusal::of(&ScheduleError::ItemCapExceeded {
+            item: "fern-loaf".into(),
+            free: 0,
+        });
+        assert_eq!(
+            (
+                cap.rule.as_deref(),
+                cap.next_free,
+                cap.item.as_deref(),
+                cap.free
+            ),
+            (Some("item-cap"), None, Some("fern-loaf"), Some(0))
+        );
     }
 }
