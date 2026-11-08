@@ -81,6 +81,35 @@ fn every_template_renders_without_a_free_text_field() {
 }
 
 #[test]
+fn the_bakery_is_named_in_full_wherever_it_is_named() {
+    // The UI audit of 2026-11-08, second pass, N11: "Proof of Concept" alone cut the name short.
+    let (subject, _) = receipt(OrderKind::Pickup, 1, Cents(2_090));
+    assert_eq!(subject, "Your receipt from Proof of Concept Bakery");
+    assert_eq!(
+        SubjectTemplate::WeekendBake.text(),
+        "This weekend at Proof of Concept Bakery"
+    );
+    for b in BodyTemplate::ALL {
+        assert!(
+            b.render()
+                .starts_with("Hello from Proof of Concept Bakery. "),
+            "{}",
+            b.render()
+        );
+    }
+    for (subject, body) in every_template() {
+        for text in [&subject, &body] {
+            let named = text.matches("Proof of Concept").count();
+            assert_eq!(
+                named,
+                text.matches("Proof of Concept Bakery").count(),
+                "{text}"
+            );
+        }
+    }
+}
+
+#[test]
 fn an_order_makes_a_receipt_a_ready_note_and_a_refund_notice() {
     let mut inbox = Inbox::default();
     let (none, events) = applied(&mut inbox, &envelope(1, order(10), &placed(10, 2)));

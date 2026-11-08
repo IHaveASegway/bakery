@@ -155,7 +155,7 @@ impl SubjectTemplate {
     /// The line the inbox shows.
     pub fn text(self) -> &'static str {
         match self {
-            SubjectTemplate::WeekendBake => "This weekend at Proof of Concept",
+            SubjectTemplate::WeekendBake => "This weekend at Proof of Concept Bakery",
             SubjectTemplate::CakeWeek => "It is cake week",
             SubjectTemplate::NewSeason => "New on the seasonal menu",
             SubjectTemplate::WeMissYou => "We have missed you at the counter",
@@ -226,7 +226,7 @@ impl BodyTemplate {
                 "Planning a breakfast, a lunch or a celebration? Send an inquiry at least a week ahead and we will quote it."
             }
         };
-        format!("Hello from Proof of Concept. {text}")
+        format!("Hello from Proof of Concept Bakery. {text}")
     }
 
     pub fn parse(text: &str) -> Option<BodyTemplate> {

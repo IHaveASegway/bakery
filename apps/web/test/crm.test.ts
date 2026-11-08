@@ -99,7 +99,9 @@ describe('the templates and segments', () => {
   test('labels and previews, and a plain fallback for a slug the page does not know', () => {
     expect(subjectText('cake-week')).toBe('It is cake week');
     expect(bodyLabel('catering-invite')).toBe('Catering invitation');
-    expect(bodyPreview('come-back')).toMatch(/^Hello from Proof of Concept\. It has been a while/);
+    expect(bodyPreview('come-back')).toMatch(
+      /^Hello from Proof of Concept Bakery\. It has been a while/,
+    );
     expect(bodyPreview('nope')).toBe('');
     expect(segmentLabel('lapsed-60-days')).toBe('Lapsed for 60 days');
     expect(segmentLabel('new-segment')).toBe('new segment');
@@ -127,10 +129,12 @@ describe('the templates and segments', () => {
       const bodySlugs = [...text.matchAll(/BodyTemplate::\w+ => "([a-z-]+)"/g)].map((m) => m[1]!);
       expect(bodySlugs.slice(0, 6)).toEqual(BODIES.map((b) => b.value));
       for (const b of BODIES) {
-        const sentence = b.text.replace('Hello from Proof of Concept. ', '').replaceAll("'", "'");
+        const sentence = b.text
+          .replace('Hello from Proof of Concept Bakery. ', '')
+          .replaceAll("'", "'");
         expect(text, b.value).toContain(sentence);
       }
-      expect(text).toContain('format!("Hello from Proof of Concept. {text}")');
+      expect(text).toContain('format!("Hello from Proof of Concept Bakery. {text}")');
       const segments = [...text.matchAll(/Segment::\w+ => "([a-z0-9-]+)"/g)].map((m) => m[1]!);
       expect(segments.slice(0, 5)).toEqual(SEGMENTS.map((s) => s.segment));
     },
