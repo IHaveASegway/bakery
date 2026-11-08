@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import type { ActivityEntry } from '../contracts';
 import { activityFeed } from '../lib/activity-feed';
 import { apiOrigin, getActivity } from '../lib/api';
@@ -24,6 +32,34 @@ import { ulid } from '../lib/ulid';
 import { stepsFor } from '../tour';
 
 const TRIGGER = 'tour-trigger';
+const DOCK = 'tour-dock';
+/** The gap kept between a target and the window's top edge or the bar. */
+const GAP = 16;
+/** How long after a step shows its target a change in the page's height shows the target again. */
+const SETTLE_MS = 2000;
+
+/**
+ * Scroll the page so the target sits in the part of the window above the bar. A target already in
+ * that part stays where it is, so the visitor keeps their place; one above it is brought down to
+ * the top, one below it up to the bar, and one taller than the part is shown from its top.
+ */
+export function revealDelta(top: number, bottom: number, freeTop: number, freeBottom: number) {
+  const room = freeBottom - freeTop;
+  if (bottom - top > room) return top - freeTop;
+  if (top < freeTop) return top - freeTop;
+  if (bottom > freeBottom) return bottom - freeBottom;
+  return 0;
+}
+
+function reveal(target: HTMLElement, calm: boolean): void {
+  const dock = document.getElementById(DOCK);
+  const rect = target.getBoundingClientRect();
+  const freeTop = GAP;
+  const freeBottom = (dock?.getBoundingClientRect().top ?? window.innerHeight) - GAP;
+  const delta = revealDelta(rect.top, rect.bottom, freeTop, freeBottom);
+  if (Math.abs(delta) < 1) return;
+  window.scrollBy({ top: delta, behavior: calm ? 'auto' : 'smooth' });
+}
 
 /** localStorage may be missing, full or blocked: the tour works without it. */
 function readSeen(): ReturnType<typeof parseSeen> {
@@ -45,9 +81,12 @@ function writeSeen(seen: ReturnType<typeof parseSeen>): void {
 /**
  * The guided tour (Q41 · Q-tour): one island on every screen, no third-party script. A button opens
  * a card that walks the screen's steps one at a time, ringing the element each step points at.
- * The card is docked at the foot of the window so it never covers its target and needs no
- * positioning; it is not modal and traps no focus. Which screens the visitor has seen is the only
- * thing remembered, in localStorage.
+ * The card is docked in a bar at the foot of the window, its height capped (about 40% of a phone's
+ * screen, with its own scroll), and the page keeps room for the bar. Each step scrolls its target
+ * into the part of the window above the bar, so the card is below the target and never over it,
+ * except for a target taller than that part, whose top is shown. The one Close control sits in the
+ * bar, so it covers no page button. The card is not modal and traps no focus. Which screens the
+ * visitor has seen is the only thing remembered, in localStorage.
  */
 export default function Tour({ screen }: { screen: ScreenId }) {
   const steps = stepsFor(screen);
@@ -56,10 +95,35 @@ export default function Tour({ screen }: { screen: ScreenId }) {
     CLOSED,
   );
   const [seen, setSeen] = useState<ReturnType<typeof parseSeen>>({});
+  // The button is drawn with the page but does nothing until the island has hydrated, so it is
+  // disabled until then and no click is lost.
+  const [ready, setReady] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const wasOpen = useRef(false);
 
-  useEffect(() => setSeen(readSeen()), []);
+  useEffect(() => {
+    setSeen(readSeen());
+    setReady(true);
+  }, []);
+
+  // While the bar is open the page keeps room under its last line for it, and the bar's height is
+  // kept current in a custom property (set through the style object, not a style attribute).
+  useLayoutEffect(() => {
+    if (!state.open) return;
+    const root = document.documentElement;
+    const bar = document.getElementById(DOCK);
+    const size = () =>
+      root.style.setProperty('--tour-dock-h', `${bar?.getBoundingClientRect().height ?? 0}px`);
+    size();
+    root.classList.add('tour-open');
+    const watch = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(size);
+    if (bar !== null) watch?.observe(bar);
+    return () => {
+      watch?.disconnect();
+      root.classList.remove('tour-open');
+      root.style.removeProperty('--tour-dock-h');
+    };
+  }, [state.open]);
 
   // Opening marks the screen seen; closing returns the focus to the button that opened it.
   useEffect(() => {
@@ -86,24 +150,38 @@ export default function Tour({ screen }: { screen: ScreenId }) {
 
   if (steps.length === 0) return null;
   const step = steps[state.index];
-  return (
-    <>
-      <button
-        id={TRIGGER}
-        ref={trigger}
-        type="button"
-        className="tour-trigger"
-        aria-expanded={state.open}
-        aria-controls={state.open ? 'tour-card' : undefined}
-        onClick={() => dispatch(state.open ? { type: 'close' } : { type: 'open' })}
-      >
-        {state.open ? 'Close the tour' : seen[screen] ? 'Tour' : 'Take the tour'}
-      </button>
-      {state.open && step !== undefined && (
-        <TourCard step={step} index={state.index} total={steps.length} dispatch={dispatch} />
-      )}
-    </>
+  const button = (
+    <button
+      id={TRIGGER}
+      ref={trigger}
+      type="button"
+      className="tour-trigger"
+      aria-expanded={state.open}
+      aria-controls={state.open ? 'tour-card' : undefined}
+      disabled={!ready}
+      onClick={() => dispatch(state.open ? { type: 'close' } : { type: 'open' })}
+    >
+      {state.open ? 'Close the tour' : seen[screen] ? 'Tour' : 'Take the tour'}
+    </button>
   );
+  if (!state.open || step === undefined) return button;
+  return (
+    <div id={DOCK} className="tour-dock">
+      <TourCard step={step} index={state.index} total={steps.length} dispatch={dispatch} />
+      {button}
+    </div>
+  );
+}
+
+/** Why the command says <your token>, and what the visitor can do about it, by who is looking. */
+export function tokenHint(phase: ReturnType<typeof useSandboxPhase>): string {
+  const lead = 'No token is held by this page, so the command says <your token>.';
+  if (phase.name === 'live' || phase.name === 'seeding') {
+    return phase.kind === 'guest'
+      ? `${lead} A guest cannot issue one: sign in with an account, then issue one in the console.`
+      : `${lead} Issue one in the console’s API token panel to have it filled in here.`;
+  }
+  return `${lead} Sign in and issue one in the console to have it filled in here.`;
 }
 
 type Dispatch = React.Dispatch<Parameters<typeof tourReduce>[1]>;
@@ -131,7 +209,7 @@ export function TourCard({
 
   // The card takes the focus when the tour opens; after that the focus stays where the visitor put it.
   useEffect(() => {
-    heading.current?.focus();
+    heading.current?.focus({ preventScroll: true });
   }, []);
 
   // Ring the step's element and bring it into view; take the ring off when the step changes.
@@ -141,8 +219,18 @@ export function TourCard({
     if (target === null) return;
     target.setAttribute('data-tour-current', 'true');
     const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    target.scrollIntoView({ block: 'nearest', behavior: calm ? 'auto' : 'smooth' });
-    return () => target.removeAttribute('data-tour-current');
+    reveal(target, calm);
+    // The console's panels fill in as their reads answer, which moves the target after it was
+    // shown. For the first moments of a step, a change in the page's height shows it again.
+    const watch =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => reveal(target, true));
+    watch?.observe(document.body);
+    const settled = window.setTimeout(() => watch?.disconnect(), SETTLE_MS);
+    return () => {
+      watch?.disconnect();
+      window.clearTimeout(settled);
+      target.removeAttribute('data-tour-current');
+    };
   }, [step.target]);
 
   const [copied, setCopied] = useState<'copied' | 'failed' | null>(null);
@@ -198,7 +286,7 @@ export function TourCard({
       </pre>
       <p className="hint">
         {token === null
-          ? 'No token is held by this page, so the command says <your token>. Sign in and issue one in the console to have it filled in here.'
+          ? tokenHint(phase)
           : `Your token is held in this page’s memory (${maskToken(token)}); the copy has it whole.`}{' '}
         Route <code>{step.api.routeId}</code>.
       </p>

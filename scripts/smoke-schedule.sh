@@ -2,7 +2,7 @@
 # Smoke-tests PR 6 on `wrangler dev` against the fake providers and scripts/fake-stripe.mjs: the
 # seven seeded Schedule days; a day's schedule and its 404 outside the sandbox's days; the race
 # for a slot cut to one place (two sessions in parallel: one 201, one 409 `slot-full` whose
-# detail and `next_free` name the next slot); the cake rule (a chocolate layer cake for tomorrow
+# detail and `next_free` name the next slot); the cake rule (a chocolate layer cake inside 48 h
 # refused 409 `lead-time` naming 48 h, the day after placed, paid through the fake Stripe and on
 # that day's bake list and the kitchen socket's snapshot); the capacity editor (a cut below the
 # places taken keeps them, 422 `unknown-item` and `bad-target`, 403 `guest-scope`); the clock (a
@@ -478,9 +478,15 @@ command_as bad_target D 192.0.2.82 PATCH "/v1/sandboxes/$DID/schedule/$RACE_FROM
 expect_problem bad_target 422 bad-target
 command_as bad_target_kind D 192.0.2.82 PATCH "/v1/sandboxes/$DID/schedule/$RACE_FROM/capacity" '{"target":"oven:1","capacity":1}'
 expect_problem bad_target_kind 422 bad-target
-command_as item_cap D 192.0.2.82 PATCH "/v1/sandboxes/$DID/schedule/$RACE_FROM/capacity" "{\"target\":\"item:$RACE_ITEM_SLUG\",\"capacity\":1}"
+# The day's seeded open orders may already hold this item, so the count it reads before the cap
+# is the truth to compare with: the cap is set to that count (at least the winner's one), and
+# `used` must read back unchanged.
+get_as item_before D "/v1/sandboxes/$DID/schedule/$RACE_FROM"
+ITEM_USED="$(json_field item_before "b.items.find(i => i.item === '$RACE_ITEM_SLUG').used")"
+check "$RACE_ITEM_SLUG on $RACE_FROM counts $ITEM_USED used before the cap, the winner's place among them" "[[ '$ITEM_USED' =~ ^[0-9]+$ ]] && (( ${ITEM_USED:-0} >= 1 ))"
+command_as item_cap D 192.0.2.82 PATCH "/v1/sandboxes/$DID/schedule/$RACE_FROM/capacity" "{\"target\":\"item:$RACE_ITEM_SLUG\",\"capacity\":${ITEM_USED:-1}}"
 expect_status item_cap 200
-expect_json item_cap "b.items.find(i => i.item === '$RACE_ITEM_SLUG').daily_cap === 1 && b.items.find(i => i.item === '$RACE_ITEM_SLUG').used === 1"
+expect_json item_cap "b.items.find(i => i.item === '$RACE_ITEM_SLUG').daily_cap === ${ITEM_USED:-1} && b.items.find(i => i.item === '$RACE_ITEM_SLUG').used === ${ITEM_USED:-1}"
 ITEM_SLOT="$(cal 'iso(nextSlot(Date.parse(a[0]) + 60 * 60000))' "$RACE_SLOT")"
 command_as over_cap D 192.0.2.82 POST "/v1/sandboxes/$DID/orders" "{\"kind\":\"pickup\",\"slot\":\"$ITEM_SLOT\",\"lines\":[{\"variant\":\"$RACE_VARIANT\",\"qty\":1}]}"
 expect_problem over_cap 409 item-cap
@@ -550,13 +556,10 @@ check "no day was refused its birth for want of caps" "! log_has '\"event\":\"sc
 # ---------- the cake rule ----------
 
 CAKE="chocolate-layer-cake/6-inch"
-# Tomorrow at 10:00, and the first slot at least 48 h 30 min out on a day the cake is baked.
-CAKE_SOON="$(cal '(() => { const tomorrow = day(Date.now() + 86400000); let t = Math.ceil(Date.now() / 900000) * 900000; while (!(day(t) === tomorrow && minuteOf(t) === 600)) t += 900000; return iso(t); })()')"
+# The first slot at least 48 h 30 min out, on a day the cake is baked. The refusal of a cake inside
+# its 48 h is checked on sandbox E, after its clock has stepped to a Tuesday 07:00 (below).
 CAKE_LATER="$(cal '(() => { const menu = JSON.parse(require("fs").readFileSync(a[0], "utf8")); const cake = menu.categories.flatMap(c => c.items).find(i => i.slug === "chocolate-layer-cake"); let t = nextSlot(Date.now() + (48 * 60 + 30) * 60000); while (!cake.days_baked.includes(wd(t))) t = nextSlot(t + 900000); return iso(t); })()' "$TMP/dmenu.body")"
 CAKE_DAY="${CAKE_LATER:0:10}"
-command_as cake_soon D 192.0.2.82 POST "/v1/sandboxes/$DID/orders" "{\"kind\":\"pickup\",\"slot\":\"$CAKE_SOON\",\"lines\":[{\"variant\":\"$CAKE\",\"qty\":1}]}"
-expect_problem cake_soon 409 lead-time
-expect_json cake_soon "b.detail.includes('Chocolate layer cake needs 48 h') && b.detail.includes('The rule is lead-time.')"
 command_as cake_later D 192.0.2.82 POST "/v1/sandboxes/$DID/orders" "{\"kind\":\"pickup\",\"slot\":\"$CAKE_LATER\",\"lines\":[{\"variant\":\"$CAKE\",\"qty\":1}]}"
 expect_status cake_later 201
 CAKE_ID="$(json_field cake_later b.id)"
@@ -695,6 +698,16 @@ expect_status clock_open 200
 OPEN_NOW="$(json_field clock_open b.business_now)"
 check "next-opening from $SUNDAY_NOW lands on Tuesday 07:00: $OPEN_NOW" "[[ '$(cal 'wd(Date.parse(a[0])) + " " + minuteOf(Date.parse(a[0]))' "$OPEN_NOW")' == 'tue 420' ]] && [[ '$(cal 'wd(Date.parse(a[0]))' "$SUNDAY_NOW")' == sun ]]"
 expect_json clock_open "b.step === 'next-opening'"
+
+# The cake rule's refusal, from a business time that is the same on any day: Tuesday 07:00, after
+# the step above. The bakery is closed on Mondays and bakes the cake Wednesday to Sunday, so the
+# first Wednesday 10:00 is 27 h away, inside the 48 h rule and on a day the cake is baked; the clock runs on
+# after the step, so a slow run reads 26 h 59 min. (A slot
+# "tomorrow" from wall time is a Monday on a Sunday, which the order refuses as not-baked-that-day.)
+CAKE_SOON="$(cal '(() => { let t = Math.ceil(Date.parse(a[0]) / 900000) * 900000; while (!(wd(t) === "wed" && minuteOf(t) === 600)) t += 900000; return iso(t); })()' "$OPEN_NOW")"
+command_as cake_soon E 192.0.2.83 POST "/v1/sandboxes/$EID/orders" "{\"kind\":\"pickup\",\"slot\":\"$CAKE_SOON\",\"lines\":[{\"variant\":\"$CAKE\",\"qty\":1}]}"
+expect_problem cake_soon 409 lead-time
+expect_json cake_soon "b.detail.includes('Chocolate layer cake needs 48 h') && b.detail.includes('The rule is lead-time.') && /the slot is (27 h|26 h 5[0-9] min) away/.test(b.detail)"
 
 # Day by day to the cap: the advance past 14 days is refused.
 days_ok=0
