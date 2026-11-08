@@ -1,7 +1,7 @@
 // Times as the bakery says them. Every screen that shows a moment shows it here: the bakery's own
 // wall clock (America/Denver, as the board and the slot picker read it), in the friendly form
 // "8:15 am on Sunday 2026-11-08". The wire form stays in `<time dateTime>` for machines. A UTC
-// stamp such as the feed's `2026-11-08T16:22:40.235Z` reads as the same bakery time, so two screens
+// stamp such as the feed's `2026-11-08T16:22:07.235Z` reads as the same bakery time, so two screens
 // never disagree about the hour.
 import { dateLabel } from './schedule';
 import { clockLabel, dateOf, mountainLocal } from './slots';
@@ -13,7 +13,7 @@ const STAMP = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:
 
 const two = (n: number) => String(n).padStart(2, '0');
 
-/** "9:22:40 am", the clock with its seconds, for events that come seconds apart. */
+/** "9:22:07 am", the clock with its seconds, for events that come seconds apart. */
 function clockWithSeconds(hour: number, minute: number, second: number): string {
   const short = clockLabel(hour * 60 + minute);
   return short.replace(/ (am|pm)$/, `:${two(second)} $1`);
@@ -21,7 +21,7 @@ function clockWithSeconds(hour: number, minute: number, second: number): string 
 
 /**
  * A bakery date or a moment, in words: "Sunday 2026-11-08", or "8:15 am on Sunday 2026-11-08" on
- * the bakery's clock whatever offset the wire used. `seconds` adds them ("9:22:40 am on …") where
+ * the bakery's clock whatever offset the wire used. `seconds` adds them ("9:22:07 am on …") where
  * events come seconds apart. "never" for nothing; the text itself when it is not a time.
  */
 export function whenText(

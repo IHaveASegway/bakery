@@ -28,9 +28,9 @@ describe('one formatter for every time shown', () => {
 
   test('a UTC stamp, as the feed carries, reads as the same bakery time', () => {
     // 16:22:40Z is 9:22:40 in Salt Lake City in November.
-    expect(whenText('2026-11-08T16:22:40.235Z')).toBe('9:22 am on Sunday 2026-11-08');
-    expect(whenText('2026-11-08T16:22:40.235Z', { seconds: true })).toBe(
-      '9:22:40 am on Sunday 2026-11-08',
+    expect(whenText('2026-11-08T16:22:07.235Z')).toBe('9:22 am on Sunday 2026-11-08');
+    expect(whenText('2026-11-08T16:22:07.235Z', { seconds: true })).toBe(
+      '9:22:07 am on Sunday 2026-11-08',
     );
   });
 
