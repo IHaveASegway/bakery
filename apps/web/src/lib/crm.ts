@@ -163,6 +163,12 @@ export function stateSays(state: CampaignState): string {
   }
 }
 
+/**
+ * What the foot of a campaign card says right after Schedule. The state line above already says it
+ * is scheduled and what moves it on, so this names only the time that was set.
+ */
+export const scheduledSaid = (sendAt: string): string => `Send time set: ${sendAtText(sendAt)}.`;
+
 // ---- The send time: Mountain wall clock, minute precision ----
 
 /** The API refuses a send time less than this many minutes ahead of business time. */

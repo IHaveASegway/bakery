@@ -31,6 +31,7 @@ import {
   segmentLabel,
   segmentSays,
   sendAtFromInput,
+  scheduledSaid,
   sendAtText,
   stateSays,
   subjectLabel,
@@ -295,7 +296,7 @@ export function CampaignCard({
     const ok = await act(`${id}:schedule:${sendAt}`, (key) =>
       scheduleCampaign(sandboxId, id, { send_at: sendAt }, key),
     );
-    if (ok) setSaid('Scheduled. Move the clock past the send time and it sends.');
+    if (ok) setSaid(scheduledSaid(sendAt));
   }
 
   return (

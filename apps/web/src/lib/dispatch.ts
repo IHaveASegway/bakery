@@ -433,6 +433,33 @@ export function pointOf(data: RouteData, place: number): { x: number; y: number 
 export const placeName = (data: RouteData | null, place: number): string | null =>
   data?.points[place]?.label ?? null;
 
+/**
+ * The Place cell's second line: the drop-off spot, only when its name says something the stop's own
+ * label does not (the label is the spot's name for a real place, so printing both said it twice).
+ */
+export function dropOffNote(label: string, name: string | null): string | null {
+  if (name === null || name.trim().toLowerCase() === label.trim().toLowerCase()) return null;
+  return `Drop-off spot: ${name}`;
+}
+
+/** The day named by a page's `?day=2026-11-10`, or null when there is none or it is not a date. */
+export function dayFromQuery(search: string): string | null {
+  const day = new URLSearchParams(search).get('day');
+  return day !== null && /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(day) ? day : null;
+}
+
+/**
+ * The query string that carries the chosen day, other parameters kept. Today is the default, so
+ * choosing it leaves the address clean. Returns "" or a string that starts with "?".
+ */
+export function queryWithDay(search: string, date: string, today: string): string {
+  const params = new URLSearchParams(search);
+  if (date === today) params.delete('day');
+  else params.set('day', date);
+  const text = params.toString();
+  return text === '' ? '' : `?${text}`;
+}
+
 /** One mark on the map: a drop-off spot with the stops of the plan at it. */
 export interface Mark {
   readonly place: number;
