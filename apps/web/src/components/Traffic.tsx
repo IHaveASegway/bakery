@@ -60,7 +60,8 @@ export default function Traffic({ sandboxId, isGuest }: { sandboxId: string; isG
           : info.running
             ? `Running at ${info.rate} ${info.rate === 1 ? 'order' : 'orders'} a minute, ${info.orders} placed so far. `
             : 'Stopped. '}
-        {info !== null && `${info.minutes_used} minutes used today, ${info.minutes_left} left.`}
+        {info !== null &&
+          `${info.minutes_used} ${info.minutes_used === 1 ? 'minute' : 'minutes'} used today, ${info.minutes_left} left.`}
       </p>
       <p className="actions">
         {PRESETS.map((rate) => (

@@ -26,6 +26,7 @@ import {
 } from '../lib/catering';
 import { describeStaffError } from '../lib/catering-errors';
 import { describeError, type Message as Text } from '../lib/messages';
+import { usePoll } from '../lib/use-poll';
 import { dollars } from '../lib/money';
 import { dateLabel, startText } from '../lib/schedule';
 import CateringFigures from './CateringFigures';
@@ -51,26 +52,30 @@ export default function CateringQueue({
   const [error, setError] = useState<Text | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async () => {
-    setBusy(true);
-    try {
-      setEvents((await listCatering(sandboxId)).events);
-      setError(null);
-    } catch (e) {
-      setError(describeError(e));
-    } finally {
-      setBusy(false);
-    }
-  }, [sandboxId]);
+  // One look at the list. `quiet` is the timer's: it leaves the Refresh button as it is, so a
+  // focused button is not disabled under the keyboard every ten seconds.
+  const load = useCallback(
+    async (quiet = false): Promise<boolean> => {
+      if (!quiet) setBusy(true);
+      try {
+        setEvents((await listCatering(sandboxId)).events);
+        setError(null);
+        return true;
+      } catch (e) {
+        setError(describeError(e));
+        return false;
+      } finally {
+        if (!quiet) setBusy(false);
+      }
+    },
+    [sandboxId],
+  );
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    const timer = setInterval(() => void load(), 10_000);
-    return () => clearInterval(timer);
-  }, [load]);
+  usePoll(() => load(true));
 
   const take = useCallback((event: CateringResponse) => {
     setEvents((list) => (list ?? []).map((e) => (e.catering === event.catering ? event : e)));

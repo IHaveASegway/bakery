@@ -91,3 +91,10 @@ export function describeTokenError(error: unknown): Message {
   }
   return describeError(error);
 }
+
+/**
+ * Whether Rotate has a token to replace. Before the first issue (and after a rotation until the
+ * next, as the API reports it) `issued_at` is absent, and a rotate would only issue a first token
+ * while saying the old one stopped working.
+ */
+export const canRotate = (info: TokenInfoResponse | null): boolean => info?.issued_at != null;

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 import { getTokenInfo, issueToken, rotateToken } from '../lib/api';
-import { INITIAL, describeTokenError, panelReduce } from '../lib/api-token';
+import { INITIAL, canRotate, describeTokenError, panelReduce } from '../lib/api-token';
 import { KeyedAction } from '../lib/crm';
 import { tokenStore } from '../lib/token-store';
 import { utcStamp } from '../lib/countdown';
@@ -68,6 +68,7 @@ export default function ApiToken({ sandboxId, isGuest }: { sandboxId: string; is
 
   const busy = state.phase === 'busy' || state.phase === 'loading';
   const { info, revealed } = state;
+  const hasToken = canRotate(info);
   return (
     <section aria-labelledby="token-heading" data-tour="console-token">
       <h3 id="token-heading">API token</h3>
@@ -107,9 +108,19 @@ export default function ApiToken({ sandboxId, isGuest }: { sandboxId: string; is
             <button type="button" disabled={busy} onClick={() => void run('issue')}>
               Issue token
             </button>
-            <button type="button" disabled={busy} onClick={() => void run('rotate')}>
+            <button
+              type="button"
+              disabled={busy || !hasToken}
+              aria-describedby="token-rotate-says"
+              onClick={() => void run('rotate')}
+            >
               Rotate
             </button>
+          </p>
+          <p id="token-rotate-says" className="hint">
+            {hasToken
+              ? 'Rotate makes a new token, and the one you have stops working at once.'
+              : 'Rotate needs a token to replace. Issue one first.'}
           </p>
         </>
       )}
