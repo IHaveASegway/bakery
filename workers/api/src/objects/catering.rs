@@ -11,8 +11,8 @@
 //!   for the inquiry, the create path, which needs `birth`); 200 with `Idempotent-Replayed:
 //!   true` for a key seen with the same body; 422 `{error: "key-reused"}` for one seen with
 //!   another; 422 `{error: "catering", rule, message?}` for a refused inquiry (and `quote-total`)
-//!   and 409 for a refused step, `message` only for `catering-lead` (it names the earliest date,
-//!   never a value the visitor sent); a refused command writes nothing. `cmd` is [`Cmd`]. With
+//!   and 409 for a refused step, `message` only for `catering-lead` and `too-early` (each names
+//!   the earliest date, never a value the visitor sent); a refused command writes nothing. `cmd` is [`Cmd`]. With
 //!   `cmd: accept`, `day` is the event day's `Schedule` birth: the place is held there first
 //!   (`hold:<key>`, `kind: catering`, until the deposit hold lapses), and a day whose two places
 //!   are taken answers 409 `{error: "schedule", rule: "slot-full"}` with nothing recorded.
@@ -263,7 +263,7 @@ pub struct Refusal {
     pub error: String,
     #[serde(default)]
     pub rule: Option<String>,
-    /// `catering-lead`'s sentence, naming the earliest date.
+    /// `catering-lead`'s and `too-early`'s sentence, naming the earliest date.
     #[serde(default)]
     pub message: Option<String>,
     #[serde(default)]
@@ -274,7 +274,7 @@ pub struct Refusal {
 pub fn refusal_of(e: &CateringError) -> (u16, Refusal) {
     let status = if e.is_inquiry_rule() { 422 } else { 409 };
     let message = match e {
-        CateringError::Lead { .. } => Some(e.to_string()),
+        CateringError::Lead { .. } | CateringError::TooEarly { .. } => Some(e.to_string()),
         _ => None,
     };
     (
@@ -1114,6 +1114,16 @@ mod tests {
         let (_, r) = refusal_of(&CateringError::UnknownPackage("anything".into()));
         assert!(r.message.is_none());
         assert!(!serde_json::to_string(&r).unwrap().contains("anything"));
+        // A step taken before its day is a refused step that names the day.
+        let (status, r) = refusal_of(&CateringError::TooEarly {
+            step: "MarkDelivered",
+            from: "2026-11-19".parse().unwrap(),
+        });
+        assert_eq!((status, r.rule.as_deref()), (409, Some("too-early")));
+        assert_eq!(
+            r.message.as_deref(),
+            Some("delivery is on the event day: 2026-11-19 at the earliest")
+        );
     }
 
     /// The saga's timers, as the object arms them: the follow-up and the expiry while quoted, the

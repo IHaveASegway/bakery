@@ -28,10 +28,17 @@
 //!   `AcceptQuote`, `StartProduction`, `MarkDelivered` or `Decline` in the state it leads to.
 //! - **Cancellation** is taken from `confirmed` only, as the diagram draws it. The deposit is
 //!   refunded when the event day is more than 7 calendar days after the cancellation's day.
-//! - **The invoice falls due 7 days after delivery** ([`INVOICE_DUE_DAYS`]), so the
-//!   `invoice_due` reminder, "when the invoice is 7 days old", is due at the opening of the due
-//!   date. The `event_soon` reminder is due at the opening of the day two calendar days before
-//!   the event.
+//! - **The staff steps keep to the event's days** (the console audit of 2026-11-08 started
+//!   production and delivered 8 days early). `StartProduction` is refused `too-early` before
+//!   the calendar day before the event ([`production_day`]; the seed starts it at 05:00 on the
+//!   event day, which this allows), and `MarkDelivered` before the event day, both in business
+//!   time. A quote is valid until midnight starting the production day if that comes before its
+//!   14th business day, so no deposit confirms an event whose bake has begun; a quote sent after
+//!   that moment is refused `quote-expired`.
+//! - **The invoice falls due 7 days after the event's date** ([`INVOICE_DUE_DAYS`]), which is
+//!   the delivery's day when delivery is on time, so the `invoice_due` reminder, "when the
+//!   invoice is 7 days old", is due at the opening of the due date. The `event_soon` reminder
+//!   is due at the opening of the day two calendar days before the event.
 //!
 //! Fields beyond the catalog's rows, all additions in envelope v1:
 //! `CateringQuoteSent.follow_up_at` and `CateringQuoteAccepted.lapses_at` (the timers' times, so
@@ -71,12 +78,17 @@ pub const DEPOSIT_BP: u32 = 2_500;
 pub const DEPOSIT_HOLD_MINUTES: i64 = 15;
 /// The `event_soon` reminder, this many calendar days before the event.
 pub const EVENT_SOON_DAYS: i64 = 2;
-/// The balance invoice falls due this many calendar days after delivery.
+/// The balance invoice falls due this many calendar days after the event's date, which is the
+/// delivery's day, since delivery is taken on the event day or later.
 pub const INVOICE_DUE_DAYS: i64 = 7;
+/// Production starts on the day this many calendar days before the event, or later.
+pub const PRODUCTION_DAYS_BEFORE: i64 = 1;
 /// A cancellation more than this many calendar days before the date refunds the deposit.
 pub const REFUND_CUTOFF_DAYS: i64 = 7;
 /// What `ExpireQuote` gives as its reason.
 pub const EXPIRY_REASON: &str = "14 business days";
+/// What `ExpireQuote` gives when the production day came before the 14 business days.
+pub const EXPIRY_REASON_PRODUCTION: &str = "the day before the event";
 
 /// The six made-up venues, by id; each is pinned to a place in the seed.
 pub const VENUES: [&str; 6] = ["v1", "v2", "v3", "v4", "v5", "v6"];
@@ -396,8 +408,22 @@ pub enum CateringError {
         /// `None` before the inquiry.
         status: Option<CateringStatus>,
     },
+    /// A staff step taken before its day: production before the day before the event, delivery
+    /// before the event day (the console audit of 2026-11-08).
+    #[error("{}: {from} at the earliest", step_text(.step))]
+    TooEarly {
+        step: &'static str,
+        from: BakeryDate,
+    },
     #[error("amount out of range")]
     Overflow,
+}
+
+fn step_text(step: &str) -> &'static str {
+    match step {
+        "StartProduction" => "production starts the day before the event",
+        _ => "delivery is on the event day",
+    }
 }
 
 fn status_text(status: Option<CateringStatus>) -> String {
@@ -436,6 +462,7 @@ impl CateringError {
             CateringError::QuoteExpired { .. } => "quote-expired",
             CateringError::AmountMismatch { .. } => "amount-mismatch",
             CateringError::OutOfOrder { .. } => "out-of-order",
+            CateringError::TooEarly { .. } => "too-early",
             CateringError::Overflow => "overflow",
         }
     }
@@ -671,19 +698,31 @@ pub fn earliest_date(now: BusinessTime) -> BakeryDate {
     BakeryDate::of(now).nth_open_day_after(LEAD_BUSINESS_DAYS)
 }
 
-/// A quote for `total`: the deposit is 25% rounded half-up and the balance the rest, valid
-/// until the opening of the 14th business day after `now`'s day.
-pub fn quote(total: Cents, now: BusinessTime) -> Result<Quote, CateringError> {
+/// The first day staff may start production for an event on `date`: the day before it.
+pub fn production_day(date: BakeryDate) -> BakeryDate {
+    date.plus_days(-PRODUCTION_DAYS_BEFORE)
+}
+
+/// A quote for `total` for an event on `date`: the deposit is 25% rounded half-up and the
+/// balance the rest, valid until the opening of the 14th business day after `now`'s day, or until
+/// midnight starting the production day if that comes first, the last moment a deposit can
+/// still confirm the event before its bake begins (the console audit of 2026-11-08 saw a quote
+/// valid 8 days past its own event).
+pub fn quote(total: Cents, now: BusinessTime, date: BakeryDate) -> Result<Quote, CateringError> {
     if total < Cents(1) {
         return Err(CateringError::QuoteTotal);
     }
     let (deposit, balance) = total.split(DEPOSIT_BP)?;
     let day = BakeryDate::of(now);
+    let valid_until = day
+        .nth_open_day_after(QUOTE_VALID_BUSINESS_DAYS)
+        .opening()
+        .min(production_day(date).at_local(0));
     Ok(Quote {
         total,
         deposit,
         balance,
-        valid_until: day.nth_open_day_after(QUOTE_VALID_BUSINESS_DAYS).opening(),
+        valid_until,
         follow_up_at: day.nth_open_day_after(FOLLOW_UP_BUSINESS_DAYS).opening(),
     })
 }
@@ -894,7 +933,13 @@ fn decide_submitted(
                         .ok_or(CateringError::Overflow)?
                 }
             };
-            let q = quote(total, ctx.now)?;
+            let q = quote(total, ctx.now, r.date)?;
+            // Past the production day's start no deposit can confirm the event in time.
+            if ctx.now >= q.valid_until {
+                return Err(CateringError::QuoteExpired {
+                    valid_until: q.valid_until,
+                });
+            }
             Ok(vec![CateringEvent::CateringQuoteSent {
                 total_cents: q.total,
                 deposit_cents: q.deposit,
@@ -966,22 +1011,41 @@ fn decide_submitted(
         }
         CateringCommand::ExpireQuote => match (r.status, r.quote) {
             (S::Quoted, Some(q)) if ctx.now >= q.valid_until => {
+                // A quote capped by the production day ends at midnight, never at the opening.
+                let reason = if q.valid_until == production_day(r.date).at_local(0) {
+                    EXPIRY_REASON_PRODUCTION
+                } else {
+                    EXPIRY_REASON
+                };
                 Ok(vec![CateringEvent::CateringQuoteExpired {
-                    reason: Some(EXPIRY_REASON.to_owned()),
+                    reason: Some(reason.to_owned()),
                 }])
             }
             _ => none,
         },
         CateringCommand::StartProduction => match r.status {
+            S::Confirmed if BakeryDate::of(ctx.now) < production_day(r.date) => {
+                Err(CateringError::TooEarly {
+                    step: cmd.name(),
+                    from: production_day(r.date),
+                })
+            }
             S::Confirmed => Ok(vec![CateringEvent::CateringProductionStarted {}]),
             S::InProduction => none,
             _ => Err(out_of_order()),
         },
         CateringCommand::MarkDelivered => match (r.status, r.quote) {
+            (S::InProduction, Some(_)) if BakeryDate::of(ctx.now) < r.date => {
+                Err(CateringError::TooEarly {
+                    step: cmd.name(),
+                    from: r.date,
+                })
+            }
+            // Due from the event's date, so a late "delivered" does not move the terms.
             (S::InProduction, Some(q)) => Ok(vec![CateringEvent::CateringDelivered {
                 customer: r.customer,
                 balance_cents: q.balance,
-                due: BakeryDate::of(ctx.now).plus_days(INVOICE_DUE_DAYS),
+                due: r.date.plus_days(INVOICE_DUE_DAYS),
             }]),
             (S::Delivered, _) => none,
             _ => Err(out_of_order()),
@@ -1292,15 +1356,16 @@ mod tests {
                 (deposit(10), "2026-11-04T09:21:00-07:00"),
             ],
         ));
-        // A reminder in production: production started before event_soon was due.
-        let early = step(confirmed(), C::StartProduction, "2026-11-18T05:00:00-07:00").unwrap();
+        // A reminder in production: the clock jumped past event_soon's time to the production
+        // day, and production started before the reminder's timer ran.
+        let early = step(confirmed(), C::StartProduction, "2026-11-20T05:00:00-07:00").unwrap();
         walked.extend(edges(
             early,
             &[(
                 C::FireReminder {
                     kind: ReminderKind::EventSoon,
                 },
-                "2026-11-19T07:00:00-07:00",
+                "2026-11-20T05:01:00-07:00",
             )],
         ));
         let expected: BTreeSet<_> = TRANSITIONS.iter().copied().collect();
@@ -1464,7 +1529,7 @@ mod tests {
         let late_friday = at("2026-10-31T05:30:00+00:00");
         assert_eq!(BakeryDate::of(late_friday), date("2026-10-30"));
         assert_eq!(earliest_date(late_friday), date("2026-11-07"));
-        let q = quote(Cents(10_000), late_friday).unwrap();
+        let q = quote(Cents(10_000), late_friday, date("2026-12-31")).unwrap();
         // The quote is valid until 07:00 standard time, two weeks of open days on.
         assert_eq!(q.valid_until.to_string(), "2026-11-15T07:00:00-07:00");
         assert_eq!(q.follow_up_at.to_string(), "2026-11-03T07:00:00-07:00");
@@ -1472,7 +1537,7 @@ mod tests {
         // Sat 20 is the 7th, and the quote runs to 07:00 daylight time on Sunday the 28th.
         let friday = at("2027-03-12T16:00:00-07:00");
         assert_eq!(earliest_date(friday), date("2027-03-20"));
-        let q = quote(Cents(10_000), friday).unwrap();
+        let q = quote(Cents(10_000), friday, date("2027-04-30")).unwrap();
         assert_eq!(q.valid_until.to_string(), "2027-03-28T07:00:00-06:00");
         // The deposit hold is 15 minutes of elapsed time, whatever the clock shows.
         let s = step(
@@ -1847,6 +1912,161 @@ mod tests {
     }
 
     #[test]
+    fn production_and_delivery_keep_to_the_event_days_and_the_balance_is_due_from_the_date() {
+        // The event is on Saturday 2026-11-21: production from Friday the 20th, delivery from
+        // the 21st, in business time. The console audit of 2026-11-08 did both 8 days early.
+        let c = confirmed();
+        let too_early = decide(
+            &c,
+            CateringCommand::StartProduction,
+            "2026-11-19T23:59:00-07:00",
+        );
+        assert_eq!(
+            too_early,
+            Err(CateringError::TooEarly {
+                step: "StartProduction",
+                from: date("2026-11-20")
+            })
+        );
+        let e = too_early.unwrap_err();
+        assert_eq!(e.rule(), "too-early");
+        assert_eq!(
+            e.to_string(),
+            "production starts the day before the event: 2026-11-20 at the earliest"
+        );
+        // The audit's case: a deposit paid, then production at once, 17 days early here.
+        assert_eq!(
+            decide(&c, CateringCommand::StartProduction, PAID_AT)
+                .unwrap_err()
+                .rule(),
+            "too-early"
+        );
+        let timers_before = timers(&c);
+        let p = step(
+            c.clone(),
+            CateringCommand::StartProduction,
+            "2026-11-20T00:00:00-07:00",
+        )
+        .unwrap();
+        assert_eq!(p.status(), Some(S::InProduction));
+        // The saga's timers are the ones it had: the guard arms nothing.
+        assert_eq!(timers(&p), timers_before);
+        let early = decide(
+            &p,
+            CateringCommand::MarkDelivered,
+            "2026-11-20T23:59:00-07:00",
+        );
+        assert_eq!(
+            early,
+            Err(CateringError::TooEarly {
+                step: "MarkDelivered",
+                from: date("2026-11-21")
+            })
+        );
+        assert_eq!(
+            early.unwrap_err().to_string(),
+            "delivery is on the event day: 2026-11-21 at the earliest"
+        );
+        let delivered_due = |now: &str| match decide(&p, CateringCommand::MarkDelivered, now)
+            .unwrap()
+            .as_slice()
+        {
+            [CateringEvent::CateringDelivered { due, .. }] => *due,
+            other => panic!("{other:?}"),
+        };
+        // On the event day, from midnight: due a week after the date.
+        assert_eq!(
+            delivered_due("2026-11-21T00:00:00-07:00"),
+            date("2026-11-28")
+        );
+        // Marked delivered late, the terms stay those of the event's date.
+        assert_eq!(
+            delivered_due("2026-11-24T10:00:00-07:00"),
+            date("2026-11-28")
+        );
+        // The seed's own times: production at 05:00 on the event day, delivery at 11:00.
+        let seeded = step(c, CateringCommand::StartProduction, EVENT_MORNING).unwrap();
+        assert!(step(seeded, CateringCommand::MarkDelivered, DELIVERED_AT).is_ok());
+    }
+
+    #[test]
+    fn a_quote_is_valid_no_later_than_the_production_days_start() {
+        // The audit's case: an inquiry on Sunday 2026-11-08 for Thursday 2026-11-19, quoted the
+        // same morning. Fourteen open days would run to 07:00 on 2026-11-27, past the event.
+        let s = step(
+            CateringState::default(),
+            submit_cmd(SubmitInquiry {
+                date: date("2026-11-19"),
+                ..inquiry()
+            }),
+            "2026-11-08T09:00:00-07:00",
+        )
+        .unwrap();
+        let q = step(
+            s.clone(),
+            CateringCommand::SendQuote { total: None },
+            "2026-11-08T09:30:00-07:00",
+        )
+        .unwrap();
+        let sent = q.record().unwrap().quote.unwrap();
+        assert_eq!(sent.valid_until.to_string(), "2026-11-18T00:00:00-07:00");
+        // The follow-up keeps its 3 business days.
+        assert_eq!(sent.follow_up_at.to_string(), "2026-11-12T07:00:00-07:00");
+        assert_eq!(
+            timers(&q)
+                .iter()
+                .find(|t| t.kind == TimerKind::QuoteExpiry)
+                .map(|t| t.at),
+            Some(sent.valid_until)
+        );
+        assert!(
+            step(
+                q.clone(),
+                CateringCommand::AcceptQuote,
+                "2026-11-17T23:59:00-07:00"
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            decide(
+                &q,
+                CateringCommand::AcceptQuote,
+                "2026-11-18T00:00:00-07:00"
+            )
+            .unwrap_err()
+            .rule(),
+            "quote-expired"
+        );
+        let (expired, events) = execute::<Catering>(
+            q,
+            &CateringCommand::ExpireQuote,
+            &ctx_at("2026-11-18T00:00:00-07:00"),
+        )
+        .unwrap();
+        assert_eq!(expired.status(), Some(S::Expired));
+        assert_eq!(
+            events,
+            [CateringEvent::CateringQuoteExpired {
+                reason: Some("the day before the event".into())
+            }]
+        );
+        // A quote sent once the production day has begun could confirm nothing: refused.
+        assert_eq!(
+            decide(
+                &s,
+                CateringCommand::SendQuote { total: None },
+                "2026-11-18T00:00:00-07:00"
+            ),
+            Err(CateringError::QuoteExpired {
+                valid_until: at("2026-11-18T00:00:00-07:00")
+            })
+        );
+        // A far event keeps its 14 business days.
+        let far = quote(Cents(10_000), at(NOW), date(DATE)).unwrap();
+        assert_eq!(far.valid_until.to_string(), "2026-11-19T07:00:00-07:00");
+    }
+
+    #[test]
     fn a_cancellation_refunds_the_deposit_only_more_than_seven_days_out() {
         let cancel = CateringCommand::Cancel {
             by: CancelledBy::Staff,
@@ -2138,7 +2358,7 @@ mod tests {
     proptest! {
         #[test]
         fn deposit_plus_balance_is_the_total(total in 1i64..=1_000_000_000) {
-            let q = quote(Cents(total), at(NOW)).unwrap();
+            let q = quote(Cents(total), at(NOW), date(DATE)).unwrap();
             prop_assert_eq!(q.deposit.0 + q.balance.0, total);
             prop_assert!(q.deposit >= Cents::ZERO && q.balance >= Cents::ZERO);
             // 25% rounded half-up: within half a cent of the exact quarter.

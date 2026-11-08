@@ -6542,7 +6542,7 @@
                 }
               }
             },
-            "description": "`catering`: out of order",
+            "description": "`catering`: `out-of-order`; `too-early` before the event day",
             "x-problems": [
               "catering"
             ]
@@ -7071,7 +7071,7 @@
                 }
               }
             },
-            "description": "`catering`: `out-of-order`",
+            "description": "`catering`: `out-of-order`, or `quote-expired` once the day before the event has begun",
             "x-problems": [
               "catering"
             ]
@@ -7421,7 +7421,7 @@
                 }
               }
             },
-            "description": "`catering`: unless confirmed",
+            "description": "`catering`: `out-of-order` unless confirmed; `too-early` before the day before the event",
             "x-problems": [
               "catering"
             ]

@@ -651,12 +651,12 @@ pub fn catering(status: u16, rule: &str, message: Option<&str>) -> Failure {
         "unknown-venue" => "The venue is not one of v1 to v6.".to_owned(),
         "closed-day" => "The bakery is closed that day: it opens Tuesday to Sunday.".to_owned(),
         "catering-lead" => match message {
-            Some(m) => {
-                let mut chars = m.chars();
-                let first = chars.next().map(|c| c.to_uppercase().collect::<String>());
-                format!("{}{}.", first.unwrap_or_default(), chars.as_str())
-            }
+            Some(m) => sentence_of(m),
             None => "A catering event needs 7 business days' notice (Tuesday to Sunday).".to_owned(),
+        },
+        "too-early" => match message {
+            Some(m) => sentence_of(m),
+            None => "Production starts the day before the event, and delivery is on the event day.".to_owned(),
         },
         "brief-too-long" => "The brief is longer than 500 characters.".to_owned(),
         "brief-email" => brief_sentence("an email address"),
@@ -665,7 +665,7 @@ pub fn catering(status: u16, rule: &str, message: Option<&str>) -> Failure {
         "brief-url" => brief_sentence("a web address"),
         "quote-total" => "A quote's total is at least 1 cent.".to_owned(),
         "date" => "The date is not a day such as 2026-11-21.".to_owned(),
-        "quote-expired" => "The quote expired: its 14 business days have passed. Ask for a new inquiry.".to_owned(),
+        "quote-expired" => "The quote expired: its 14 business days have passed, or the day before the event has begun. Ask for a new inquiry.".to_owned(),
         "out-of-order" => "The catering event is not in a state that takes this step.".to_owned(),
         "amount-mismatch" => "The payment is not the amount the quote asks for.".to_owned(),
         _ => "The catering request does not fit the bakery's rules.".to_owned(),
@@ -685,6 +685,13 @@ pub fn catering(status: u16, rule: &str, message: Option<&str>) -> Failure {
         retry_after: None,
         reason: "catering",
     }
+}
+
+/// The domain's clause as a sentence: a capital first letter and a full stop.
+fn sentence_of(m: &str) -> String {
+    let mut chars = m.chars();
+    let first = chars.next().map(|c| c.to_uppercase().collect::<String>());
+    format!("{}{}.", first.unwrap_or_default(), chars.as_str())
 }
 
 fn brief_sentence(what: &str) -> String {
@@ -1089,6 +1096,23 @@ mod tests {
         let step = catering(409, "quote-expired", None);
         assert_eq!(step.problem.status, 409);
         assert!(step.problem.detail.unwrap().contains("quote-expired"));
+        let early = catering(
+            409,
+            "too-early",
+            Some("production starts the day before the event: 2026-11-18 at the earliest"),
+        );
+        assert_eq!(early.problem.status, 409);
+        assert_eq!(
+            early.problem.detail.unwrap(),
+            "Production starts the day before the event: 2026-11-18 at the earliest. The rule is too-early."
+        );
+        assert!(
+            catering(409, "too-early", None)
+                .problem
+                .detail
+                .unwrap()
+                .ends_with(" The rule is too-early.")
+        );
         let full = catering_full();
         assert_eq!(full.problem.status, 409);
         assert!(full.problem.problem_type.ends_with("/slot-full"));
