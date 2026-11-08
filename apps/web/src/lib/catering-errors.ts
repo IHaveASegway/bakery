@@ -2,7 +2,7 @@
 // whose `detail` names the rule (`CateringError::rule()`): `headcount`, `unknown-package`,
 // `unknown-venue`, `closed-day`, `catering-lead` (naming the earliest date), `brief-too-long`,
 // `brief-email`, `brief-phone`, `brief-card-number`, `brief-url`. A refused step is a 409
-// `catering` naming `quote-expired` or `out-of-order`, or a 409 `slot-full` when the day's two
+// `catering` naming `quote-expired`, `out-of-order` or `too-early` (since 2026-11-08), or a 409 `slot-full` when the day's two
 // catering places are taken; staff get a 403 `guest-scope` as a guest. These sentences name the
 // rule and nothing the visitor typed, so the brief is never echoed (docs/domain.md, "Free text and
 // personal data").
@@ -27,6 +27,8 @@ const SENTENCES: Record<string, string> = {
   'quote-total': 'A quote’s total must be at least one cent.',
   'quote-expired': 'This quote has expired, so it can no longer be accepted.',
   'out-of-order': 'That step is not open in the event’s current state. Refresh to see where it is.',
+  'too-early':
+    'That step comes too early. Production may start the day before the event and delivery on the event day; the API names the first day allowed.',
   'amount-mismatch': 'The amount did not match what the quote says is due.',
   overflow: 'That total is too large for the bakery to work with.',
   'slot-full': 'The day’s two catering places are taken. Choose another date.',
