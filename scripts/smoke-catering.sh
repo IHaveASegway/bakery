@@ -155,10 +155,43 @@ ulid() {
 }
 random_text() { node -e "process.stdout.write(require('crypto').randomBytes(64).toString('base64').replace(/[^A-Za-z0-9]/g,'').slice(0, $1))"; }
 
+# The API allows a session COMMAND_LIMIT commands a minute (60 in 60 s, workers/api/wrangler.jsonc,
+# read on 2026-11-08). Session D's path here, the saga plus its clock steps, whose count the day's
+# dates decide, sits at that limit: on 2026-11-08 the wipe at its end got 429 rate-limit in 2 runs
+# of 3. So before each command, a session that has sent PACE_LIMIT commands inside the last
+# PACE_WINDOW seconds waits until its oldest is older than the window. The window is a second wider
+# than the API's and the limit three under it, for the clocks' disagreement and whole-second stamps.
+PACE_LIMIT=57
+PACE_WINDOW=61
+declare -A PACE_TIMES
+pace() {
+  local jar_name="$1" now t
+  now=$(date +%s)
+  local kept=()
+  for t in ${PACE_TIMES[$jar_name]:-}; do
+    if (( now - t < PACE_WINDOW )); then kept+=("$t"); fi
+  done
+  if (( ${#kept[@]} >= PACE_LIMIT )); then
+    local wait=$(( kept[0] + PACE_WINDOW - now ))
+    echo "--- pacing $jar_name: ${#kept[@]} commands in the last $PACE_WINDOW s, waiting $wait s for the API's limit"
+    sleep "$wait"
+    now=$(date +%s)
+    local again=()
+    for t in "${kept[@]}"; do
+      if (( now - t < PACE_WINDOW )); then again+=("$t"); fi
+    done
+    kept=("${again[@]}")
+  fi
+  kept+=("$now")
+  PACE_TIMES[$jar_name]="${kept[*]}"
+}
+
 # command_as NAME JAR IP METHOD PATH [JSON]: a browser's command, with Origin, a fresh
-# Idempotency-Key on POST (or $KEY), the visitor's cookies and a CF-Connecting-IP.
+# Idempotency-Key on POST (or $KEY), the visitor's cookies and a CF-Connecting-IP. Paced per
+# session, see above.
 command_as() {
   local name="$1" jar_name="$2" ip="$3" method="$4" path="$5" body="${6:-}"
+  pace "$jar_name"
   local args=(-X "$method" -H "Origin: $STOREFRONT" -H "CF-Connecting-IP: $ip")
   if [[ "$method" == POST ]]; then args+=(-H "Idempotency-Key: ${KEY:-$(ulid)}"); fi
   if [[ -n "$body" ]]; then args+=(-H 'Content-Type: application/json' --data "$body"); fi
@@ -369,15 +402,13 @@ saga_to() {
   catering_until "${name}_confirmed" "$jar_name" "$id" "$CID" "b.state === 'confirmed'" || true
 }
 
-# advance_days JAR IP SANDBOX N: N steps of 1d on the sandbox's clock.
-# A short pause between the steps: a session spends COMMAND_LIMIT (60 commands a minute) on every
-# command it sends, and a fast run with a long advance has reached the wipe inside that minute with
-# the limit spent (429 rate-limit, 2026-11-08); the pause keeps the whole run under it.
+# advance_days JAR IP SANDBOX N: N steps of 1d on the sandbox's clock, each a command the
+# session's pacing counts (the fixed pause of 2026-11-08 between the steps is gone: `pace` waits
+# only when the count asks for it).
 advance_days() {
   local n
   for n in $(seq 1 "$4"); do
     command_as "clock_$3_$n" "$1" "$2" POST "/v1/sandboxes/$3/clock" '{"step":"1d"}'
-    sleep 0.3
   done
 }
 
