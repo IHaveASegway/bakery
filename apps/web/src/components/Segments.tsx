@@ -45,7 +45,7 @@ export default function Segments({ sandboxId, refresh }: { sandboxId: string; re
 
   return (
     <section aria-labelledby="segments-heading">
-      <h3 id="segments-heading" data-tour="crm-segments">
+      <h3 id="segments-heading" tabIndex={-1} data-tour="crm-segments">
         Segments
       </h3>
       <p>

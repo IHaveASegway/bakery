@@ -72,7 +72,9 @@ export default function ClockControl({
 
   return (
     <>
-      <h3 data-tour="controls-clock">Clock</h3>
+      <h3 id="clock-heading" tabIndex={-1} data-tour="controls-clock">
+        Clock
+      </h3>
       <p>
         Business time is{' '}
         <strong>

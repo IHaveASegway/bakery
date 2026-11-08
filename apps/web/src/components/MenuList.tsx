@@ -58,17 +58,22 @@ export default function MenuList({ menu, onAdd }: Props) {
   useEffect(() => setNow(Date.now()), []);
 
   return (
-    <div className="menu" data-tour="menu-list">
-      {menu.categories.map((category) => (
+    <div className="menu">
+      {menu.categories.map((category, categoryIndex) => (
         <section key={category.slug} aria-labelledby={`cat-${category.slug}`} className="category">
           <h2 id={`cat-${category.slug}`}>{category.name}</h2>
           <ul className="items">
-            {category.items.map((item) => {
+            {category.items.map((item, itemIndex) => {
               const paused = item.status === 'paused';
               const inSeasonNow = seasonOpen(item, now);
               const unavailable = paused || !inSeasonNow;
               return (
-                <li key={item.slug} className="item">
+                <li
+                  key={item.slug}
+                  className="item"
+                  // The tour rings the first card only: the whole list is thousands of pixels tall.
+                  data-tour={categoryIndex === 0 && itemIndex === 0 ? 'menu-list' : undefined}
+                >
                   <Glyph category={category.slug} className="glyph" />
                   <div className="item-body">
                     <h3>{item.name}</h3>

@@ -89,7 +89,9 @@ export default function MenuEditor({
 
   return (
     <>
-      <h3 data-tour="controls-menu">Menu</h3>
+      <h3 id="menu-heading" tabIndex={-1} data-tour="controls-menu">
+        Menu
+      </h3>
       <p>
         Version {menu?.version ?? '…'} is published. A new price waits as a draft until you publish;
         one publish makes a new version, and the next read of the menu misses the cache once. Pause

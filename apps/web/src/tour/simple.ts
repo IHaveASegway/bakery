@@ -102,7 +102,8 @@ export const SIGNIN: TourStep[] = [
   },
 ];
 
-// The steps run down the page: the cart, the list, then the note about where the menu came from.
+// The steps run down the page, on a phone too: the cart, the list, then the note about where the menu
+// came from. The list step rings the first card, since the whole list is thousands of pixels tall.
 export const MENU: TourStep[] = [
   {
     id: 'menu-cart',
@@ -129,7 +130,7 @@ export const MENU: TourStep[] = [
     screen: 'menu',
     target: 'menu-list',
     title: 'Twenty-four items, drawn not photographed',
-    what: 'Each item shows its variants, prices in US dollars, allergens and how far ahead it needs notice. A price you change in the console is a draft until you publish; publishing bumps the menu’s version, which is what makes the cache miss.',
+    what: 'The first card is ringed; each of the 24 items is a card like it. A card shows its variants, prices in US dollars, allergens and how far ahead it needs notice. A price you change in the console is a draft until you publish; publishing bumps the menu’s version, which is what makes the cache miss.',
     events: ['MenuItemChanged', 'MenuPublished'],
     principle: CACHE,
     api: {

@@ -13,7 +13,7 @@ import { API_PAGE, CHECKOUT, HOME, MENU, PRIVACY, SIGNIN, STATUS } from './simpl
 // The console's steps in the order its sections render (components/Console.tsx), so Next walks
 // down the page and never jumps back up. The step files group steps by topic; this list is the
 // page's order. A step missing from it, or named twice, throws when the module loads.
-const CONSOLE_ORDER = [
+export const CONSOLE_ORDER = [
   'console-sandbox',
   'console-token',
   'kitchen-board',
