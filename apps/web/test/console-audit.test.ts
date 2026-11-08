@@ -119,6 +119,18 @@ describe('the bake list', () => {
     expect(bakeLineText({ item: 'country-loaf', qty: 12 })).toBe('12 × country loaf');
   });
 
+  test('the API’s catering flag decides, and a package slug still does for an older frame', () => {
+    expect(bakeLineText({ item: 'spring-tasting', qty: 30, catering: true })).toBe(
+      'spring tasting for 30 people',
+    );
+    expect(bakeLineText({ item: 'breakfast-spread', qty: 40, catering: true })).toBe(
+      'Breakfast spread for 40 people',
+    );
+    expect(bakeLineText({ item: 'country-loaf', qty: 12, catering: false })).toBe(
+      '12 × country loaf',
+    );
+  });
+
   test('with no plan from today on, it says what makes one, and that the clock does not', () => {
     const html = renderToStaticMarkup(createElement(BakeList, { lists: [], today: '2026-11-08' }));
     expect(html).toContain('when an order or a catering deposit for it is paid');

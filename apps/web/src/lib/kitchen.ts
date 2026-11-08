@@ -462,12 +462,14 @@ export function groupBakeLines(lines: BakeLine[]): BakeGroup[] {
 /**
  * One line of a bake list in words: "12 × country loaf" for a menu item, and "Breakfast spread for
  * 40 people" for a catering event, whose line is the package's slug with the headcount as its
- * quantity (crates/domain/src/schedule.rs, "The catering place").
+ * quantity (crates/domain/src/schedule.rs, "The catering place"). The API marks such a line
+ * `catering: true` since 2026-11-08; a frame from before that is told apart by the package slug.
  */
-export function bakeLineText(line: { item: string; qty: number }): string {
+export function bakeLineText(line: { item: string; qty: number; catering?: boolean }): string {
   const pack = PACKAGES.find((p) => p.slug === line.item);
-  if (pack !== undefined) {
-    return `${pack.label} for ${line.qty} ${line.qty === 1 ? 'person' : 'people'}`;
+  if (line.catering === true || pack !== undefined) {
+    const label = pack?.label ?? line.item.replaceAll('-', ' ');
+    return `${label} for ${line.qty} ${line.qty === 1 ? 'person' : 'people'}`;
   }
   return `${line.qty} × ${line.item.replaceAll('-', ' ')}`;
 }
