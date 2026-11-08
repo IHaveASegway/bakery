@@ -621,11 +621,30 @@ button.link:disabled {
   }
 }
 
+/* A meter with a track and a fill that differ in both schemes, so an empty bar and a full one read
+   apart: the track is a pale surface with a border, the fill is the primary colour. */
 progress {
   width: min(24rem, 100%);
   height: 1rem;
   vertical-align: middle;
-  accent-color: var(--primary);
+  appearance: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--primary);
+  overflow: hidden;
+}
+
+progress::-webkit-progress-bar {
+  background: var(--surface-2);
+}
+
+progress::-webkit-progress-value {
+  background: var(--primary);
+}
+
+progress::-moz-progress-bar {
+  background: var(--primary);
 }
 
 /* The dispatch screen's map. Colors come from the --map-* tokens, never a literal here, and no

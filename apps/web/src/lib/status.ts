@@ -126,7 +126,12 @@ export function readStatus(raw: unknown): StatusData | null {
 export type Model =
   | { kind: 'loading' }
   | { kind: 'answered'; data: StatusData; fetchedAt: string }
-  | { kind: 'unreachable'; cached: { data: StatusData; fetchedAt: string } | null };
+  | {
+      kind: 'unreachable';
+      cached: { data: StatusData; fetchedAt: string } | null;
+      /** The HTTP status when the API did answer but not with a status; absent for a network failure. */
+      status?: number;
+    };
 
 // ---- The one storage key -----------------------------------------------------------------
 
@@ -219,11 +224,30 @@ export function breakerWords(b: BreakerStatus): string {
   }
 }
 
-/** The sentence for an unreachable API, with the kept response's time when there is one. */
-export function unreachableWords(cached: { fetchedAt: string } | null): string {
+/** The bold label for a failed look: an answer that was an error is not an unreachable API. */
+export function failureLabel(status?: number): string {
+  return status === undefined ? 'Unreachable.' : 'Not available.';
+}
+
+/**
+ * The sentence for a failed look, with the kept response's time when there is one. A `status`
+ * means the API answered with an error; without one the request got no answer at all.
+ */
+export function unreachableWords(cached: { fetchedAt: string } | null, status?: number): string {
+  const lead =
+    status === undefined
+      ? 'The API is unreachable'
+      : `The API answered ${status}, so it is not available`;
   return cached === null
-    ? 'The API is unreachable, and this browser has no earlier answer to show.'
-    : `The API is unreachable. This is the last answer this browser saw, from ${formatTime(cached.fetchedAt)}.`;
+    ? `${lead}, and this browser has no earlier answer to show.`
+    : `${lead}. This is the last answer this browser saw, from ${formatTime(cached.fetchedAt)}.`;
+}
+
+/** The HTTP status carried by a rejected call (an ApiError), or undefined for a network failure. */
+export function failureStatus(error: unknown): number | undefined {
+  if (!isObject(error) && !(error instanceof Error)) return undefined;
+  const status = (error as { status?: unknown }).status;
+  return typeof status === 'number' && Number.isInteger(status) ? status : undefined;
 }
 
 // ---- The poller --------------------------------------------------------------------------
@@ -231,8 +255,8 @@ export function unreachableWords(cached: { fetchedAt: string } | null): string {
 export interface PollerDeps {
   /** Asks the API once; a rejection means it could not be reached. */
   load: () => Promise<unknown>;
-  /** Called with each outcome: the response, or null when the call failed. */
-  deliver: (raw: unknown | null) => void;
+  /** Called with each outcome: the response, or null when the call failed (and why, if known). */
+  deliver: (raw: unknown | null, failure?: unknown) => void;
   visible: () => boolean;
   every: (run: () => void, ms: number) => unknown;
   cancel: (handle: unknown) => void;
@@ -250,8 +274,8 @@ export function createPoller(deps: PollerDeps) {
       (raw) => {
         if (!stopped) deps.deliver(raw);
       },
-      () => {
-        if (!stopped) deps.deliver(null);
+      (failure) => {
+        if (!stopped) deps.deliver(null, failure);
       },
     );
   };
