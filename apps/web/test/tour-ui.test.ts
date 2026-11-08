@@ -4,7 +4,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
-import Tour, { TourCard } from '../src/components/Tour';
+import Tour, { TourCard, revealDelta, tokenHint } from '../src/components/Tour';
 import { ESSAYS, ESSAY_PAGES } from '../src/lib/links';
 import { SCREENS } from '../src/lib/tour';
 import { TOURS } from '../src/tour';
@@ -31,17 +31,19 @@ describe('the closed tour', () => {
 
 describe('the open card', () => {
   const total = TOURS.menu.length;
+  // The menu's note on where it came from is the last step, as it is the last thing on the page.
+  const how = TOURS.menu.findIndex((s) => s.id === 'menu-how');
 
   test('shows the progress, the title, what it is and the principle', () => {
-    const html = card('menu', 0);
-    expect(html).toContain(`1 of ${total}`);
+    const html = card('menu', how);
+    expect(html).toContain(`${how + 1} of ${total}`);
     expect(html).toContain('Where the menu came from');
     expect(html).toContain('This is the demo’s seed menu');
     expect(html).toContain('Cache invalidation by version');
   });
 
   test('links the principle’s lab page and its ADR, both with rel="noopener"', () => {
-    const html = card('menu', 0);
+    const html = card('menu', how);
     expect(html).toContain('Read how it works:');
     expect(html).toContain(
       '<a href="https://ihaveasegway.com/lab/cache/" rel="noopener">Cache Lab</a>',
@@ -113,9 +115,9 @@ describe('the open card', () => {
   });
 
   test('names the events, shows the curl masked or with <your token>, and offers a copy', () => {
-    const html = card('menu', 1);
-    expect(card('menu', 2)).toContain('Events this action produces');
-    expect(card('menu', 2)).toContain('<code>MenuPublished</code>');
+    const html = card('menu', 0);
+    expect(card('menu', 1)).toContain('Events this action produces');
+    expect(card('menu', 1)).toContain('<code>MenuPublished</code>');
     expect(html).toContain('curl -X POST');
     expect(html).toContain('Authorization: Bearer &lt;your token&gt;');
     expect(html).toContain('/v1/sandboxes/&lt;sandbox id&gt;/orders');
@@ -124,7 +126,7 @@ describe('the open card', () => {
   });
 
   test('a step that makes no event says so', () => {
-    expect(card('menu', 1)).toContain('This action makes no new event of its own');
+    expect(card('menu', 0)).toContain('This action makes no new event of its own');
   });
 
   test('back is off on the first step, and the last step says Done', () => {
@@ -141,5 +143,75 @@ describe('the open card', () => {
         expect(card(screen, i), step.id).toContain(step.title.replaceAll('’', '’'));
       });
     }
+  });
+});
+
+describe('the trigger before the island has hydrated', () => {
+  test.each(SCREENS)('%s draws it disabled, with its text', (screen) => {
+    const html = renderToStaticMarkup(createElement(Tour, { screen }));
+    expect(html).toMatch(/<button[^>]*class="tour-trigger"[^>]*disabled=""[^>]*>Take the tour</);
+  });
+});
+
+describe('where the page scrolls to show a step’s target', () => {
+  // The window's free part is 16 to 400 (the bar starts at 416 with a 16 px gap).
+  test('leaves a target already in the free part where it is', () => {
+    expect(revealDelta(100, 200, 16, 400)).toBe(0);
+  });
+  test('brings a target above the free part down to its top', () => {
+    expect(revealDelta(-300, -200, 16, 400)).toBe(-316);
+  });
+  test('brings a target below the free part up to the bar, so the bar is under it', () => {
+    expect(revealDelta(500, 600, 16, 400)).toBe(200);
+  });
+  test('shows a target taller than the free part from its top', () => {
+    expect(revealDelta(300, 4000, 16, 400)).toBe(284);
+    expect(revealDelta(-900, 2000, 16, 400)).toBe(-916);
+  });
+});
+
+describe('what the card says about the token', () => {
+  test('tells a signed-in account where to issue one, not to sign in', () => {
+    const text = tokenHint({ name: 'live', id: 'sandbox-x', kind: 'google', clockOffsetS: 0 });
+    expect(text).toContain('API token panel');
+    expect(text).not.toContain('Sign in');
+  });
+  test('tells a guest that a guest cannot issue one', () => {
+    expect(tokenHint({ name: 'live', id: 'sandbox-x', kind: 'guest', clockOffsetS: 0 })).toContain(
+      'A guest cannot issue one',
+    );
+  });
+  test('tells a visitor with no session to sign in', () => {
+    expect(tokenHint({ name: 'nosession' })).toContain('Sign in and issue one');
+  });
+});
+
+describe('the console tour', () => {
+  test('walks the page from the top to the actions, in the order the sections render', () => {
+    expect(TOURS.console.map((step) => step.target)).toEqual([
+      'console-sandbox',
+      'console-token',
+      'kitchen-board',
+      'kitchen-refund',
+      'kitchen-bake',
+      'kitchen-ledger',
+      'controls-traffic',
+      'controls-traffic',
+      'controls-menu',
+      'controls-menu',
+      'controls-capacity',
+      ...Array<string>(5).fill('crm-catering-queue'),
+      'crm-customers',
+      'crm-segments',
+      ...Array<string>(4).fill('crm-campaigns'),
+      'crm-leads',
+      'crm-activity',
+      'crm-rebuild',
+      'controls-faults',
+      'kitchen-dead-letters',
+      'controls-clock',
+      'controls-actions',
+      'controls-actions',
+    ]);
   });
 });
