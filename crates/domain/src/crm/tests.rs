@@ -1102,6 +1102,12 @@ fn every_catering_step_crm_hears_of_is_an_activity_row() {
             payment: ulid(901),
             amount_cents: Cents(15_000),
         },
+        CateringEvent::CateringProductionStarted {},
+        CateringEvent::CateringDelivered {
+            customer: ulid(ALDER),
+            balance_cents: Cents(45_000),
+            due: "2026-12-05".parse().unwrap(),
+        },
         CateringEvent::CateringBalanceInvoiced {
             invoice: ulid(902),
             amount_cents: Cents(45_000),
@@ -1151,6 +1157,8 @@ fn every_catering_step_crm_hears_of_is_an_activity_row() {
         "Catering quote sent: $600.00, deposit $150.00",
         "Catering quote accepted",
         "Catering deposit paid: $150.00",
+        "Catering production started",
+        "Catering delivered: balance $450.00 due 2026-12-05",
         "Catering balance invoiced: $450.00",
         "Catering balance paid",
         "Catering closed",
@@ -1160,7 +1168,18 @@ fn every_catering_step_crm_hears_of_is_an_activity_row() {
     ] {
         assert!(summaries.iter().any(|s| s == want), "{want}: {summaries:?}");
     }
-    assert_eq!(summaries.len(), 7 + 2 + 3 + 2);
+    assert_eq!(summaries.len(), 9 + 2 + 3 + 2);
+    // The customer's timeline has every step of the first lead, the kitchen's two among them,
+    // and the lead is still won between the deposit and the balance.
+    let labels: Vec<&str> = p
+        .timeline(ulid(ALDER))
+        .iter()
+        .filter(|e| e.event_type.starts_with("Catering"))
+        .map(|e| e.label.as_str())
+        .collect();
+    assert!(labels.contains(&"Production started"), "{labels:?}");
+    assert!(labels.contains(&"Delivered; balance $450.00"), "{labels:?}");
+    assert_eq!(labels.len(), 9 + 2);
     // No row carries the brief or a slug's raw form.
     assert!(summaries.iter().all(|s| !s.contains("pastry-platter")));
 }

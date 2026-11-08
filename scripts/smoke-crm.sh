@@ -23,8 +23,9 @@
 #   same in both sandboxes.
 # - Loyalty: points on the paid order equal to its whole dollars, taken back by the full refund,
 #   never below zero. The lead pipeline and the activity feed reflect the run: the feed has the
-#   seeded orders' payments, the seeded catering steps and each campaign sent, and no count
-#   reads "1 vans" (the console audit of 2026-11-08, findings 13 and 36).
+#   seeded orders' payments, the seeded catering steps (production started and delivered among
+#   them since 2026-11-08, in the feed and a timeline) and each campaign sent, and no count reads
+#   "1 vans" (the console audit of 2026-11-08, findings 13 and 36).
 # - Consent by a guest on its own persona (200) and on another's (403 `guest-scope`); a guest's
 #   staff actions are 403; unknown customers, segments, campaigns and messages are 404.
 # - Free text: an order placed with a note and an inquiry with a brief; neither's words appear
@@ -678,6 +679,16 @@ check "the feed has the seeded orders' payments, the seeded catering steps and t
   process.exit(has('OrderPaid', /^Order paid: .\\d+\\.\\d{2}, (pickup|delivery)$/)
     && b.entries.some(e => e.type.startsWith('Catering') && /^Catering /.test(e.summary))
     && b.entries.filter(e => e.type === 'CampaignSent' && /^Campaign sent to \\d+ customers?$/.test(e.summary)).length >= 2 ? 0 : 1);\""
+object_sql Crm "crm:$AID" "SELECT projection FROM crm" > "$TMP/a_projection_now.json" 2>/dev/null || echo '[]' > "$TMP/a_projection_now.json"
+check "the seeded catering's production and delivery are in the feed and a timeline, once each for the invoiced and the closed event (2026-11-08)" "node -e \"
+  const rows = JSON.parse(require('fs').readFileSync('$TMP/a_projection_now.json', 'utf8'));
+  const p = rows.length ? (typeof rows[0].projection === 'string' ? JSON.parse(rows[0].projection) : rows[0].projection) : {};
+  const feed = p.activity || [];
+  const started = feed.filter(e => e.type === 'CateringProductionStarted' && e.summary === 'Catering production started');
+  const delivered = feed.filter(e => e.type === 'CateringDelivered' && /^Catering delivered: balance .\\d+\\.\\d{2} due \\d{4}-\\d{2}-\\d{2}$/.test(e.summary));
+  const entries = Object.values(p.timelines || {}).flat();
+  const lines = entries.filter(e => (e.type === 'CateringProductionStarted' && e.label === 'Production started') || (e.type === 'CateringDelivered' && /^Delivered; balance .\\d+\\.\\d{2}$/.test(e.label)));
+  process.exit(started.length === 2 && delivered.length === 2 && lines.length === 4 ? 0 : 1);\""
 check "no activity row says '1 vans', '1 minutes' or '1 orders' (finding 36)" "! grep -qE '\\b1 (vans|minutes|orders|customers)\\b' '$TMP/a_activity.body'"
 get_as a_activity_3 D "/v1/sandboxes/$AID/activity?limit=3"
 expect_json a_activity_3 "b.entries.length === 3"

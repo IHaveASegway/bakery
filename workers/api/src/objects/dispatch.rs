@@ -35,8 +35,10 @@
 //! - `POST /_event {envelope, birth?, place?}` → 200 `{outcome}` (`applied`, `unchanged`,
 //!   `duplicate`, `ignored`, `refused`), from the consumer: `OrderPlaced` for a delivery is
 //!   `AddStop` (the customer's place, the matrix index, in `place`), `OrderPaid` is
-//!   `ConfirmStop`, `OrderExpired` and `OrderCancelled` are `RemoveStop`, each for the order the
-//!   stream names. The event's id goes into `seen`, so a redelivery is `duplicate`. 410 when the
+//!   `ConfirmStop`, `OrderExpired` and `OrderCancelled` are `RemoveStop`, and since 2026-11-08
+//!   `OrderReady` is `ReadyStop`, which sends a stop of the published plan out (`StopReady`, for
+//!   its Order) when its order was made after the plan, each for the order the stream names. The
+//!   event's id goes into `seen` and is the decision's id, so a redelivery is `duplicate`. 410 when the
 //!   day was never born and no `birth` came with it; the consumer registers the day and sends
 //!   again.
 //! - `GET /_state` → 200 `DispatchResponse` (`bakery_app::dispatch_view`).
@@ -171,7 +173,9 @@ impl Cmd {
                 capacity: *capacity,
             },
             DispatchCommand::CompleteStop { stop, .. } => Cmd::CompleteStop { stop: *stop },
-            DispatchCommand::SubmitPlan { .. } | DispatchCommand::Publish { .. } => return None,
+            DispatchCommand::SubmitPlan { .. }
+            | DispatchCommand::Publish { .. }
+            | DispatchCommand::ReadyStop { .. } => return None,
         })
     }
 
@@ -659,38 +663,10 @@ impl Dispatch {
                 return json(&serde_json::json!({ "outcome": "duplicate" }), 200);
             }
         }
-        let order = || order_of(envelope);
-        let cmd = match envelope.event_type.as_str() {
-            "OrderPlaced" => {
-                let Ok(placed) = OrderEvent::from_envelope(envelope) else {
-                    return refuse(422, "envelope");
-                };
-                let Some(place) = input.place else {
-                    return refuse(422, "place");
-                };
-                match AddStop::from_order_placed(&placed, place) {
-                    Some(add) if Some(add.order) == order() => DispatchCommand::AddStop(add),
-                    Some(_) => return refuse(422, "envelope"),
-                    // A pickup has no stop.
-                    None => return json(&serde_json::json!({ "outcome": "ignored" }), 200),
-                }
-            }
-            "OrderPaid" => match order() {
-                Some(order) => DispatchCommand::ConfirmStop { order },
-                None => return refuse(422, "envelope"),
-            },
-            "OrderExpired" | "OrderCancelled" => match order() {
-                Some(order) => DispatchCommand::RemoveStop {
-                    order,
-                    reason: if envelope.event_type == "OrderExpired" {
-                        RemoveReason::Expired
-                    } else {
-                        RemoveReason::Cancelled
-                    },
-                },
-                None => return refuse(422, "envelope"),
-            },
-            _ => return json(&serde_json::json!({ "outcome": "ignored" }), 200),
+        let cmd = match command_of(envelope, input.place) {
+            Ok(Some(cmd)) => cmd,
+            Ok(None) => return json(&serde_json::json!({ "outcome": "ignored" }), 200),
+            Err(why) => return refuse(422, why),
         };
         let (state, last_seq) = match &meta {
             Some(m) => self.load(m)?,
@@ -793,6 +769,41 @@ impl Dispatch {
             Ok(())
         })
     }
+}
+
+/// The command an order event from the consumer is, for the order its stream names: `None` for
+/// one that asks nothing (a pickup's `OrderPlaced`, a type this object does not hear), and the
+/// refusal's slug for one it cannot read.
+fn command_of(
+    envelope: &Envelope,
+    place: Option<PlaceIndex>,
+) -> std::result::Result<Option<DispatchCommand>, &'static str> {
+    let order = order_of(envelope);
+    let named = || order.ok_or("envelope");
+    Ok(Some(match envelope.event_type.as_str() {
+        "OrderPlaced" => {
+            let placed = OrderEvent::from_envelope(envelope).map_err(|_| "envelope")?;
+            let place = place.ok_or("place")?;
+            match AddStop::from_order_placed(&placed, place) {
+                Some(add) if Some(add.order) == order => DispatchCommand::AddStop(add),
+                Some(_) => return Err("envelope"),
+                // A pickup has no stop.
+                None => return Ok(None),
+            }
+        }
+        "OrderPaid" => DispatchCommand::ConfirmStop { order: named()? },
+        // Made after its stop was published: it goes out now (docs/domain.md, "Dispatch").
+        "OrderReady" => DispatchCommand::ReadyStop { order: named()? },
+        "OrderExpired" => DispatchCommand::RemoveStop {
+            order: named()?,
+            reason: RemoveReason::Expired,
+        },
+        "OrderCancelled" => DispatchCommand::RemoveStop {
+            order: named()?,
+            reason: RemoveReason::Cancelled,
+        },
+        _ => return Ok(None),
+    }))
 }
 
 /// The order an Order stream names, `order:<sandbox>:<ulid>`, in the envelope's own sandbox.
@@ -929,6 +940,47 @@ mod tests {
             None
         );
         assert_eq!(DispatchError::Published.rule(), "published");
+    }
+
+    #[test]
+    fn an_order_made_ready_is_a_ready_stop_for_its_order() {
+        let sandbox = Ulid::from_parts(1, 1);
+        let order = Ulid::from_parts(1, 2);
+        let mut e = Envelope {
+            v: 1,
+            id: Ulid::from_parts(1, 9),
+            sandbox,
+            stream: format!("order:{sandbox}:{order}"),
+            seq: 4,
+            event_type: "OrderReady".into(),
+            at: "2026-11-07T10:00:00-07:00".parse().unwrap(),
+            recorded_at: WallTime::from_unix_ms(1_793_000_000_000).unwrap(),
+            data: serde_json::json!({}),
+            cause: None,
+        };
+        assert_eq!(
+            command_of(&e, None),
+            Ok(Some(DispatchCommand::ReadyStop { order }))
+        );
+        e.event_type = "OrderPaid".into();
+        assert_eq!(
+            command_of(&e, None),
+            Ok(Some(DispatchCommand::ConfirmStop { order }))
+        );
+        e.event_type = "OrderCancelled".into();
+        assert_eq!(
+            command_of(&e, None),
+            Ok(Some(DispatchCommand::RemoveStop {
+                order,
+                reason: RemoveReason::Cancelled
+            }))
+        );
+        // A type the day does not hear is ignored, and a stream that names no order refused.
+        e.event_type = "OrderProductionStarted".into();
+        assert_eq!(command_of(&e, None), Ok(None));
+        e.event_type = "OrderReady".into();
+        e.stream = format!("catering:{sandbox}:{order}");
+        assert_eq!(command_of(&e, None), Err("envelope"));
     }
 
     #[test]

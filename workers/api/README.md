@@ -520,10 +520,14 @@ units a van), never published. Its only timers are the outbox's and the backstop
   from the Order for all but the first; a pickup's are acked unsent. `RoutePublished` goes to
   each stop's Order, which decides `MarkOutForDelivery {route: van-<n>, stop}` (an order not yet
   ready refuses, logged and acked), and to the Kitchen, which labels each card with its `van` and
-  `stop`; `StopCompleted` goes to its Order, `MarkDelivered`.
+  `stop`; `StopCompleted` goes to its Order, `MarkDelivered`. Since 2026-11-08 `OrderReady`
+  reaches the day too (`ReadyStop`): an order made after its stop was published gets
+  `StopReady {route, stop}`, once, and its Order decides `MarkOutForDelivery`, so it goes out
+  when it is ready rather than when its stop is completed.
 - **A plan stands once a van has left.** Before a publish over a published plan the object asks
-  that plan's Orders for their status; if one is out for delivery, delivered or closed, the
-  aggregate refuses `published` (409). Completing stops still works.
+  that plan's Orders for their status; if one is out for delivery, delivered or closed, or the
+  day has sent a stop out with `StopReady`, the aggregate refuses `published` (409). Completing
+  stops still works.
 - **The figures are the object's.** The browser's plan carries stop lists only; its minutes, the
   vans' units and the time the last van is back (09:00 plus the longest drive and 3 minutes at
   each door, the route data's `serviceSeconds`) come from the matrix.
