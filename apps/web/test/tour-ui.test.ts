@@ -134,7 +134,27 @@ describe('the open card', () => {
     expect(card('menu', 1)).not.toMatch(/<button[^>]*disabled[^>]*>Back</);
     expect(card('menu', total - 1)).toContain('>Done<');
     expect(card('menu', 0)).toContain('>Next<');
-    expect(card('menu', 0)).toContain('Skip the tour');
+  });
+
+  test('the action row is outside the scrolling text, with the one Close control and no Skip', () => {
+    const html = renderToStaticMarkup(
+      createElement(TourCard, {
+        step: TOURS.menu[0]!,
+        index: 0,
+        total: TOURS.menu.length,
+        dispatch: () => undefined,
+        closer: createElement('button', { type: 'button' }, 'Close the tour'),
+      }),
+    );
+    const body = html.indexOf('class="tour-body"');
+    const nav = html.indexOf('tour-nav');
+    expect(body).toBeGreaterThan(-1);
+    expect(nav).toBeGreaterThan(html.indexOf('Copy the curl'));
+    // Back, Next and Close all come after the text block closes, in the pinned row.
+    expect(html.indexOf('>Back<')).toBeGreaterThan(nav);
+    expect(html.indexOf('Close the tour')).toBeGreaterThan(html.indexOf('>Next<'));
+    expect(html.match(/Close the tour/g)).toHaveLength(1);
+    expect(html).not.toContain('Skip the tour');
   });
 
   test('every step of every screen draws', () => {

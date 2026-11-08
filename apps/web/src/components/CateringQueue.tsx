@@ -85,8 +85,10 @@ export default function CateringQueue({
   const reminders = upcomingReminders(events ?? []);
 
   return (
-    <section aria-labelledby="catering-queue-heading" data-tour="crm-catering-queue">
-      <h3 id="catering-queue-heading">Catering queue</h3>
+    <section aria-labelledby="catering-queue-heading">
+      <h3 id="catering-queue-heading" data-tour="crm-catering-queue">
+        Catering queue
+      </h3>
       <p>
         Inquiries move through quote, deposit, production, delivery and the balance invoice. Each
         step is one object’s transaction; the deposit and the balance are confirmed only by Stripe’s
