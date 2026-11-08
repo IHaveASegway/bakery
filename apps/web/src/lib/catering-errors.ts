@@ -3,9 +3,9 @@
 // `unknown-venue`, `closed-day`, `catering-lead` (naming the earliest date), `brief-too-long`,
 // `brief-email`, `brief-phone`, `brief-card-number`, `brief-url`. A refused step is a 409
 // `catering` naming `quote-expired`, `out-of-order` or `too-early` (since 2026-11-08), or a 409
-// `slot-full` when the day's two catering places are taken; staff get a 403 `guest-scope` as a guest. These sentences name the
-// rule and nothing the visitor typed, so the brief is never echoed (docs/domain.md, "Free text and
-// personal data").
+// `slot-full` when the day's two catering places are taken; staff get a 403 `guest-scope` as a
+// guest. These sentences name the rule and nothing the visitor typed, so the brief is never echoed
+// (docs/domain.md, "Free text and personal data").
 import { ApiError } from './api';
 import { describeError, type Message } from './messages';
 
