@@ -416,9 +416,9 @@ input[type='number'] {
 }
 
 input[type='radio'] {
-  width: 1.25rem;
-  height: 1.25rem;
-  vertical-align: -0.2em;
+  width: 1.5rem;
+  height: 1.5rem;
+  vertical-align: -0.3em;
 }
 
 select:focus-visible,
@@ -902,6 +902,15 @@ progress::-moz-progress-bar {
 .api-index {
   columns: 14rem;
   padding-left: 1.25rem;
+}
+
+/* A link of its own on a line is a target of its own: 24px tall at least, inside the line's height. */
+.api-index a,
+.api-op li > a,
+.api-op h5 > a,
+.table-scroll td > a {
+  display: inline-block;
+  min-height: 1.5rem;
 }
 
 .api-op {
