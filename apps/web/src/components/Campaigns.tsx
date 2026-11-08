@@ -134,7 +134,7 @@ export default function Campaigns({
 
   return (
     <section aria-labelledby="campaigns-heading">
-      <h3 id="campaigns-heading" data-tour="crm-campaigns">
+      <h3 id="campaigns-heading" tabIndex={-1} data-tour="crm-campaigns">
         Campaigns
       </h3>
       <p>

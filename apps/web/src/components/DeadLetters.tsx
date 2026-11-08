@@ -52,7 +52,9 @@ export default function DeadLetters({
 
   return (
     <>
-      <h3 data-tour="kitchen-dead-letters">Dead letters</h3>
+      <h3 id="dead-letters-heading" tabIndex={-1} data-tour="kitchen-dead-letters">
+        Dead letters
+      </h3>
       <p>
         A delivery that fails three times lands here with its last error. Switch off the fault, then
         redrive it.

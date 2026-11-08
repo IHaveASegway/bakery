@@ -37,7 +37,9 @@ export default function Activity({ sandboxId, refresh }: { sandboxId: string; re
 
   return (
     <section aria-labelledby="activity-heading" data-tour="crm-activity">
-      <h3 id="activity-heading">Activity</h3>
+      <h3 id="activity-heading" tabIndex={-1}>
+        Activity
+      </h3>
       <Message error={error} />
       {entries === null ? (
         error === null && <p aria-live="polite">Loading the activity…</p>

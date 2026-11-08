@@ -86,7 +86,7 @@ export default function CateringQueue({
 
   return (
     <section aria-labelledby="catering-queue-heading">
-      <h3 id="catering-queue-heading" data-tour="crm-catering-queue">
+      <h3 id="catering-queue-heading" tabIndex={-1} data-tour="crm-catering-queue">
         Catering queue
       </h3>
       <p>

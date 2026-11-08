@@ -138,7 +138,9 @@ export default function CapacityEditor({
 
   return (
     <>
-      <h3 data-tour="controls-capacity">Capacity</h3>
+      <h3 id="capacity-heading" tabIndex={-1} data-tour="controls-capacity">
+        Capacity
+      </h3>
       <p>
         Each slot, zone, item and the catering line has a capacity the Schedule enforces: held plus
         reserved places never pass it. Staff can change a capacity for a day. A lowered capacity

@@ -49,7 +49,9 @@ export default function Traffic({ sandboxId, isGuest }: { sandboxId: string; isG
 
   return (
     <>
-      <h3 data-tour="controls-traffic">Simulated traffic</h3>
+      <h3 id="traffic-heading" tabIndex={-1} data-tour="controls-traffic">
+        Simulated traffic
+      </h3>
       <p>
         Synthetic customers place orders so the board moves while you watch. It runs only while this
         page is open, at most 6 orders a minute and 30 minutes a day.
