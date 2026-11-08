@@ -182,8 +182,8 @@ pub const ROUTES: &[(&str, &[Route])] = &[
         &[all(Schedule), all(Crm), all(Inbox)],
     ),
     ("CateringReminderDue", &[all(Inbox)]),
-    ("CateringProductionStarted", &[all(Kitchen)]),
-    ("CateringDelivered", &[all(Billing), all(Kitchen)]),
+    ("CateringProductionStarted", &[all(Kitchen), all(Crm)]),
+    ("CateringDelivered", &[all(Billing), all(Kitchen), all(Crm)]),
     ("CateringBalanceInvoiced", &[all(Inbox), all(Crm)]),
     (
         "CateringBalancePaid",
@@ -459,7 +459,10 @@ mod tests {
         );
         assert_eq!(schedule_and("CateringClosed"), ["Schedule", "Crm", "Inbox"]);
         // The balance invoice: raised on delivery, recorded by the job, paid by purpose.
-        assert_eq!(schedule_and("CateringDelivered"), ["Billing", "Kitchen"]);
+        assert_eq!(
+            schedule_and("CateringDelivered"),
+            ["Billing", "Kitchen", "Crm"]
+        );
         assert_eq!(schedule_and("InvoiceIssued"), ["CateringEvent"]);
         let balance = envelope("PaymentSucceeded", json!({ "purpose": "balance" }));
         assert_eq!(classes(routes_for(&balance)), ["CateringEvent"]);
@@ -712,7 +715,8 @@ mod tests {
         for (name, to) in [
             ("CateringDepositPaid", &["Schedule", "Crm", "Inbox"][..]),
             ("CateringDepositLapsed", &["Schedule"]),
-            ("CateringDelivered", &["Billing", "Kitchen"]),
+            ("CateringDelivered", &["Billing", "Kitchen", "Crm"]),
+            ("CateringProductionStarted", &["Kitchen", "Crm"]),
             ("CateringClosed", &["Schedule", "Crm", "Inbox"]),
             ("CateringCancelled", &["Schedule", "Billing", "Crm"]),
             ("InvoiceIssued", &["CateringEvent"]),
