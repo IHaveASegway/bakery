@@ -26,6 +26,14 @@
 # - The guest reads the day and gets 403 `guest-scope` for every staff command; another sandbox's
 #   day is 404; a day outside the sandbox's days is 404 `no-such-day`; a key reused with another
 #   body is 422 `idempotency-key`.
+# - Delivery windows (the console audit of 2026-11-08, finding 6): every plan's `last_back` is
+#   the vans' day worked out door by door from the committed matrix, the vans leaving at 09:00,
+#   waiting at a door until its window opens and spending 3 minutes there, and every stop is
+#   reached by its window's close.
+# - A stop is completed only once its order is ready (finding 7): a delivery paid and planned
+#   but not yet made stays confirmed when the plan is published, and its completion is 409
+#   `dispatch` `not-ready`; made ready on the kitchen socket, its completion goes through, and
+#   the Order goes out for delivery on van-1 and is delivered in one step, so the board clears.
 # - The wipe: scripts/list-objects.mjs exits 0, the Dispatch objects included.
 #
 # It prints ok or FAIL per check as scripts/smoke-crm.sh does, and exits non-zero on any failure.
@@ -394,6 +402,33 @@ minutes_of() {
     process.stdout.write(ok ? 'ok' : 'got ' + JSON.stringify(plan.vans.map((v) => v.minutes)) + ' ' + plan.minutes + ', the matrix gives ' + JSON.stringify(vans));" "$MATRIX" "$TMP/$1.body" "$2"
 }
 
+# last_back_of BODY_NAME PLAN: the vans' day of the response's PLAN worked out from the committed
+# matrix: they leave at 09:00, start serving a stop when they reach it or when its window opens,
+# whichever is later, spend 3 minutes there and drive on. Prints "ok" when the plan's `last_back`
+# is the latest van's return and every stop is served by its window's close (120 minutes after
+# its start).
+last_back_of() {
+  node -e "
+    const m = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'));
+    const b = JSON.parse(require('fs').readFileSync(process.argv[2], 'utf8'));
+    const plan = b[process.argv[3]];
+    const stop = Object.fromEntries(b.stops.map((s) => [s.order, s]));
+    const dep = Date.parse(b.date + 'T09:00:00' + b.stops[0].window.slice(19));
+    let latest = 0, late = [];
+    for (const v of plan.vans) {
+      let t = 0, at = m.depot;
+      for (const o of v.stops) {
+        const s = stop[o], open = (Date.parse(s.window) - dep) / 60000;
+        const start = Math.max(t + m.minutes[at][s.place], open);
+        if (start > open + 120) late.push(o);
+        t = start + 3; at = s.place;
+      }
+      if (v.stops.length) latest = Math.max(latest, t + m.minutes[at][m.depot]);
+    }
+    const ok = late.length === 0 && Date.parse(plan.last_back) === dep + latest * 60000;
+    process.stdout.write(ok ? 'ok' : 'late ' + JSON.stringify(late) + ', last_back ' + plan.last_back + ', the matrix gives ' + new Date(dep + latest * 60000).toISOString());" "$MATRIX" "$TMP/$1.body" "$2"
+}
+
 # dispatch_post NAME JAR IP DATE STEP JSON: a staff command on a day of sandbox $SANDBOX.
 dispatch_post() { command_as "$1" "$2" "$3" POST "/v1/sandboxes/$SANDBOX/dispatch/$4/$5" "$6"; }
 expect_rule() {
@@ -442,6 +477,14 @@ check "guest: seeding reaches live" "wait_live guest_live G '$GID'"
 expect_json guest_live "b.state === 'live' && b.children >= 36 && b.seed === $SEED"
 check "a: seeding reaches live" "wait_live a_live D '$AID'"
 expect_json a_live "b.children >= 36 && b.seed === $SEED"
+# The seed as sandbox a holds it: its open orders placed and paid before its birth, and an order
+# only placed whose slot was too near paid instead (Generated::born_at).
+BORN_A="$(json_field a_live b.born)"
+(cd "$ROOT" && cargo run -q --locked -p bakery-seed -- "$SEED" "$TODAY" "$BORN_A") > "$TMP/seed.json"
+check "the seed as born at $BORN_A: nothing placed or paid after it, nothing pending at a slot under 15 minutes away" "node -e \"
+  const g = JSON.parse(require('fs').readFileSync('$TMP/seed.json', 'utf8'));
+  const born = Date.parse('$BORN_A');
+  process.exit(g.open_orders.every((o) => Date.parse(o.placed_at) < born && (o.state !== 'placed' || Date.parse(o.slot_start) - born >= 15 * 60000)) ? 0 : 1);\""
 check "the Dispatch was seeded with the rest (sandbox_seeded with 36 children)" "log_has '\"event\":\"sandbox_seeded\",\"children\":36'"
 
 # ---------- today's seeded day ----------
@@ -471,7 +514,8 @@ check "the seeded proposal carries every confirmed stop once" "node -e \"
   process.exit(JSON.stringify([...planned].sort()) === JSON.stringify(confirmed) && new Set(planned).size === planned.length ? 0 : 1);\""
 M="$(minutes_of a_today proposed)"
 check "the seeded proposal's minutes are the matrix's ($M)" "[[ '$M' == ok ]]"
-expect_json a_today "Date.parse(b.proposed.last_back) === Date.parse('$SEEDED_DAY' + 'T09:00:00' + b.stops[0].window.slice(19)) + Math.max(...b.proposed.vans.map((v) => v.minutes + 3 * v.stops.length)) * 60000"
+W="$(last_back_of a_today proposed)"
+check "the seeded proposal reaches every stop in its window, and its last_back counts the waits ($W)" "[[ '$W' == ok ]]"
 get_as g_today G "/v1/sandboxes/$GID/dispatch/$SEEDED_DAY"
 expect_status g_today 200
 expect_json g_today "b.stops.length >= 2"
@@ -549,7 +593,8 @@ expect_json propose "(() => { const all = b.proposed.vans.flatMap((v) => v.stops
 expect_json propose "b.proposed.vans.length === 2 && b.proposed.vans.every((v) => v.units <= 5 && v.van >= 1 && v.van <= 2)"
 M="$(minutes_of propose proposed)"
 check "the proposal's minutes are the matrix's ($M)" "[[ '$M' == ok ]]"
-expect_json propose "Date.parse(b.proposed.last_back) === Date.parse('$DAY' + 'T09:00:00' + b.stops[0].window.slice(19)) + Math.max(...b.proposed.vans.map((v) => v.minutes + 3 * v.stops.length)) * 60000"
+W="$(last_back_of propose proposed)"
+check "the proposal reaches every stop in its window, and its last_back counts the waits ($W)" "[[ '$W' == ok ]]"
 
 # ---------- the browser's plan, as the page sends it, and tampered ones ----------
 
@@ -646,6 +691,54 @@ expect_status complete_again 200
 check "one StopCompleted for it" "(( $(sql_count Dispatch "dispatch:$AID:$DAY" "SELECT count(*) AS n FROM events WHERE type = 'StopCompleted'") == 1 ))"
 get_as a_b_still D "/v1/sandboxes/$AID/orders/$OB"
 expect_json a_b_still "b.status === 'out_for_delivery'"
+
+# ---------- a stop is completed only once its order is ready ----------
+
+DAY2="$(cal 'nthOpen(day(Date.now()), 3)')"
+ORDER_E="$(delivery_order a_menu "$DAY2" 2)" || { fail "no item fits a delivery on $DAY2"; ORDER_E='{}'; }
+command_as a_place_e D 192.0.2.92 POST "/v1/sandboxes/$AID/orders" "$ORDER_E"
+expect_status a_place_e 201
+OE="$(json_field a_place_e b.id)"
+KEY="$OE" command_as a_pay_E D 192.0.2.92 POST "/v1/sandboxes/$AID/orders/$OE/payment"
+expect_status a_pay_E 200
+stripe_call a_confirm_E POST "/v1/payment_intents/$(intent_of a_pay_E)/confirm" "payment_method=pm_card_visa"
+expect_json a_confirm_E "b.status === 'succeeded'"
+check "E is a confirmed stop of $DAY2" "until_json e2_conf D '/v1/sandboxes/$AID/dispatch/$DAY2' \"b.stops.length === 1 && b.stops[0].order === '$OE' && b.stops[0].status === 'confirmed'\""
+check "E's order is confirmed, not yet made" "until_json e2_order D '/v1/sandboxes/$AID/orders/$OE' \"b.status === 'confirmed'\""
+dispatch_post e2_propose D 192.0.2.92 "$DAY2" propose '{"vans":1,"capacity":250}'
+expect_status e2_propose 200
+dispatch_post e2_publish D 192.0.2.92 "$DAY2" publish '{"plan":"proposed"}'
+expect_status e2_publish 200
+expect_json e2_publish "b.published.plan_v === 1 && b.stops[0].stop === 1 && b.stops[0].van === 1"
+sleep 2
+get_as e2_after_publish D "/v1/sandboxes/$AID/orders/$OE"
+expect_json e2_after_publish "b.status === 'confirmed'"
+dispatch_post e2_early D 192.0.2.92 "$DAY2" complete '{"stop":1}'
+expect_rule e2_early 409 not-ready
+get_as e2_day D "/v1/sandboxes/$AID/dispatch/$DAY2"
+expect_json e2_day "b.stops[0].status === 'confirmed'"
+check "no StopCompleted was written for it" "(( $(sql_count Dispatch "dispatch:$AID:$DAY2" "SELECT count(*) AS n FROM events WHERE type = 'StopCompleted'") == 0 ))"
+node "${PROBE[@]}" --until snapshot --timeout 15 > "$TMP/ws_e_before.out" 2>&1 || true
+check "the kitchen board shows E confirmed" "node -e \"
+  const lines = require('fs').readFileSync('$TMP/ws_e_before.out', 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return {}; } });
+  const snap = lines.map((l) => l.frame).find((f) => f && f.t === 'snapshot');
+  const card = snap && snap.board.cards.find((c) => c.order === '$OE');
+  process.exit(card && card.state === 'confirmed' ? 0 : 1);\""
+node "${PROBE[@]}" --cmd "$(ulid):$OE:start_production" --cmd "$(ulid):$OE:mark_ready" --wait-evt OrderReady:1 --timeout 20 > "$TMP/ws_e_ready.out" 2>&1 || true
+check "E is ready, and not out for delivery: the plan was published before it was" "until_json e2_ready D '/v1/sandboxes/$AID/orders/$OE' \"b.status === 'ready'\""
+dispatch_post e2_complete D 192.0.2.92 "$DAY2" complete '{"stop":1}'
+expect_status e2_complete 200
+expect_json e2_complete "b.stops[0].status === 'completed'"
+check "E, completed, is delivered" "until_json e2_delivered D '/v1/sandboxes/$AID/orders/$OE' \"b.status === 'delivered'\""
+check "StopCompleted names E's route, van-1" "(( $(sql_count Dispatch "dispatch:$AID:$DAY2" "SELECT count(*) AS n FROM events WHERE type = 'StopCompleted' AND json_extract(data, '\$.route') = 'van-1'") == 1 ))"
+check "E's own log went out for delivery on van-1, stop 1, then was delivered" "(( $(sql_count Order "order:$AID:$OE" "SELECT count(*) AS n FROM events WHERE type = 'OrderOutForDelivery' AND json_extract(data, '\$.route') = 'van-1' AND json_extract(data, '\$.stop') = 1") == 1 )) && (( $(sql_count Order "order:$AID:$OE" "SELECT count(*) AS n FROM events WHERE type = 'OrderDelivered'") == 1 ))"
+sleep 1
+node "${PROBE[@]}" --until snapshot --timeout 15 > "$TMP/ws_e_after.out" 2>&1 || true
+check "the kitchen board no longer shows E waiting" "node -e \"
+  const lines = require('fs').readFileSync('$TMP/ws_e_after.out', 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return {}; } });
+  const snap = lines.map((l) => l.frame).find((f) => f && f.t === 'snapshot');
+  const card = snap && snap.board.cards.find((c) => c.order === '$OE');
+  process.exit(snap && (card === undefined || card.state === 'delivered') ? 0 : 1);\""
 
 # ---------- the unpaid order expires: its stop is removed ----------
 

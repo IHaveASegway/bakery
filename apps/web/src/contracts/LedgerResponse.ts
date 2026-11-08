@@ -44,7 +44,8 @@ export interface LedgerEntry {
    */
   ref: string;
   /**
-   * Stripe's id: the intent's `pi_...` for a payment, the refund's `re_...` for a refund.
+   * Stripe's id: the intent's `pi_...` for a payment, the refund's `re_...` for a refund;
+   * `seed:<payment>` for a seeded order's payment, which the seed made and Stripe never saw.
    */
   stripe_id: string;
 }

@@ -19,16 +19,27 @@
 //!    first, is inserted where it adds the fewest minutes on a van with room for it; a stop no
 //!    van has room for is left unassigned, so the plan says so rather than putting more vans on
 //!    the road than the bakery has.
-//! 4. Vans are numbered 1 up, in the order of each route's smallest order id, and the plan's
+//! 4. **The rest.** A stop step 3 could place nowhere is tried once more, on the finished
+//!    routes, where it adds the fewest minutes on time, or alone on a van the plan does not use
+//!    yet; only then is it left unassigned.
+//! 5. Vans are numbered 1 up, in the order of each route's smallest order id, and the plan's
 //!    minutes are [`TravelMatrix::route_minutes`] summed: the validator's own arithmetic.
 //!
-//! When the stops' units are at most half of `vans × capacity`, step 3 always finds two routes
-//! that fit together (if every pair overflowed a van, every route but one would hold more than
-//! half a van), so nothing is left unassigned; the property tests check it.
+//! **Delivery windows.** Every join, merge and insertion above is made only when the route it
+//! makes reaches each of its stops within its window ([`super::windows`]: the vans leave at
+//! 09:00, a van early at a door waits for the window to open, and it spends 3 minutes there).
+//! So a route serves its stops in window order, and a stop is never planned for after its
+//! window has closed. A stop alone on a van is always on time, since every window closes at
+//! least 2 hours after the vans leave and the city matrix's longest drive is 35 minutes
+//! (`crates/seed/data/salt-lake-city/matrix.json`, built 2026-11-05, read on 2026-11-08).
+//!
+//! The property tests check that a stop is left unassigned only when every van is in use and no
+//! van has the room, or the time, to take it anywhere in its route.
 
 use std::collections::BTreeMap;
 
 use super::matrix::{PlaceIndex, TravelMatrix};
+use super::windows::{Door, on_time};
 use super::{Plan, PlanSource, Stop, VanRoute};
 use crate::Ulid;
 
@@ -38,6 +49,7 @@ struct Node {
     order: Ulid,
     place: PlaceIndex,
     units: u64,
+    door: Door,
 }
 
 /// A route being built: node indexes in driving order, and their units.
@@ -64,6 +76,7 @@ pub fn savings_plan(stops: &[Stop], vans: u8, capacity: u32, matrix: &TravelMatr
                 order: s.order,
                 place: s.place,
                 units: u64::from(s.units),
+                door: Door::of(s),
             });
         } else {
             unassigned.push(s.order);
@@ -73,6 +86,10 @@ pub fn savings_plan(stops: &[Stop], vans: u8, capacity: u32, matrix: &TravelMatr
     let d = |a: PlaceIndex, b: PlaceIndex| i64::from(matrix.minutes(a, b).unwrap_or(0));
     let symmetric = matrix.is_symmetric();
     let capacity = u64::from(capacity);
+    let timely = |route: &[usize]| -> bool {
+        let doors: Vec<Door> = route.iter().map(|&n| nodes[n].door).collect();
+        on_time(&doors, matrix)
+    };
 
     let mut routes: Vec<Option<Building>> = nodes
         .iter()
@@ -116,6 +133,9 @@ pub fn savings_plan(stops: &[Stop], vans: u8, capacity: u32, matrix: &TravelMatr
         let Some(merged) = join_at(&a.nodes, i, &b.nodes, j, symmetric) else {
             continue;
         };
+        if !timely(&merged) {
+            continue;
+        }
         let load = a.load + b.load;
         for &n in &merged {
             route_of[n] = ri;
@@ -133,6 +153,38 @@ pub fn savings_plan(stops: &[Stop], vans: u8, capacity: u32, matrix: &TravelMatr
         i64::from(matrix.route_minutes(&places).unwrap_or(0))
     };
     let live = |routes: &[Option<Building>]| routes.iter().filter(|r| r.is_some()).count();
+    // Puts node `n` where it adds the fewest minutes, on time, on a route with room for it;
+    // false when there is no such place.
+    let insert_cheapest = |routes: &mut Vec<Option<Building>>, n: usize| -> bool {
+        // (added minutes, the route's smallest order, position, route)
+        let mut best: Option<(i64, Ulid, usize, usize)> = None;
+        for (k, r) in routes.iter().enumerate() {
+            let Some(r) = r else { continue };
+            if r.load + nodes[n].units > capacity {
+                continue;
+            }
+            let base = cost(&r.nodes);
+            for at in 0..=r.nodes.len() {
+                let mut tried = r.nodes.clone();
+                tried.insert(at, n);
+                if !timely(&tried) {
+                    continue;
+                }
+                let key = (cost(&tried) - base, first_order(&nodes, &r.nodes), at, k);
+                if best.is_none_or(|b| key < b) {
+                    best = Some(key);
+                }
+            }
+        }
+        let Some((_, _, at, k)) = best else {
+            return false;
+        };
+        if let Some(r) = routes[k].as_mut() {
+            r.nodes.insert(at, n);
+            r.load += nodes[n].units;
+        }
+        true
+    };
     while live(&routes) > usize::from(vans) {
         // (added minutes, smallest order of the first route, of the second, orientation)
         let mut best: Option<(i64, Ulid, Ulid, usize, usize, Vec<usize>)> = None;
@@ -145,6 +197,9 @@ pub fn savings_plan(stops: &[Stop], vans: u8, capacity: u32, matrix: &TravelMatr
                 }
                 let base = cost(&a.nodes) + cost(&b.nodes);
                 for merged in orientations(&a.nodes, &b.nodes, symmetric) {
+                    if !timely(&merged) {
+                        continue;
+                    }
                     let key = (
                         cost(&merged) - base,
                         first_order(&nodes, &a.nodes),
@@ -171,8 +226,9 @@ pub fn savings_plan(stops: &[Stop], vans: u8, capacity: u32, matrix: &TravelMatr
         routes[y] = None;
     }
     // Still too many: the route carrying the fewest units is broken up, and each of its stops,
-    // largest first, goes where it adds the fewest minutes on a van with room for it. A stop
-    // with no such van stays at the bakery, and the plan says so.
+    // largest first, goes where it adds the fewest minutes, on time, on a van with room for it.
+    // A stop with no such van waits for step 4.
+    let mut loose_ends: Vec<usize> = Vec::new();
     while live(&routes) > usize::from(vans) {
         let drop = routes
             .iter()
@@ -186,36 +242,37 @@ pub fn savings_plan(stops: &[Stop], vans: u8, capacity: u32, matrix: &TravelMatr
         let mut loose = dropped.nodes;
         loose.sort_by_key(|&n| (std::cmp::Reverse(nodes[n].units), nodes[n].order));
         for n in loose {
-            // (added minutes, the route's smallest order, position, route)
-            let mut best: Option<(i64, Ulid, usize, usize)> = None;
-            for (k, r) in routes.iter().enumerate() {
-                let Some(r) = r else { continue };
-                if r.load + nodes[n].units > capacity {
-                    continue;
-                }
-                let base = cost(&r.nodes);
-                for at in 0..=r.nodes.len() {
-                    let mut tried = r.nodes.clone();
-                    tried.insert(at, n);
-                    let key = (cost(&tried) - base, first_order(&nodes, &r.nodes), at, k);
-                    if best.is_none_or(|b| key < b) {
-                        best = Some(key);
-                    }
-                }
-            }
-            match best {
-                Some((_, _, at, k)) => {
-                    if let Some(r) = routes[k].as_mut() {
-                        r.nodes.insert(at, n);
-                        r.load += nodes[n].units;
-                    }
-                }
-                None => unassigned.push(nodes[n].order),
+            if !insert_cheapest(&mut routes, n) {
+                loose_ends.push(n);
             }
         }
     }
 
-    // Step 4: number the vans and add up the minutes.
+    // Step 4: what step 3 could not place, tried again on the finished routes, or alone on a
+    // van still at the bakery, until a pass places nothing more.
+    loose_ends.sort_by_key(|&n| (std::cmp::Reverse(nodes[n].units), nodes[n].order));
+    loop {
+        let before = loose_ends.len();
+        loose_ends.retain(|&n| {
+            if insert_cheapest(&mut routes, n) {
+                return false;
+            }
+            if live(&routes) < usize::from(vans) && timely(&[n]) {
+                routes.push(Some(Building {
+                    nodes: vec![n],
+                    load: nodes[n].units,
+                }));
+                return false;
+            }
+            true
+        });
+        if loose_ends.len() == before {
+            break;
+        }
+    }
+    unassigned.extend(loose_ends.iter().map(|&n| nodes[n].order));
+
+    // Step 5: number the vans and add up the minutes.
     let mut built: Vec<Vec<usize>> = routes.into_iter().flatten().map(|r| r.nodes).collect();
     built.sort_by_key(|r| first_order(&nodes, r));
     let mut minutes = 0u32;

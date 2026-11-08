@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "PlanRequest",
-  "description": "`POST /v1/sandboxes/{id}/dispatch/{date}/plan`, staff only: the plan VROOM made in the\nbrowser. It carries no minutes: the server computes them from the matrix. Refused with 422\n`stop-missing`, `stop-twice`, `stop-unknown`, `over-capacity`, `route-ends`, `vans` or\n`no-stops`.",
+  "description": "`POST /v1/sandboxes/{id}/dispatch/{date}/plan`, staff only: the plan VROOM made in the\nbrowser. It carries no minutes: the server computes them from the matrix. Refused with 422\n`stop-missing`, `stop-twice`, `stop-unknown`, `over-capacity`, `route-ends`, `vans`,\n`window` or `no-stops`. `window`: the vans leave the bakery at 09:00, a van early at a door\nwaits for the stop's window to open and spends 3 minutes there, and each stop must be\nreached by its window's close (`StopView.window` plus 120 minutes).",
   "type": "object",
   "properties": {
     "vans": {

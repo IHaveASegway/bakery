@@ -106,6 +106,13 @@ describe('the comparison', () => {
     expect(out).toContain('The browser’s solver is not available here');
   });
 
+  test('says both plans keep to the delivery windows, and what the minutes leave out', () => {
+    const out = html(both, 'ready');
+    expect(out).toContain('Both plans keep to the delivery windows');
+    expect(out).toContain('after its window closes');
+    expect(out).toContain('no waiting for a window to open');
+  });
+
   test('explains the method and names the Route Lab without a link', () => {
     const out = html(both, 'ready');
     expect(out).toContain('savings heuristic');
@@ -153,6 +160,17 @@ describe('the plan and the stops', () => {
     expect(out).toContain('Provisional (not paid yet)');
     expect(out).toContain('Drop-off spot: ');
     expect(out).not.toMatch(/\sstyle=/);
+  });
+
+  test('each stop shows its own window in the bakery’s words, from its start to two hours later', () => {
+    const d = day([
+      stop(1, 1, 8, { window: '2026-11-07T11:00:00-07:00' }),
+      stop(2, 2, 5, { window: '2026-11-07T13:00:00-07:00' }),
+    ]);
+    const out = renderToStaticMarkup(createElement(DispatchStops, { day: d, data: route }));
+    expect(out).toContain('11:00 am to 1:00 pm');
+    expect(out).toContain('1:00 pm to 3:00 pm');
+    expect(out).not.toContain('2026-11-07T');
   });
 });
 

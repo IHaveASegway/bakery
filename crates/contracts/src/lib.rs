@@ -996,7 +996,8 @@ pub struct LedgerEntry {
     pub reference: String,
     /// Signed: positive for a payment, negative for a refund.
     pub amount_cents: i64,
-    /// Stripe's id: the intent's `pi_...` for a payment, the refund's `re_...` for a refund.
+    /// Stripe's id: the intent's `pi_...` for a payment, the refund's `re_...` for a refund;
+    /// `seed:<payment>` for a seeded order's payment, which the seed made and Stripe never saw.
     pub stripe_id: String,
 }
 
@@ -1483,7 +1484,8 @@ pub struct ActivityEntry {
 }
 
 /// `GET /v1/sandboxes/{id}/activity`: the sandbox's logged events (clock moves, faults,
-/// menu and capacity changes, payment intents, routes, traffic, token rotations), newest first
+/// menu and capacity changes, payment intents, orders paid, catering steps, routes, traffic,
+/// token rotations, campaigns sent and rebuilds finished), newest first
 /// by business time (ties by event id); `?limit=` keeps the newest that many (50 when left out,
 /// at most 500). Any session of the sandbox reads it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1555,7 +1557,9 @@ pub struct StopView {
     pub place: u8,
     /// The place's label, `p1` to `p64`.
     pub place_label: String,
-    /// The delivery window's start, a business time.
+    /// The delivery window's start, a business time (RFC 3339 with the bakery's offset). The
+    /// window is 2 hours long: it closes 120 minutes after this. A plan must reach the stop
+    /// between the two, waiting at the door when it is early (rule `window`).
     pub window: String,
     /// `z1`, `z2` or `z3`.
     pub zone: String,
@@ -1596,8 +1600,9 @@ pub struct PlanView {
     pub vans: Vec<VanPlanView>,
     /// Every van's drive summed.
     pub minutes: u32,
-    /// When the last van is back, a business time: the vans leave at 09:00 and drive the
-    /// matrix's minutes, with no time at the door counted.
+    /// When the last van is back, a business time: the vans leave at 09:00, drive the matrix's
+    /// minutes, spend 3 minutes at each door and wait at a door they reach before its window
+    /// opens.
     pub last_back: String,
     /// Order ULIDs no van could take. A plan with any cannot be published.
     pub unassigned: Vec<String>,
@@ -1670,8 +1675,10 @@ pub struct PlanRouteRequest {
 
 /// `POST /v1/sandboxes/{id}/dispatch/{date}/plan`, staff only: the plan VROOM made in the
 /// browser. It carries no minutes: the server computes them from the matrix. Refused with 422
-/// `stop-missing`, `stop-twice`, `stop-unknown`, `over-capacity`, `route-ends`, `vans` or
-/// `no-stops`.
+/// `stop-missing`, `stop-twice`, `stop-unknown`, `over-capacity`, `route-ends`, `vans`,
+/// `window` or `no-stops`. `window`: the vans leave the bakery at 09:00, a van early at a door
+/// waits for the stop's window to open and spends 3 minutes there, and each stop must be
+/// reached by its window's close (`StopView.window` plus 120 minutes).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PlanRequest {
@@ -1698,7 +1705,8 @@ pub struct PublishRequest {
 }
 
 /// `POST /v1/sandboxes/{id}/dispatch/{date}/complete`, staff only: a stop of the published plan
-/// is delivered. Again for a delivered stop changes nothing.
+/// is delivered. Again for a delivered stop changes nothing. Refused 409 `not-ready` while the
+/// stop's order is still confirmed or in production: the kitchen marks it ready first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CompleteStopRequest {

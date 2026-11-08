@@ -57,7 +57,7 @@
           "type": "string"
         },
         "stripe_id": {
-          "description": "Stripe's id: the intent's `pi_...` for a payment, the refund's `re_...` for a refund.",
+          "description": "Stripe's id: the intent's `pi_...` for a payment, the refund's `re_...` for a refund;\n`seed:<payment>` for a seeded order's payment, which the seed made and Stripe never saw.",
           "type": "string"
         }
       },

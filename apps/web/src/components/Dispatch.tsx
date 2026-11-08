@@ -13,7 +13,6 @@ import {
   ROUTE_DATA_URL,
   VroomError,
   buildProblem,
-  clockText,
   completable,
   dispatchDays,
   parseIsochrones,
@@ -40,6 +39,7 @@ import {
 import { type Message as Text } from '../lib/messages';
 import { dateLabel } from '../lib/schedule';
 import { SolverUnavailable, createSolverClient, type SolverClient } from '../lib/solver';
+import { windowText } from '../lib/when';
 import { useSandboxPhase } from '../lib/use-session';
 import DispatchComparison from './DispatchComparison';
 import DispatchMap from './DispatchMap';
@@ -279,7 +279,7 @@ export default function Dispatch() {
     setSolver('working');
     try {
       client.current ??= createSolverClient();
-      const problem = buildProblem(routeData, stops, day.vans, day.capacity);
+      const problem = buildProblem(routeData, stops, day.vans, day.capacity, day.date);
       const answer = await client.current.solve(problem.input, solveOptions(stops.length));
       const mine = readSolution(answer.output, problem);
       setSolver('ready');
@@ -506,9 +506,10 @@ export default function Dispatch() {
 
           <h2 data-tour="dispatch-plan">Browser’s plan</h2>
           <p>
-            VROOM, a vehicle routing solver, can plan the same stops in this browser. It loads when
-            you first press the button, runs in a Web Worker, and sends the stops of each van to the
-            API, which checks them and works out the minutes itself.
+            VROOM, a vehicle routing solver, can plan the same stops in this browser, within the
+            same delivery windows: the vans leave at 9:00 am, and each stop is served in its window.
+            It loads when you first press the button, runs in a Web Worker, and sends the stops of
+            each van to the API, which checks them and works out the minutes itself.
           </p>
           <p>
             <button
@@ -614,8 +615,8 @@ export default function Dispatch() {
                       >
                         {busy === `complete-${row.stop}` ? 'Saving…' : `Stop ${row.stop} delivered`}
                       </button>{' '}
-                      van {row.van}, order <code>{shortId(row.order)}</code>, due{' '}
-                      {clockText(row.window)}
+                      van {row.van}, order <code>{shortId(row.order)}</code>, window{' '}
+                      {windowText(row.window)}
                     </li>
                   ))}
                 </ul>

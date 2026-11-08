@@ -6,7 +6,8 @@
 
 /**
  * `POST /v1/sandboxes/{id}/dispatch/{date}/complete`, staff only: a stop of the published plan
- * is delivered. Again for a delivered stop changes nothing.
+ * is delivered. Again for a delivered stop changes nothing. Refused 409 `not-ready` while the
+ * stop's order is still confirmed or in production: the kitchen marks it ready first.
  */
 export interface CompleteStopRequest {
   /**

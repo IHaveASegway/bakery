@@ -782,7 +782,16 @@ impl CrmProjection {
                 }
             }
         };
-        let customer = self.orders[&order].customer;
+        let row = &self.orders[&order];
+        let customer = row.customer;
+        if let OrderEvent::OrderPaid { amount_cents, .. } = &event {
+            let summary = format!(
+                "Order paid: {}, {}",
+                amount_cents.dollars(),
+                kind_text(row.kind)
+            );
+            self.push_activity(envelope, summary);
+        }
         self.heads.insert(envelope.stream.clone(), envelope.seq);
         self.refresh(customer);
         self.add_entry(customer, envelope, order, label);
@@ -909,6 +918,7 @@ impl CrmProjection {
         lead.stage = stage;
         let customer = lead.customer;
         self.heads.insert(envelope.stream.clone(), envelope.seq);
+        self.push_activity(envelope, catering_activity(&event));
         self.add_entry(customer, envelope, catering, label);
         Ok(Outcome::Applied)
     }
@@ -1031,16 +1041,16 @@ impl CrmProjection {
                 self.seeded = Some(Seeded { seed, born });
             }
         }
-        let entry = ActivityEntry {
-            at: envelope.at,
-            event_type: envelope.event_type.clone(),
-            summary: activity_summary(&envelope.event_type, data),
-            id: envelope.id,
-        };
+        self.push_activity(envelope, activity_summary(&envelope.event_type, data));
+        Outcome::Applied
+    }
+
+    /// Adds an activity row for `envelope`, where business time puts it, ties by event id.
+    fn push_activity(&mut self, envelope: &Envelope, summary: String) {
+        let entry = activity_entry(envelope, summary);
         let key = (entry.at, entry.id);
         let at = self.activity.partition_point(|e| (e.at, e.id) < key);
         self.activity.insert(at, entry);
-        Outcome::Applied
     }
 
     // --- shared -------------------------------------------------------------------------
@@ -1083,6 +1093,83 @@ pub fn log_entry(envelope: &Envelope) -> Envelope {
         data.remove("brief");
     }
     out
+}
+
+fn activity_entry(envelope: &Envelope, summary: String) -> ActivityEntry {
+    ActivityEntry {
+        at: envelope.at,
+        event_type: envelope.event_type.clone(),
+        summary,
+        id: envelope.id,
+    }
+}
+
+/// Crm's own events the activity feed shows: a campaign sent and a rebuild finished. They are
+/// Crm's record, not deliveries, so they live in its `events` stream rather than in the
+/// projection: a rebuild then reproduces the projection byte for byte, and the feed still says
+/// that it ran.
+pub const OWN_ACTIVITY_TYPES: &[&str] = &["CampaignSent", "ProjectionRebuildFinished"];
+
+/// The activity feed: the projection's rows and Crm's own `own` events among
+/// [`OWN_ACTIVITY_TYPES`], in business-time order, ties by event id. Others in `own` are left
+/// out.
+pub fn activity_feed(projection: &CrmProjection, own: &[Envelope]) -> Vec<ActivityEntry> {
+    let mut rows: Vec<ActivityEntry> = projection.activity().to_vec();
+    rows.extend(
+        own.iter()
+            .filter(|e| OWN_ACTIVITY_TYPES.contains(&e.event_type.as_str()))
+            .map(|e| activity_entry(e, activity_summary(&e.event_type, &e.data))),
+    );
+    rows.sort_by_key(|e| (e.at, e.id));
+    rows
+}
+
+/// "1 van" or "4 vans".
+fn count_text(n: Option<u64>, one: &str, many: &str) -> String {
+    match n {
+        Some(1) => format!("1 {one}"),
+        Some(n) => format!("{n} {many}"),
+        None => format!("some {many}"),
+    }
+}
+
+/// The activity row for a catering step Crm hears of.
+fn catering_activity(event: &CateringEvent) -> String {
+    match event {
+        CateringEvent::CateringInquiryReceived {
+            date, headcount, ..
+        } => format!(
+            "Catering inquiry for {date}: {}",
+            count_text(Some(u64::from(*headcount)), "person", "people")
+        ),
+        CateringEvent::CateringQuoteSent {
+            total_cents,
+            deposit_cents,
+            ..
+        } => format!(
+            "Catering quote sent: {}, deposit {}",
+            total_cents.dollars(),
+            deposit_cents.dollars()
+        ),
+        CateringEvent::CateringQuoteAccepted { .. } => "Catering quote accepted".to_owned(),
+        CateringEvent::CateringQuoteExpired { .. } => "Catering quote expired".to_owned(),
+        CateringEvent::CateringDeclined { .. } => "Catering inquiry declined".to_owned(),
+        CateringEvent::CateringDepositPaid { amount_cents, .. } => {
+            format!("Catering deposit paid: {}", amount_cents.dollars())
+        }
+        CateringEvent::CateringBalanceInvoiced { amount_cents, .. } => {
+            format!("Catering balance invoiced: {}", amount_cents.dollars())
+        }
+        CateringEvent::CateringBalancePaid { .. } => "Catering balance paid".to_owned(),
+        CateringEvent::CateringClosed { .. } => "Catering closed".to_owned(),
+        CateringEvent::CateringCancelled { refund_deposit, .. } => if *refund_deposit {
+            "Catering cancelled; the deposit goes back"
+        } else {
+            "Catering cancelled; the deposit is kept"
+        }
+        .to_owned(),
+        _ => "Catering step logged".to_owned(),
+    }
 }
 
 /// The members of `segment` at business time `now`, sorted by id. Consent is not read here:
@@ -1235,18 +1322,33 @@ fn activity_summary(event_type: &str, data: &Value) -> String {
             or(slug("purpose"), "a payment")
         ),
         "RouteProposed" => format!(
-            "Routes proposed: {} vans, {} minutes",
-            n(num("vans")),
-            n(num("minutes"))
+            "Routes proposed: {}, {}",
+            count_text(num("vans"), "van", "vans"),
+            count_text(num("minutes"), "minute", "minutes")
         ),
         "TrafficStarted" => format!(
             "Simulated traffic started at {} orders a minute",
             n(num("rate"))
         ),
         "TrafficStopped" => format!(
-            "Simulated traffic stopped ({}) after {} orders",
+            "Simulated traffic stopped ({}) after {}",
             or(slug("reason"), "stop"),
-            n(num("orders"))
+            count_text(num("orders"), "order", "orders")
+        ),
+        "CampaignSent" => format!(
+            "Campaign sent to {}",
+            count_text(
+                data.get("recipients")
+                    .and_then(Value::as_array)
+                    .map(|r| r.len() as u64),
+                "customer",
+                "customers"
+            )
+        ),
+        "ProjectionRebuildFinished" => format!(
+            "CRM projection rebuilt: {} replayed in {} ms",
+            count_text(num("events"), "event", "events"),
+            n(num("ms"))
         ),
         _ => "Logged".to_owned(),
     }
