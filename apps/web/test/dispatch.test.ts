@@ -28,10 +28,12 @@ import {
   stopNumbers,
   stopRows,
   vanClass,
-  windowText,
+  secondsAfterDeparture,
   type VroomOutput,
 } from '../src/lib/dispatch';
+import { windowText } from '../src/lib/when';
 import {
+  DATE,
   day,
   isochrones,
   orderId,
@@ -40,6 +42,7 @@ import {
   SLICE_STOPS,
   slice,
   stop,
+  windowAt,
 } from './dispatch-support';
 
 describe('the route data', () => {
@@ -86,12 +89,13 @@ describe('the days', () => {
 
 describe('buildProblem, over the 6-place slice', () => {
   const data = slice(6);
-  const problem = buildProblem(data, SLICE_STOPS, 2, 30);
+  const problem = buildProblem(data, SLICE_STOPS, 2, 30, DATE);
 
-  test('vehicles have a capacity and start and end at the bakery', () => {
+  test('vehicles have a capacity and start and end at the bakery, from the time the vans leave', () => {
+    const back = problem.input.vehicles[0]!.time_window[1];
     expect(problem.input.vehicles).toEqual([
-      { id: 1, start_index: 0, end_index: 0, capacity: [30] },
-      { id: 2, start_index: 0, end_index: 0, capacity: [30] },
+      { id: 1, start_index: 0, end_index: 0, capacity: [30], time_window: [0, back] },
+      { id: 2, start_index: 0, end_index: 0, capacity: [30], time_window: [0, back] },
     ]);
   });
 
@@ -126,18 +130,19 @@ describe('buildProblem, over the 6-place slice', () => {
   });
 
   test('the seconds metric hands VROOM the raw durations', () => {
-    const raw = buildProblem(data, SLICE_STOPS, 2, 30, 'seconds').input.matrices.car.durations;
+    const raw = buildProblem(data, SLICE_STOPS, 2, 30, DATE, 'seconds').input.matrices.car
+      .durations;
     expect(raw[0]?.[1]).toBe(data.durations[1]);
   });
 
   test('stops are sorted by order id, so the same day gives the same problem', () => {
-    const shuffled = buildProblem(data, [...SLICE_STOPS].reverse(), 2, 30);
+    const shuffled = buildProblem(data, [...SLICE_STOPS].reverse(), 2, 30, DATE);
     expect(shuffled).toEqual(problem);
   });
 
   test('a stop at a place the data do not have, or no vans, is refused', () => {
-    expect(() => buildProblem(data, [stop(9, 6, 1)], 1, 10)).toThrow('route data');
-    expect(() => buildProblem(data, SLICE_STOPS, 0, 10)).toThrow('van');
+    expect(() => buildProblem(data, [stop(9, 6, 1)], 1, 10, DATE)).toThrow('route data');
+    expect(() => buildProblem(data, SLICE_STOPS, 0, 10, DATE)).toThrow('van');
   });
 
   test('how hard to look: 5 up to 40 stops, 3 above, with VROOM’s own five-second limit', () => {
@@ -147,8 +152,87 @@ describe('buildProblem, over the 6-place slice', () => {
   });
 });
 
+describe('buildProblem, in time: the API’s windows (crates/domain/src/dispatch/windows.rs)', () => {
+  const data = slice(6);
+  const stops = [
+    stop(1, 1, 5, { window: windowAt(9) }),
+    stop(2, 2, 5, { window: windowAt(11) }),
+    stop(3, 3, 5, { window: windowAt(13) }),
+  ];
+  const problem = buildProblem(data, stops, 2, 30, DATE);
+  const legHome = (place: number) => Math.ceil((data.durations[place * 6] ?? 0) / 60) * 60;
+
+  test('each job may start service from its window’s start to 120 minutes later, on one axis from 09:00', () => {
+    expect(problem.input.jobs.map((j) => j.time_windows)).toEqual([
+      [[0, 7200]],
+      [[7200, 14400]],
+      [[14400, 21600]],
+    ]);
+  });
+
+  test('each job takes 180 seconds at the door, the domain’s 3 minutes', () => {
+    for (const job of problem.input.jobs) expect(job.service).toBe(180);
+  });
+
+  test('each van leaves at 0, 09:00, and may be back as late as the last close, a door and the drive home', () => {
+    // The 13:00 stop closes at 15:00, 21,600 s after 09:00; it is the latest a van can be back.
+    const back = Math.max(...[1, 2, 3].map((p, k) => 7200 * (k + 1) + 180 + legHome(p)));
+    for (const v of problem.input.vehicles) expect(v.time_window).toEqual([0, back]);
+    expect(back).toBeGreaterThan(21_600 + 180);
+  });
+
+  test('the windows follow the stops in order-id order, as the jobs do', () => {
+    const reversed = buildProblem(data, [...stops].reverse(), 2, 30, DATE);
+    expect(reversed.input.jobs).toEqual(problem.input.jobs);
+  });
+
+  test('a stop whose window is not a time is refused before VROOM is asked', () => {
+    expect(() => buildProblem(data, [stop(1, 1, 5, { window: 'soon' })], 1, 10, DATE)).toThrow(
+      'Not a time',
+    );
+  });
+});
+
+describe('secondsAfterDeparture: the RFC 3339 business time, with its offset, against 09:00 on the plan date', () => {
+  test('the three window starts in standard time (-07:00)', () => {
+    expect(secondsAfterDeparture('2026-11-07T09:00:00-07:00', '2026-11-07')).toBe(0);
+    expect(secondsAfterDeparture('2026-11-07T11:00:00-07:00', '2026-11-07')).toBe(7200);
+    expect(secondsAfterDeparture('2026-11-07T13:00:00-07:00', '2026-11-07')).toBe(14_400);
+  });
+
+  test('the offset is read, not assumed: the same moment in UTC or another offset gives the same seconds', () => {
+    expect(secondsAfterDeparture('2026-11-07T18:00:00Z', '2026-11-07')).toBe(7200);
+    expect(secondsAfterDeparture('2026-11-07T12:00:00-06:00', '2026-11-07')).toBe(7200);
+  });
+
+  test('in daylight time (-06:00) 09:00 is still 0 and 11:00 still 7200', () => {
+    expect(secondsAfterDeparture('2026-07-11T09:00:00-06:00', '2026-07-11')).toBe(0);
+    expect(secondsAfterDeparture('2026-07-11T11:00:00-06:00', '2026-07-11')).toBe(7200);
+    // The same 11:00 written as if it were standard time is an hour later on the bakery's clock.
+    expect(secondsAfterDeparture('2026-07-11T11:00:00-07:00', '2026-07-11')).toBe(10_800);
+  });
+
+  test('on the days the clocks change, 09:00 is measured on that day’s own offset', () => {
+    // 2026-03-08 springs forward at 02:00; 2026-11-01 falls back at 02:00. Both before the vans leave.
+    expect(secondsAfterDeparture('2026-03-08T11:00:00-06:00', '2026-03-08')).toBe(7200);
+    expect(secondsAfterDeparture('2026-11-01T11:00:00-07:00', '2026-11-01')).toBe(7200);
+  });
+
+  test('whole minutes, rounded down, as the API measures a window’s opening', () => {
+    expect(secondsAfterDeparture('2026-11-07T11:00:59-07:00', '2026-11-07')).toBe(7200);
+    expect(secondsAfterDeparture('2026-11-07T08:59:30-07:00', '2026-11-07')).toBe(-60);
+  });
+
+  test('what is not a time or a date is refused', () => {
+    expect(() => secondsAfterDeparture('2026-11-07', '2026-11-07')).toThrow('Not a time');
+    expect(() => secondsAfterDeparture('2026-11-07T11:00:00-07:00', 'Saturday')).toThrow(
+      'Not a date',
+    );
+  });
+});
+
 describe('readSolution', () => {
-  const problem = buildProblem(slice(6), SLICE_STOPS, 3, 30);
+  const problem = buildProblem(slice(6), SLICE_STOPS, 3, 30, DATE);
   const output: VroomOutput = {
     code: 0,
     routes: [
@@ -206,7 +290,7 @@ describe('readSolution', () => {
 });
 
 describe('planRequest', () => {
-  const problem = buildProblem(slice(6), SLICE_STOPS, 3, 30);
+  const problem = buildProblem(slice(6), SLICE_STOPS, 3, 30, DATE);
   const plain = readSolution(
     {
       code: 0,
@@ -405,7 +489,9 @@ describe('the isochrones', () => {
 describe('times', () => {
   test('a delivery window is two hours from its start, in the bakery’s time', () => {
     expect(windowText('2026-11-07T09:00:00-07:00')).toBe('9:00 am to 11:00 am');
+    expect(windowText('2026-11-07T11:00:00-07:00')).toBe('11:00 am to 1:00 pm');
     expect(windowText('2026-11-07T13:00:00-07:00')).toBe('1:00 pm to 3:00 pm');
+    expect(windowText('2026-11-07T20:00:00Z')).toBe('1:00 pm to 3:00 pm');
     expect(clockText('2026-11-07T10:42:00-07:00')).toBe('10:42 am');
     expect(windowText('not a time')).toBe('not a time');
   });

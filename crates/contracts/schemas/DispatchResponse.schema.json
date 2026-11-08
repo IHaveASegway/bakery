@@ -131,7 +131,7 @@
       "type": "object",
       "properties": {
         "last_back": {
-          "description": "When the last van is back, a business time: the vans leave at 09:00 and drive the\nmatrix's minutes, with no time at the door counted.",
+          "description": "When the last van is back, a business time: the vans leave at 09:00, drive the matrix's\nminutes, spend 3 minutes at each door and wait at a door they reach before its window\nopens.",
           "type": "string"
         },
         "minutes": {
@@ -253,7 +253,7 @@
           "minimum": 0
         },
         "window": {
-          "description": "The delivery window's start, a business time.",
+          "description": "The delivery window's start, a business time (RFC 3339 with the bakery's offset). The\nwindow is 2 hours long: it closes 120 minutes after this. A plan must reach the stop\nbetween the two, waiting at the door when it is early (rule `window`).",
           "type": "string"
         },
         "zone": {

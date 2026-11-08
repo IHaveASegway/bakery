@@ -1059,3 +1059,233 @@ proptest! {
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// The activity feed's rows for each kind it shows (the console audit of 2026-11-08, findings 13
+// and 36; Activity.tsx: "an order paid, a campaign sent, a rebuild finished")
+// ---------------------------------------------------------------------------------------------
+
+/// The activity rows' `(type, summary)`, oldest first.
+fn activity_rows(p: &CrmProjection) -> Vec<(String, String)> {
+    p.activity()
+        .iter()
+        .map(|a| (a.event_type.clone(), a.summary.clone()))
+        .collect()
+}
+
+#[test]
+fn an_order_paid_is_an_activity_row() {
+    let mut p = CrmProjection::new(&directory());
+    applied(
+        &mut p,
+        &live_order(1, ALDER, "2026-11-07T10:00:00-07:00", "fern-loaf"),
+    );
+    // Placing is the customer's timeline only; paying is also the feed's.
+    assert_eq!(
+        activity_rows(&p),
+        [(
+            "OrderPaid".to_owned(),
+            "Order paid: $22.00, pickup".to_owned()
+        )]
+    );
+    assert_eq!(p.timeline(ulid(ALDER)).len(), 2);
+}
+
+#[test]
+fn every_catering_step_crm_hears_of_is_an_activity_row() {
+    let mut p = CrmProjection::new(&directory());
+    let steps = [
+        inquiry(1, ALDER),
+        quote_sent(),
+        CateringEvent::CateringQuoteAccepted { lapses_at: t(NOW) },
+        CateringEvent::CateringDepositPaid {
+            payment: ulid(901),
+            amount_cents: Cents(15_000),
+        },
+        CateringEvent::CateringBalanceInvoiced {
+            invoice: ulid(902),
+            amount_cents: Cents(45_000),
+            due: "2026-12-05".parse().unwrap(),
+        },
+        CateringEvent::CateringBalancePaid { payment: ulid(903) },
+        CateringEvent::CateringClosed {
+            payment: Some(ulid(903)),
+        },
+    ];
+    let envelopes: Vec<Envelope> = steps
+        .iter()
+        .enumerate()
+        .map(|(k, e)| catering(1, k as u64 + 1, e))
+        .collect();
+    applied(&mut p, &envelopes);
+    // Three more leads end otherwise.
+    applied(
+        &mut p,
+        &[
+            catering(2, 1, &inquiry(2, BIRCH)),
+            catering(
+                2,
+                2,
+                &CateringEvent::CateringDeclined {
+                    reason: DeclineReason::Other,
+                },
+            ),
+            catering(3, 1, &inquiry(3, CEDAR)),
+            catering(3, 2, &quote_sent()),
+            catering(3, 3, &CateringEvent::CateringQuoteExpired { reason: None }),
+            catering(4, 1, &inquiry(4, ALDER)),
+            catering(
+                4,
+                2,
+                &CateringEvent::CateringCancelled {
+                    refund_deposit: true,
+                    by: CancelledBy::Customer,
+                    reason: crate::catering::CancelReason::CustomerChange,
+                },
+            ),
+        ],
+    );
+    let summaries: Vec<String> = activity_rows(&p).into_iter().map(|(_, s)| s).collect();
+    for want in [
+        "Catering inquiry for 2026-11-28: 30 people",
+        "Catering quote sent: $600.00, deposit $150.00",
+        "Catering quote accepted",
+        "Catering deposit paid: $150.00",
+        "Catering balance invoiced: $450.00",
+        "Catering balance paid",
+        "Catering closed",
+        "Catering inquiry declined",
+        "Catering quote expired",
+        "Catering cancelled; the deposit goes back",
+    ] {
+        assert!(summaries.iter().any(|s| s == want), "{want}: {summaries:?}");
+    }
+    assert_eq!(summaries.len(), 7 + 2 + 3 + 2);
+    // No row carries the brief or a slug's raw form.
+    assert!(summaries.iter().all(|s| !s.contains("pastry-platter")));
+}
+
+#[test]
+fn a_campaign_sent_and_a_rebuild_finished_join_the_feed_from_crms_own_events() {
+    let mut p = CrmProjection::new(&directory());
+    applied(
+        &mut p,
+        &live_order(1, ALDER, "2026-11-07T10:00:00-07:00", "fern-loaf"),
+    );
+    let own_stream = format!("crm:{}", ulid(SANDBOX));
+    let sent = envelope(
+        7_001,
+        own_stream.clone(),
+        3,
+        "2026-11-07T11:00:00-07:00",
+        &CrmEvent::CampaignSent {
+            campaign: ulid(CAMPAIGN),
+            recipients: vec![ulid(ALDER), ulid(BIRCH)],
+            subject: SubjectTemplate::ThankYou,
+            body: BodyTemplate::default(),
+        },
+    );
+    let one = envelope(
+        7_002,
+        own_stream.clone(),
+        4,
+        "2026-11-07T11:05:00-07:00",
+        &CrmEvent::CampaignSent {
+            campaign: ulid(CAMPAIGN + 1),
+            recipients: vec![ulid(ALDER)],
+            subject: SubjectTemplate::ThankYou,
+            body: BodyTemplate::default(),
+        },
+    );
+    let rebuilt = envelope(
+        7_003,
+        own_stream.clone(),
+        5,
+        "2026-11-07T12:00:00-07:00",
+        &CrmEvent::ProjectionRebuildFinished {
+            events: 909,
+            ms: 1_235,
+        },
+    );
+    let drafted = envelope(
+        7_000,
+        own_stream,
+        1,
+        "2026-11-07T08:00:00-07:00",
+        &CrmEvent::CampaignDrafted {
+            campaign: ulid(CAMPAIGN),
+            subject: SubjectTemplate::ThankYou,
+            body: BodyTemplate::default(),
+            segment: Segment::Everyone,
+        },
+    );
+    let feed: Vec<(String, String)> =
+        activity_feed(&p, &[drafted, rebuilt.clone(), sent.clone(), one])
+            .into_iter()
+            .map(|a| (a.event_type, a.summary))
+            .collect();
+    let s = |a: &str, b: &str| (a.to_owned(), b.to_owned());
+    assert_eq!(
+        feed,
+        [
+            s("OrderPaid", "Order paid: $22.00, pickup"),
+            s("CampaignSent", "Campaign sent to 2 customers"),
+            s("CampaignSent", "Campaign sent to 1 customer"),
+            s(
+                "ProjectionRebuildFinished",
+                "CRM projection rebuilt: 909 events replayed in 1235 ms"
+            ),
+        ]
+    );
+    // They are not the projection's, so a rebuild of the log reproduces it unchanged, and Crm
+    // does not take them as deliveries.
+    assert_eq!(p.activity().len(), 1);
+    assert_eq!(p.apply(&sent), Ok(Outcome::NotForCrm));
+    assert_eq!(p.apply(&rebuilt), Ok(Outcome::NotForCrm));
+}
+
+#[test]
+fn counts_in_activity_rows_agree_with_their_noun() {
+    let mut p = CrmProjection::new(&directory());
+    let raw = |id: u128, ty: &str, data: serde_json::Value| Envelope {
+        v: 1,
+        id: ulid(id),
+        sandbox: ulid(SANDBOX),
+        stream: format!("dispatch:{}:2026-11-07", ulid(SANDBOX)),
+        seq: id as u64,
+        event_type: ty.into(),
+        at: t(NOW),
+        recorded_at: WallTime::from_unix_ms(1_793_000_000_000).unwrap(),
+        data,
+        cause: None,
+    };
+    applied(
+        &mut p,
+        &[
+            raw(
+                1,
+                "RouteProposed",
+                serde_json::json!({ "vans": 1, "minutes": 1 }),
+            ),
+            raw(
+                2,
+                "RouteProposed",
+                serde_json::json!({ "vans": 2, "minutes": 41 }),
+            ),
+            raw(
+                3,
+                "TrafficStopped",
+                serde_json::json!({ "reason": "stop", "minutes": 1, "orders": 1 }),
+            ),
+        ],
+    );
+    let summaries: Vec<String> = activity_rows(&p).into_iter().map(|(_, s)| s).collect();
+    assert_eq!(
+        summaries,
+        [
+            "Routes proposed: 1 van, 1 minute",
+            "Routes proposed: 2 vans, 41 minutes",
+            "Simulated traffic stopped (stop) after 1 order",
+        ]
+    );
+}

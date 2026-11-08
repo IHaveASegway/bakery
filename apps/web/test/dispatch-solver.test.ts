@@ -9,10 +9,11 @@ import {
   planRequest,
   readSolution,
   solveOptions,
+  type RouteData,
   type VroomInput,
   type VroomOutput,
 } from '../src/lib/dispatch';
-import { SLICE_STOPS, orderId, route, slice, stop } from './dispatch-support';
+import { DATE, SLICE_STOPS, orderId, route, slice, stop, windowAt } from './dispatch-support';
 
 // The real solver, in Node, the way the site's node-solver.ts runs it: the same files the page
 // serves, imported from public/ where the build fetched them. They are not in the repository, so
@@ -46,8 +47,37 @@ beforeAll(async () => {
 });
 
 /** The busy Saturday's size (docs/domain.md, "63 delivery orders across 4 vans"): a stop at each of
- *  the fixture's 63 drop-off spots, 4 to 14 units each, deterministic. */
-const SATURDAY = Array.from({ length: 63 }, (_, k) => stop(k + 1, k + 1, 4 + ((k * 7) % 11)));
+ *  the fixture's 63 drop-off spots, 4 to 14 units each, in the three windows by turn, deterministic. */
+const STARTS = [9, 11, 13] as const;
+const SATURDAY = Array.from({ length: 63 }, (_, k) =>
+  stop(k + 1, k + 1, 4 + ((k * 7) % 11), { window: windowAt(STARTS[k % 3]!) }),
+);
+
+/**
+ * The first stop a van serves after its window closed, or null: the API's check
+ * (crates/domain/src/dispatch/windows.rs, `route_times`) in whole minutes from 09:00, legs rounded up
+ * from the matrix's seconds, 3 minutes at each door, a van that is early waiting for the window.
+ */
+function lateStop(
+  data: RouteData,
+  orders: readonly string[],
+  stops: readonly ReturnType<typeof stop>[],
+): string | null {
+  const n = data.points.length;
+  const byOrder = new Map(stops.map((s) => [s.order, s]));
+  const minutes = (a: number, b: number) => Math.ceil((data.durations[a * n + b] ?? 0) / 60);
+  let t = 0;
+  let at = DEPOT;
+  for (const order of orders) {
+    const s = byOrder.get(order)!;
+    const open = (Date.parse(s.window) - Date.parse(windowAt(9))) / 60_000;
+    const start = Math.max(t + minutes(at, s.place), open);
+    if (start > open + 120) return order;
+    t = start + 3;
+    at = s.place;
+  }
+  return null;
+}
 const VANS = 4;
 const CAPACITY = 250;
 
@@ -58,7 +88,7 @@ describe.skipIf(!present)('the real VROOM, in Node, over the fixture', () => {
   });
 
   test('the 6-place slice: every stop once, and the answer reads back as the API’s request', () => {
-    const problem = buildProblem(slice(6), SLICE_STOPS, 2, 40);
+    const problem = buildProblem(slice(6), SLICE_STOPS, 2, 40, DATE);
     const output = solver.solve(problem.input, solveOptions(6));
     expect(output.code).toBe(0);
     const plan = readSolution(output, problem);
@@ -76,14 +106,14 @@ describe.skipIf(!present)('the real VROOM, in Node, over the fixture', () => {
 
   test('capacity is VROOM’s to respect: a stop bigger than any van is left unassigned, not placed', () => {
     const big = [stop(1, 1, 5), stop(2, 2, 99)];
-    const problem = buildProblem(slice(6), big, 1, 10);
+    const problem = buildProblem(slice(6), big, 1, 10, DATE);
     const plan = readSolution(solver.solve(problem.input, solveOptions(2)), problem);
     expect(plan.unassigned).toEqual([orderId(2)]);
     expect(plan.routes[0]?.stops).toEqual([orderId(1)]);
   });
 
   test('the busy Saturday: 63 stops on 4 vans, all placed, none over capacity, in the time measured', () => {
-    const problem = buildProblem(route, SATURDAY, VANS, CAPACITY);
+    const problem = buildProblem(route, SATURDAY, VANS, CAPACITY, DATE);
     expect(problem.input.jobs).toHaveLength(63);
     const times: number[] = [];
     let output: VroomOutput | null = null;
@@ -110,19 +140,40 @@ describe.skipIf(!present)('the real VROOM, in Node, over the fixture', () => {
       );
     }
     expect(plan.routes).toHaveLength(VANS);
+    // Every van keeps to the windows by the API's own arithmetic, so `plan` will not refuse `window`.
+    for (const r of plan.routes)
+      expect(lateStop(route, r.stops, SATURDAY), `van ${r.van}`).toBeNull();
     // ADR 0012 revisits the browser solve if it passes 2 s on a phone; in Node it is far inside that.
     expect(times[1]).toBeLessThan(2000);
   });
 
+  test('the windows order a van’s stops: a 13:00 stop is served after a 9:00 one, waiting if early', () => {
+    const day = [stop(1, 1, 5, { window: windowAt(13) }), stop(2, 2, 5, { window: windowAt(9) })];
+    const problem = buildProblem(slice(6), day, 1, 40, DATE);
+    const output = solver.solve(problem.input, solveOptions(2));
+    const plan = readSolution(output, problem);
+    expect(plan.unassigned).toEqual([]);
+    expect(plan.routes[0]?.stops).toEqual([orderId(2), orderId(1)]);
+    expect(lateStop(slice(6), plan.routes[0]!.stops, day)).toBeNull();
+    // VROOM starts serving the 13:00 stop no earlier than its window opens, 4 hours after 09:00.
+    const steps = (output.routes?.[0]?.steps ?? []) as readonly {
+      id?: number;
+      arrival?: number;
+      waiting_time?: number;
+    }[];
+    const served = steps.find((st) => st.id === 1);
+    expect((served?.arrival ?? 0) + (served?.waiting_time ?? 0)).toBeGreaterThanOrEqual(14_400);
+  });
+
   test('the same problem gives the same plan twice', () => {
-    const problem = buildProblem(route, SATURDAY, VANS, CAPACITY);
+    const problem = buildProblem(route, SATURDAY, VANS, CAPACITY, DATE);
     const a = readSolution(solver.solve(problem.input, solveOptions(63)), problem);
     const b = readSolution(solver.solve(problem.input, solveOptions(63)), problem);
     expect(b).toEqual(a);
   });
 
   test('VROOM beats dealing the stops to the vans in turn, in the minutes the object counts', () => {
-    const problem = buildProblem(route, SATURDAY, VANS, CAPACITY);
+    const problem = buildProblem(route, SATURDAY, VANS, CAPACITY, DATE);
     const plan = readSolution(solver.solve(problem.input, solveOptions(63)), problem);
     const minutes = (places: number[]): number => {
       let total = 0;

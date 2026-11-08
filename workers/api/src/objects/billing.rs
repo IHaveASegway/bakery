@@ -12,9 +12,14 @@
 //!
 //! Paths (the Worker builds them; nothing outside reaches them):
 //!
-//! - `POST /_seed {birth, days}` → 201; 200 when already seeded. The seed's history as daily
-//!   totals (`history`): what the bakery took before the sandbox was born. These are not Stripe
-//!   payments and are not in the ledger, whose every line has a Stripe id.
+//! - `POST /_seed {birth, days, payments}` → 201; 200 when already seeded. The seed's history as
+//!   daily totals (`history`): what the bakery took before the sandbox was born. These are not
+//!   Stripe payments and are not in the ledger. `payments` are the seeded open orders' (paid,
+//!   in production or ready at birth): each is written as `PaymentIntentCreated`,
+//!   `PaymentIntentRecorded` and `PaymentSucceeded` at its payment's time, with the intent id
+//!   `seed:<payment>` and no outbox rows, so the ledger shows what the board and the CRM show.
+//!   Stripe never saw them: `/_payment` leaves them out and `/_refund` skips them
+//!   (`seeded-payment`), as for a payment Billing never took.
 //! - `POST /_intent {purpose, reference, amount}` → 200 `IntentOut`: the payment created (or the
 //!   open one reused), the intent created at Stripe, `RecordIntent`. 409 `{error: "paid"}`
 //!   when the reference is paid; 409 `{error: "canceled"}` when its expiry canceled the payment
@@ -27,7 +32,8 @@
 //!   refund before its payment), so Stripe delivers it again.
 //! - `POST /_refund {refund, payment, amount?, reason}` → 200 `RefundOut`: `RequestRefund` under
 //!   the refund's id, Stripe's refund, `RecordRefund`. 200 with `issued: false, rule:
-//!   "unknown-payment"` for a payment Billing never took (a seeded order's).
+//!   "unknown-payment"` for a payment Billing never took, or `"seeded-payment"` for one the seed
+//!   made.
 //! - `POST /_cancel {reference}` → 200 `{canceled}`: `CancelForExpiry`, then each intent canceled
 //!   at Stripe, best effort.
 //! - `POST /_pay-invoice {reference}` → 200 `{invoice, amount_paid_cents}`: the catering job's
@@ -114,6 +120,42 @@ pub struct DayTotal {
 pub struct SeedBilling {
     pub birth: Birth,
     pub days: Vec<DayTotal>,
+    /// The seeded open orders' payments, which the ledger shows from birth.
+    #[serde(default)]
+    pub payments: Vec<SeedPayment>,
+}
+
+/// One seeded open order's payment: the seed made the order paid at `at`, through no Stripe.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeedPayment {
+    pub payment: Ulid,
+    /// The order.
+    pub reference: Ulid,
+    pub amount_cents: Cents,
+    pub at: bakery_domain::BusinessTime,
+}
+
+/// The seeded payments of the open orders that are past `placed`, by payment id.
+pub fn seed_payments(open_orders: &[bakery_seed::OpenOrder]) -> Result<Vec<SeedPayment>> {
+    let mut out = Vec::new();
+    for o in open_orders {
+        let Some(payment) = o.payment_id else {
+            continue;
+        };
+        let at = bakery_domain::calendar::local(
+            i64::try_from(payment.unix_ms())
+                .map_err(|_| Error::RustError("payment time".into()))?,
+        )
+        .map_err(|e| Error::RustError(e.to_string()))?;
+        out.push(SeedPayment {
+            payment,
+            reference: o.id,
+            amount_cents: o.total_cents,
+            at,
+        });
+    }
+    out.sort_by_key(|p| (p.at, p.payment));
+    Ok(out)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -437,8 +479,38 @@ impl Billing {
         }
         self.ensure_schema()?;
         let birth = s.birth.clone();
+        // The seeded payments as Billing's first events, each at its payment's time, with no
+        // outbox rows: the Orders are paid already and nothing is relayed.
+        let mut built: Vec<Envelope> = Vec::new();
+        for p in &s.payments {
+            let head = StreamHead {
+                sandbox: birth.sandbox,
+                stream: birth.name.clone(),
+                last_seq: built.last().map_or(0, |e| e.seq),
+            };
+            let stamp = Stamp {
+                at: p.at,
+                recorded_at: now,
+                cause: Some("seed".to_owned()),
+            };
+            let events =
+                bakery_domain::billing::seeded_payment(p.payment, p.reference, p.amount_cents);
+            let mut ids = Vec::new();
+            for _ in &events {
+                ids.push(random::ulid(now)?);
+            }
+            let mut ids = ids.into_iter();
+            built.extend(
+                envelopes(&head, &stamp, &events, || {
+                    ids.next().unwrap_or(Ulid::from_parts(0, 0))
+                })
+                .map_err(|e| Error::RustError(e.to_string()))?,
+            );
+        }
         transaction_sync(&self.state.storage(), move || {
             child::born(&sql, &birth, now)?;
+            stream::append(&sql, &built)?;
+            exec(&sql, "DELETE FROM outbox", vec![])?;
             for d in &s.days {
                 exec(
                     &sql,
@@ -694,6 +766,23 @@ impl Billing {
         };
         self.ensure_schema()?;
         let (state, existing) = self.load(meta)?;
+        if state.payment(body.payment).is_some_and(|p| p.is_seeded()) {
+            // The seed made it paid; Stripe holds nothing to refund.
+            console_log!(
+                "{{\"event\":\"refund_skipped\",\"refund\":\"{}\",\"rule\":\"seeded-payment\"}}",
+                body.refund
+            );
+            return json(
+                &RefundOut {
+                    refund: body.refund,
+                    issued: false,
+                    amount_cents: body.amount.unwrap_or(Cents::ZERO),
+                    stripe_refund: None,
+                    rule: Some("seeded-payment".into()),
+                },
+                200,
+            );
+        }
         let cmd = BillingCommand::RequestRefund {
             payment: body.payment,
             amount: body.amount,
@@ -1205,10 +1294,13 @@ impl Billing {
             return refuse(404, "not-found");
         };
         let (state, _) = self.load(meta)?;
+        // A payment the seed made is in the ledger but was never Stripe's, so it is not one a
+        // refund can be made against.
         let found = state.payments().find(|(_, p)| {
             p.purpose == Purpose::Order
                 && p.reference == reference
                 && p.status == PaymentStatus::Succeeded
+                && !p.is_seeded()
         });
         match found {
             Some((payment, p)) => json(
@@ -1327,6 +1419,48 @@ mod tests {
             g.history.iter().map(|o| o.total_cents.0).sum::<i64>()
         );
         assert!(days.windows(2).all(|w| w[0].day < w[1].day));
+    }
+
+    #[test]
+    fn the_seeded_paid_orders_are_the_ledgers_payments_from_birth() {
+        let now: bakery_domain::BusinessTime = "2026-11-07T09:17:00-07:00".parse().unwrap();
+        let g = bakery_seed::Generator::new(
+            bakery_seed::Seed(42),
+            bakery_seed::BirthDate::parse("2026-11-07").unwrap(),
+        )
+        .generate()
+        .born_at(now);
+        let payments = seed_payments(&g.open_orders).unwrap();
+        let paid: Vec<_> = g
+            .open_orders
+            .iter()
+            .filter(|o| o.payment_id.is_some())
+            .collect();
+        assert_eq!(payments.len(), paid.len());
+        assert!(payments.windows(2).all(|w| w[0].at <= w[1].at));
+        for p in &payments {
+            let o = paid.iter().find(|o| o.id == p.reference).unwrap();
+            assert_eq!(
+                (Some(p.payment), p.amount_cents),
+                (o.payment_id, o.total_cents)
+            );
+            assert!(p.at < now);
+        }
+        let events: Vec<BillingEvent> = payments
+            .iter()
+            .flat_map(|p| {
+                bakery_domain::billing::seeded_payment(p.payment, p.reference, p.amount_cents)
+            })
+            .collect();
+        let ledger = Ledger::from_events(events.iter().map(|e| (now, e)));
+        let total: i64 = paid.iter().map(|o| o.total_cents.0).sum();
+        let r = ledger_response(&ledger);
+        assert_eq!(
+            (r.entries.len(), r.paid_cents, r.net_cents),
+            (paid.len(), total, total)
+        );
+        let state = replay::<BillingAggregate>(&events);
+        assert!(state.payments().all(|(_, p)| p.is_seeded()));
     }
 
     #[test]

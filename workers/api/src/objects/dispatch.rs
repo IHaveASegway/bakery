@@ -29,7 +29,9 @@
 //!   "complete_stop", stop}`, and the consumer's and the seed's `add_stop`, `confirm_stop`,
 //!   `remove_stop`. Before a `publish` over a published plan the object asks each of its Orders
 //!   (`GET /_order`) whether it has left (out for delivery, delivered or closed), and the
-//!   aggregate refuses `published` if one has.
+//!   aggregate refuses `published` if one has. Before a `complete_stop` it asks the stop's
+//!   Order whether it is ready (ready, out for delivery, delivered or closed), and the
+//!   aggregate refuses `not-ready` if it is not.
 //! - `POST /_event {envelope, birth?, place?}` → 200 `{outcome}` (`applied`, `unchanged`,
 //!   `duplicate`, `ignored`, `refused`), from the consumer: `OrderPlaced` for a delivery is
 //!   `AddStop` (the customer's place, the matrix index, in `place`), `OrderPaid` is
@@ -168,13 +170,14 @@ impl Cmd {
                 vans: *vans,
                 capacity: *capacity,
             },
-            DispatchCommand::CompleteStop { stop } => Cmd::CompleteStop { stop: *stop },
+            DispatchCommand::CompleteStop { stop, .. } => Cmd::CompleteStop { stop: *stop },
             DispatchCommand::SubmitPlan { .. } | DispatchCommand::Publish { .. } => return None,
         })
     }
 
-    /// The aggregate's command, with the matrix and, for a publish, whether a van has left.
-    pub fn domain(&self, matrix: &Arc<TravelMatrix>, departed: bool) -> DispatchCommand {
+    /// The aggregate's command, with the matrix, the facts the object read from the Orders: for
+    /// a publish whether a van has left, for a completion whether the stop's order is ready.
+    pub fn domain(&self, matrix: &Arc<TravelMatrix>, facts: Facts) -> DispatchCommand {
         match self {
             Cmd::AddStop {
                 order,
@@ -207,11 +210,24 @@ impl Cmd {
             },
             Cmd::Publish { plan } => DispatchCommand::Publish {
                 plan: *plan,
-                departed,
+                departed: facts.departed,
+                matrix: matrix.clone(),
             },
-            Cmd::CompleteStop { stop } => DispatchCommand::CompleteStop { stop: *stop },
+            Cmd::CompleteStop { stop } => DispatchCommand::CompleteStop {
+                stop: *stop,
+                ready: facts.ready,
+            },
         }
     }
+}
+
+/// What the object reads from the Orders before deciding a command.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Facts {
+    /// An order of the published plan is out for delivery, delivered or closed.
+    pub departed: bool,
+    /// The completed stop's order is ready, out for delivery, delivered or closed.
+    pub ready: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -441,7 +457,7 @@ impl Dispatch {
         let mut state = DispatchState::new(date);
         let mut events = Vec::new();
         for cmd in &s.cmds {
-            match execute::<Aggregate>(state.clone(), &cmd.domain(&m, false), &ctx) {
+            match execute::<Aggregate>(state.clone(), &cmd.domain(&m, Facts::default()), &ctx) {
                 Ok((next, mut more)) => {
                     state = next;
                     events.append(&mut more);
@@ -494,9 +510,19 @@ impl Dispatch {
             Some(m) => self.load(m)?,
             None => (DispatchState::new(Self::date(&birth.name)?), 0),
         };
-        let departed = match (&c.cmd, state.published()) {
-            (Cmd::Publish { .. }, Some(_)) => self.departed(birth.sandbox, &state).await?,
-            _ => false,
+        let facts = match (&c.cmd, state.published()) {
+            (Cmd::Publish { .. }, Some(_)) => Facts {
+                departed: self.departed(birth.sandbox, &state).await?,
+                ready: false,
+            },
+            (Cmd::CompleteStop { stop }, Some(p)) => match p.stop_at(*stop) {
+                Some(order) => Facts {
+                    departed: false,
+                    ready: self.ready(birth.sandbox, order).await?,
+                },
+                None => Facts::default(),
+            },
+            _ => Facts::default(),
         };
         let id: Ulid = c
             .key
@@ -509,7 +535,7 @@ impl Dispatch {
             id,
         };
         let m = matrix()?;
-        let (state, events) = match execute::<Aggregate>(state, &c.cmd.domain(&m, departed), &ctx) {
+        let (state, events) = match execute::<Aggregate>(state, &c.cmd.domain(&m, facts), &ctx) {
             Ok(done) => done,
             Err(e) => {
                 return json(
@@ -556,33 +582,50 @@ impl Dispatch {
             return Ok(false);
         };
         for &o in published.routes.iter().flat_map(|r| &r.stops) {
-            let mut res = sql::call_empty(
-                &self.env,
-                order::BINDING,
-                &order::name(sandbox, o),
-                Method::Get,
-                "/_order",
-            )
-            .await?;
-            match res.status_code() {
-                200 => {
-                    let r: OrderResponse = serde_json::from_str(&res.text().await?)?;
-                    if matches!(
-                        r.status,
-                        OrderStatus::OutForDelivery | OrderStatus::Delivered | OrderStatus::Closed
-                    ) {
-                        return Ok(true);
-                    }
-                }
-                404 | 410 => {}
-                other => {
-                    return Err(Error::RustError(format!(
-                        "order answered {other} for its status"
-                    )));
-                }
+            if matches!(
+                self.order_status(sandbox, o).await?,
+                Some(OrderStatus::OutForDelivery | OrderStatus::Delivered | OrderStatus::Closed)
+            ) {
+                return Ok(true);
             }
         }
         Ok(false)
+    }
+
+    /// Whether the Order is ready for its stop to be completed: ready (published before it
+    /// was), out for delivery, or already delivered or closed. A wiped Order (410) is not.
+    async fn ready(&self, sandbox: Ulid, order: Ulid) -> Result<bool> {
+        Ok(matches!(
+            self.order_status(sandbox, order).await?,
+            Some(
+                OrderStatus::Ready
+                    | OrderStatus::OutForDelivery
+                    | OrderStatus::Delivered
+                    | OrderStatus::Closed
+            )
+        ))
+    }
+
+    /// The Order's status; `None` when it does not exist or was wiped.
+    async fn order_status(&self, sandbox: Ulid, o: Ulid) -> Result<Option<OrderStatus>> {
+        let mut res = sql::call_empty(
+            &self.env,
+            order::BINDING,
+            &order::name(sandbox, o),
+            Method::Get,
+            "/_order",
+        )
+        .await?;
+        match res.status_code() {
+            200 => {
+                let r: OrderResponse = serde_json::from_str(&res.text().await?)?;
+                Ok(Some(r.status))
+            }
+            404 | 410 => Ok(None),
+            other => Err(Error::RustError(format!(
+                "order answered {other} for its status"
+            ))),
+        }
     }
 
     /// One delivery from the consumer.
@@ -801,18 +844,44 @@ mod tests {
         }))
         .unwrap();
         let m = matrix().unwrap();
-        let DispatchCommand::SubmitPlan { routes, .. } = plan.domain(&m, false) else {
+        let DispatchCommand::SubmitPlan { routes, .. } = plan.domain(&m, Facts::default()) else {
             panic!()
         };
         assert_eq!(routes[0].stops, vec![order]);
         let publish: Cmd =
             serde_json::from_value(serde_json::json!({ "cmd": "publish", "plan": "submitted" }))
                 .unwrap();
+        let left = Facts {
+            departed: true,
+            ready: false,
+        };
         assert_eq!(
-            publish.domain(&m, true),
+            publish.domain(&m, left),
             DispatchCommand::Publish {
                 plan: PlanChoice::Submitted,
-                departed: true
+                departed: true,
+                matrix: m.clone(),
+            }
+        );
+        let complete: Cmd =
+            serde_json::from_value(serde_json::json!({ "cmd": "complete_stop", "stop": 2 }))
+                .unwrap();
+        let ready = Facts {
+            departed: false,
+            ready: true,
+        };
+        assert_eq!(
+            complete.domain(&m, ready),
+            DispatchCommand::CompleteStop {
+                stop: 2,
+                ready: true
+            }
+        );
+        assert_eq!(
+            complete.domain(&m, Facts::default()),
+            DispatchCommand::CompleteStop {
+                stop: 2,
+                ready: false
             }
         );
         let remove = Cmd::RemoveStop {
@@ -845,7 +914,7 @@ mod tests {
         };
         let mut state = DispatchState::new(day.date);
         for c in &back {
-            state = execute::<Aggregate>(state, &c.domain(&m, false), &ctx)
+            state = execute::<Aggregate>(state, &c.domain(&m, Facts::default()), &ctx)
                 .unwrap()
                 .0;
         }
@@ -854,7 +923,8 @@ mod tests {
         assert_eq!(
             Cmd::of(&DispatchCommand::Publish {
                 plan: PlanChoice::Proposed,
-                departed: false
+                departed: false,
+                matrix: m.clone(),
             }),
             None
         );

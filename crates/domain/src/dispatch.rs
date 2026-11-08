@@ -17,8 +17,10 @@
 //!   when it is published, since stops may have come and gone in between: every plannable stop
 //!   exactly once (`stop-missing`, `stop-twice`), nothing that is not a confirmed stop of this
 //!   day (`stop-unknown`), no van over capacity (`over-capacity`), each route from the bakery
-//!   and back to it (`route-ends`), and no more vans than the day has (`vans`). The minutes are
-//!   recomputed from the matrix; a client's totals are never read.
+//!   and back to it (`route-ends`), no more vans than the day has (`vans`), and every stop
+//!   reached within its delivery window (`window`, [`windows`]: the vans leave at 09:00 and a
+//!   van early at a door waits for the window to open). The minutes are recomputed from the
+//!   matrix; a client's totals are never read.
 //! - **A stop's number** is its position in the published plan, counted from 1 across the vans
 //!   in van order: van 1's stops first. It is the `stop` of `OrderOutForDelivery` (with the route
 //!   `van-<n>`), of `StopCompleted` and of the complete-stop request, and [`deliveries`] reads it
@@ -43,12 +45,21 @@
 //!   (or delivered) is the Orders' to know, not this log's, so the object reads it from them and
 //!   hands it to `Publish` as `departed`, as it hands `Propose` the matrix: a fresh publish with
 //!   `departed` is refused `published`. `CompleteStop` still works.
-//! - **The time the last van is back counts the doors**: each stop adds [`SERVICE_MINUTES`]
-//!   (the route data's `serviceSeconds`, 180 s) to its van's drive (the same decision, question
-//!   5). A van's `minutes` stay drive minutes, which the validator and the comparison use.
+//! - **A stop is completed only once its order is ready** (the order's lifecycle in
+//!   docs/domain.md: ready, out for delivery on `RoutePublished`, delivered on `StopCompleted`;
+//!   the console audit of 2026-11-08, finding 7). The object reads the order's status from the
+//!   Order, as it reads `departed`, and hands `CompleteStop` whether it is ready, out for
+//!   delivery or already delivered; an order still confirmed or in production is refused
+//!   `not-ready`. `StopCompleted` carries the stop's route, `van-<n>`, so an order that became
+//!   ready after the plan was published goes out for delivery and is delivered in one step.
+//! - **The time the last van is back counts the doors and the waits**: each stop adds
+//!   [`SERVICE_MINUTES`] (the route data's `serviceSeconds`, 180 s) to its van's drive (the same
+//!   decision, question 5), and a van early at a door waits there for the window to open. A
+//!   van's `minutes` stay drive minutes, which the validator and the comparison use.
 
 mod matrix;
 mod savings;
+pub mod windows;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -66,6 +77,7 @@ pub use matrix::{
     place_label,
 };
 pub use savings::savings_plan;
+pub use windows::{Door, RouteTimes, route_times};
 
 /// The most vans the bakery has (docs/domain.md, "The story": four on Saturdays).
 pub const MAX_VANS: u8 = 4;
@@ -77,7 +89,8 @@ pub const DEFAULT_VANS: u8 = 4;
 /// which the heuristic needs to pack them; at 200 two of those 600 days left stops behind.
 pub const DEFAULT_CAPACITY: u32 = 250;
 /// When the vans leave, local minutes after midnight: the first delivery window, 09:00. The time
-/// the last van is back is this plus the longest route's drive.
+/// the last van is back is this plus the longest route's day: its drive, its doors and its
+/// waits for windows to open ([`windows`]).
 pub const DEPARTURE_MINUTES: u16 = WINDOW_STARTS[0];
 /// Minutes a van spends at each door: `serviceSeconds`, 180, in the Salt Lake City route data
 /// (`crates/seed/data/salt-lake-city/route-data.json`, built 2026-11-05; a test in `bakery-seed`
@@ -204,24 +217,20 @@ impl Plan {
                 }
             })
             .collect();
-        let departure = state.date.at_local(DEPARTURE_MINUTES);
-        // Each van's drive and its time at the doors; the longest is back last.
-        let longest = vans
+        let departure = windows::departure(state.date);
+        // Each van's day: its drive, its time at the doors and its waits for windows to open;
+        // the longest is back last.
+        let longest = self
+            .routes
             .iter()
-            .map(|v| {
-                let doors = u32::try_from(v.stops.len()).unwrap_or(u32::MAX);
-                v.minutes
-                    .saturating_add(SERVICE_MINUTES.saturating_mul(doors))
-            })
+            .map(|r| route_times(&state.doors(&r.stops), matrix).back)
             .max()
             .unwrap_or(0);
         PlanSummary {
             source: self.source,
             plan_v: self.plan_v,
             minutes: self.minutes,
-            last_back: departure
-                .plus_minutes(i64::from(longest))
-                .unwrap_or(departure),
+            last_back: departure.plus_minutes(longest).unwrap_or(departure),
             unassigned: self.unassigned.clone(),
             vans,
         }
@@ -246,7 +255,8 @@ pub struct PlanSummary {
     pub vans: Vec<VanSummary>,
     pub minutes: u32,
     /// The vans leave at [`DEPARTURE_MINUTES`]; this is when the last is back: the longest of
-    /// each van's drive plus [`SERVICE_MINUTES`] at each of its doors.
+    /// each van's drive, [`SERVICE_MINUTES`] at each of its doors and its waits for windows to
+    /// open.
     pub last_back: BusinessTime,
     pub unassigned: Vec<Ulid>,
 }
@@ -375,10 +385,17 @@ pub enum DispatchCommand {
     },
     /// Staff: make a stored plan the record. Keyed by the command's id. `departed` says whether
     /// any order of the published plan has gone out for delivery, which the object reads from
-    /// the Orders before deciding: then the plan stands, and a new publish is refused.
-    Publish { plan: PlanChoice, departed: bool },
-    /// A driver, or staff: stop number `stop` of the published plan is delivered.
-    CompleteStop { stop: u16 },
+    /// the Orders before deciding: then the plan stands, and a new publish is refused. The
+    /// matrix checks the plan's windows again.
+    Publish {
+        plan: PlanChoice,
+        departed: bool,
+        matrix: Arc<TravelMatrix>,
+    },
+    /// A driver, or staff: stop number `stop` of the published plan is delivered. `ready` says
+    /// whether the stop's order is ready, out for delivery or delivered, which the object reads
+    /// from the Order before deciding: an order not yet ready is refused `not-ready`.
+    CompleteStop { stop: u16, ready: bool },
 }
 
 /// The Dispatch's rows in docs/domain.md, "The event catalog".
@@ -433,6 +450,11 @@ pub enum DispatchEvent {
         date: BakeryDate,
         stop: u16,
         order: Ulid,
+        /// The stop's route in the published plan, `van-<n>`: an addition within envelope v1,
+        /// so an order that was not ready when the plan was published goes out for delivery
+        /// on its way to delivered. Absent in events written before it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        route: Option<String>,
     },
 }
 
@@ -489,6 +511,10 @@ pub enum DispatchError {
     PlaceUnknown { order: Ulid, place: PlaceIndex },
     #[error("a van has left on the published plan, so it is not replaced")]
     Published,
+    #[error("van {van} reaches stop {order} after its delivery window closes")]
+    Late { van: u8, order: Ulid },
+    #[error("stop {stop}'s order is not ready yet")]
+    NotReady { stop: u16 },
 }
 
 impl DispatchError {
@@ -507,6 +533,8 @@ impl DispatchError {
             DispatchError::WrongDay => "wrong-day",
             DispatchError::PlaceUnknown { .. } => "place-unknown",
             DispatchError::Published => "published",
+            DispatchError::Late { .. } => "window",
+            DispatchError::NotReady { .. } => "not-ready",
         }
     }
 }
@@ -597,6 +625,32 @@ impl DispatchState {
         self.plan_v.saturating_add(1)
     }
 
+    /// The doors of `orders`, in their order; an order the day does not hold is left out.
+    pub fn doors(&self, orders: &[Ulid]) -> Vec<Door> {
+        orders
+            .iter()
+            .filter_map(|o| self.stops.get(o).map(Door::of))
+            .collect()
+    }
+
+    /// The validator's window rule: each van reaches every stop by its window's close, waiting
+    /// at a door it reaches before the window opens.
+    fn check_windows(
+        &self,
+        routes: &[VanRoute],
+        matrix: &TravelMatrix,
+    ) -> Result<(), DispatchError> {
+        for r in routes {
+            if let Some(k) = route_times(&self.doors(&r.stops), matrix).late {
+                return Err(DispatchError::Late {
+                    van: r.van,
+                    order: r.stops[k],
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// The validator's rules that need no matrix: the vans, every plannable stop exactly once
     /// and nothing else, and each van under the capacity.
     fn check_routes(&self, routes: &[VanRoute]) -> Result<(), DispatchError> {
@@ -667,6 +721,7 @@ impl DispatchState {
         kept.sort_by_key(|r| r.van);
         self.check_routes(&kept)?;
         let minutes = self.drive_minutes(&kept, matrix)?;
+        self.check_windows(&kept, matrix)?;
         Ok((kept, minutes))
     }
 
@@ -812,7 +867,11 @@ impl Aggregate for Dispatch {
                     minutes,
                 }])
             }
-            DispatchCommand::Publish { plan, departed } => {
+            DispatchCommand::Publish {
+                plan,
+                departed,
+                matrix,
+            } => {
                 if state.publish_keys.contains(&ctx.id) {
                     return Ok(vec![]);
                 }
@@ -832,6 +891,8 @@ impl Aggregate for Dispatch {
                 }
                 // Stops may have come or gone since the plan was stored.
                 state.check_routes(&chosen.routes)?;
+                state.drive_minutes(&chosen.routes, matrix)?;
+                state.check_windows(&chosen.routes, matrix)?;
                 Ok(vec![DispatchEvent::RoutePublished {
                     date,
                     plan_v: state.next_plan_v(),
@@ -841,17 +902,25 @@ impl Aggregate for Dispatch {
                     publish: ctx.id,
                 }])
             }
-            DispatchCommand::CompleteStop { stop } => {
+            DispatchCommand::CompleteStop { stop, ready } => {
                 let published = state.published.as_ref().ok_or(DispatchError::NoPlan)?;
                 let order = published
                     .stop_at(*stop)
                     .ok_or(DispatchError::NoSuchStop { stop: *stop })?;
                 match state.stops.get(&order).map(|s| s.status) {
                     Some(StopStatus::Completed) => Ok(vec![]),
+                    Some(StopStatus::Confirmed) if !*ready => {
+                        Err(DispatchError::NotReady { stop: *stop })
+                    }
                     Some(StopStatus::Confirmed) => Ok(vec![DispatchEvent::StopCompleted {
                         date,
                         stop: *stop,
                         order,
+                        route: published
+                            .routes
+                            .iter()
+                            .find(|r| r.stops.contains(&order))
+                            .map(|r| route_label(r.van)),
                     }]),
                     _ => Err(DispatchError::StopUnknown { order }),
                 }

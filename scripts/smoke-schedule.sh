@@ -410,8 +410,10 @@ expect_problem day_far 404 no-such-day
 LAST="$(cal 'day(Date.now() + 30 * 86400000)')"
 get_as day_last G "/v1/sandboxes/$GID/schedule/$LAST"
 expect_status day_last 200
-# Born by this read, after the seed: with the published menu's caps (the hardening after PR 13).
-expect_json day_last "b.date === '$LAST' && b.menu_version === 1 && b.items.filter(i => i.daily_cap !== null).length === 24 && b.bake_list.version === 0"
+# Born by this read, after the seed: with the published menu's caps (the hardening after PR 13). The
+# seed's publish reaches a day through the outbox, so on a loaded machine the first read can come
+# before it (2 of 4 runs on 2026-11-08); the check polls until the day names menu version 1.
+check "day_last: body names menu version 1, 24 capped items and bake list version 0" "schedule_until day_last_settled G '$GID' '$LAST' \"b.date === '$LAST' && b.menu_version === 1 && b.items.filter(i => i.daily_cap !== null).length === 24 && b.bake_list.version === 0\""
 get_as day_bad G "/v1/sandboxes/$GID/schedule/not-a-date"
 expect_problem day_bad 404 no-such-day
 
@@ -478,19 +480,30 @@ command_as bad_target D 192.0.2.82 PATCH "/v1/sandboxes/$DID/schedule/$RACE_FROM
 expect_problem bad_target 422 bad-target
 command_as bad_target_kind D 192.0.2.82 PATCH "/v1/sandboxes/$DID/schedule/$RACE_FROM/capacity" '{"target":"oven:1","capacity":1}'
 expect_problem bad_target_kind 422 bad-target
-# The day's seeded open orders may already hold this item, so the count it reads before the cap
-# is the truth to compare with: the cap is set to that count (at least the winner's one), and
-# `used` must read back unchanged.
-get_as item_before D "/v1/sandboxes/$DID/schedule/$RACE_FROM"
-ITEM_USED="$(json_field item_before "b.items.find(i => i.item === '$RACE_ITEM_SLUG').used")"
-check "$RACE_ITEM_SLUG on $RACE_FROM counts $ITEM_USED used before the cap, the winner's place among them" "[[ '$ITEM_USED' =~ ^[0-9]+$ ]] && (( ${ITEM_USED:-0} >= 1 ))"
-command_as item_cap D 192.0.2.82 PATCH "/v1/sandboxes/$DID/schedule/$RACE_FROM/capacity" "{\"target\":\"item:$RACE_ITEM_SLUG\",\"capacity\":${ITEM_USED:-1}}"
-expect_status item_cap 200
-expect_json item_cap "b.items.find(i => i.item === '$RACE_ITEM_SLUG').daily_cap === ${ITEM_USED:-1} && b.items.find(i => i.item === '$RACE_ITEM_SLUG').used === ${ITEM_USED:-1}"
+# The item cap is checked on the day of the slot an hour after the race slot. That slot is the next
+# open day's first when the race slot sits in the day's last hour (a run after about 10:45 business
+# time, 2026-11-08), so the day read, the item, the cap and the order all name that day, and the item
+# is one the menu bakes on it with a lead time the slot allows. The day's seeded open orders may
+# already hold the item, so the count read before the cap is the truth to compare with: the cap is set
+# to that count (at least 1; on the race day the winner's place is among them), `used` must read back
+# unchanged, and an order for one more than the cap leaves free is refused item-cap.
 ITEM_SLOT="$(cal 'iso(nextSlot(Date.parse(a[0]) + 60 * 60000))' "$RACE_SLOT")"
-command_as over_cap D 192.0.2.82 POST "/v1/sandboxes/$DID/orders" "{\"kind\":\"pickup\",\"slot\":\"$ITEM_SLOT\",\"lines\":[{\"variant\":\"$RACE_VARIANT\",\"qty\":1}]}"
+ITEM_DAY="${ITEM_SLOT:0:10}"
+ITEM_PICK="$(cal 'JSON.stringify(fits(JSON.parse(require("fs").readFileSync(a[0], "utf8")), Date.parse(a[1]), Math.floor((Date.parse(a[1]) - Date.now()) / 60000) - 30))' "$TMP/dmenu.body" "$ITEM_SLOT")"
+ITEM_VARIANT="$(node -e "process.stdout.write((JSON.parse(process.argv[1]) || {}).variant || '')" "$ITEM_PICK")"
+ITEM_SLUG="${ITEM_VARIANT%%/*}"
+get_as item_before D "/v1/sandboxes/$DID/schedule/$ITEM_DAY"
+ITEM_USED="$(json_field item_before "b.items.find(i => i.item === '$ITEM_SLUG')?.used ?? ''")"
+if [[ "$ITEM_DAY" == "$RACE_FROM" && "$ITEM_SLUG" == "$RACE_ITEM_SLUG" ]]; then ITEM_MIN=1; else ITEM_MIN=0; fi
+check "$ITEM_SLUG on $ITEM_DAY counts ${ITEM_USED:-?} used before the cap (at least $ITEM_MIN; the winner's place is among them on the race day)" "[[ -n '$ITEM_VARIANT' && '$ITEM_USED' =~ ^[0-9]+$ ]] && (( ${ITEM_USED:-0} >= $ITEM_MIN ))"
+ITEM_CAP=$(( ${ITEM_USED:-0} > 0 ? ${ITEM_USED:-0} : 1 ))
+ITEM_QTY=$(( ITEM_CAP - ${ITEM_USED:-0} + 1 ))
+command_as item_cap D 192.0.2.82 PATCH "/v1/sandboxes/$DID/schedule/$ITEM_DAY/capacity" "{\"target\":\"item:$ITEM_SLUG\",\"capacity\":$ITEM_CAP}"
+expect_status item_cap 200
+expect_json item_cap "b.items.find(i => i.item === '$ITEM_SLUG').daily_cap === $ITEM_CAP && b.items.find(i => i.item === '$ITEM_SLUG').used === ${ITEM_USED:-0}"
+command_as over_cap D 192.0.2.82 POST "/v1/sandboxes/$DID/orders" "{\"kind\":\"pickup\",\"slot\":\"$ITEM_SLOT\",\"lines\":[{\"variant\":\"$ITEM_VARIANT\",\"qty\":$ITEM_QTY}]}"
 expect_problem over_cap 409 item-cap
-expect_json over_cap "b.detail.includes('$RACE_ITEM_SLUG') && b.detail.includes('The rule is item-cap.')"
+expect_json over_cap "b.detail.includes('$ITEM_SLUG') && b.detail.includes('The rule is item-cap.')"
 command_as guest_cap G 192.0.2.81 PATCH "/v1/sandboxes/$GID/schedule/$TODAY/capacity" '{"target":"slot:10:00","capacity":1}'
 expect_problem guest_cap 403 guest-scope
 get_as guest_reads G "/v1/sandboxes/$GID/schedule/$TODAY"

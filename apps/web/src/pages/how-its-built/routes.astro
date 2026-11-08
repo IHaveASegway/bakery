@@ -123,18 +123,22 @@ const SOURCES = [
       per sandbox and business day, checks it before it is stored and again before it is published,
       since stops come and go in between. Its rules have names a visitor can see in a refusal:{' '}
       <code>vans</code>, <code>stop-unknown</code>, <code>stop-twice</code>,{' '}
-      <code>over-capacity</code>, <code>route-ends</code> and <code>stop-missing</code>. Every stop
-      appears once, no van carries more than its capacity, every route starts and ends at the
-      bakery, and no stop is left out. A plan that sends its own total is refused with 400, since
-      the object does not read it. The minutes are always worked out from the object’s own
+      <code>over-capacity</code>, <code>route-ends</code>, <code>stop-missing</code> and, since
+      2026-11-08, <code>window</code>. Every stop appears once, no van carries more than its
+      capacity, every route starts and ends at the bakery, no stop is left out, and no van reaches a
+      stop after its delivery window closes. A plan that sends its own total is refused with 400,
+      since the object does not read it. The minutes are always worked out from the object’s own
       travel-time matrix, the same arithmetic for the server’s plan and the browser’s.
     </p>
     <p>
       That is what makes the comparison fair. The page builds VROOM’s input from the same matrix,
       with every leg rounded up to whole minutes, so VROOM minimizes the figure the object will
-      count. A published plan is a <code>RoutePublished</code> event, and it is the only one that
-      reaches the kitchen board and the orders. Once a van has left, the object asks the orders
-      about it and refuses a new publish with 409 <code>published</code>.
+      count. Since 2026-11-08 it also gives VROOM the times the object checks: the vans leave at
+      9:00 am, a stop may be served until two hours after its window opens, and each door takes 3
+      minutes. Until then the browser’s plan ignored time. A published plan is a{' '}
+      <code>RoutePublished</code> event, and it is the only one that reaches the kitchen board and
+      the orders. Once a van has left, the object asks the orders about it and refuses a new publish
+      with 409 <code>published</code>.
     </p>
 
     <h2>Where the computation is free and where it is paid</h2>
@@ -167,10 +171,10 @@ const SOURCES = [
     <h2>A plan, not a promise</h2>
     <p>
       The times are free-flow drive times with no traffic. The totals count driving only; the time
-      the last van is back adds 3 minutes at every door. The map draws straight lines between stops,
-      not roads. Delivery addresses are made up and map onto the 64 places by index, so two
-      customers can share a drop point. A published plan says what the bakery would do on a road
-      with nobody else on it.
+      the last van is back adds 3 minutes at every door and any wait for a window to open. The map
+      draws straight lines between stops, not roads. Delivery addresses are made up and map onto the
+      64 places by index, so two customers can share a drop point. A published plan says what the
+      bakery would do on a road with nobody else on it.
     </p>
 
     <h2>What to try</h2>

@@ -1238,7 +1238,7 @@ pub const ROUTES: &[RouteSpec] = &[
             no(
                 422,
                 "dispatch",
-                "`route-ends`, `vans`, `stop-unknown`, `stop-twice`, `over-capacity`, `stop-missing` or `no-stops`",
+                "`route-ends`, `vans`, `stop-unknown`, `stop-twice`, `over-capacity`, `stop-missing`, `window` (a stop reached after its delivery window closes) or `no-stops`",
             ),
             SEEDING,
         ],
@@ -1276,7 +1276,11 @@ pub const ROUTES: &[RouteSpec] = &[
         &[
             ok(200, "the day; again for a delivered stop changes nothing"),
             NO_SUCH_DAY,
-            no(409, "dispatch", "`no-plan`"),
+            no(
+                409,
+                "dispatch",
+                "`no-plan`, or `not-ready` (the stop's order is not ready yet)",
+            ),
             no(422, "dispatch", "`stop-unknown`"),
             SEEDING,
         ],

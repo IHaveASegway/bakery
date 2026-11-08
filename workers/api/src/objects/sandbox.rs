@@ -627,12 +627,15 @@ impl Sandbox {
     }
 
     /// The seed's whole sandbox, recomputed from the seed: about 580 KB of JSON that is never
-    /// stored, only read for the rows a child needs.
+    /// stored, only read for the rows a child needs. The generator knows the birth date; the
+    /// minute of the birth moves the open orders' placements and payments before it and pays an
+    /// order whose slot is too near to stay pending (`Generated::born_at`).
     fn generated(seed: u64, born: WallTime) -> Result<Generated> {
-        let birth_date = business(born).to_string();
+        let now = business(born);
+        let birth_date = now.to_string();
         let date = BirthDate::parse(&birth_date[..10])
             .map_err(|e| Error::RustError(format!("birth date: {e}")))?;
-        Ok(Generator::new(Seed(seed), date).generate())
+        Ok(Generator::new(Seed(seed), date).generate().born_at(now))
     }
 
     /// Writes `meta` in state `seeding`, the fault switches, the cursor and the timers in one
@@ -2184,6 +2187,7 @@ impl SeedChild {
             None if self.class == billing::CLASS => serde_json::to_value(billing::SeedBilling {
                 birth,
                 days: billing::daily_totals(&g.history),
+                payments: billing::seed_payments(&g.open_orders)?,
             })?,
             None if self.class == crm::CLASS => serde_json::to_value(crm::SeedCrm {
                 birth,
