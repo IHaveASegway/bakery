@@ -133,8 +133,10 @@ export default function Campaigns({
   }
 
   return (
-    <section aria-labelledby="campaigns-heading" data-tour="crm-campaigns">
-      <h3 id="campaigns-heading">Campaigns</h3>
+    <section aria-labelledby="campaigns-heading">
+      <h3 id="campaigns-heading" data-tour="crm-campaigns">
+        Campaigns
+      </h3>
       <p>
         Compose a campaign from the templates, schedule it, then move the clock past its send time.
         It goes to the sandbox’s <a href="/inbox/">inbox</a>; nothing leaves the sandbox.

@@ -85,7 +85,8 @@ function writeSeen(seen: ReturnType<typeof parseSeen>): void {
  * screen, with its own scroll), and the page keeps room for the bar. Each step scrolls its target
  * into the part of the window above the bar, so the card is below the target and never over it,
  * except for a target taller than that part, whose top is shown. The one Close control sits in the
- * bar, so it covers no page button. The card is not modal and traps no focus. Which screens the
+ * bar, pinned at its foot beside Back and Next, so it covers no page button and the action row is
+ * always in view while only the step's text scrolls above it. The card is not modal and traps no focus. Which screens the
  * visitor has seen is the only thing remembered, in localStorage.
  */
 export default function Tour({ screen }: { screen: ScreenId }) {
@@ -167,8 +168,13 @@ export default function Tour({ screen }: { screen: ScreenId }) {
   if (!state.open || step === undefined) return button;
   return (
     <div id={DOCK} className="tour-dock">
-      <TourCard step={step} index={state.index} total={steps.length} dispatch={dispatch} />
-      {button}
+      <TourCard
+        step={step}
+        index={state.index}
+        total={steps.length}
+        dispatch={dispatch}
+        closer={button}
+      />
     </div>
   );
 }
@@ -191,11 +197,14 @@ export function TourCard({
   index,
   total,
   dispatch,
+  closer,
 }: {
   step: TourStep;
   index: number;
   total: number;
   dispatch: Dispatch;
+  /** The one Close control, drawn at the foot of the bar beside Back and Next. */
+  closer?: React.ReactNode;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
   const [found, setFound] = useState(true);
@@ -261,44 +270,46 @@ export function TourCard({
         dispatch(action);
       }}
     >
-      <div aria-live="polite" aria-atomic="true">
-        <p className="tour-progress">{progressText(index, total)}</p>
-        <h2 ref={heading} tabIndex={-1}>
-          {step.title}
-        </h2>
-        <p>{step.what}</p>
-        {!found && (
-          <p className="hint">
-            This part of the screen is not showing right now. It appears once you are signed in and
-            your sandbox is live.
-          </p>
-        )}
+      <div className="tour-body">
+        <div aria-live="polite" aria-atomic="true">
+          <p className="tour-progress">{progressText(index, total)}</p>
+          <h2 ref={heading} tabIndex={-1}>
+            {step.title}
+          </h2>
+          <p>{step.what}</p>
+          {!found && (
+            <p className="hint">
+              This part of the screen is not showing right now. It appears once you are signed in
+              and your sandbox is live.
+            </p>
+          )}
+        </div>
+
+        <Events step={step} phase={phase} />
+
+        <Principle principle={step.principle} />
+
+        <h3>Do the same through the API</h3>
+        <p className="hint">{step.api.note}</p>
+        <pre className="tour-curl" tabIndex={0} aria-label={`curl for ${step.api.routeId}`}>
+          <code>{curlText(step.api, context, 'screen')}</code>
+        </pre>
+        <p className="hint">
+          {token === null
+            ? tokenHint(phase)
+            : `Your token is held in this page’s memory (${maskToken(token)}); the copy has it whole.`}{' '}
+          Route <code>{step.api.routeId}</code>.
+        </p>
+        <p className="actions">
+          <button type="button" onClick={() => void copy()}>
+            Copy the curl
+          </button>
+          <span aria-live="polite">
+            {copied === 'copied' && 'Copied.'}
+            {copied === 'failed' && 'Copy failed: select the command and copy it by hand.'}
+          </span>
+        </p>
       </div>
-
-      <Events step={step} phase={phase} />
-
-      <Principle principle={step.principle} />
-
-      <h3>Do the same through the API</h3>
-      <p className="hint">{step.api.note}</p>
-      <pre className="tour-curl" tabIndex={0} aria-label={`curl for ${step.api.routeId}`}>
-        <code>{curlText(step.api, context, 'screen')}</code>
-      </pre>
-      <p className="hint">
-        {token === null
-          ? tokenHint(phase)
-          : `Your token is held in this page’s memory (${maskToken(token)}); the copy has it whole.`}{' '}
-        Route <code>{step.api.routeId}</code>.
-      </p>
-      <p className="actions">
-        <button type="button" onClick={() => void copy()}>
-          Copy the curl
-        </button>
-        <span aria-live="polite">
-          {copied === 'copied' && 'Copied.'}
-          {copied === 'failed' && 'Copy failed: select the command and copy it by hand.'}
-        </span>
-      </p>
 
       <p className="actions tour-nav">
         <button type="button" disabled={index === 0} onClick={() => dispatch({ type: 'back' })}>
@@ -307,9 +318,7 @@ export function TourCard({
         <button type="button" onClick={() => dispatch({ type: 'next' })}>
           {index === total - 1 ? 'Done' : 'Next'}
         </button>
-        <button type="button" className="link" onClick={() => dispatch({ type: 'close' })}>
-          Skip the tour
-        </button>
+        {closer}
       </p>
     </section>
   );

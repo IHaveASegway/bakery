@@ -851,8 +851,7 @@ progress::-moz-progress-bar {
 .tour-dock .tour-trigger {
   position: static;
   flex: none;
-  align-self: flex-end;
-  margin-top: 0.5rem;
+  margin-left: auto;
 }
 
 html.tour-open {
@@ -866,8 +865,24 @@ html.tour-open {
   min-height: 0;
   max-width: 40rem;
   margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Only the step's text scrolls; the action row below it stays pinned at the foot of the bar. */
+.tour-body {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding: 0 0.25rem 0.5rem;
+}
+
+.tour-nav {
+  flex: none;
+  align-items: center;
+  margin: 0;
+  padding: 0.5rem 0.25rem 0;
+  border-top: 1px solid var(--border);
 }
 
 @media (max-width: 40rem) {

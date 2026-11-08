@@ -44,8 +44,10 @@ export default function Segments({ sandboxId, refresh }: { sandboxId: string; re
   );
 
   return (
-    <section aria-labelledby="segments-heading" data-tour="crm-segments">
-      <h3 id="segments-heading">Segments</h3>
+    <section aria-labelledby="segments-heading">
+      <h3 id="segments-heading" data-tour="crm-segments">
+        Segments
+      </h3>
       <p>
         A segment is a rule over what the CRM knows. Who is in changes when an event arrives: place
         an order, change a consent flag, or advance the clock, then look again.
