@@ -745,6 +745,11 @@ pub const ROUTES: &[RouteSpec] = &[
                 "bad-target",
                 "not `slot:HH:MM`, `zone:z1` to `z3`, `item:<slug>` or `catering`",
             ),
+            no(
+                422,
+                "unknown-item",
+                "an `item:<slug>` the day's published menu does not list",
+            ),
             NO_SUCH_DAY,
         ],
     ),

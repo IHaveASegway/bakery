@@ -33,8 +33,9 @@
 //!
 //! The socket, protocol v1, JSON text frames. Server to client: `{t: "snapshot", v: 1, board:
 //! {cards, bake_lists}, seq}` on open, `seq` being the count of events that changed the board and
-//! `bake_lists` each day's plan from today on, `[{date, version, lines: [{item, qty, start}],
-//! reserved}]` by date; `{t: "evt", v: 1, env, bake_list?}` for each event that changed it (an
+//! `bake_lists` each day's plan from today on, `[{date, version, lines: [{item, qty, start,
+//! catering?}], reserved}]` by date (`catering: true` on a catering event's line, its `qty` the
+//! headcount); `{t: "evt", v: 1, env, bake_list?}` for each event that changed it (an
 //! order's card, or a day's `BakeListChanged`, `SlotReserved` or `SlotReleased`, whose frame
 //! also carries `bake_list`, that day as the board holds it after the event, so the client sets
 //! the day's plan and reserved count rather than adjusting them), and for the Sandbox's
@@ -229,7 +230,7 @@ impl Closing {
 }
 
 /// The `snapshot` frame: the cards and, since PR 6, the bake lists from today on, sorted by
-/// date (`[{date, version, lines: [{item, qty, start}], reserved}]`).
+/// date (`[{date, version, lines: [{item, qty, start, catering?}], reserved}]`).
 pub fn snapshot_frame(cards: &[Card], bake_lists: &[BakeList], applied: u64) -> Result<String> {
     Ok(serde_json::json!({
         "t": "snapshot",
@@ -984,6 +985,7 @@ mod tests {
                     item: "fern-loaf".into(),
                     qty: 2,
                     start,
+                    catering: false,
                 }],
             };
             let n = u128::try_from(i).unwrap() + 10;
@@ -1013,6 +1015,50 @@ mod tests {
         assert_eq!(days[0]["lines"][0]["item"], "fern-loaf");
         assert_eq!(days[0]["lines"][0]["qty"], 2);
         assert_eq!(days[0]["lines"][0]["start"], "2026-11-07T10:00:00-07:00");
+    }
+
+    /// What makes a day's panel, as the console audit of 2026-11-08 asked (its copy said "when
+    /// the clock moves to it"): only a Schedule event the board hears for that day. A clock moved
+    /// to a day with no reserved place shows no panel for it; it only drops the days before.
+    #[test]
+    fn a_day_gets_a_bake_list_from_its_schedule_events_and_never_from_the_clock() {
+        use bakery_domain::schedule::{PlanLine, ScheduleEvent};
+        let sandbox = Ulid::from_parts(1, 1);
+        let mut board = Board::default();
+        let date: BakeryDate = "2026-11-19".parse().unwrap();
+        let event = ScheduleEvent::BakeListChanged {
+            date,
+            version: 1,
+            lines: vec![PlanLine {
+                item: "celebration-cake-and-coffee".into(),
+                qty: 156,
+                start: date.opening(),
+                catering: true,
+            }],
+        };
+        let envelope = Envelope {
+            v: 1,
+            id: Ulid::from_parts(1, 20),
+            sandbox,
+            stream: format!("schedule:{sandbox}:{date}"),
+            seq: 1,
+            event_type: "BakeListChanged".into(),
+            at: date.opening(),
+            recorded_at: "2026-11-08T16:00:00.000Z".parse().unwrap(),
+            data: bakery_domain::DomainEvent::to_data(&event),
+            cause: None,
+        };
+        board.apply(&envelope).unwrap();
+        // The clock at Tuesday 2026-11-10, a day nothing is reserved on: the catering day only.
+        let lists = bake_lists_from(&board, "2026-11-10".parse().unwrap());
+        let frame: serde_json::Value =
+            serde_json::from_str(&snapshot_frame(&[], &lists, 1).unwrap()).unwrap();
+        let days = frame["board"]["bake_lists"].as_array().unwrap();
+        assert_eq!(days.len(), 1);
+        assert_eq!(days[0]["date"], "2026-11-19");
+        // The catering line says its quantity is a headcount.
+        assert_eq!(days[0]["lines"][0]["qty"], 156);
+        assert_eq!(days[0]["lines"][0]["catering"], true);
     }
 
     /// The scene of the roadmap's PR 6 reading: a place reserved before a client's snapshot,

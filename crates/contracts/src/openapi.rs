@@ -38,13 +38,13 @@ pub const SOCKET_FRAMES: &[(&str, &str, &str, &str)] = &[
         "server-to-client",
         "snapshot",
         "{t: \"snapshot\", v: 1, board: {cards, bake_lists}, seq}",
-        "on open; `seq` counts the events that changed the board; `bake_lists` is one entry per bakery day from business today on, `[{date, version, lines: [{item, qty, start}], reserved}]`",
+        "on open; `seq` counts the events that changed the board; `bake_lists` is one entry per bakery day from business today on, `[{date, version, lines: [{item, qty, start, catering?}], reserved}]`, `catering: true` on a catering event's line, whose `qty` is its headcount",
     ),
     (
         "server-to-client",
         "evt",
         "{t: \"evt\", v: 1, env, bake_list?}",
-        "each event that changed the board, the envelope whole, the note with it; and the Sandbox's `ClockAdvanced`. A `BakeListChanged`, `SlotReserved` or `SlotReleased` frame also carries `bake_list`, that day as the board holds it after the event, `{date, version, lines: [{item, qty, start}], reserved}` (since 2026-11-06): set the day from it, do not adjust a count",
+        "each event that changed the board, the envelope whole, the note with it; and the Sandbox's `ClockAdvanced`. A `BakeListChanged`, `SlotReserved` or `SlotReleased` frame also carries `bake_list`, that day as the board holds it after the event, `{date, version, lines: [{item, qty, start, catering?}], reserved}` (since 2026-11-06; `catering` since 2026-11-08): set the day from it, do not adjust a count",
     ),
     (
         "server-to-client",

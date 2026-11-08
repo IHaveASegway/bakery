@@ -5,15 +5,15 @@
 # detail and `next_free` name the next slot); the cake rule (a chocolate layer cake for tomorrow
 # refused 409 `lead-time` naming 48 h, the day after placed, paid through the fake Stripe and on
 # that day's bake list and the kitchen socket's snapshot); the capacity editor (a cut below the
-# places taken keeps them, 422 `bad-target`, 403 `guest-scope`); the clock (a replayed advance
-# moves an order's expiry timer once; a day expires an unpaid order and frees its slot, with
-# `ClockAdvanced` on the console's feed; `next-opening` from a Sunday afternoon lands on Tuesday
-# 07:00; the 15th day is refused `offset-cap`); since the hardening after PR 13, a day born after
-# the seed (first touched by a read, or by the order that fills an item's cap) capped by the
-# published menu, before and after a publish; since 2026-11-06, a place reserved before the
-# kitchen socket connects and released while it watches, its frame carrying the day so the
-# page's reserved count falls at once; and every child empty after the wipe. It prints
-# ok or FAIL per check as scripts/smoke-orders.sh does, and exits non-zero on any failure.
+# places taken keeps them, 422 `unknown-item` and `bad-target`, 403 `guest-scope`); the clock (a
+# replayed advance moves an order's expiry timer once; a day expires an unpaid order and frees its
+# slot, with `ClockAdvanced` on the console's feed; `next-opening` from a Sunday afternoon lands on
+# Tuesday 07:00; the 15th day is refused `offset-cap`); since the hardening after PR 13, a day born
+# after the seed (first touched by a read, or by the order that fills an item's cap) capped by the
+# published menu, before and after a publish; since 2026-11-06, a place reserved before the kitchen
+# socket connects and released while it watches, its frame carrying the day so the page's reserved
+# count falls at once; and every child empty after the wipe. It prints ok or FAIL per check as
+# scripts/smoke-orders.sh does, and exits non-zero on any failure.
 #
 # The loop guard's 101st re-arm is proven natively (workers/api/src/objects/stream.rs, its
 # tests): no production path re-arms from its own alarm often enough to reach it here. This
@@ -470,6 +470,10 @@ check "the winner reaches its day's bake list" "schedule_until bake_win D '$DID'
 command_as cut_to_zero D 192.0.2.82 PATCH "/v1/sandboxes/$DID/schedule/$RACE_FROM/capacity" "{\"target\":\"slot:$RACE_HHMM\",\"capacity\":0}"
 expect_status cut_to_zero 200
 expect_json cut_to_zero "b.slots.find(s => s.start === '$RACE_SLOT').capacity === 0 && b.slots.find(s => s.start === '$RACE_SLOT').taken === 1 && b.slots.find(s => s.start === '$RACE_SLOT').free === 0 && b.bake_list.lines.some(l => l.start === '$RACE_SLOT')"
+# An item the day's menu does not list is refused, and the day keeps no cap for it.
+command_as unknown_item D 192.0.2.82 PATCH "/v1/sandboxes/$DID/schedule/$RACE_FROM/capacity" '{"target":"item:no-such-thing","capacity":3}'
+expect_problem unknown_item 422 unknown-item
+check "the day keeps no cap for an item its menu does not list" "schedule_until unknown_after D '$DID' '$RACE_FROM' \"!b.items.some(i => i.item === 'no-such-thing')\""
 command_as bad_target D 192.0.2.82 PATCH "/v1/sandboxes/$DID/schedule/$RACE_FROM/capacity" '{"target":"slot:15:00","capacity":1}'
 expect_problem bad_target 422 bad-target
 command_as bad_target_kind D 192.0.2.82 PATCH "/v1/sandboxes/$DID/schedule/$RACE_FROM/capacity" '{"target":"oven:1","capacity":1}'
@@ -524,9 +528,9 @@ expect_status late_price 200
 command_as late_publish D 192.0.2.82 POST "/v1/sandboxes/$DID/menu/publish"
 expect_status late_publish 200
 LATE_V="$(json_field late_publish b.version)"
-# The publish changed a price, not a cap, so day B's `RefreshCaps` for it changes nothing: the day
-# keeps the caps it was born with, and the version they came from.
-check "day B, born before the publish, keeps its caps through it" "schedule_until late_b_after D '$DID' '$LATE_B' \"b.menu_version === 1 && b.items.find(i => i.item === '$LATE_ITEM').daily_cap === $LATE_CAP\""
+# The publish changed a price, not a cap, so day B keeps the caps it was born with, and names the
+# new version they now follow (since the console audit of 2026-11-08; before, it stayed on 1).
+check "day B, born before the publish, keeps its caps through it and follows version $LATE_V" "schedule_until late_b_after D '$DID' '$LATE_B' \"b.menu_version === $LATE_V && b.items.find(i => i.item === '$LATE_ITEM').daily_cap === $LATE_CAP\""
 check "day A was never touched: no Schedule object holds it yet" "! object_sql Schedule 'schedule:$DID:$LATE_A' 'SELECT 1' >/dev/null 2>&1"
 command_as late_a_fill D 192.0.2.82 POST "/v1/sandboxes/$DID/orders" "{\"kind\":\"pickup\",\"slot\":\"$(late a1)\",\"lines\":$FILL}"
 expect_status late_a_fill 201

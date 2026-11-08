@@ -544,7 +544,7 @@ pub fn lead_time(message: Option<&str>) -> Failure {
 /// (`ScheduleError::rule()`): 409 for a full slot (with `next_free`, RFC 9457 section 3.2), an
 /// item over its cap, or a retried placement whose place was given back and is taken now
 /// (`hold-lost`, with `next_free` as `slot-full` has it); 422 for a time or a target the day
-/// does not have.
+/// does not have, an item target among them (`unknown-item`).
 pub fn schedule(
     rule: &str,
     next_free: Option<&str>,
@@ -609,6 +609,12 @@ pub fn schedule(
             422,
             "That is not a capacity target",
             "A target is slot:HH:MM (a pickup slot start), zone:z1 to zone:z3, item:<slug> or catering.".into(),
+        ),
+        "unknown-item" => (
+            "unknown-item",
+            422,
+            "That item is not on the day's menu",
+            "An item:<slug> target names an item of the published menu, by its slug.".into(),
         ),
         "ref-held" => (
             "ref-held",
@@ -1017,6 +1023,19 @@ mod tests {
             schedule("bad-target", None, None, None).reason,
             "bad-target"
         );
+        let unknown = schedule("unknown-item", None, None, None);
+        assert_eq!(
+            (unknown.problem.status, unknown.reason),
+            (422, "unknown-item")
+        );
+        assert!(unknown.problem.problem_type.ends_with("/unknown-item"));
+        assert!(
+            unknown
+                .problem
+                .detail
+                .unwrap()
+                .ends_with("The rule is unknown-item.")
+        );
         let lead = lead_time(Some(
             "Chocolate layer cake needs 48 h; the slot is 25 h away",
         ));
@@ -1119,6 +1138,7 @@ mod tests {
             schedule("no-such-slot", None, None, None),
             schedule("closed-day", None, None, None),
             schedule("bad-target", None, None, None),
+            schedule("unknown-item", None, None, None),
             schedule("something-new", None, None, None),
             no_such_day(),
             stripe_key(),
