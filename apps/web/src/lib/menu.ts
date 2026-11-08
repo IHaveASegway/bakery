@@ -1,6 +1,12 @@
 // The menu as the storefront reads it: the same shape from the static file (the seed's menu,
 // src/data/menu.json) and from `GET /v1/sandboxes/{id}/menu`, so every component takes either.
-import type { MenuCategory, MenuItem, MenuResponse, MenuVariant } from '../contracts';
+import type {
+  MenuCategory,
+  MenuDraftsResponse,
+  MenuItem,
+  MenuResponse,
+  MenuVariant,
+} from '../contracts';
 import staticMenu from '../data/menu.json';
 
 export type ItemView = MenuItem;
@@ -101,15 +107,36 @@ export function statusSaid(name: string, paused: boolean, version: number): stri
     : `${name} is on sale again. That was published at once as version ${version}. Price drafts still wait for Publish.`;
 }
 
+/** What the editor shows as waiting for Publish, read from `GET .../menu/drafts`. */
+export interface Drafts {
+  /** The slugs of every item with a draft, in slug order. */
+  pending: string[];
+  /** The waiting price of each, by item slug. */
+  prices: Record<string, number>;
+}
+
 /**
- * The line beside Publish. Every edit's answer lists the items the server holds drafts for, so
- * after one this page knows them all (`known`). Before the first, it knows none: no route lists the
- * drafts, and a draft from before a reload is still applied by Publish, so the line says so.
+ * The editor's waiting prices from the drafts the server holds, so a draft made before a reload
+ * is shown after it. The editor's one price goes on every variant, and no route drafts anything
+ * else, so a draft's variants share one price. The Catalog's `EditItem` could give them different
+ * ones; then the first variant's is shown, as the price field shows the first variant's published
+ * price. An item with no variant has no price to show, but still counts as waiting.
  */
-export function waitingText(waiting: number, known: boolean): string {
-  if (!known) {
-    return 'Price drafts made before this page loaded are kept by the server but not listed here, and Publish applies them too.';
+export function draftsFrom(response: MenuDraftsResponse): Drafts {
+  const prices: Record<string, number> = {};
+  for (const draft of response.pending) {
+    const first = draft.variants[0];
+    if (first) prices[draft.slug] = first.price_cents;
   }
+  return { pending: response.pending.map((d) => d.slug), prices };
+}
+
+/**
+ * The line beside Publish, from the drafts the server holds (`GET .../menu/drafts` on load and
+ * after a publish, and every edit's answer after that). Null while they are being read.
+ */
+export function waitingText(waiting: number | null): string {
+  if (waiting === null) return 'Reading what waits for Publish…';
   if (waiting === 0) return 'No item waits for Publish.';
   return `${waiting} ${waiting === 1 ? 'item has a price' : 'items have prices'} waiting for Publish.`;
 }

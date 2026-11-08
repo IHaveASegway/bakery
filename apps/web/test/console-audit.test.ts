@@ -91,11 +91,11 @@ describe('the menu editor says what the Catalog does', () => {
     expect(statusSaid('Seeded rye', true, 2)).not.toContain('drafted');
   });
 
-  test('before any edit the page says drafts from before it loaded are applied by Publish', () => {
-    expect(waitingText(0, false)).toContain('kept by the server but not listed here');
-    expect(waitingText(0, true)).toBe('No item waits for Publish.');
-    expect(waitingText(1, true)).toBe('1 item has a price waiting for Publish.');
-    expect(waitingText(3, true)).toBe('3 items have prices waiting for Publish.');
+  test('the line beside Publish counts the drafts the server holds', () => {
+    expect(waitingText(null)).toBe('Reading what waits for Publish…');
+    expect(waitingText(0)).toBe('No item waits for Publish.');
+    expect(waitingText(1)).toBe('1 item has a price waiting for Publish.');
+    expect(waitingText(3)).toBe('3 items have prices waiting for Publish.');
   });
 
   test('the price field says which variants it sets', () => {

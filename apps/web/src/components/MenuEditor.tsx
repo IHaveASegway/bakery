@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { MenuItemStatus, MenuResponse } from '../contracts';
-import { getMenu, patchMenuItem, publishMenu } from '../lib/api';
-import { priceSetsText, statusSaid, waitingText } from '../lib/menu';
+import { getMenu, getMenuDrafts, patchMenuItem, publishMenu } from '../lib/api';
+import { draftsFrom, priceSetsText, statusSaid, waitingText } from '../lib/menu';
 import { describeError, type Message as Text } from '../lib/messages';
 import { dollars, dollarsField, parseDollars } from '../lib/money';
 import GuestNote from './GuestNote';
@@ -19,8 +19,11 @@ const BAD_PRICE: Text = {
  * version of its own and leaves the price drafts waiting. The list shows what is published; a note
  * under an item shows the price that waits.
  *
- * No route lists the drafts the server holds, so after a reload this page does not know them until
- * the next edit's answer names them; the line beside Publish says so (Publish applies them anyway).
+ * The page reads the menu and the drafts the server holds together (`GET .../menu` and
+ * `GET .../menu/drafts`), on load and again after a publish or a pause, so a draft made before a
+ * reload, or in another tab, is shown with its price. Between reads each edit's answer keeps the
+ * list of waiting items current. A guest cannot read the drafts (the route is signed-in only) and
+ * cannot publish, so a guest's page reads the menu alone.
  */
 export default function MenuEditor({
   sandboxId,
@@ -30,9 +33,10 @@ export default function MenuEditor({
   isGuest: boolean;
 }) {
   const [menu, setMenu] = useState<MenuResponse | null>(null);
-  // Prices drafted on this page, by item.
+  // The waiting price of each item with a draft: the server's on load, then this page's edits.
   const [drafts, setDrafts] = useState<Record<string, number>>({});
-  // The slugs the API says wait for a publish (its answer to every edit); null before the first.
+  // The slugs the server says wait for a publish (the drafts route, then each edit's answer);
+  // null until the drafts are read, and for a guest, who cannot read them.
   const [pending, setPending] = useState<string[] | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
   // A bad price, said beside its own field as well as at the end of the list.
@@ -42,13 +46,26 @@ export default function MenuEditor({
   const [said, setSaid] = useState('');
 
   const load = useCallback(async () => {
-    try {
-      const answer = await getMenu(sandboxId);
-      if (answer.modified) setMenu(answer.menu);
-    } catch (e) {
-      setError(describeError(e));
+    // Both at once; a failed drafts read still shows the menu, and says why beneath it.
+    const [answer, waiting] = await Promise.allSettled([
+      getMenu(sandboxId),
+      isGuest ? Promise.resolve(null) : getMenuDrafts(sandboxId),
+    ]);
+    if (answer.status === 'fulfilled') {
+      if (answer.value.modified) setMenu(answer.value.menu);
+    } else {
+      setError(describeError(answer.reason));
     }
-  }, [sandboxId]);
+    if (waiting.status === 'fulfilled') {
+      if (waiting.value) {
+        const read = draftsFrom(waiting.value);
+        setPending(read.pending);
+        setDrafts(read.prices);
+      }
+    } else if (answer.status === 'fulfilled') {
+      setError(describeError(waiting.reason));
+    }
+  }, [sandboxId, isGuest]);
 
   useEffect(() => {
     void load();
@@ -85,7 +102,7 @@ export default function MenuEditor({
       setSaid(statusSaid(name, status === 'paused', edit.version));
     });
 
-  const waiting = pending?.length ?? 0;
+  const waiting = pending === null ? null : pending.length;
 
   return (
     <>
@@ -105,7 +122,8 @@ export default function MenuEditor({
               const draft = drafts[item.slug];
               const earlier = draft === undefined && (pending?.includes(item.slug) ?? false);
               const status = item.status;
-              const field = fields[item.slug] ?? dollarsField(item.variants[0]?.price_cents ?? 0);
+              const field =
+                fields[item.slug] ?? dollarsField(draft ?? item.variants[0]?.price_cents ?? 0);
               const id = `price-${item.slug}`;
               const sets = priceSetsText(item);
               const bad = fieldError === item.slug;
@@ -187,7 +205,7 @@ export default function MenuEditor({
                   )}
                   {earlier && (
                     <p className="hint">
-                      Waiting for publish: a price drafted before this page loaded.
+                      Waiting for publish: a price drafted in another tab. Reload to see it.
                     </p>
                   )}
                 </li>
@@ -215,7 +233,7 @@ export default function MenuEditor({
         >
           Publish menu
         </button>{' '}
-        <span className="hint">{waitingText(waiting, pending !== null)}</span>
+        {!isGuest && <span className="hint">{waitingText(waiting)}</span>}
       </p>
       <Message error={error}>{said && <p className="hint">{said}</p>}</Message>
     </>
