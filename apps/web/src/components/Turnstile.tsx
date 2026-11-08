@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 
 // Turnstile's documented always-pass test key (Cloudflare, "Testing"): it needs no account and
-// passes every visitor. The production key is set through PUBLIC_TURNSTILE_SITE_KEY at launch.
+// passes every visitor. The production key is set through PUBLIC_TURNSTILE_SITE_KEY at launch; since
+// 2026-11-08 the deploy job refuses a bundle that still carries this one (ci.yml), so the fallback is
+// for local runs and previews only.
 const TEST_SITE_KEY = '1x00000000000000000000AA';
 const SCRIPT = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 
