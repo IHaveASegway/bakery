@@ -20,6 +20,16 @@ test('a demo account is created, signed in to, and makes a sandbox', async ({ pa
   // The new account's session reaches the console; signing out ends it.
   await page.getByRole('link', { name: 'Continue to the console' }).click();
   await expect(page.getByRole('heading', { name: 'Signed in with a demo account' })).toBeVisible();
+
+  // The header says "Console" for a signed-in visitor, on the console and on a page (the privacy page) whose islands
+  // never ask for the session themselves (audit C17).
+  const nav = page.getByRole('navigation', { name: 'The bakery' });
+  await expect(nav.getByRole('link', { name: 'Console' })).toHaveAttribute('href', '/app/');
+  await expect(nav.getByRole('link', { name: 'Sign in' })).toHaveCount(0);
+  await page.goto('/privacy/');
+  await expect(nav.getByRole('link', { name: 'Console' })).toHaveAttribute('href', '/app/');
+  await page.goto('/app/');
+  await expect(page.getByRole('heading', { name: 'Signed in with a demo account' })).toBeVisible();
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page).toHaveURL(/\/signin\/$/);
 
@@ -41,4 +51,20 @@ test('a demo account is created, signed in to, and makes a sandbox', async ({ pa
     timeout: 30_000,
   });
   await expect(page.getByRole('heading', { name: 'Kitchen board' })).toBeVisible();
+});
+
+test('a username typed before the forms hydrate is kept (audit C25)', async ({ page }) => {
+  // Hold every script back, as a slow connection would, so the visitor types into the server's HTML.
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/_astro/**/*.js', async (route) => {
+    await gate;
+    await route.continue();
+  });
+  await page.goto('/signin/', { waitUntil: 'commit' });
+  const signin = page.getByRole('form', { name: 'Sign in to a demo account' });
+  await signin.getByLabel('Username').fill('baker-typed');
+  release();
+  await expect(page.getByRole('button', { name: 'Create a demo account' })).toBeEnabled();
+  await expect(signin.getByLabel('Username')).toHaveValue('baker-typed');
 });

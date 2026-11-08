@@ -2,6 +2,7 @@
 import '../styles/global.css';
 import tokensCss from '../styles/tokens.css?raw';
 import { chromeColor } from '../lib/tokens';
+import SessionLink from '../components/SessionLink.astro';
 import Tour from '../components/Tour';
 import type { ScreenId } from '../lib/tour';
 import { REPO, SITE_LAB } from '../lib/links';
@@ -14,16 +15,18 @@ interface Props {
 }
 const { title, description, screen } = Astro.props;
 
-// The public shell: the bakery's name, the nav and the footer, on every page. Plain links, so the
-// shell adds no script and no island; the console's own links are the console's business.
+// The public shell: the bakery's name, the nav and the footer, on every page. Plain links; a page
+// with the tour also runs the small script that turns "Sign in" into "Console" (SessionLink.astro).
 const NAV = [
   { href: '/menu/', label: 'Menu' },
   { href: '/catering/', label: 'Catering' },
   { href: '/how-its-built/', label: 'How it’s built' },
   { href: '/about/', label: 'About' },
   { href: '/status/', label: 'Status' },
-  { href: '/signin/', label: 'Sign in' },
 ];
+// The last link is the visitor's way in. It is "Sign in" in the HTML, which is right with no script;
+// the script at the foot turns it into "Console" when the API says there is a session.
+const SESSION = { href: '/signin/', label: 'Sign in' };
 const FOOTER = [
   { href: '/privacy/', label: 'Privacy' },
   { href: '/docs/api/', label: 'API reference' },
@@ -31,6 +34,10 @@ const FOOTER = [
   { href: SITE_LAB, label: 'The lab, on ihaveasegway.com' },
 ];
 const here = Astro.url.pathname;
+// The page's address as the site states it, and the share tags that repeat its title and
+// description. The 404 is no page to point at, so it carries neither the canonical link nor the URL.
+const isNotFound = /^\/404(\.html|\/)?$/.test(here);
+const canonical = isNotFound ? null : new URL(here, Astro.site).href;
 const current = (href: string) => (here === href || here.startsWith(href) ? 'page' : undefined);
 
 // The browser chrome takes the page's background: one theme-color meta per OS scheme, read from
@@ -53,6 +60,12 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
     ))}
     <title>{title}</title>
     <meta name="description" content={description} />
+    {canonical && <link rel="canonical" href={canonical} />}
+    <meta property="og:site_name" content="Proof of Concept Bakery" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    {canonical && <meta property="og:url" content={canonical} />}
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   </head>
   <body>
@@ -72,6 +85,11 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
               </a>
             </li>
           ))}
+          <li>
+            <a href={SESSION.href} aria-current={current(SESSION.href)} data-session-link>
+              {SESSION.label}
+            </a>
+          </li>
         </ul>
       </nav>
     </header>
@@ -93,5 +111,6 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
       <p>Everything here is made up: the bakery, its customers, their orders and their cards.</p>
     </footer>
     {screen && <Tour screen={screen} client:idle />}
+    {screen && <SessionLink />}
   </body>
 </html>

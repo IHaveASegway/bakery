@@ -360,7 +360,7 @@ describe('dist', () => {
     test('is a static page with two islands, the status one and the tour’s, and no third party', () => {
       expect(html().split('<astro-island').length - 1).toBe(2);
       expect(html()).toContain('<h1>Status</h1>');
-      expect(html()).not.toMatch(/<(link|script)[^>]+(href|src)="https?:/);
+      expect(html()).not.toMatch(/<(link(?![^>]*rel="canonical")|script)[^>]+(href|src)="https?:/);
       expect(island()).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);
     });
 
@@ -480,7 +480,7 @@ describe('dist', () => {
       const code = page(`_astro/${copy[0]}`);
       expect(code).toContain('data-copy');
       expect(code).not.toMatch(/https?:\/\//);
-      expect(html()).not.toMatch(/<(link|script)[^>]+(href|src)="https?:/);
+      expect(html()).not.toMatch(/<(link(?![^>]*rel="canonical")|script)[^>]+(href|src)="https?:/);
     });
 
     test('is a reasonable size: under 600 KB of HTML, and under 60 KB gzipped', async () => {

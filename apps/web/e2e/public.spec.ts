@@ -74,3 +74,55 @@ test.describe('an unknown path', () => {
     await page.waitForLoadState('networkidle');
   });
 });
+
+test('a page asks for the session once, with the tour open too (audit P2)', async ({ page }) => {
+  let asked = 0;
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/v1/session') asked += 1;
+  });
+  await page.goto('/menu/');
+  await page.getByRole('button', { name: /take the tour/i }).click();
+  await expect(
+    page.getByRole('dialog').or(page.getByRole('region', { name: /tour/i })),
+  ).toBeVisible();
+  await page.waitForLoadState('networkidle');
+  expect(asked).toBe(1);
+});
+
+test('the sitemap is served and names the menu', async ({ page }) => {
+  // Fetched, not opened: a browser's own XML viewer draws with an inline style the policy refuses.
+  await page.goto('/about/');
+  const answer = await page.evaluate(async () => {
+    const response = await fetch('/sitemap.xml');
+    return { status: response.status, text: await response.text() };
+  });
+  expect(answer.status).toBe(200);
+  expect(answer.text).toContain('<loc>https://bakery.ihaveasegway.com/menu/</loc>');
+});
+
+test('a cart quantity can be cleared and retyped, and settles into range with the range said (audit P5)', async ({
+  page,
+}) => {
+  await page.goto('/menu/');
+  await page
+    .getByRole('button', { name: /^Add .* to the cart$/ })
+    .first()
+    .click();
+  const qty = page.getByRole('spinbutton', { name: /^Quantity of / });
+  await expect(qty).toHaveValue('1');
+
+  await qty.fill('');
+  await expect(qty).toHaveValue('');
+  await qty.fill('3');
+  await expect(qty).toHaveValue('3');
+  await expect(page.getByText('Quantities run from 1 to 24.')).toHaveCount(0);
+
+  await qty.fill('99');
+  await qty.blur();
+  await expect(qty).toHaveValue('24');
+  await expect(page.getByText('Quantities run from 1 to 24.')).toBeVisible();
+
+  await qty.fill('');
+  await qty.blur();
+  await expect(qty).toHaveValue('1');
+});

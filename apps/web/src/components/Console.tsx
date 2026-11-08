@@ -5,13 +5,13 @@ import {
   NetworkError,
   createSandbox,
   getSandbox,
-  getSession,
   setFault,
   signOut,
   wipeSandbox,
 } from '../lib/api';
 import { formatCountdown, utcClock, utcStamp } from '../lib/countdown';
 import { describeError, type Message as Text } from '../lib/messages';
+import { forgetSession, refreshSession } from '../lib/session';
 import Activity from './Activity';
 import ApiToken from './ApiToken';
 import Campaigns from './Campaigns';
@@ -58,7 +58,7 @@ export default function Console() {
 
   const load = useCallback(async () => {
     try {
-      const session = await getSession();
+      const session = await refreshSession();
       // The schema marks the claim optional as well as nullable; both mean no sandbox.
       const sandboxId = session.sandbox ?? null;
       if (sandboxId === null) return setView({ name: 'none', session });
@@ -179,6 +179,7 @@ export default function Console() {
   const leave = () =>
     act(async () => {
       await signOut();
+      forgetSession();
       window.location.assign('/signin/');
     });
 

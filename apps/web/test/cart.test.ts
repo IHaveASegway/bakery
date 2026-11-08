@@ -11,7 +11,10 @@ import {
   parseCart,
   removeLine,
   saveCart,
+  QTY_HINT,
+  commitQty,
   setQty,
+  validQty,
   totals,
   type CartStorage,
 } from '../src/lib/cart';
@@ -196,5 +199,25 @@ describe('the cart in sessionStorage', () => {
       }),
     );
     expect(odd).toEqual({ ...EMPTY_CART, lines: [{ variant: 'a/b', qty: 24 }] });
+  });
+});
+
+describe('the quantity field (audit P5)', () => {
+  test('a whole number in range passes as typed; an emptied or half-typed field does not', () => {
+    expect(validQty('7')).toBe(7);
+    expect(validQty('24')).toBe(24);
+    expect(validQty('')).toBeNull();
+    expect(validQty('0')).toBeNull();
+    expect(validQty('99')).toBeNull();
+    expect(validQty('2.5')).toBeNull();
+  });
+
+  test('on blur the value settles into range and says so only when it moved', () => {
+    expect(commitQty('7')).toEqual({ qty: 7, clamped: false });
+    expect(commitQty('')).toEqual({ qty: 1, clamped: true });
+    expect(commitQty('0')).toEqual({ qty: 1, clamped: true });
+    expect(commitQty('99')).toEqual({ qty: 24, clamped: true });
+    expect(commitQty('2.5')).toEqual({ qty: 2, clamped: true });
+    expect(QTY_HINT).toBe('Quantities run from 1 to 24.');
   });
 });
