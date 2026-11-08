@@ -5,7 +5,8 @@
 # 2026-11-08, finding 14), the same intent
 # for a remount, a webhook replayed five times counted once, a body altered by one byte and a
 # signature six minutes old refused with 400, a partial and a full refund each issued once with
-# the order's ledger netting to zero, an expired order's intent canceled at Stripe, the
+# the order's ledger netting to zero, a seeded order refunded in Billing alone (`seed:<refund>`,
+# no Stripe call, the order cancelled), an expired order's intent canceled at Stripe, the
 # Simulator's orders paid, the wipe's Stripe cleanup, and a second Worker run whose
 # STRIPE_SECRET_KEY is a key of the mode the bakery never uses: every payment route answers 503
 # `stripe-key` and `stripe_key_refused` is logged once, while health and the menu still work.
@@ -550,13 +551,28 @@ check "Billing issued each refund once at Stripe: two refunds requested at the f
 command_as refund_after D 192.0.2.52 POST "/v1/sandboxes/$DID/orders/$DOID/refund" '{"reason":"goodwill"}'
 expect_problem refund_after 422 order
 
-# A seeded order was made paid by the seed, not through Stripe.
+# A seeded order was made paid by the seed, not through Stripe, so Billing refunds it alone
+# (the UI audit of 2026-11-08, second pass, N2): no Stripe call, a ledger line `seed:<refund>`,
+# and the order, the board and the inbox follow as for a Stripe refund.
 probe_args D "$DID"
 node "${PROBE[@]}" --until snapshot > "$TMP/board_d.out" || true
 SEEDED="$(probe_field "$TMP/board_d.out" "(frames.find((f) => f.t === 'snapshot').board.cards.find((c) => c.state === 'confirmed' && c.order !== '$DOID') || {}).order")"
+get_as seeded_before D "/v1/sandboxes/$DID/orders/$SEEDED"
+STOTAL="$(json_field seeded_before b.total_cents)"
 command_as refund_seeded D 192.0.2.52 POST "/v1/sandboxes/$DID/orders/$SEEDED/refund" '{"reason":"goodwill"}'
-expect_problem refund_seeded 409 order
-expect_json refund_seeded "b.detail.includes('no-stripe-payment')"
+expect_status refund_seeded 200
+expect_json refund_seeded "b.amount_cents === $STOTAL && b.status === 'refund_pending'"
+SREFUND="$(json_field refund_seeded b.refund)"
+check "the seeded order's refund is in the ledger once, Billing's own line seed:<refund>, netting the order to zero" "ledger_until ledger_seeded D '$DID' \"(() => { const r = b.entries.filter(e => e.ref === '$SEEDED' && e.kind === 'refund'); return r.length === 1 && r[0].amount_cents === -$STOTAL && r[0].stripe_id === 'seed:$SREFUND' && b.entries.filter(e => e.ref === '$SEEDED').reduce((n, e) => n + e.amount_cents, 0) === 0; })()\""
+check "the seeded order ends cancelled once its refund is issued" "wait_order seeded_cancelled D '$DID' '$SEEDED' cancelled"
+check "Billing asked Stripe for no refund of it: still two refunds at the fake" "request reqs_refund_seeded '$STRIPE/_requests' && node -e \"process.exit(JSON.parse(require('fs').readFileSync('$TMP/reqs_refund_seeded.body','utf8')).filter(r => r.path === '/v1/refunds').length === 2 ? 0 : 1)\""
+check "the refund notice for the seeded order is in the inbox" "for _ in \$(seq 1 50); do get_as seeded_msg D '/v1/sandboxes/$DID/inbox?kind=refund'; node -e \"const b = JSON.parse(require('fs').readFileSync('$TMP/seeded_msg.body', 'utf8')); process.exit(b.messages.some(m => m.ref === '$SEEDED') ? 0 : 1)\" 2>/dev/null && break; sleep 0.2; done; node -e \"const b = JSON.parse(require('fs').readFileSync('$TMP/seeded_msg.body', 'utf8')); process.exit(b.messages.some(m => m.ref === '$SEEDED') ? 0 : 1)\""
+node "${PROBE[@]}" --until snapshot > "$TMP/board_d2.out" || true
+LEFT="$(probe_field "$TMP/board_d2.out" "(frames.find((f) => f.t === 'snapshot').board.cards.find((c) => c.order === '$SEEDED' && c.state === 'confirmed') || {}).order")"
+SNAP2="$(probe_field "$TMP/board_d2.out" "frames.some((f) => f.t === 'snapshot')")"
+check "the kitchen board no longer shows the seeded order waiting" "[[ '$SNAP2' == true && -z '$LEFT' ]]"
+command_as refund_seeded_again D 192.0.2.52 POST "/v1/sandboxes/$DID/orders/$SEEDED/refund" '{"reason":"goodwill"}'
+expect_problem refund_seeded_again 422 order
 
 # ---------- an expired order's intent is canceled ----------
 

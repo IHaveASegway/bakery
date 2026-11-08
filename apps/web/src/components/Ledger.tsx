@@ -3,11 +3,13 @@ import type { LedgerResponse } from '../contracts';
 import { getLedger } from '../lib/api';
 import { describeError, type Message as Text } from '../lib/messages';
 import { dollars } from '../lib/money';
+import { LEDGER_HINT, ledgerSource } from '../lib/payment';
 import { whenText } from '../lib/when';
 import Message from './Message';
 
 /**
- * The Billing ledger: what Stripe's webhooks made the sandbox record, newest first, with the net.
+ * The Billing ledger: what Stripe's webhooks made the sandbox record, and the seed's payments and
+ * their refunds, which Billing recorded alone, newest first, with the net.
  * `refresh` changes when something the ledger depends on did (a refund), and it also looks every
  * ten seconds, since a payment arrives by webhook and not by anything this page did.
  */
@@ -44,9 +46,7 @@ export default function Ledger({ sandboxId, refresh }: { sandboxId: string; refr
       <h3 id="ledger-heading" tabIndex={-1}>
         Ledger
       </h3>
-      <p className="hint">
-        Payments and refunds as Stripe’s sandbox reported them. No money moved.
-      </p>
+      <p className="hint">{LEDGER_HINT}</p>
       <Message error={error} />
       {ledger === null ? (
         error === null && <p aria-live="polite">Loading the ledger…</p>
@@ -73,7 +73,7 @@ export default function Ledger({ sandboxId, refresh }: { sandboxId: string; refr
                     {e.kind === 'payment' ? '+' : '-'}
                     {dollars(Math.abs(e.amount_cents))}
                   </span>
-                  , <time dateTime={e.at}>{whenText(e.at)}</time>
+                  {ledgerSource(e)}, <time dateTime={e.at}>{whenText(e.at)}</time>
                 </li>
               ))}
             </ol>

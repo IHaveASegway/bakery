@@ -386,7 +386,7 @@ pub fn order_conflict(rule: &str) -> Failure {
         "paid" => "This order is paid already.",
         "canceled" => "The order expired while Stripe answered, so its payment was cancelled.",
         "no-stripe-payment" => {
-            "This order was not paid through Stripe (the seed made it paid), so there is nothing to refund there."
+            "Billing holds no payment for this order (a sandbox seeded before the seed's payments were recorded), so there is nothing to refund."
         }
         _ => "The order is not in a state that takes this request.",
     };

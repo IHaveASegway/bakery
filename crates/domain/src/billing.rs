@@ -17,7 +17,10 @@
 //! - **Refunds.** `RequestRefund` checks the amount against what is left and records the request
 //!   (`RefundRequested`) under the command's id, which becomes the refund's id; Stripe's answer
 //!   arrives as `RecordRefund`, or first as the `refund.created` webhook, and either emits
-//!   `RefundIssued` once, keyed by Stripe's refund id.
+//!   `RefundIssued` once, keyed by Stripe's refund id. A payment the seed made never went
+//!   through Stripe, so its refund does not either: `RecordSeededRefund` issues it here, with the
+//!   id `seed:<refund>` as the seed's payment has `seed:<payment>` (the UI audit of 2026-11-08,
+//!   second pass, N2).
 //! - **Expiry.** `CancelForExpiry` cancels the order's open payments (`PaymentCanceled` with no
 //!   Stripe event); the object then cancels each intent at Stripe, best effort. A payment that
 //!   succeeds at Stripe anyway is still recorded: the money moved, and the Order refunds it as a
@@ -341,6 +344,9 @@ pub enum BillingCommand {
         stripe_refund: String,
         amount: Cents,
     },
+    /// A requested refund of a payment the seed made, issued in Billing alone: Stripe never saw
+    /// the payment, so there is nothing to ask it. The refund's id is `seed:<refund>`.
+    RecordSeededRefund { payment: Ulid, refund: Ulid },
     /// From `OrderExpired`: the order's open payments are canceled.
     CancelForExpiry { reference: Ulid },
     /// From `CateringDelivered`: checks a balance invoice may be raised, and emits nothing (see
@@ -978,6 +984,31 @@ impl Aggregate for Billing {
                     reference: p.reference,
                     amount_cents: *amount,
                     stripe_refund: stripe_refund.clone(),
+                    stripe_event: None,
+                }])
+            }
+            BillingCommand::RecordSeededRefund { payment, refund } => {
+                let r = state.refund(*refund).ok_or(BillingError::UnknownRefund)?;
+                if r.payment != *payment {
+                    return Err(BillingError::UnknownRefund);
+                }
+                if r.is_issued() {
+                    return Ok(Vec::new());
+                }
+                let p = state
+                    .payment(*payment)
+                    .ok_or(BillingError::UnknownPayment)?;
+                if !p.is_seeded() {
+                    // A payment Stripe took is refunded at Stripe, and recorded from its answer.
+                    return Err(BillingError::RefundMismatch);
+                }
+                Ok(vec![BillingEvent::RefundIssued {
+                    refund: *refund,
+                    payment: *payment,
+                    purpose: p.purpose,
+                    reference: p.reference,
+                    amount_cents: r.amount,
+                    stripe_refund: format!("{SEEDED_INTENT_PREFIX}{refund}"),
                     stripe_event: None,
                 }])
             }
@@ -2432,6 +2463,118 @@ mod tests {
             }
             prop_assert_eq!(ledger.net_total(), Cents(ledger.paid_total().0 - ledger.refunded_total().0));
         }
+    }
+
+    #[test]
+    fn a_seeded_payment_is_refunded_in_billing_alone_and_the_ledger_shows_it() {
+        // The UI audit of 2026-11-08, second pass, N2: the seed's payment never went through
+        // Stripe, so its refund does not either; Billing records both.
+        let payment = id(41);
+        let order = id(42);
+        let mut log = seeded_payment(payment, order, Cents(1_128));
+        let state = crate::replay::<Billing>(&log);
+        // The request is checked as any refund's is.
+        let request = |amount: i64| BillingCommand::RequestRefund {
+            payment,
+            amount: Some(Cents(amount)),
+            reason: RefundReason::Goodwill,
+        };
+        assert_eq!(
+            Billing::decide(&state, &request(1_129), &ctx(60)),
+            Err(BillingError::RefundExceedsPaid {
+                available: Cents(1_128)
+            })
+        );
+        let (state, events) = run(state, request(400), 60);
+        log.extend(events);
+        // A gateway answer with a seed id is never taken for Stripe's.
+        assert_eq!(
+            Billing::decide(
+                &state,
+                &BillingCommand::RecordRefund {
+                    payment,
+                    refund: id(60),
+                    stripe_refund: format!("seed:{}", id(60)),
+                    amount: Cents(400),
+                },
+                &ctx(66)
+            ),
+            Err(BillingError::RefundMismatch)
+        );
+        let record = BillingCommand::RecordSeededRefund {
+            payment,
+            refund: id(60),
+        };
+        let (state, events) = run(state, record.clone(), 61);
+        assert_eq!(
+            events,
+            [BillingEvent::RefundIssued {
+                refund: id(60),
+                payment,
+                purpose: Purpose::Order,
+                reference: order,
+                amount_cents: Cents(400),
+                stripe_refund: format!("seed:{}", id(60)),
+                stripe_event: None,
+            }]
+        );
+        log.extend(events.clone());
+        // Once: the same command again records nothing.
+        assert_eq!(Billing::decide(&state, &record, &ctx(62)), Ok(vec![]));
+        let p = state.payment(payment).unwrap();
+        assert_eq!((p.refunded, p.refund_requested), (Cents(400), Cents(400)));
+        // Its id is the seed's, never Stripe's, and the event round-trips.
+        assert!(is_seeded_intent(&format!("seed:{}", id(60))));
+        assert!(!is_stripe_id(&format!("seed:{}", id(60)), "re_"));
+        let e = &events[0];
+        assert_eq!(
+            BillingEvent::from_parts(e.name(), &e.to_data()).as_ref(),
+            Ok(e)
+        );
+        // The ledger nets the order down by the refund.
+        let at: BusinessTime = "2026-11-08T10:01:00-07:00".parse().unwrap();
+        let ledger = Ledger::from_events(log.iter().map(|e| (at, e)));
+        assert_eq!(ledger.refunded_total(), Cents(400));
+        assert_eq!(ledger.net(order), Cents(728));
+        assert_eq!(
+            ledger.entries().last().unwrap().stripe_id,
+            format!("seed:{}", id(60))
+        );
+        assert_eq!(crate::replay::<Billing>(&log), state);
+        // A refund never asked for is refused, and so is a seeded record for a payment that
+        // went through Stripe: that one waits for Stripe's answer.
+        assert_eq!(
+            Billing::decide(
+                &state,
+                &BillingCommand::RecordSeededRefund {
+                    payment,
+                    refund: id(70)
+                },
+                &ctx(63)
+            ),
+            Err(BillingError::UnknownRefund)
+        );
+        let (stripe, _) = paid();
+        let (stripe, _) = run(
+            stripe,
+            BillingCommand::RequestRefund {
+                payment: id(PAYMENT),
+                amount: None,
+                reason: RefundReason::Quality,
+            },
+            64,
+        );
+        assert_eq!(
+            Billing::decide(
+                &stripe,
+                &BillingCommand::RecordSeededRefund {
+                    payment: id(PAYMENT),
+                    refund: id(64)
+                },
+                &ctx(65)
+            ),
+            Err(BillingError::RefundMismatch)
+        );
     }
 
     #[test]

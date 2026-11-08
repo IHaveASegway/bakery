@@ -1022,7 +1022,8 @@ pub struct LedgerEntry {
     /// Signed: positive for a payment, negative for a refund.
     pub amount_cents: i64,
     /// Stripe's id: the intent's `pi_...` for a payment, the refund's `re_...` for a refund;
-    /// `seed:<payment>` for a seeded order's payment, which the seed made and Stripe never saw.
+    /// `seed:<payment>` for a seeded order's payment, which the seed made and Stripe never saw,
+    /// and `seed:<refund>` for its refund, which Billing made alone.
     pub stripe_id: String,
 }
 

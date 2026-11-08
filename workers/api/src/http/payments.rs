@@ -148,7 +148,8 @@ pub async fn refund(cx: &Cx, req: &mut Request, id: Option<&str>, oid: Option<&s
         .and_then(|o| o.parse().ok())
         .ok_or_else(|| problem::not_found().because("no-order"))?;
 
-    // Only a payment Billing took can be refunded at Stripe.
+    // Only a payment Billing holds can be refunded: one Stripe took at Stripe, one the seed made
+    // in Billing alone.
     let res = call_empty(
         &cx.env,
         billing::BINDING,
