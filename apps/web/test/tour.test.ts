@@ -327,8 +327,9 @@ describe('events, principles and targets', () => {
     for (const [name, text] of Object.entries(HOW)) {
       expect(whats.has(text), `HOW.${name} is a step`).toBe(true);
     }
-    // And the first step of each screen that carries one is that line.
-    expect(TOURS.menu[0]?.what).toBe(HOW.menuSeed);
+    // And the first step of each screen that carries one is that line, except the menu's, which
+    // is the last because its line is the last thing on the page.
+    expect(TOURS.menu.at(-1)?.what).toBe(HOW.menuSeed);
     expect(TOURS.catering[0]?.what).toBe(HOW.catering);
     expect(TOURS.inbox[0]?.what).toBe(HOW.inbox);
     expect(TOURS.dispatch[0]?.what).toBe(HOW.dispatch);
