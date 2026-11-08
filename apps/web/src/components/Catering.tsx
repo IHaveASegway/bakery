@@ -5,6 +5,7 @@ import { bakeryDate, earliestDate, packageLabel, stateLabel } from '../lib/cater
 import { describeError, type Message as Text } from '../lib/messages';
 import { dollars } from '../lib/money';
 import { dateLabel } from '../lib/schedule';
+import { usePoll } from '../lib/use-poll';
 import { useSandboxPhase } from '../lib/use-session';
 import CateringDetail from './CateringDetail';
 import CateringInquiryForm from './CateringInquiryForm';
@@ -12,7 +13,10 @@ import Message from './Message';
 import StatusLine from './StatusLine';
 import { HOW } from '../tour/how';
 
-/** The /catering/ island: the inquiry, the visitor's events, and the one open for reading. */
+/**
+ * The /catering/ island: the inquiry, the visitor's events, and the one open for reading. The list
+ * looks again every ten seconds, so a quote or a delivery the staff make shows without Refresh.
+ */
 export default function Catering() {
   const phase = useSandboxPhase();
   const sandboxId = phase.name === 'live' ? phase.id : null;
@@ -40,22 +44,33 @@ export default function Catering() {
         ? apiEarliest
         : computed;
 
-  const load = useCallback(async () => {
-    if (sandboxId === null) return;
-    setBusy(true);
-    try {
-      setEvents((await listCatering(sandboxId)).events);
-      setError(null);
-    } catch (e) {
-      setError(describeError(e));
-    } finally {
-      setBusy(false);
-    }
-  }, [sandboxId]);
+  // One look at the visitor's events. `quiet` is the timer's: it leaves the Refresh button as it
+  // is, so a focused button is not disabled under the keyboard.
+  const load = useCallback(
+    async (quiet = false): Promise<boolean> => {
+      if (sandboxId === null) return true;
+      if (!quiet) setBusy(true);
+      try {
+        setEvents((await listCatering(sandboxId)).events);
+        setError(null);
+        return true;
+      } catch (e) {
+        setError(describeError(e));
+        return false;
+      } finally {
+        if (!quiet) setBusy(false);
+      }
+    },
+    [sandboxId],
+  );
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // A quote, production and delivery are the staff's doing, and a payment arrives by webhook, so
+  // the page looks again on its own, as the staff queue does (lib/use-poll.ts).
+  usePoll(() => load(true), sandboxId !== null);
 
   /** Puts an answer into the list, whether the event is new or changed. */
   const take = useCallback((event: CateringResponse) => {

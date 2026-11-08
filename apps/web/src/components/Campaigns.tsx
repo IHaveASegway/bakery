@@ -69,6 +69,7 @@ export default function Campaigns({
   const [segment, setSegment] = useState<Segment>(SEGMENTS[0]!.segment);
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState('');
   const clicks = useRef(new KeyedAction());
 
   const load = useCallback(() => {
@@ -101,15 +102,21 @@ export default function Campaigns({
     const request: CampaignRequest = { subject, body, segment };
     setBusy(true);
     setError(null);
+    setSaved('');
     try {
-      const saved = await clicks.current.run(
+      const answer = await clicks.current.run(
         `${editing ?? 'new'}:${JSON.stringify(request)}`,
         (key) =>
           editing === null
             ? createCampaign(sandboxId, request, key)
             : editCampaign(sandboxId, editing, request, key),
       );
-      take(saved);
+      take(answer);
+      setSaved(
+        editing === null
+          ? 'Draft saved. It is the first card below; schedule it there.'
+          : 'Changes saved.',
+      );
       setEditing(null);
     } catch (e) {
       setError(describeCrmError(e));
@@ -137,7 +144,7 @@ export default function Campaigns({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void save();
+          if (!busy) void save();
         }}
       >
         <h4>{editing === null ? 'New campaign' : 'Edit the draft'}</h4>
@@ -196,8 +203,9 @@ export default function Campaigns({
           <p>{bodyPreview(body)}</p>
         </div>
         <p className="actions">
-          <button type="submit" disabled={busy || isGuest}>
-            {editing === null ? 'Save draft' : 'Save changes'}
+          {/* Busy is aria-disabled, not disabled, so the keyboard's focus stays on the button. */}
+          <button type="submit" disabled={isGuest} aria-disabled={busy || undefined}>
+            {busy ? 'Saving…' : editing === null ? 'Save draft' : 'Save changes'}
           </button>
           {editing !== null && (
             <button type="button" disabled={busy} onClick={() => setEditing(null)}>
@@ -207,7 +215,7 @@ export default function Campaigns({
         </p>
       </form>
 
-      <Message error={error} />
+      <Message error={error}>{saved !== '' && <p className="hint">{saved}</p>}</Message>
       {campaigns === null ? (
         error === null && <p aria-live="polite">Loading the campaigns…</p>
       ) : campaigns.length === 0 ? (
@@ -373,7 +381,10 @@ export function CampaignCard({
           )}
         </p>
       )}
-      <Message error={error}>{said !== null && <p className="hint">{said}</p>}</Message>
+      {/* "Scheduled…" is about the scheduled state; once it sends or goes back, the card says so. */}
+      <Message error={error}>
+        {said !== null && campaign.state === 'scheduled' && <p className="hint">{said}</p>}
+      </Message>
     </li>
   );
 }

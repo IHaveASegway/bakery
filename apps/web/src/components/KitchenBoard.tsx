@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import {
   actionFor,
   bakeListsByDate,
@@ -8,6 +9,7 @@ import {
 } from '../lib/kitchen';
 import { dateOf, mountainLocal } from '../lib/slots';
 import { useKitchen, type Command } from '../lib/use-kitchen';
+import { whenText } from '../lib/when';
 import BakeList from './BakeList';
 import GuestNote from './GuestNote';
 import RefundControls from './RefundControls';
@@ -48,6 +50,8 @@ export function CardView({
   sandboxId,
   canAct,
   open,
+  focusHere = false,
+  onFocused,
   onAct,
   onRefunded,
 }: {
@@ -55,16 +59,30 @@ export function CardView({
   sandboxId: string;
   canAct: boolean;
   open: boolean;
+  /**
+   * The card moved column after this page pressed its button. Its button is a new element in the
+   * new column, so focus is put on it (or on the card, when the new state has no button), never
+   * left on the page's body.
+   */
+  focusHere?: boolean;
+  onFocused?: () => void;
   onAct: (card: Card) => void;
-  onRefunded: () => void;
+  onRefunded: (said: string, whole: boolean) => void;
 }) {
   const action = actionFor(card);
   const route = routeWords(card);
+  const item = useRef<HTMLLIElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!focusHere) return;
+    (button.current ?? item.current)?.focus();
+    onFocused?.();
+  }, [focusHere, onFocused]);
   return (
-    <li className="card">
+    <li className="card" ref={item} tabIndex={-1}>
       <p>
         <strong>{card.kind === 'pickup' ? 'Pickup' : 'Delivery'}</strong>{' '}
-        <time dateTime={card.slot}>{card.slot}</time> <code>{shortId(card.order)}</code>
+        <time dateTime={card.slot}>{whenText(card.slot)}</time> <code>{shortId(card.order)}</code>
       </p>
       <ul className="card-lines">
         {card.lines.map((l) => (
@@ -88,6 +106,7 @@ export function CardView({
       )}
       {canAct && action && (
         <button
+          ref={button}
           type="button"
           disabled={!open}
           aria-label={`${action.label} for order ${shortId(card.order)}`}
@@ -126,11 +145,38 @@ export default function KitchenBoard({
   onRefunded: () => void;
 }) {
   const kitchen = useKitchen(sandboxId, onWiped);
+  // The card whose button this page pressed, and the column it was in: when the Kitchen moves it,
+  // focus follows it to its new column; when it leaves the board, focus goes to its old column.
+  const [follow, setFollow] = useState<{ order: string; from: Card['state'] } | null>(null);
+  // What the last refund did, said here and not on the card: a full refund removes the card.
+  const [refunded, setRefunded] = useState<{ said: string; order: string } | null>(null);
+  const refundLine = useRef<HTMLParagraphElement>(null);
+  const clearFollow = useRef(() => setFollow(null)).current;
   const open = kitchen.status === 'open';
   const groups = groupByState(kitchen.board);
   const total = groups.reduce((n, g) => n + g.cards.length, 0);
   const today = dateOf(mountainLocal(Date.now() + clockOffsetS * 1000));
   const bakeLists = bakeListsByDate(kitchen.board, today);
+  const followed = follow === null ? undefined : kitchen.board.cards[follow.order];
+
+  useEffect(() => {
+    if (follow === null) return;
+    // A refusal or a lost answer leaves the card where it is, and the focus on its button.
+    const answer = kitchen.commands.find((c) => c.order === follow.order);
+    if (answer?.status === 'nack' || answer?.status === 'lost') return setFollow(null);
+    if (followed === undefined) {
+      document.getElementById(`board-${follow.from}`)?.focus();
+      setFollow(null);
+    }
+  }, [follow, followed, kitchen.commands]);
+
+  // A full refund cancels the order and its card leaves; if the focus went with it, it comes here.
+  useEffect(() => {
+    if (refunded === null || kitchen.board.cards[refunded.order] !== undefined) return;
+    if (document.activeElement === null || document.activeElement === document.body) {
+      refundLine.current?.focus();
+    }
+  }, [refunded, kitchen.board.cards]);
 
   const status = {
     connecting: 'Connecting to the kitchen…',
@@ -161,6 +207,11 @@ export default function KitchenBoard({
       )}
       {isGuest && <GuestNote />}
       <div aria-live="polite" className="messages">
+        {refunded !== null && (
+          <p className="hint" ref={refundLine} tabIndex={-1}>
+            {refunded.said}
+          </p>
+        )}
         {kitchen.commands.slice(0, 3).map((c) => (
           <p key={c.id} className={c.status === 'nack' || c.status === 'lost' ? 'problem' : 'hint'}>
             {commandText(c)}
@@ -169,7 +220,7 @@ export default function KitchenBoard({
       </div>
       {groups.map((group) => (
         <section key={group.state} aria-labelledby={`board-${group.state}`} className="column">
-          <h4 id={`board-${group.state}`}>
+          <h4 id={`board-${group.state}`} tabIndex={-1}>
             {group.label} ({group.cards.length})
           </h4>
           {group.cards.length === 0 ? (
@@ -181,12 +232,21 @@ export default function KitchenBoard({
                   key={card.order}
                   card={card}
                   sandboxId={sandboxId}
-                  onRefunded={onRefunded}
+                  onRefunded={(said) => {
+                    setRefunded({ said, order: card.order });
+                    onRefunded();
+                  }}
                   canAct={!isGuest}
                   open={open}
+                  focusHere={
+                    follow !== null && follow.order === card.order && follow.from !== card.state
+                  }
+                  onFocused={clearFollow}
                   onAct={(c) => {
                     const a = actionFor(c);
-                    if (a) kitchen.send(c.order, a.action);
+                    if (!a) return;
+                    setFollow({ order: c.order, from: c.state });
+                    kitchen.send(c.order, a.action);
                   }}
                 />
               ))}
@@ -212,7 +272,7 @@ export default function KitchenBoard({
                   {isSimulated(e.cause) && ' (simulated)'}
                 </>
               )}
-              , <time dateTime={e.time}>{e.time}</time>
+              , <time dateTime={e.time}>{whenText(e.time, { seconds: true })}</time>
             </li>
           ))}
         </ol>

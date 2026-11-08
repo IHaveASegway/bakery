@@ -40,7 +40,7 @@ describe('the clock display', () => {
 
   test('ticks: a second of wall time is a second of business time', () => {
     expect(businessNowView(wall + 1000, 3600).iso).toBe('2026-11-05T11:07:31-07:00');
-    expect(businessNowView(wall, 0).text).toBe('Thursday 2026-11-05, 10:07:30');
+    expect(businessNowView(wall, 0).text).toBe('10:07:30 am on Thursday 2026-11-05');
   });
 
   test('the offset reads in days, hours and minutes, and the cap is 14 days', () => {

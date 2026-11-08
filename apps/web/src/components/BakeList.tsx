@@ -1,18 +1,7 @@
-import { groupBakeLines, type BakeList as Day } from '../lib/kitchen';
-import { clockLabel, mountainLocal } from '../lib/slots';
+import { bakeLineText, groupBakeLines, type BakeList as Day } from '../lib/kitchen';
 import { dateLabel } from '../lib/schedule';
+import { clockOfText } from '../lib/when';
 import { HOW } from '../tour/how';
-
-/** `country-loaf` as "country loaf". */
-const itemWords = (slug: string) => slug.replaceAll('-', ' ');
-
-/** "9:45 am" for a business time, as the bakery's wall clock reads it. */
-function startWords(start: string): string {
-  const ms = Date.parse(start);
-  if (Number.isNaN(ms)) return start;
-  const l = mountainLocal(ms);
-  return clockLabel(l.hour * 60 + l.minute);
-}
 
 /**
  * The kitchen board's bake lists, one panel per bakery day, today first: what to have ready for
@@ -27,8 +16,8 @@ export default function BakeList({ lists, today }: { lists: Day[]; today: string
       </h3>
       {lists.length === 0 ? (
         <p className="hint">
-          No day has a plan yet. A day gets one when an order for it is paid, or when the clock
-          moves to it.
+          No day from today on has a plan yet. A day gets one when an order or a catering deposit
+          for it is paid. Moving the clock does not make one: it only changes which day is today.
         </p>
       ) : (
         lists.map((day) => {
@@ -51,14 +40,12 @@ export default function BakeList({ lists, today }: { lists: Day[]; today: string
                     <li key={group.start} className="card">
                       <p>
                         <strong>
-                          <time dateTime={group.start}>{startWords(group.start)}</time>
+                          <time dateTime={group.start}>{clockOfText(group.start)}</time>
                         </strong>
                       </p>
                       <ul className="card-lines">
                         {group.items.map((line) => (
-                          <li key={line.item}>
-                            {line.qty} × {itemWords(line.item)}
-                          </li>
+                          <li key={line.item}>{bakeLineText(line)}</li>
                         ))}
                       </ul>
                     </li>

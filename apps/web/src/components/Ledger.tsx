@@ -3,6 +3,7 @@ import type { LedgerResponse } from '../contracts';
 import { getLedger } from '../lib/api';
 import { describeError, type Message as Text } from '../lib/messages';
 import { dollars } from '../lib/money';
+import { whenText } from '../lib/when';
 import Message from './Message';
 
 /**
@@ -70,7 +71,7 @@ export default function Ledger({ sandboxId, refresh }: { sandboxId: string; refr
                     {e.kind === 'payment' ? '+' : '-'}
                     {dollars(Math.abs(e.amount_cents))}
                   </span>
-                  , <time dateTime={e.at}>{e.at}</time>
+                  , <time dateTime={e.at}>{whenText(e.at)}</time>
                 </li>
               ))}
             </ol>

@@ -10,6 +10,7 @@ import {
   remainingS,
 } from '../lib/clock';
 import { describeError, type Message as Text } from '../lib/messages';
+import { whenText } from '../lib/when';
 import GuestNote from './GuestNote';
 import Message from './Message';
 import { HOW } from '../tour/how';
@@ -54,7 +55,7 @@ export default function ClockControl({
       const clock = await clicks.current.click(sandboxId, step);
       setOffset(clock.clock_offset_s);
       setWall(Date.now());
-      setSaid(`Business time moved forward. It is now ${clock.business_now}.`);
+      setSaid(`Business time moved forward. It is now ${whenText(clock.business_now)}.`);
       onAdvanced();
     } catch (e) {
       const refusal = clockRefusal(e);
@@ -83,12 +84,17 @@ export default function ClockControl({
       </p>
       <p className="actions">
         {STEPS.map(({ step, label, says }) => (
+          // Busy is aria-disabled, not disabled: a disabled button drops the keyboard's focus to
+          // the top of the page, and the step a visitor pressed is the place to stay.
           <button
             key={step}
             type="button"
-            disabled={busy !== null || isGuest}
+            disabled={isGuest}
+            aria-disabled={busy !== null || undefined}
             aria-label={says}
-            onClick={() => void advance(step)}
+            onClick={() => {
+              if (busy === null) void advance(step);
+            }}
           >
             {busy === step ? 'Moving…' : label}
           </button>

@@ -90,7 +90,16 @@ export default function Inbox() {
         <>
           <p data-tour="inbox-list">
             <label htmlFor="inbox-kind">Show</label>
-            <select id="inbox-kind" value={kind} onChange={(e) => setKind(e.target.value)}>
+            <select
+              id="inbox-kind"
+              value={kind}
+              onChange={(e) => {
+                const next = e.target.value;
+                setKind(next);
+                // A message the new filter hides is closed, not left open below a list without it.
+                if (open !== null && next !== ALL_KINDS && open.kind !== next) setSelected(null);
+              }}
+            >
               <option value={ALL_KINDS}>All messages</option>
               {MESSAGE_KINDS.map((k) => (
                 <option key={k.kind} value={k.kind}>
@@ -105,7 +114,7 @@ export default function Inbox() {
           ) : (
             <>
               <p className="hint" aria-live="polite">
-                {countText(messages.length, total)}
+                {countText(messages.length, total, kind)}
               </p>
               {messages.length > 0 && (
                 <div className="table-scroll">
