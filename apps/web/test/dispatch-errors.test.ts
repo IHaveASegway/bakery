@@ -38,6 +38,8 @@ const RULES = [
   'stop-missing',
   'no-plan',
   'published',
+  'window',
+  'not-ready',
   'idempotency-key',
 ] as const;
 
@@ -85,6 +87,35 @@ describe('the refusals a publish and a completion can meet', () => {
     for (const status of [409, 422]) {
       expect(describeDispatchError(error(status, 'dispatch', detail)).detail).toBe(sentence);
     }
+  });
+
+  test('a plan that reaches a stop after its window is window, a 422 on plan and a 409 on publish', () => {
+    const detail =
+      'van 2 reaches stop 01JD0ORDER0000000000000003 after its delivery window closes. The rule is window.';
+    const sentence = sentenceFor('window');
+    expect(sentence).toContain('after its delivery window closes');
+    expect(sentence).toContain('9:00 am');
+    for (const status of [409, 422]) {
+      expect(describeDispatchError(error(status, 'dispatch', detail))).toEqual({
+        title: 'Refused',
+        detail: sentence,
+      });
+    }
+  });
+
+  test('completing a stop whose order is not ready is a 409 not-ready that names the kitchen board', () => {
+    const detail = 'stop 3’s order is not ready yet. The rule is not-ready.';
+    expect(ruleOf(detail)).toBe('not-ready');
+    expect(describeDispatchError(error(409, 'dispatch', detail)).detail).toContain(
+      'Mark it ready on the kitchen board',
+    );
+  });
+
+  test('the word window in another rule’s detail is not the window rule', () => {
+    expect(ruleOf('the stop’s window is not on this day. The rule is stop-missing.')).toBe(
+      'stop-missing',
+    );
+    expect(ruleOf('the stop’s window is not on this day. The rule is wrong-day.')).toBeNull();
   });
 
   test('a completion with no published plan is a 409 no-plan that says to publish first', () => {

@@ -53,9 +53,11 @@ export default function DispatchComparison({
         </table>
       </div>
       <p className="hint">
-        Drive minutes are free-flow times from the travel-time matrix, with no traffic and no time
-        at the door. The gap is the server’s total less the browser’s, as a percentage of the
-        browser’s.
+        Both plans keep to the delivery windows: the API refuses either one if a van would reach a
+        stop after its window closes. Drive minutes are free-flow times from the travel-time matrix,
+        with no traffic, no time at the door and no waiting for a window to open; the time the last
+        van is back counts both. The gap is the server’s total less the browser’s, as a percentage
+        of the browser’s.
       </p>
       <p className="hint">How this works: {HOW.dispatch}</p>
     </>

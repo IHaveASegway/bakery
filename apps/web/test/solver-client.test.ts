@@ -16,8 +16,8 @@ import lock from '../solver.lock.json';
 afterEach(() => vi.useRealTimers());
 
 const INPUT: VroomInput = {
-  vehicles: [{ id: 1, start_index: 0, end_index: 0, capacity: [10] }],
-  jobs: [{ id: 1, location_index: 1, delivery: [1], service: 180 }],
+  vehicles: [{ id: 1, start_index: 0, end_index: 0, capacity: [10], time_window: [0, 7200] }],
+  jobs: [{ id: 1, location_index: 1, delivery: [1], service: 180, time_windows: [[0, 7200]] }],
   matrices: {
     car: {
       durations: [

@@ -3,6 +3,7 @@
 // "8:15 am on Sunday 2026-11-08". The wire form stays in `<time dateTime>` for machines. A UTC
 // stamp such as the feed's `2026-11-08T16:22:07Z` reads as the same bakery time, so two screens
 // never disagree about the hour.
+import { WINDOW_MINUTES } from './dispatch';
 import { dateLabel } from './schedule';
 import { clockLabel, dateOf, mountainLocal } from './slots';
 
@@ -45,6 +46,18 @@ export function clockOfText(value: string): string {
   if (Number.isNaN(ms)) return value;
   const l = mountainLocal(ms);
   return clockLabel(l.hour * 60 + l.minute);
+}
+
+/**
+ * "11:00 am to 1:00 pm", a delivery window from its start (`StopView.window`): it closes
+ * WINDOW_MINUTES, 120, later. The text itself when it is not a time.
+ */
+export function windowText(start: string): string {
+  const ms = Date.parse(start);
+  if (Number.isNaN(ms) || !/T\d{2}:\d{2}/.test(start)) return start;
+  const l = mountainLocal(ms);
+  const from = l.hour * 60 + l.minute;
+  return `${clockLabel(from)} to ${clockLabel(from + WINDOW_MINUTES)}`;
 }
 
 /**

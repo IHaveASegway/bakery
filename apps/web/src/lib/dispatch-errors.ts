@@ -1,8 +1,9 @@
 // Words for what the dispatch routes refuse with. A refused dispatch step is a 409 or 422 problem
 // `dispatch` whose `detail` names the rule as a whole word: for a proposal `vans`, `capacity`,
 // `no-stops` or `place-unknown`; for the browser's plan `route-ends`, `vans`, `stop-unknown`,
-// `stop-twice`, `over-capacity` or `stop-missing`; for a publish, always a 409, `no-plan`,
-// `stop-missing` or `published` (a van has left); for a completion `no-plan` or `stop-unknown`.
+// `stop-twice`, `over-capacity`, `stop-missing` or `window` (422, a stop reached after its window
+// closed); for a publish, always a 409, `no-plan`, `stop-missing`, `window` or `published` (a van
+// has left); for a completion `no-plan`, `stop-unknown` or `not-ready` (409, the order is not ready).
 // A day outside the sandbox's days is a 404 `no-such-day`, a staff action as a guest is a 403
 // `guest-scope`, and a key reused with another body is a 422 `idempotency-key` (the router's, whose
 // detail says "Idempotency-Key", so the slug is found in it as a whole word too). The sentences name the rule and nothing a
@@ -23,6 +24,10 @@ const SENTENCES: Record<string, string> = {
   'over-capacity': 'A van in that plan carries more than its capacity, so it was refused.',
   'stop-missing':
     'That plan leaves a confirmed stop out, so it cannot be used. Raise the vans or the capacity and plan again.',
+  window:
+    'A van in that plan would reach a stop after its delivery window closes, so it was refused. A window is two hours from its start and the vans leave at 9:00 am. Propose or plan in the browser again.',
+  'not-ready':
+    'That stop’s order is not ready yet, so it cannot be marked delivered. Mark it ready on the kitchen board first.',
   'no-plan':
     'There is no plan of that kind to use yet. Propose or plan first, and publish a plan before completing a stop.',
   published: 'A van has already left with this plan, so today’s plan cannot be replaced.',
@@ -36,10 +41,17 @@ const SENTENCES: Record<string, string> = {
 // Longest first, so `stop-missing` wins over a shorter slug it might contain.
 const RULES = Object.keys(SENTENCES).sort((a, b) => b.length - a.length);
 
-/** The rule a problem's detail names as a whole word, if it names one these screens know. */
+/**
+ * The rule a problem's detail names as a whole word, if it names one these screens know. The API
+ * ends its detail with "The rule is <slug>.", and that slug, known or not, is the answer: the
+ * `window` rule's name is also a word another rule's sentence uses ("the stop's window is not on
+ * this day. The rule is wrong-day."), which must not read as `window`.
+ */
 export function ruleOf(detail: string | null): string | null {
   if (detail === null) return null;
   const lower = detail.toLowerCase();
+  const named = /\brule is ([a-z-]+)/.exec(lower)?.[1];
+  if (named !== undefined) return named in SENTENCES ? named : null;
   return RULES.find((rule) => new RegExp(`(^|[^a-z-])${rule}($|[^a-z-])`).test(lower)) ?? null;
 }
 
