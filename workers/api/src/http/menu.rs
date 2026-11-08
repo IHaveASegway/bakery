@@ -203,6 +203,31 @@ pub async fn publish(cx: &Cx, id: Option<&str>) -> Answer {
     edited(res).await
 }
 
+/// `GET /v1/sandboxes/{id}/menu/drafts`, signed-in sessions only: the Catalog's draft copy of
+/// every item waiting for a publish, so the console's editor shows them after a reload. It is
+/// never cached (`no-store`, the default): it moves with every edit, and only staff read it.
+pub async fn drafts(cx: &Cx, id: Option<&str>) -> Answer {
+    let (claims, id) = own_sandbox(cx, id)?;
+    not_revoked(cx, &claims).await?;
+    let mut res = call_empty(
+        &cx.env,
+        catalog::BINDING,
+        &catalog::name(id),
+        Method::Get,
+        "/_drafts",
+    )
+    .await?;
+    match res.status_code() {
+        200 => {
+            let mut out = Response::ok(res.text().await?)?;
+            out.headers_mut().set("Content-Type", "application/json")?;
+            Ok(out)
+        }
+        410 => Err(problem::wiped()),
+        _ => Err(problem::internal()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

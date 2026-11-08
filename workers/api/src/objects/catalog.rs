@@ -8,6 +8,7 @@
 //! - `POST /_seed {birth, categories, items, variants}` → 201 `{version}`; 200 when already seeded.
 //! - `GET /_version` → `{version}`: the cheap read the menu route keys its cache by.
 //! - `GET /_menu` → the published `MenuView`.
+//! - `GET /_drafts` → `MenuDraftsResponse`: the draft copy of every pending item, in slug order.
 //! - `POST /_patch {key, body_hash, item, price_cents?, status?}` → 200 `{version, pending}`;
 //!   404 `{error: "unknown-item"}`; 422 `{error: "menu", rule}`; 422 `{error: "key-reused"}`;
 //!   a replay answers the first result with `Idempotent-Replayed: true`.
@@ -19,10 +20,12 @@
 use std::cell::Cell;
 
 use bakery_app::Clock;
-use bakery_contracts::{MenuEditResponse, MenuItemStatus};
+use bakery_contracts::{
+    MenuDraft, MenuDraftsResponse, MenuEditResponse, MenuItemState, MenuItemStatus, MenuVariant,
+};
 use bakery_domain::catalog::{
     Catalog as CatalogAggregate, CatalogCommand, CatalogError, CatalogEvent, CatalogState,
-    Category, Item, Variant,
+    Category, Item, ItemStatus, Variant,
 };
 use bakery_domain::outbox::{CommandCheck, Stamp, check_command, envelopes};
 use bakery_domain::{Cents, DecideContext, Ulid, WallTime, execute};
@@ -122,6 +125,7 @@ impl DurableObject for Catalog {
                         200,
                     ),
                     (Method::Get, "/_menu") => json(&self.load()?.menu_view(), 200),
+                    (Method::Get, "/_drafts") => json(&drafts(&self.load()?), 200),
                     (Method::Post, "/_patch") => {
                         let body: Patch = sql::body(&mut req).await?;
                         self.patch(&meta, body, now).await
@@ -313,6 +317,36 @@ impl Catalog {
         let mut res = Response::ok(answer)?;
         res.headers_mut().set("Content-Type", "application/json")?;
         Ok(res)
+    }
+}
+
+/// The draft copy of every pending item, as the contract writes it.
+fn drafts(state: &CatalogState) -> MenuDraftsResponse {
+    MenuDraftsResponse {
+        version: state.version(),
+        pending: state
+            .drafts()
+            .into_iter()
+            .map(|(item, variants)| MenuDraft {
+                slug: item.slug.clone(),
+                name: item.name.clone(),
+                status: match item.status {
+                    ItemStatus::Draft => MenuItemState::Draft,
+                    ItemStatus::Available => MenuItemState::Available,
+                    ItemStatus::Paused => MenuItemState::Paused,
+                    ItemStatus::Retired => MenuItemState::Retired,
+                },
+                variants: variants
+                    .into_iter()
+                    .map(|v| MenuVariant {
+                        slug: v.slug.clone(),
+                        label: v.label.clone(),
+                        price_cents: v.price_cents.0,
+                        lead_minutes: v.lead_minutes,
+                    })
+                    .collect(),
+            })
+            .collect(),
     }
 }
 
