@@ -179,7 +179,8 @@ const S: &str = "/v1/sandboxes/{id}";
 /// Every route: the Worker's after PR 7 (its README's table, in its order), then PR 8's, PR 9's
 /// dispatch and PR 10's token, each held to the Worker as built and its README by the tests
 /// below. A route added later sits beside its neighbours: the menu's drafts (2026-11-08) after
-/// the publish.
+/// the publish. Its number, 19, is the audit day of 2026-11-08 in docs/roadmap.md ("UI audit of
+/// 2026-11-08"), which has no pull request number of its own.
 pub const ROUTES: &[RouteSpec] = &[
     r(
         2,
@@ -457,7 +458,7 @@ pub const ROUTES: &[RouteSpec] = &[
         ],
     ),
     r(
-        18,
+        19,
         "get-menu-drafts",
         "GET",
         "/v1/sandboxes/{id}/menu/drafts",
