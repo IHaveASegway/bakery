@@ -1,3 +1,7 @@
-# Not launched: nothing here is to be indexed yet.
+# Production is indexable since the launch of 2026-11-06 (docs/security.md, "Robots and previews").
+# Until 2026-11-08 this file still disallowed every path, a leftover of the placeholder site.
+# Previews stay out of search by Cloudflare's X-Robots-Tag header on their workers.dev addresses.
 User-agent: *
-Disallow: /
+Allow: /
+
+Sitemap: https://bakery.ihaveasegway.com/sitemap.xml

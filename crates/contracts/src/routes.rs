@@ -745,6 +745,11 @@ pub const ROUTES: &[RouteSpec] = &[
                 "bad-target",
                 "not `slot:HH:MM`, `zone:z1` to `z3`, `item:<slug>` or `catering`",
             ),
+            no(
+                422,
+                "unknown-item",
+                "an `item:<slug>` the day's published menu does not list",
+            ),
             NO_SUCH_DAY,
         ],
     ),
@@ -863,7 +868,11 @@ pub const ROUTES: &[RouteSpec] = &[
         &[
             ok(200, "`quoted`"),
             no(422, "catering", "`quote-total`, a total under 1 cent"),
-            no(409, "catering", "`out-of-order`"),
+            no(
+                409,
+                "catering",
+                "`out-of-order`, or `quote-expired` once the day before the event has begun",
+            ),
         ],
     ),
     r(
@@ -888,7 +897,11 @@ pub const ROUTES: &[RouteSpec] = &[
         Some("CateringResponse"),
         &[
             ok(200, "`in_production`"),
-            no(409, "catering", "unless confirmed"),
+            no(
+                409,
+                "catering",
+                "`out-of-order` unless confirmed; `too-early` before the day before the event",
+            ),
         ],
     ),
     r(
@@ -902,7 +915,11 @@ pub const ROUTES: &[RouteSpec] = &[
         Some("CateringResponse"),
         &[
             ok(200, "`delivered`; poll for `invoice`"),
-            no(409, "catering", "out of order"),
+            no(
+                409,
+                "catering",
+                "`out-of-order`; `too-early` before the event day",
+            ),
         ],
     ),
     r(

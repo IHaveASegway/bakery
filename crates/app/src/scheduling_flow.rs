@@ -271,6 +271,7 @@ fn advancing_the_clock_a_day_expires_an_unpaid_order_and_changes_the_bake_list()
             item: "croissant".into(),
             qty: 3,
             start: at("2026-11-06T10:00:00-07:00"),
+            catering: false,
         }]
     );
     assert_eq!(friday.plan().lines, *lines);
@@ -333,6 +334,7 @@ fn a_cake_for_tomorrow_is_refused_by_the_48_hour_rule_and_the_day_after_is_baked
             item: "chocolate-layer-cake".into(),
             qty: 1,
             start: at("2026-11-07T10:00:00-07:00"),
+            catering: false,
         }]
     );
     assert_eq!(saturday.item_used("chocolate-layer-cake"), 1);

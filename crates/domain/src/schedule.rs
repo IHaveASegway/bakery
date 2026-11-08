@@ -20,6 +20,9 @@
 //!   `revived: true`. It is the one way a count passes its capacity.
 //! - **An item with no cap is uncapped.** Caps arrive by `RefreshCaps`; before the first, or for
 //!   an item the menu does not list, nothing is refused on items. The Order checks the menu.
+//!   A staff cap names an item the day's caps know, or it is refused `unknown-item`, and every
+//!   newer menu version is written, same caps or not, so the day names the menu it follows
+//!   (both since the console audit of 2026-11-08).
 //! - **A lost hold is taken again, or refused.** `Retake` is the placement's retry under the
 //!   key whose hold was released (by its timer, or by the router giving the place back after the
 //!   Order refused) before any Order was placed: the same place, at the same start with the same
@@ -36,7 +39,8 @@
 //! [`DEFAULT_CATERING_CAPACITY`] places. Its [`HoldRequest`] is built by
 //! `catering::hold_request`: `kind: Catering`, `ref` the catering id, `start` the event day's
 //! opening (07:00 local), `lines` one line of the package's slug with the headcount as its
-//! quantity (the bake list shows "breakfast-spread × 40" at 07:00), and `expires_at` the
+//! quantity (the plan's line is marked `catering`, so a screen can say "breakfast spread for
+//! 40 people" at 07:00), and `expires_at` the
 //! moment the deposit hold lapses, 15 minutes of business time after the quote was accepted.
 //! The package's slug is not a menu item, so no item cap counts it. The routing table drives the
 //! rest: `Confirm` on `CateringDepositPaid`, `Release` on `CateringCancelled` (`cancelled`) and
@@ -295,6 +299,10 @@ pub struct PlanLine {
     pub item: String,
     pub qty: u32,
     pub start: BusinessTime,
+    /// A catering package: `item` is its slug and `qty` the people it feeds, not a count of
+    /// items, so a screen can say "for 40 people" (since 2026-11-08; absent, false, before).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub catering: bool,
 }
 
 /// The production plan as last emitted: `version` counts the times its lines changed.
@@ -410,6 +418,8 @@ pub enum ScheduleError {
     UnknownRef,
     #[error("not a capacity target: {0}")]
     BadTarget(String),
+    #[error("{item} is not on the day's menu")]
+    UnknownItem { item: String },
 }
 
 fn slot_full_text(next_free: &Option<BusinessTime>) -> String {
@@ -433,6 +443,7 @@ impl ScheduleError {
             ScheduleError::HoldLost { .. } => "hold-lost",
             ScheduleError::UnknownRef => "unknown-ref",
             ScheduleError::BadTarget(_) => "bad-target",
+            ScheduleError::UnknownItem { .. } => "unknown-item",
         }
     }
 }
@@ -628,25 +639,28 @@ impl ScheduleState {
     }
 }
 
-/// The plan from places and the status each is taken at.
+/// The plan from places and the status each is taken at. A catering place's line counts people,
+/// so it is kept apart from an item of the same slug and marked `catering`.
 fn project<'a>(places: impl Iterator<Item = (&'a Hold, HoldStatus)>) -> Vec<PlanLine> {
-    let mut sums: BTreeMap<(i64, &str), (BusinessTime, u32)> = BTreeMap::new();
+    let mut sums: BTreeMap<(i64, &str, bool), (BusinessTime, u32)> = BTreeMap::new();
     for (hold, status) in places {
         if !status.planned() {
             continue;
         }
+        let catering = hold.kind == HoldKind::Catering;
         for line in &hold.lines {
             let entry = sums
-                .entry((hold.start.unix_ms(), line.item.as_str()))
+                .entry((hold.start.unix_ms(), line.item.as_str(), catering))
                 .or_insert((hold.start, 0));
             entry.1 = entry.1.saturating_add(line.qty);
         }
     }
     sums.into_iter()
-        .map(|((_, item), (start, qty))| PlanLine {
+        .map(|((_, item, catering), (start, qty))| PlanLine {
             item: item.to_owned(),
             qty,
             start,
+            catering,
         })
         .collect()
 }
@@ -733,7 +747,13 @@ impl Aggregate for Schedule {
                 let current = match target {
                     Target::Slot(m) => Some(u32::from(state.slot_cap(*m))),
                     Target::Zone(z) => Some(u32::from(state.zone_cap(z))),
-                    Target::Item(i) => state.item_cap(i),
+                    // Only an item the day's caps know: the published menu lists every item it
+                    // sells with a cap, so a slug it does not list is a typo, not a new cap.
+                    Target::Item(i) => Some(
+                        state
+                            .item_cap(i)
+                            .ok_or_else(|| ScheduleError::UnknownItem { item: i.clone() })?,
+                    ),
                     Target::Catering => Some(u32::from(state.catering_capacity)),
                 };
                 if current == Some(u32::from(*capacity)) {
@@ -746,14 +766,14 @@ impl Aggregate for Schedule {
                 }])
             }
             ScheduleCommand::RefreshCaps { menu_version, caps } => {
+                // Every newer version is written, even with the same caps, so the day names the
+                // menu its caps follow (the console audit of 2026-11-08: a price-only publish
+                // left the day on version 1 after the menu reached 3).
                 if *menu_version <= state.menu_version {
                     return Ok(Vec::new());
                 }
                 let new: BTreeMap<String, u32> =
                     caps.iter().map(|c| (c.item.clone(), c.daily_cap)).collect();
-                if new == state.item_caps {
-                    return Ok(Vec::new());
-                }
                 Ok(vec![ScheduleEvent::CapsRefreshed {
                     menu_version: *menu_version,
                     caps: new
@@ -1273,12 +1293,14 @@ mod tests {
                         PlanLine {
                             item: "baguette".into(),
                             qty: 1,
-                            start
+                            start,
+                            catering: false
                         },
                         PlanLine {
                             item: "croissant".into(),
                             qty: 2,
-                            start
+                            start,
+                            catering: false
                         },
                     ]
                 }
@@ -1693,14 +1715,67 @@ mod tests {
             },
         );
         assert_eq!(cat.catering_capacity(), 3);
-        let item = ok(
+        let capped = ok(
             cat,
+            ScheduleCommand::RefreshCaps {
+                menu_version: 1,
+                caps: vec![ItemCap {
+                    item: "scone".into(),
+                    daily_cap: 30,
+                }],
+            },
+        );
+        let item = ok(
+            capped,
             ScheduleCommand::SetCapacity {
                 target: Target::Item("scone".into()),
                 capacity: 4,
             },
         );
         assert_eq!(item.item_cap("scone"), Some(4));
+    }
+
+    #[test]
+    fn a_capacity_for_an_item_the_day_does_not_know_is_refused() {
+        // The console audit of 2026-11-08: `item:no-such-thing` was accepted and logged.
+        let cap = |item: &str| ScheduleCommand::SetCapacity {
+            target: Target::Item(item.into()),
+            capacity: 3,
+        };
+        // Before any caps, no item is known.
+        assert_eq!(
+            run(fresh(), &cap("scone")),
+            Err(ScheduleError::UnknownItem {
+                item: "scone".into()
+            })
+        );
+        let s = ok(
+            fresh(),
+            ScheduleCommand::RefreshCaps {
+                menu_version: 1,
+                caps: vec![ItemCap {
+                    item: "scone".into(),
+                    daily_cap: 30,
+                }],
+            },
+        );
+        let refused = run(s.clone(), &cap("no-such-thing")).unwrap_err();
+        assert_eq!(
+            refused,
+            ScheduleError::UnknownItem {
+                item: "no-such-thing".into()
+            }
+        );
+        assert_eq!(refused.rule(), "unknown-item");
+        assert_eq!(
+            refused.to_string(),
+            "no-such-thing is not on the day's menu"
+        );
+        assert_eq!(s.item_cap("no-such-thing"), None);
+        // An item the menu lists takes its cap.
+        let (s, events) = run(s, &cap("scone")).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(s.item_cap("scone"), Some(3));
     }
 
     #[test]
@@ -1739,7 +1814,7 @@ mod tests {
     }
 
     #[test]
-    fn caps_refresh_only_forward_and_only_on_change() {
+    fn caps_refresh_only_forward() {
         let caps = |n| {
             vec![ItemCap {
                 item: "scone".into(),
@@ -1762,7 +1837,7 @@ mod tests {
             }]
         );
         assert_eq!(s.menu_version(), 2);
-        // Older or equal versions are no-ops; a newer one with the same caps emits nothing.
+        // Older or equal versions are no-ops.
         for v in [1, 2] {
             let cmd = ScheduleCommand::RefreshCaps {
                 menu_version: v,
@@ -1770,16 +1845,27 @@ mod tests {
             };
             assert_eq!(run(s.clone(), &cmd).unwrap().1, []);
         }
+        // A newer version with the same caps is written too, so the day names the menu its caps
+        // follow (the console audit of 2026-11-08: version 3 published, the day still on 1).
         let same = ScheduleCommand::RefreshCaps {
             menu_version: 3,
             caps: caps(40),
         };
-        assert_eq!(run(s.clone(), &same).unwrap().1, []);
+        let (s, events) = run(s, &same).unwrap();
+        assert_eq!(
+            events,
+            [ScheduleEvent::CapsRefreshed {
+                menu_version: 3,
+                caps: caps(40)
+            }]
+        );
+        assert_eq!((s.menu_version(), s.item_cap("scone")), (3, Some(40)));
         let changed = ScheduleCommand::RefreshCaps {
-            menu_version: 3,
+            menu_version: 4,
             caps: caps(30),
         };
-        assert_eq!(ok(s, changed).item_cap("scone"), Some(30));
+        let s = ok(s, changed);
+        assert_eq!((s.menu_version(), s.item_cap("scone")), (4, Some(30)));
     }
 
     #[test]
@@ -1863,8 +1949,14 @@ mod tests {
             [PlanLine {
                 item: "breakfast-spread".into(),
                 qty: 40,
-                start: opening
+                start: opening,
+                catering: true
             }]
+        );
+        // The line says it counts people, and says so on the wire.
+        assert_eq!(
+            serde_json::to_value(&paid.plan().lines[0]).unwrap()["catering"],
+            serde_json::json!(true)
         );
         // A lapse never releases a reserved place.
         assert_eq!(
@@ -2012,6 +2104,7 @@ mod tests {
                     item: "scone".into(),
                     qty: 3,
                     start,
+                    catering: false,
                 }],
             },
         ];

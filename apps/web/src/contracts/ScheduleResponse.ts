@@ -52,6 +52,11 @@ export interface BakeListView {
  */
 export interface BakeLineView {
   /**
+   * True for a catering event's line: `item` is the package's slug and `qty` the people it
+   * feeds, not a count of items. Absent for an order's line.
+   */
+  catering?: boolean;
+  /**
    * The item's slug.
    */
   item: string;

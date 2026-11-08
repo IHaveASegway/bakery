@@ -4,6 +4,8 @@ import {
   breakerWords,
   browserStorage,
   createPoller,
+  failureLabel,
+  failureStatus,
   formatTime,
   loadSnapshot,
   readStatus,
@@ -38,7 +40,8 @@ export function StatusView({ model }: { model: Model }) {
         {model.kind === 'loading' && 'Asking the API…'}
         {unreachable && (
           <>
-            <strong>Unreachable.</strong> {unreachableWords(model.cached)}
+            <strong>{failureLabel(model.status)}</strong>{' '}
+            {unreachableWords(model.cached, model.status)}
           </>
         )}
         {data !== null && model.kind === 'answered' && (
@@ -117,14 +120,19 @@ export default function Status() {
       visible: () => document.visibilityState !== 'hidden',
       every: (run, ms) => setInterval(run, ms),
       cancel: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
-      deliver: (raw) => {
+      deliver: (raw, failure) => {
         const data = raw === null ? null : readStatus(raw);
         if (data !== null) {
           const fetchedAt = new Date().toISOString();
           saveSnapshot(store, data, fetchedAt);
           setModel({ kind: 'answered', data, fetchedAt });
         } else {
-          setModel({ kind: 'unreachable', cached: loadSnapshot(store) });
+          const status = failureStatus(failure);
+          setModel({
+            kind: 'unreachable',
+            cached: loadSnapshot(store),
+            ...(status === undefined ? {} : { status }),
+          });
         }
       },
     });

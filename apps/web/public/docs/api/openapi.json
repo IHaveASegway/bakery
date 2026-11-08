@@ -91,6 +91,10 @@
         "additionalProperties": false,
         "description": "One line of the bake list.",
         "properties": {
+          "catering": {
+            "description": "True for a catering event's line: `item` is the package's slug and `qty` the people it\nfeeds, not a count of items. Absent for an order's line.",
+            "type": "boolean"
+          },
           "item": {
             "description": "The item's slug.",
             "type": "string"
@@ -6538,7 +6542,7 @@
                 }
               }
             },
-            "description": "`catering`: out of order",
+            "description": "`catering`: `out-of-order`; `too-early` before the event day",
             "x-problems": [
               "catering"
             ]
@@ -7067,7 +7071,7 @@
                 }
               }
             },
-            "description": "`catering`: `out-of-order`",
+            "description": "`catering`: `out-of-order`, or `quote-expired` once the day before the event has begun",
             "x-problems": [
               "catering"
             ]
@@ -7417,7 +7421,7 @@
                 }
               }
             },
-            "description": "`catering`: unless confirmed",
+            "description": "`catering`: `out-of-order` unless confirmed; `too-early` before the day before the event",
             "x-problems": [
               "catering"
             ]
@@ -10028,13 +10032,13 @@
               "direction": "server-to-client",
               "shape": "{t: \"snapshot\", v: 1, board: {cards, bake_lists}, seq}",
               "t": "snapshot",
-              "when": "on open; `seq` counts the events that changed the board; `bake_lists` is one entry per bakery day from business today on, `[{date, version, lines: [{item, qty, start}], reserved}]`"
+              "when": "on open; `seq` counts the events that changed the board; `bake_lists` is one entry per bakery day from business today on, `[{date, version, lines: [{item, qty, start, catering?}], reserved}]`, `catering: true` on a catering event's line, whose `qty` is its headcount"
             },
             {
               "direction": "server-to-client",
               "shape": "{t: \"evt\", v: 1, env, bake_list?}",
               "t": "evt",
-              "when": "each event that changed the board, the envelope whole, the note with it; and the Sandbox's `ClockAdvanced`. A `BakeListChanged`, `SlotReserved` or `SlotReleased` frame also carries `bake_list`, that day as the board holds it after the event, `{date, version, lines: [{item, qty, start}], reserved}` (since 2026-11-06): set the day from it, do not adjust a count"
+              "when": "each event that changed the board, the envelope whole, the note with it; and the Sandbox's `ClockAdvanced`. A `BakeListChanged`, `SlotReserved` or `SlotReleased` frame also carries `bake_list`, that day as the board holds it after the event, `{date, version, lines: [{item, qty, start, catering?}], reserved}` (since 2026-11-06; `catering` since 2026-11-08): set the day from it, do not adjust a count"
             },
             {
               "direction": "server-to-client",
@@ -12017,9 +12021,10 @@
                 }
               }
             },
-            "description": "`bad-target`: not `slot:HH:MM`, `zone:z1` to `z3`, `item:<slug>` or `catering`",
+            "description": "`bad-target`: not `slot:HH:MM`, `zone:z1` to `z3`, `item:<slug>` or `catering`; `unknown-item`: an `item:<slug>` the day's published menu does not list",
             "x-problems": [
-              "bad-target"
+              "bad-target",
+              "unknown-item"
             ]
           },
           "429": {

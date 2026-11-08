@@ -10,6 +10,8 @@ import {
   breakerWords,
   browserStorage,
   createPoller,
+  failureLabel,
+  failureStatus,
   formatTime,
   loadSnapshot,
   readStatus,
@@ -193,6 +195,40 @@ describe('the words', () => {
       'The API is unreachable. This is the last answer this browser saw, from 2026-11-06 14:20 UTC.',
     );
     expect(unreachableWords(null)).toContain('no earlier answer');
+  });
+
+  test('an API that answered with an error is not called unreachable (audit P9)', () => {
+    expect(failureLabel()).toBe('Unreachable.');
+    expect(failureLabel(503)).toBe('Not available.');
+    expect(unreachableWords(null, 503)).toBe(
+      'The API answered 503, so it is not available, and this browser has no earlier answer to show.',
+    );
+    const out = html({ kind: 'unreachable', cached: null, status: 503 });
+    expect(out).toContain('<strong>Not available.</strong>');
+    expect(out).toContain('The API answered 503');
+    expect(out).not.toContain('is unreachable');
+    expect(html({ kind: 'unreachable', cached: null })).toContain('The API is unreachable');
+  });
+
+  test('failureStatus reads the status of an API error and nothing from a network failure', () => {
+    expect(failureStatus(Object.assign(new Error('x'), { status: 503 }))).toBe(503);
+    expect(failureStatus(new Error('offline'))).toBeUndefined();
+    expect(failureStatus(null)).toBeUndefined();
+  });
+});
+
+describe('the sandbox meter (audit P1)', () => {
+  test('the track and the fill are styled apart, so an empty meter is not a full bar', async () => {
+    const { readFileSync } = await import('node:fs');
+    const css = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
+    const rule = (selector: string) =>
+      css.match(
+        new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`),
+      )?.[1] ?? '';
+    expect(rule('progress')).toContain('background: var(--surface-2)');
+    expect(rule('progress::-webkit-progress-bar')).toContain('--surface-2');
+    expect(rule('progress::-webkit-progress-value')).toContain('--primary');
+    expect(rule('progress::-moz-progress-bar')).toContain('--primary');
   });
 });
 

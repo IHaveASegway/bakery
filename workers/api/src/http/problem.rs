@@ -544,7 +544,7 @@ pub fn lead_time(message: Option<&str>) -> Failure {
 /// (`ScheduleError::rule()`): 409 for a full slot (with `next_free`, RFC 9457 section 3.2), an
 /// item over its cap, or a retried placement whose place was given back and is taken now
 /// (`hold-lost`, with `next_free` as `slot-full` has it); 422 for a time or a target the day
-/// does not have.
+/// does not have, an item target among them (`unknown-item`).
 pub fn schedule(
     rule: &str,
     next_free: Option<&str>,
@@ -610,6 +610,12 @@ pub fn schedule(
             "That is not a capacity target",
             "A target is slot:HH:MM (a pickup slot start), zone:z1 to zone:z3, item:<slug> or catering.".into(),
         ),
+        "unknown-item" => (
+            "unknown-item",
+            422,
+            "That item is not on the day's menu",
+            "An item:<slug> target names an item of the published menu, by its slug.".into(),
+        ),
         "ref-held" => (
             "ref-held",
             409,
@@ -645,12 +651,12 @@ pub fn catering(status: u16, rule: &str, message: Option<&str>) -> Failure {
         "unknown-venue" => "The venue is not one of v1 to v6.".to_owned(),
         "closed-day" => "The bakery is closed that day: it opens Tuesday to Sunday.".to_owned(),
         "catering-lead" => match message {
-            Some(m) => {
-                let mut chars = m.chars();
-                let first = chars.next().map(|c| c.to_uppercase().collect::<String>());
-                format!("{}{}.", first.unwrap_or_default(), chars.as_str())
-            }
+            Some(m) => sentence_of(m),
             None => "A catering event needs 7 business days' notice (Tuesday to Sunday).".to_owned(),
+        },
+        "too-early" => match message {
+            Some(m) => sentence_of(m),
+            None => "Production starts the day before the event, and delivery is on the event day.".to_owned(),
         },
         "brief-too-long" => "The brief is longer than 500 characters.".to_owned(),
         "brief-email" => brief_sentence("an email address"),
@@ -659,7 +665,7 @@ pub fn catering(status: u16, rule: &str, message: Option<&str>) -> Failure {
         "brief-url" => brief_sentence("a web address"),
         "quote-total" => "A quote's total is at least 1 cent.".to_owned(),
         "date" => "The date is not a day such as 2026-11-21.".to_owned(),
-        "quote-expired" => "The quote expired: its 14 business days have passed. Ask for a new inquiry.".to_owned(),
+        "quote-expired" => "The quote expired: its 14 business days have passed, or the day before the event has begun. Ask for a new inquiry.".to_owned(),
         "out-of-order" => "The catering event is not in a state that takes this step.".to_owned(),
         "amount-mismatch" => "The payment is not the amount the quote asks for.".to_owned(),
         _ => "The catering request does not fit the bakery's rules.".to_owned(),
@@ -679,6 +685,13 @@ pub fn catering(status: u16, rule: &str, message: Option<&str>) -> Failure {
         retry_after: None,
         reason: "catering",
     }
+}
+
+/// The domain's clause as a sentence: a capital first letter and a full stop.
+fn sentence_of(m: &str) -> String {
+    let mut chars = m.chars();
+    let first = chars.next().map(|c| c.to_uppercase().collect::<String>());
+    format!("{}{}.", first.unwrap_or_default(), chars.as_str())
 }
 
 fn brief_sentence(what: &str) -> String {
@@ -1017,6 +1030,19 @@ mod tests {
             schedule("bad-target", None, None, None).reason,
             "bad-target"
         );
+        let unknown = schedule("unknown-item", None, None, None);
+        assert_eq!(
+            (unknown.problem.status, unknown.reason),
+            (422, "unknown-item")
+        );
+        assert!(unknown.problem.problem_type.ends_with("/unknown-item"));
+        assert!(
+            unknown
+                .problem
+                .detail
+                .unwrap()
+                .ends_with("The rule is unknown-item.")
+        );
         let lead = lead_time(Some(
             "Chocolate layer cake needs 48 h; the slot is 25 h away",
         ));
@@ -1070,6 +1096,23 @@ mod tests {
         let step = catering(409, "quote-expired", None);
         assert_eq!(step.problem.status, 409);
         assert!(step.problem.detail.unwrap().contains("quote-expired"));
+        let early = catering(
+            409,
+            "too-early",
+            Some("production starts the day before the event: 2026-11-18 at the earliest"),
+        );
+        assert_eq!(early.problem.status, 409);
+        assert_eq!(
+            early.problem.detail.unwrap(),
+            "Production starts the day before the event: 2026-11-18 at the earliest. The rule is too-early."
+        );
+        assert!(
+            catering(409, "too-early", None)
+                .problem
+                .detail
+                .unwrap()
+                .ends_with(" The rule is too-early.")
+        );
         let full = catering_full();
         assert_eq!(full.problem.status, 409);
         assert!(full.problem.problem_type.ends_with("/slot-full"));
@@ -1119,6 +1162,7 @@ mod tests {
             schedule("no-such-slot", None, None, None),
             schedule("closed-day", None, None, None),
             schedule("bad-target", None, None, None),
+            schedule("unknown-item", None, None, None),
             schedule("something-new", None, None, None),
             no_such_day(),
             stripe_key(),
