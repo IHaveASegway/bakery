@@ -1571,6 +1571,58 @@
         ],
         "type": "object"
       },
+      "MenuDraft": {
+        "additionalProperties": false,
+        "description": "One item with edits waiting for a publish, as its draft copy stands: the variants carry\ntheir draft prices.",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MenuItemState",
+            "description": "The draft copy's status: `draft` for an item never published, else the published one,\nsince a pause or a resume is never a draft."
+          },
+          "variants": {
+            "items": {
+              "$ref": "#/components/schemas/MenuVariant"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "slug",
+          "name",
+          "status",
+          "variants"
+        ],
+        "type": "object"
+      },
+      "MenuDraftsResponse": {
+        "additionalProperties": false,
+        "description": "`GET /v1/sandboxes/{id}/menu/drafts`, signed-in sessions only: every item with a draft\nwaiting for `POST .../menu/publish`, in slug order, and the published version. The console's\nmenu editor reads it with `GET .../menu` on load and again after a publish, and shows each\nitem's waiting price under its published one, so a draft made before a reload is still shown.\nThe published prices are in the menu it already holds, so they are not repeated here.",
+        "properties": {
+          "pending": {
+            "items": {
+              "$ref": "#/components/schemas/MenuDraft"
+            },
+            "type": "array"
+          },
+          "version": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "pending"
+        ],
+        "title": "MenuDraftsResponse",
+        "type": "object"
+      },
       "MenuEditResponse": {
         "additionalProperties": false,
         "description": "The answer to a staff edit or a publish: the published version and the items with drafts\nstill waiting for a publish.",
@@ -10323,6 +10375,130 @@
         ],
         "x-pr": 4,
         "x-session": "sandbox"
+      }
+    },
+    "/v1/sandboxes/{id}/menu/drafts": {
+      "get": {
+        "description": "A signed-in session of sandbox `{id}`; a guest gets 403 `guest-scope`. The sandbox's API token may stand in for the cookie.",
+        "operationId": "get-menu-drafts",
+        "parameters": [
+          {
+            "description": "The sandbox's ULID, from the session or the token.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MenuDraftsResponse"
+                }
+              }
+            },
+            "description": "`{version, pending}`: the published version and each pending item's draft, in slug order"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
+            "x-problems": [
+              "token"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
+            "x-problems": [
+              "token",
+              "session"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`guest-scope`: a guest's session: sign in for this",
+            "x-problems": [
+              "guest-scope"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "another sandbox's id, or one naming nothing"
+          },
+          "410": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`wiped`: the sandbox is being wiped or is gone",
+            "x-problems": [
+              "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
+            ]
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerToken": []
+          }
+        ],
+        "summary": "The items with drafts waiting for a publish, as their draft copies stand",
+        "tags": [
+          "menu"
+        ],
+        "x-pr": 18,
+        "x-session": "signed-in"
       }
     },
     "/v1/sandboxes/{id}/menu/items/{slug}": {
