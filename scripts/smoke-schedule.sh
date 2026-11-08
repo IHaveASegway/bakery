@@ -701,8 +701,8 @@ expect_json clock_open "b.step === 'next-opening'"
 
 # The cake rule's refusal, from a business time that is the same on any day: Tuesday 07:00, after
 # the step above. The bakery is closed on Mondays and bakes the cake Wednesday to Sunday, so the
-# first Wednesday 10:00 is 27 h away, inside the 48 h rule and on a day the cake is baked; the clock runs on
-# after the step, so a slow run reads 26 h 59 min. (A slot
+# first Wednesday 10:00 is 27 h away, inside the 48 h rule and on a day the cake is baked. The clock
+# runs on after the step, so a slow run reads 26 h 59 min instead; the check allows both. (A slot
 # "tomorrow" from wall time is a Monday on a Sunday, which the order refuses as not-baked-that-day.)
 CAKE_SOON="$(cal '(() => { let t = Math.ceil(Date.parse(a[0]) / 900000) * 900000; while (!(wd(t) === "wed" && minuteOf(t) === 600)) t += 900000; return iso(t); })()' "$OPEN_NOW")"
 command_as cake_soon E 192.0.2.83 POST "/v1/sandboxes/$EID/orders" "{\"kind\":\"pickup\",\"slot\":\"$CAKE_SOON\",\"lines\":[{\"variant\":\"$CAKE\",\"qty\":1}]}"
