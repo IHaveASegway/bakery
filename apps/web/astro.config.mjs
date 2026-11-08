@@ -5,11 +5,15 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { adrFilesPlugin } from './scripts/adr-files.mjs';
 import { hashesByRule } from './scripts/inline-hashes.mjs';
+import { pagePaths, sitemapXml } from './scripts/sitemap.mjs';
 import { checkPublishableKey } from './src/lib/publishable-key.ts';
 import { DEFAULT_API_ORIGIN, RULE_PATHS, headersFile } from './src/policy.ts';
 
+const SITE = 'https://bakery.ihaveasegway.com';
+
 /**
- * Writes dist/_headers from src/policy.ts once the build is done, so `pnpm build` stays one
+ * Writes dist/_headers from src/policy.ts, and dist/sitemap.xml from the built pages, once the build
+ * is done, so `pnpm build` stays one
  * command. The API origin is read the way the islands read it, from Vite's resolved env, so a
  * PUBLIC_API_ORIGIN in .env or in the shell reaches the policy and the client alike. The same
  * resolved env carries PUBLIC_STRIPE_PUBLISHABLE_KEY, which is empty or a pk_test_ key or the build
@@ -38,6 +42,7 @@ function pagePolicy() {
       'astro:build:done': ({ dir }) => {
         const out = fileURLToPath(dir);
         mkdirSync(out, { recursive: true });
+        writeFileSync(`${out}sitemap.xml`, sitemapXml(SITE, pagePaths(out)));
         writeFileSync(`${out}_headers`, headersFile(apiOrigin, hashesByRule(out, RULE_PATHS)));
       },
     },
@@ -45,7 +50,7 @@ function pagePolicy() {
 }
 
 export default defineConfig({
-  site: 'https://bakery.ihaveasegway.com',
+  site: SITE,
   // Trailing slashes everywhere, written as <path>/index.html.
   trailingSlash: 'always',
   integrations: [react(), pagePolicy()],
