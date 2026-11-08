@@ -1398,7 +1398,7 @@
             "type": "string"
           },
           "stripe_id": {
-            "description": "Stripe's id: the intent's `pi_...` for a payment, the refund's `re_...` for a refund;\n`seed:<payment>` for a seeded order's payment, which the seed made and Stripe never saw.",
+            "description": "Stripe's id: the intent's `pi_...` for a payment, the refund's `re_...` for a refund;\n`seed:<payment>` for a seeded order's payment, which the seed made and Stripe never saw,\nand `seed:<refund>` for its refund, which Billing made alone.",
             "type": "string"
           }
         },
@@ -3076,6 +3076,11 @@
           {
             "const": "confirmed",
             "description": "Paid: every plan must carry it.",
+            "type": "string"
+          },
+          {
+            "const": "out_for_delivery",
+            "description": "Its order has gone out on its van: still in the plan, not yet delivered.",
             "type": "string"
           },
           {
@@ -11520,7 +11525,7 @@
                 }
               }
             },
-            "description": "the refund, on its way to Stripe; the same `Idempotency-Key` again: the first answer, replayed",
+            "description": "the refund, on its way to Stripe, or to Billing alone for a seeded payment; the same `Idempotency-Key` again: the first answer, replayed",
             "headers": {
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
@@ -11588,7 +11593,7 @@
                 }
               }
             },
-            "description": "`order`: `no-stripe-payment`: a seeded order Stripe never charged",
+            "description": "`order`: `no-stripe-payment`: an order Billing holds no payment for",
             "x-problems": [
               "order"
             ]

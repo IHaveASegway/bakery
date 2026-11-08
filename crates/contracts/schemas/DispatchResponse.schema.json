@@ -189,6 +189,11 @@
           "const": "confirmed"
         },
         {
+          "description": "Its order has gone out on its van: still in the plan, not yet delivered.",
+          "type": "string",
+          "const": "out_for_delivery"
+        },
+        {
           "description": "Expired or cancelled.",
           "type": "string",
           "const": "removed"

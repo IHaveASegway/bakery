@@ -133,9 +133,11 @@ export function dispatchDays(clockOffsetS: number, nowMs: number = Date.now()): 
 /** The last six characters of an order's ULID: enough to tell stops apart. */
 export const shortId = (id: string): string => id.slice(-6);
 
-/** The stops a plan must cover: confirmed ones, in order-id order. */
+/** The stops a plan must cover: confirmed ones and ones out for delivery, in order-id order. */
 export function plannable(day: DispatchResponse): StopView[] {
-  return day.stops.filter((s) => s.status === 'confirmed').sort((a, b) => cmp(a.order, b.order));
+  return day.stops
+    .filter((s) => s.status === 'confirmed' || s.status === 'out_for_delivery')
+    .sort((a, b) => cmp(a.order, b.order));
 }
 
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
@@ -644,6 +646,7 @@ export function clockText(time: string): string {
 const STATUS_WORDS: Record<StopStatus, string> = {
   provisional: 'Provisional (not paid yet)',
   confirmed: 'Confirmed',
+  out_for_delivery: 'Out for delivery',
   removed: 'Removed',
   completed: 'Delivered',
 };

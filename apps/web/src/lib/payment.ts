@@ -136,3 +136,19 @@ export function declineMessage(error: { message?: string | undefined }): string 
   const own = (error.message ?? '').trim();
   return own === '' ? 'The payment did not go through. Try another test card.' : own;
 }
+
+/**
+ * What the ledger says its lines are. Most come from Stripe's sandbox; a seeded order's payment,
+ * and since the UI audit of 2026-11-08 its refund, were recorded by Billing with no Stripe call
+ * (their id starts `seed:`), so the heading does not claim Stripe for every line.
+ */
+export const LEDGER_HINT =
+  'Payments and refunds as Billing recorded them: through Stripe’s sandbox, or, for an order the seed made paid, by Billing alone. No money moved.';
+
+/** Whether a ledger line was made by the seed and Billing, not reported by Stripe. */
+export const isSeededLine = (entry: { stripe_id: string }): boolean =>
+  entry.stripe_id.startsWith('seed:');
+
+/** The words after a ledger line's amount that say where it came from: empty for Stripe's. */
+export const ledgerSource = (entry: { stripe_id: string }): string =>
+  isSeededLine(entry) ? ' (seeded, no Stripe call)' : '';

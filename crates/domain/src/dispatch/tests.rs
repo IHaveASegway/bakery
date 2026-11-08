@@ -1172,3 +1172,95 @@ fn a_stop_ready_round_trips_and_folds() {
     let start = step(day(), submit(&[(1, &[1, 2, 3])]));
     assert_eq!(replay_from::<Dispatch>(start, &log), s);
 }
+
+// -------------------------------------------------------------------------------------------
+// A stop that has left (the UI audit of 2026-11-08, second pass, finding N3)
+// -------------------------------------------------------------------------------------------
+
+fn depart(order: u128, route: &str, stop: u16) -> DispatchCommand {
+    DispatchCommand::DepartStop {
+        order: ulid(order),
+        route: route.into(),
+        stop,
+    }
+}
+
+#[test]
+fn a_stop_whose_order_has_gone_out_is_out_for_delivery() {
+    let s = step(day(), submit(&[(1, &[2, 1]), (2, &[3])]));
+    let (s, _) = run(s, &publish(PlanChoice::Submitted), 1);
+    // The Order said it went out: the stop says so too, with the route and number it heard.
+    let (s, events) = run(s, &depart(3, "van-2", 3), 2);
+    assert_eq!(
+        events,
+        vec![DispatchEvent::StopDeparted {
+            date: date(),
+            order: ulid(3),
+            route: "van-2".into(),
+            stop: 3,
+        }]
+    );
+    assert_eq!(s.stop(ulid(3)).unwrap().status, StopStatus::OutForDelivery);
+    // Once per order, whatever the event's id; and never for a stop that is not confirmed.
+    assert_eq!(
+        Dispatch::decide(&s, &depart(3, "van-2", 3), &ctx(3)),
+        Ok(vec![])
+    );
+    assert_eq!(
+        Dispatch::decide(&s, &depart(4, "van-1", 1), &ctx(4)),
+        Ok(vec![])
+    );
+    assert_eq!(
+        Dispatch::decide(&s, &depart(9, "van-1", 1), &ctx(5)),
+        Ok(vec![])
+    );
+    // It is still a stop of the day's plan: the plan is not replaced, a proposal still carries
+    // it, and it is completed as before, with its route.
+    assert_eq!(s.plannable().len(), 3);
+    let again = step(s.clone(), submit(&[(1, &[1, 2, 3])]));
+    assert_eq!(refused(&again, publish(PlanChoice::Submitted)), "published");
+    assert_eq!(
+        Dispatch::decide(&s, &propose(2, 20), &ctx(6)).map(|e| e.len()),
+        Ok(1)
+    );
+    // A ready order already out needs no `StopReady`.
+    assert_eq!(Dispatch::decide(&s, &ready(3), &ctx(7)), Ok(vec![]));
+    let (done, events) = run(s, &complete(3), 8);
+    assert_eq!(
+        events,
+        vec![DispatchEvent::StopCompleted {
+            date: date(),
+            stop: 3,
+            order: ulid(3),
+            route: Some("van-2".into()),
+        }]
+    );
+    assert_eq!(done.stop(ulid(3)).unwrap().status, StopStatus::Completed);
+    // Heard after the completion (a stop completed while its order was only ready goes out and
+    // is delivered in one step): the stop stays completed.
+    assert_eq!(
+        Dispatch::decide(&done, &depart(3, "van-2", 3), &ctx(9)),
+        Ok(vec![])
+    );
+}
+
+#[test]
+fn a_stop_departed_round_trips_and_folds() {
+    let s = step(day(), submit(&[(1, &[1, 2, 3])]));
+    let (s, mut log) = run(s, &publish(PlanChoice::Submitted), 1);
+    let (s, events) = run(s, &depart(2, "van-1", 2), 2);
+    let e = &events[0];
+    assert!(DispatchEvent::NAMES.contains(&e.name()));
+    assert_eq!(e.name(), "StopDeparted");
+    let data = e.to_data();
+    assert_eq!(data["route"], "van-1");
+    assert_eq!(data["stop"], 2);
+    assert_eq!(data["order"], ulid(2).to_string());
+    assert_eq!(
+        DispatchEvent::from_parts("StopDeparted", &data).as_ref(),
+        Ok(e)
+    );
+    log.extend(events);
+    let start = step(day(), submit(&[(1, &[1, 2, 3])]));
+    assert_eq!(replay_from::<Dispatch>(start, &log), s);
+}

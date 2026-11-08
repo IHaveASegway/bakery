@@ -86,7 +86,7 @@ describe('the compose form and the rebuild', () => {
   });
 
   test('the preview shows the subject and the body as the inbox will', () => {
-    expect(page).toContain('This weekend at Proof of Concept');
+    expect(page).toContain('This weekend at Proof of Concept Bakery');
     expect(page).toContain('There is news from the bakery this week.');
   });
 

@@ -159,6 +159,10 @@ describe('the plan and the stops', () => {
     expect(out).toContain('Zone 1');
     expect(out).toContain('Provisional (not paid yet)');
     expect(out).toContain('Drop-off spot: ');
+    const left = day([stop(1, 1, 8, { van: 1, stop: 1, status: 'out_for_delivery' })]);
+    const leftOut = renderToStaticMarkup(createElement(DispatchStops, { day: left, data: route }));
+    expect(leftOut).toContain('Out for delivery');
+    expect(leftOut).not.toContain('Confirmed');
     expect(out).not.toMatch(/\sstyle=/);
   });
 

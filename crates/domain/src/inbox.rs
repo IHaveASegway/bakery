@@ -671,7 +671,7 @@ fn items_words(items: u32) -> String {
 /// `OrderPaid`'s receipt; the seed's history receipts use it too.
 pub fn receipt(kind: OrderKind, items: u32, amount: Cents) -> (String, String) {
     (
-        "Your receipt from Proof of Concept".to_owned(),
+        "Your receipt from Proof of Concept Bakery".to_owned(),
         format!(
             "Thank you. Your {} order of {} is paid: {}. We will tell you when it is ready.",
             kind_words(kind),

@@ -685,12 +685,15 @@ pub const ROUTES: &[RouteSpec] = &[
         Some("RefundRequest"),
         Some("RefundResponse"),
         &[
-            ok(200, "the refund, on its way to Stripe"),
+            ok(
+                200,
+                "the refund, on its way to Stripe, or to Billing alone for a seeded payment",
+            ),
             REPLAYED,
             no(
                 409,
                 "order",
-                "`no-stripe-payment`: a seeded order Stripe never charged",
+                "`no-stripe-payment`: an order Billing holds no payment for",
             ),
             no(422, "order", "`refund-exceeds-paid` or `out-of-order`"),
             STRIPE_KEY,

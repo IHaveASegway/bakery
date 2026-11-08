@@ -9,6 +9,9 @@ import {
   declineMessage,
   isClosed,
   isPaid,
+  isSeededLine,
+  LEDGER_HINT,
+  ledgerSource,
   parseRefundAmount,
   publishableKeyFor,
   returnUrl,
@@ -215,5 +218,27 @@ describe('pollUntil', () => {
     );
     expect(result).toEqual({ kind: 'timeout' });
     expect(slept).toEqual([250, 250, 250, 250, 250]);
+  });
+});
+
+describe('the ledger’s words', () => {
+  test('the heading does not claim every line came from Stripe’s sandbox', () => {
+    expect(LEDGER_HINT).not.toBe(
+      'Payments and refunds as Stripe’s sandbox reported them. No money moved.',
+    );
+    expect(LEDGER_HINT).toContain('Stripe’s sandbox');
+    expect(LEDGER_HINT).toContain('the seed');
+    expect(LEDGER_HINT).toContain('No money moved.');
+  });
+
+  test('a seeded payment and its refund say so; Stripe’s lines say nothing more', () => {
+    const seeded = { stripe_id: 'seed:01KSEEDPAYMENTNOTHEX0000ZZ' };
+    const refund = { stripe_id: 'seed:01KSEEDREFUNDNOTHEX00000ZZ' };
+    expect(isSeededLine(seeded)).toBe(true);
+    expect(ledgerSource(refund)).toBe(' (seeded, no Stripe call)');
+    for (const id of ['pi_fake_1', 're_fake_1', 'in_fake_1']) {
+      expect(isSeededLine({ stripe_id: id })).toBe(false);
+      expect(ledgerSource({ stripe_id: id })).toBe('');
+    }
   });
 });

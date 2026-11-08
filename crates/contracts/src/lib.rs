@@ -1022,7 +1022,8 @@ pub struct LedgerEntry {
     /// Signed: positive for a payment, negative for a refund.
     pub amount_cents: i64,
     /// Stripe's id: the intent's `pi_...` for a payment, the refund's `re_...` for a refund;
-    /// `seed:<payment>` for a seeded order's payment, which the seed made and Stripe never saw.
+    /// `seed:<payment>` for a seeded order's payment, which the seed made and Stripe never saw,
+    /// and `seed:<refund>` for its refund, which Billing made alone.
     pub stripe_id: String,
 }
 
@@ -1556,6 +1557,8 @@ pub enum StopStatus {
     Provisional,
     /// Paid: every plan must carry it.
     Confirmed,
+    /// Its order has gone out on its van: still in the plan, not yet delivered.
+    OutForDelivery,
     /// Expired or cancelled.
     Removed,
     /// Delivered.
@@ -2656,6 +2659,7 @@ mod tests {
         for (status, text) in [
             (StopStatus::Provisional, "provisional"),
             (StopStatus::Confirmed, "confirmed"),
+            (StopStatus::OutForDelivery, "out_for_delivery"),
             (StopStatus::Removed, "removed"),
             (StopStatus::Completed, "completed"),
         ] {

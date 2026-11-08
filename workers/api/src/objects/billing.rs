@@ -18,8 +18,9 @@
 //!   in production or ready at birth): each is written as `PaymentIntentCreated`,
 //!   `PaymentIntentRecorded` and `PaymentSucceeded` at its payment's time, with the intent id
 //!   `seed:<payment>` and no outbox rows, so the ledger shows what the board and the CRM show.
-//!   Stripe never saw them: `/_payment` leaves them out and `/_refund` skips them
-//!   (`seeded-payment`), as for a payment Billing never took.
+//!   Stripe never saw them, so `/_refund` refunds one in Billing alone (`RecordSeededRefund`,
+//!   the refund's id `seed:<refund>`), with no Stripe call; `/_payment` answers for them as for
+//!   any succeeded payment (the UI audit of 2026-11-08, second pass, N2).
 //! - `POST /_intent {purpose, reference, amount}` → 200 `IntentOut`: the payment created (or the
 //!   open one reused), the intent created at Stripe, `RecordIntent`. 409 `{error: "paid"}`
 //!   when the reference is paid; 409 `{error: "canceled"}` when its expiry canceled the payment
@@ -31,9 +32,9 @@
 //!   `{error: "billing", rule}` for an event Billing cannot apply yet (an unknown intent, a
 //!   refund before its payment), so Stripe delivers it again.
 //! - `POST /_refund {refund, payment, amount?, reason}` → 200 `RefundOut`: `RequestRefund` under
-//!   the refund's id, Stripe's refund, `RecordRefund`. 200 with `issued: false, rule:
-//!   "unknown-payment"` for a payment Billing never took, or `"seeded-payment"` for one the seed
-//!   made.
+//!   the refund's id, Stripe's refund, `RecordRefund`; for a payment the seed made, the request
+//!   and `RecordSeededRefund` in one transaction, no Stripe. 200 with `issued: false, rule:
+//!   "unknown-payment"` for a payment Billing never took.
 //! - `POST /_cancel {reference}` → 200 `{canceled}`: `CancelForExpiry`, then each intent canceled
 //!   at Stripe, best effort.
 //! - `POST /_pay-invoice {reference}` → 200 `{invoice, amount_paid_cents}`: the catering job's
@@ -760,29 +761,16 @@ impl Billing {
     /// request is a no-op once recorded, Stripe answers the same key with the same refund, and
     /// `RecordRefund` is a no-op once issued.
     async fn refund(&self, meta: &child::Meta, body: RefundIn, now: WallTime) -> Result<Response> {
+        self.ensure_schema()?;
+        let (state, existing) = self.load(meta)?;
+        if state.payment(body.payment).is_some_and(|p| p.is_seeded()) {
+            // The seed made it paid through no Stripe, so Billing refunds it alone.
+            return self.refund_seeded(meta, state, &existing, &body, now).await;
+        }
         let gateway = match Stripe::from_env(&self.env) {
             Ok(g) => g,
             Err(u) => return unavailable(u),
         };
-        self.ensure_schema()?;
-        let (state, existing) = self.load(meta)?;
-        if state.payment(body.payment).is_some_and(|p| p.is_seeded()) {
-            // The seed made it paid; Stripe holds nothing to refund.
-            console_log!(
-                "{{\"event\":\"refund_skipped\",\"refund\":\"{}\",\"rule\":\"seeded-payment\"}}",
-                body.refund
-            );
-            return json(
-                &RefundOut {
-                    refund: body.refund,
-                    issued: false,
-                    amount_cents: body.amount.unwrap_or(Cents::ZERO),
-                    stripe_refund: None,
-                    rule: Some("seeded-payment".into()),
-                },
-                200,
-            );
-        }
         let cmd = BillingCommand::RequestRefund {
             payment: body.payment,
             amount: body.amount,
@@ -799,7 +787,8 @@ impl Billing {
                 next
             }
             Err(BillingError::UnknownPayment) => {
-                // A seeded order's payment never went through Stripe: nothing to refund there.
+                // A payment Billing never took, as in a sandbox seeded before the seed's payments
+                // were recorded: nothing to refund.
                 console_log!(
                     "{{\"event\":\"refund_skipped\",\"refund\":\"{}\",\"rule\":\"unknown-payment\"}}",
                     body.refund
@@ -899,6 +888,52 @@ impl Billing {
                 issued: true,
                 amount_cents: created.amount,
                 stripe_refund: Some(created.provider_id),
+                rule: None,
+            },
+            200,
+        )
+    }
+
+    /// A refund of a payment the seed made: requested and issued in one transaction, with no
+    /// Stripe call, as the seed's payment was recorded. `RefundIssued` goes to the Order as a
+    /// Stripe refund's does, so the board, the timeline and the inbox follow. A redelivery finds
+    /// the refund issued and answers it again.
+    async fn refund_seeded(
+        &self,
+        meta: &child::Meta,
+        state: BillingState,
+        existing: &[Envelope],
+        body: &RefundIn,
+        now: WallTime,
+    ) -> Result<Response> {
+        let request = Self::ctx(meta, now, body.refund);
+        let record = Self::ctx(meta, now, random::ulid(now)?);
+        let (state, events) = match seeded_refund(state, body, &request, &record) {
+            Ok(done) => done,
+            Err(e) => {
+                console_log!(
+                    "{{\"event\":\"billing_refused\",\"command\":\"RecordSeededRefund\",\"rule\":\"{}\"}}",
+                    e.rule()
+                );
+                return billing_refusal(422, &e);
+            }
+        };
+        self.commit(meta, existing, &events, now, &body.refund.to_string())
+            .await?;
+        let Some(r) = state.refund(body.refund).cloned() else {
+            return Err(Error::RustError("the refund is not in the state".into()));
+        };
+        console_log!(
+            "{{\"event\":\"refund_issued\",\"refund\":\"{}\",\"stripe_refund\":{:?},\"seeded\":true}}",
+            body.refund,
+            r.stripe_refund
+        );
+        json(
+            &RefundOut {
+                refund: body.refund,
+                issued: true,
+                amount_cents: r.amount,
+                stripe_refund: r.stripe_refund,
                 rule: None,
             },
             200,
@@ -1294,13 +1329,11 @@ impl Billing {
             return refuse(404, "not-found");
         };
         let (state, _) = self.load(meta)?;
-        // A payment the seed made is in the ledger but was never Stripe's, so it is not one a
-        // refund can be made against.
+        // A payment the seed made counts: its refund is made in Billing alone.
         let found = state.payments().find(|(_, p)| {
             p.purpose == Purpose::Order
                 && p.reference == reference
                 && p.status == PaymentStatus::Succeeded
-                && !p.is_seeded()
         });
         match found {
             Some((payment, p)) => json(
@@ -1323,6 +1356,30 @@ impl Billing {
         );
         Ok(ledger_response(&ledger))
     }
+}
+
+/// A seeded payment's refund decided: `RequestRefund` under the refund's id (`request`), then
+/// `RecordSeededRefund` (`record`), the state after both and their events. Each is a no-op the
+/// second time, so a redelivery decides nothing new.
+fn seeded_refund(
+    state: BillingState,
+    body: &RefundIn,
+    request: &DecideContext,
+    record: &DecideContext,
+) -> std::result::Result<(BillingState, Vec<BillingEvent>), BillingError> {
+    let ask = BillingCommand::RequestRefund {
+        payment: body.payment,
+        amount: body.amount,
+        reason: body.reason,
+    };
+    let (state, mut events) = execute::<BillingAggregate>(state, &ask, request)?;
+    let issue = BillingCommand::RecordSeededRefund {
+        payment: body.payment,
+        refund: body.refund,
+    };
+    let (state, more) = execute::<BillingAggregate>(state, &issue, record)?;
+    events.extend(more);
+    Ok((state, events))
 }
 
 fn decode(events: &[Envelope]) -> Result<Vec<BillingEvent>> {
@@ -1391,6 +1448,72 @@ mod tests {
     use super::*;
     use bakery_domain::BusinessTime;
     use bakery_domain::billing::Ledger;
+
+    #[test]
+    fn a_seeded_payment_is_refunded_without_stripe_and_once() {
+        let payment = Ulid::from_parts(1_793_000_000_000, 41);
+        let order = Ulid::from_parts(1_793_000_000_000, 42);
+        let refund = Ulid::from_parts(1_793_000_000_000, 43);
+        let state = replay::<BillingAggregate>(&bakery_domain::billing::seeded_payment(
+            payment,
+            order,
+            Cents(1_128),
+        ));
+        let ctx = |n: u128| DecideContext {
+            now: "2026-11-08T10:00:00-07:00".parse().unwrap(),
+            id: Ulid::from_parts(1_793_000_000_000, n),
+        };
+        let body = RefundIn {
+            refund,
+            payment,
+            amount: None,
+            reason: RefundReason::Goodwill,
+        };
+        let request = DecideContext {
+            id: refund,
+            ..ctx(0)
+        };
+        let (state, events) = seeded_refund(state, &body, &request, &ctx(44)).unwrap();
+        let names: Vec<&str> = events.iter().map(DomainEvent::name).collect();
+        assert_eq!(names, ["RefundRequested", "RefundIssued"]);
+        assert!(matches!(
+            &events[1],
+            BillingEvent::RefundIssued { amount_cents, stripe_refund, reference, .. }
+                if *amount_cents == Cents(1_128)
+                    && *stripe_refund == format!("seed:{refund}")
+                    && *reference == order
+        ));
+        // The ledger shows the refund, and the order nets to zero.
+        let r = ledger_response(&Ledger::from_events(
+            bakery_domain::billing::seeded_payment(payment, order, Cents(1_128))
+                .iter()
+                .chain(&events)
+                .map(|e| (request.now, e)),
+        ));
+        assert_eq!(
+            (r.paid_cents, r.refunded_cents, r.net_cents),
+            (1_128, 1_128, 0)
+        );
+        assert_eq!(r.entries[1].stripe_id, format!("seed:{refund}"));
+        // A redelivery decides nothing new.
+        let (_, again) = seeded_refund(state.clone(), &body, &request, &ctx(45)).unwrap();
+        assert!(again.is_empty());
+        // Nothing is left to refund: a second refund is refused.
+        let more = RefundIn {
+            refund: Ulid::from_parts(1_793_000_000_000, 46),
+            ..body
+        };
+        let request = DecideContext {
+            id: more.refund,
+            ..ctx(0)
+        };
+        assert_eq!(
+            seeded_refund(state, &more, &request, &ctx(47)).map(|_| ()),
+            Err(BillingError::RefundExceedsPaid {
+                available: Cents::ZERO
+            })
+        );
+    }
 
     #[test]
     fn an_expiry_names_its_order_by_the_stream() {

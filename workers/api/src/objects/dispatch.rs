@@ -37,7 +37,9 @@
 //!   `AddStop` (the customer's place, the matrix index, in `place`), `OrderPaid` is
 //!   `ConfirmStop`, `OrderExpired` and `OrderCancelled` are `RemoveStop`, and since 2026-11-08
 //!   `OrderReady` is `ReadyStop`, which sends a stop of the published plan out (`StopReady`, for
-//!   its Order) when its order was made after the plan, each for the order the stream names. The
+//!   its Order) when its order was made after the plan, and since the UI audit of 2026-11-08
+//!   `OrderOutForDelivery` is `DepartStop`, which marks the stop out for delivery
+//!   (`StopDeparted`), each for the order the stream names. The
 //!   event's id goes into `seen` and is the decision's id, so a redelivery is `duplicate`. 410 when the
 //!   day was never born and no `birth` came with it; the consumer registers the day and sends
 //!   again.
@@ -175,7 +177,8 @@ impl Cmd {
             DispatchCommand::CompleteStop { stop, .. } => Cmd::CompleteStop { stop: *stop },
             DispatchCommand::SubmitPlan { .. }
             | DispatchCommand::Publish { .. }
-            | DispatchCommand::ReadyStop { .. } => return None,
+            | DispatchCommand::ReadyStop { .. }
+            | DispatchCommand::DepartStop { .. } => return None,
         })
     }
 
@@ -794,6 +797,17 @@ fn command_of(
         "OrderPaid" => DispatchCommand::ConfirmStop { order: named()? },
         // Made after its stop was published: it goes out now (docs/domain.md, "Dispatch").
         "OrderReady" => DispatchCommand::ReadyStop { order: named()? },
+        // Gone out on its van: the stop says so (docs/domain.md, "Dispatch").
+        "OrderOutForDelivery" => {
+            match OrderEvent::from_envelope(envelope).map_err(|_| "envelope")? {
+                OrderEvent::OrderOutForDelivery { route, stop } => DispatchCommand::DepartStop {
+                    order: named()?,
+                    route,
+                    stop,
+                },
+                _ => return Err("envelope"),
+            }
+        }
         "OrderExpired" => DispatchCommand::RemoveStop {
             order: named()?,
             reason: RemoveReason::Expired,
@@ -975,6 +989,19 @@ mod tests {
                 reason: RemoveReason::Cancelled
             }))
         );
+        // Gone out on its van: the stop departs, with the route and number the Order names.
+        e.event_type = "OrderOutForDelivery".into();
+        e.data = serde_json::json!({ "route": "van-2", "stop": 3 });
+        assert_eq!(
+            command_of(&e, None),
+            Ok(Some(DispatchCommand::DepartStop {
+                order,
+                route: "van-2".into(),
+                stop: 3
+            }))
+        );
+        e.data = serde_json::json!({});
+        assert_eq!(command_of(&e, None), Err("envelope"));
         // A type the day does not hear is ignored, and a stream that names no order refused.
         e.event_type = "OrderProductionStarted".into();
         assert_eq!(command_of(&e, None), Ok(None));

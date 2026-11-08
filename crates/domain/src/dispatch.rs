@@ -61,6 +61,14 @@
 //!   has left, so the plan it was sent on is not replaced (`published`) even before the Order
 //!   has heard it. An order ready before the publish needs nothing: `RoutePublished` finds it
 //!   ready.
+//! - **A stop says when its order has left** (the UI audit of 2026-11-08, second pass, N3). The
+//!   Dispatch hears `OrderOutForDelivery`, as it hears `OrderReady`, and `DepartStop` emits
+//!   `StopDeparted` for a confirmed stop, once, which makes it out for delivery: still a stop of
+//!   the day's plan, completed as a confirmed one is. The mark follows the Order's event, not
+//!   this log's `RoutePublished` or `StopReady`, because the Order is the one that decides
+//!   whether it goes out (it refuses an order not yet ready), and an order ready before the
+//!   publish leaves on `RoutePublished` with no `StopReady` at all. A stop out for delivery also
+//!   counts as a van that has left (`published`).
 //! - **The time the last van is back counts the doors and the waits**: each stop adds
 //!   [`SERVICE_MINUTES`] (the route data's `serviceSeconds`, 180 s) to its van's drive (the same
 //!   decision, question 5), and a van early at a door waits there for the window to open. A
@@ -114,10 +122,20 @@ pub enum StopStatus {
     Provisional,
     /// Paid: every plan must carry it.
     Confirmed,
+    /// Its order has gone out on its van (`OrderOutForDelivery`, heard as `DepartStop`): still a
+    /// stop of the day's plan, not yet delivered.
+    OutForDelivery,
     /// Expired or cancelled.
     Removed,
     /// Delivered.
     Completed,
+}
+
+impl StopStatus {
+    /// Paid and not yet delivered or removed: confirmed, or out for delivery.
+    pub fn is_open(self) -> bool {
+        matches!(self, StopStatus::Confirmed | StopStatus::OutForDelivery)
+    }
 }
 
 /// Why a stop left the day.
@@ -408,6 +426,13 @@ pub enum DispatchCommand {
     /// From `OrderReady`: the order is made. When it is a confirmed stop of the published plan,
     /// it goes out on its route now; otherwise nothing.
     ReadyStop { order: Ulid },
+    /// From `OrderOutForDelivery`: the order has gone out on `route` as stop number `stop`, which
+    /// the Order's event names. A confirmed stop becomes out for delivery; otherwise nothing.
+    DepartStop {
+        order: Ulid,
+        route: String,
+        stop: u16,
+    },
 }
 
 /// The Dispatch's rows in docs/domain.md, "The event catalog".
@@ -477,6 +502,14 @@ pub enum DispatchEvent {
         order: Ulid,
         route: String,
     },
+    /// A stop whose order has gone out for delivery, as its `OrderOutForDelivery` said: on
+    /// `route`, as stop number `stop`. The Dispatch's own log, for the stop's status.
+    StopDeparted {
+        date: BakeryDate,
+        order: Ulid,
+        route: String,
+        stop: u16,
+    },
 }
 
 impl DomainEvent for DispatchEvent {
@@ -489,6 +522,7 @@ impl DomainEvent for DispatchEvent {
         "RoutePublished",
         "StopCompleted",
         "StopReady",
+        "StopDeparted",
     ];
 
     fn name(&self) -> &'static str {
@@ -501,6 +535,7 @@ impl DomainEvent for DispatchEvent {
             DispatchEvent::RoutePublished { .. } => "RoutePublished",
             DispatchEvent::StopCompleted { .. } => "StopCompleted",
             DispatchEvent::StopReady { .. } => "StopReady",
+            DispatchEvent::StopDeparted { .. } => "StopDeparted",
         }
     }
 }
@@ -617,12 +652,10 @@ impl DispatchState {
         self.stops.get(&order)
     }
 
-    /// The stops every plan must carry: confirmed and not yet delivered, by order id.
+    /// The stops every plan must carry: confirmed and not yet delivered, by order id. A stop out
+    /// for delivery is one of them.
     pub fn plannable(&self) -> Vec<&Stop> {
-        self.stops
-            .values()
-            .filter(|s| s.status == StopStatus::Confirmed)
-            .collect()
+        self.stops.values().filter(|s| s.status.is_open()).collect()
     }
 
     pub fn vans(&self) -> u8 {
@@ -698,7 +731,7 @@ impl DispatchState {
                 let stop = self
                     .stops
                     .get(&order)
-                    .filter(|s| s.status == StopStatus::Confirmed)
+                    .filter(|s| s.status.is_open())
                     .ok_or(DispatchError::StopUnknown { order })?;
                 if !seen.insert(order) {
                     return Err(DispatchError::StopTwice { order });
@@ -841,7 +874,11 @@ impl Aggregate for Dispatch {
                     }])
                 };
                 match state.stops.get(order).map(|s| s.status) {
-                    Some(StopStatus::Provisional | StopStatus::Confirmed) => remove(),
+                    Some(
+                        StopStatus::Provisional
+                        | StopStatus::Confirmed
+                        | StopStatus::OutForDelivery,
+                    ) => remove(),
                     // Already gone, or delivered: nothing to take back.
                     Some(StopStatus::Removed | StopStatus::Completed) => Ok(vec![]),
                     None if state.tombstones.contains(order) => Ok(vec![]),
@@ -903,8 +940,14 @@ impl Aggregate for Dispatch {
                 if state.publish_keys.contains(&ctx.id) {
                     return Ok(vec![]);
                 }
-                // A `StopReady` is a van that has left, whether or not its Order has heard it.
-                if (*departed || !state.sent_out.is_empty()) && state.published.is_some() {
+                // A `StopReady` is a van that has left, whether or not its Order has heard it, and
+                // so is a stop out for delivery.
+                let left = !state.sent_out.is_empty()
+                    || state
+                        .stops
+                        .values()
+                        .any(|s| s.status == StopStatus::OutForDelivery);
+                if (*departed || left) && state.published.is_some() {
                     return Err(DispatchError::Published);
                 }
                 let chosen = match plan {
@@ -941,16 +984,18 @@ impl Aggregate for Dispatch {
                     Some(StopStatus::Confirmed) if !*ready => {
                         Err(DispatchError::NotReady { stop: *stop })
                     }
-                    Some(StopStatus::Confirmed) => Ok(vec![DispatchEvent::StopCompleted {
-                        date,
-                        stop: *stop,
-                        order,
-                        route: published
-                            .routes
-                            .iter()
-                            .find(|r| r.stops.contains(&order))
-                            .map(|r| route_label(r.van)),
-                    }]),
+                    Some(StopStatus::Confirmed | StopStatus::OutForDelivery) => {
+                        Ok(vec![DispatchEvent::StopCompleted {
+                            date,
+                            stop: *stop,
+                            order,
+                            route: published
+                                .routes
+                                .iter()
+                                .find(|r| r.stops.contains(&order))
+                                .map(|r| route_label(r.van)),
+                        }])
+                    }
                     _ => Err(DispatchError::StopUnknown { order }),
                 }
             }
@@ -980,6 +1025,20 @@ impl Aggregate for Dispatch {
                     order: *order,
                     route: route_label(route.van),
                 }])
+            }
+            DispatchCommand::DepartStop { order, route, stop } => {
+                // Only a confirmed stop leaves: one already out, delivered or removed stays as it
+                // is, so a redelivery, or the out-for-delivery a completion causes, changes
+                // nothing.
+                match state.stops.get(order).map(|s| s.status) {
+                    Some(StopStatus::Confirmed) => Ok(vec![DispatchEvent::StopDeparted {
+                        date,
+                        order: *order,
+                        route: route.clone(),
+                        stop: *stop,
+                    }]),
+                    _ => Ok(vec![]),
+                }
             }
         }
     }
@@ -1025,7 +1084,7 @@ impl Aggregate for Dispatch {
                 }
             },
             DispatchEvent::StopRemoved { order, .. } => match state.stops.get_mut(order) {
-                Some(s) if matches!(s.status, StopStatus::Provisional | StopStatus::Confirmed) => {
+                Some(s) if s.status == StopStatus::Provisional || s.status.is_open() => {
                     s.status = StopStatus::Removed;
                 }
                 Some(_) => {}
@@ -1092,6 +1151,13 @@ impl Aggregate for Dispatch {
             }
             DispatchEvent::StopReady { order, .. } => {
                 state.sent_out.insert(*order);
+            }
+            DispatchEvent::StopDeparted { order, .. } => {
+                if let Some(s) = state.stops.get_mut(order)
+                    && s.status == StopStatus::Confirmed
+                {
+                    s.status = StopStatus::OutForDelivery;
+                }
             }
         }
         state

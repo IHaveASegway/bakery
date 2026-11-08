@@ -11,7 +11,7 @@ export type PlanSource = 'server' | 'browser';
 /**
  * Where a delivery stop stands (ADR 0012; docs/domain.md, "Ubiquitous language": Stop).
  */
-export type StopStatus = 'provisional' | 'confirmed' | 'removed' | 'completed';
+export type StopStatus = 'provisional' | 'confirmed' | 'out_for_delivery' | 'removed' | 'completed';
 
 /**
  * `GET /v1/sandboxes/{id}/dispatch/{date}`, which any session of the sandbox reads, and the

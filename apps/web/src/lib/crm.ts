@@ -58,7 +58,7 @@ export const segmentSays = (segment: string): string =>
 
 /** The six subjects: the slug the API takes, a short label for the select, and the text sent. */
 export const SUBJECTS: { value: SubjectTemplate; label: string; text: string }[] = [
-  { value: 'weekend-bake', label: 'Weekend bake', text: 'This weekend at Proof of Concept' },
+  { value: 'weekend-bake', label: 'Weekend bake', text: 'This weekend at Proof of Concept Bakery' },
   { value: 'cake-week', label: 'Cake week', text: 'It is cake week' },
   { value: 'new-season', label: 'New season', text: 'New on the seasonal menu' },
   { value: 'we-miss-you', label: 'We miss you', text: 'We have missed you at the counter' },
@@ -66,7 +66,7 @@ export const SUBJECTS: { value: SubjectTemplate; label: string; text: string }[]
   { value: 'thank-you', label: 'Thank you', text: 'Thank you for baking with us' },
 ];
 
-const GREETING = 'Hello from Proof of Concept. ';
+const GREETING = 'Hello from Proof of Concept Bakery. ';
 
 /** The six bodies: the slug, a label, and the message as the inbox will show it. */
 export const BODIES: { value: BodyTemplate; label: string; text: string }[] = [
