@@ -20,6 +20,7 @@ import {
   parseRouteData,
   plannable,
   planRequest,
+  proposedSaid,
   readSolution,
   report,
   shortId,
@@ -138,6 +139,14 @@ export default function Dispatch() {
   const [failure, setFailure] = useState<SolverFailure | null>(null);
   const [solved, setSolved] = useState<{ ms: number; version: string } | null>(null);
   const client = useRef<SolverClient | null>(null);
+  const capacityField = useRef<HTMLInputElement>(null);
+  const completion = useRef<HTMLHeadingElement>(null);
+  const [focusCompletion, setFocusCompletion] = useState(false);
+  useEffect(() => {
+    if (!focusCompletion) return;
+    completion.current?.focus();
+    setFocusCompletion(false);
+  }, [focusCompletion]);
 
   const keys = useRef({
     propose: new KeyedAction(),
@@ -220,7 +229,18 @@ export default function Dispatch() {
 
   const propose = () => {
     if (sandboxId === null) return;
-    const body = { vans: Number(vans), capacity: Number(capacity) };
+    // The API's rule, checked here first so an empty or zero box costs no request and no key.
+    const units = capacity.trim() === '' ? NaN : Number(capacity);
+    if (!Number.isInteger(units) || units < 1) {
+      setSaid('');
+      setError({
+        title: 'Give the van a capacity',
+        detail: 'A van must carry at least 1 unit. Type a whole number, 1 or more.',
+      });
+      capacityField.current?.focus();
+      return;
+    }
+    const body = { vans: Number(vans), capacity: units };
     void act(
       'propose',
       () =>
@@ -230,7 +250,7 @@ export default function Dispatch() {
       (answer) => {
         setShown('proposed');
         setPublish('proposed');
-        setSaid(`Proposed a plan for ${answer.vans} ${answer.vans === 1 ? 'van' : 'vans'}.`);
+        setSaid(proposedSaid(answer.proposed, answer.vans));
       },
     );
   };
@@ -310,14 +330,18 @@ export default function Dispatch() {
   };
 
   const complete = (stop: number) => {
-    if (sandboxId === null) return;
+    if (sandboxId === null || busy !== null) return;
     void act(
       `complete-${stop}`,
       () =>
         keys.current.complete.run(`${date}:${stop}`, (key) =>
           completeStop(sandboxId, date, { stop }, key),
         ),
-      () => setSaid(`Stop ${stop} is delivered.`),
+      () => {
+        setSaid(`Stop ${stop} is delivered.`);
+        // Its button is gone with it: focus goes to the section's heading, not the page's body.
+        setFocusCompletion(true);
+      },
     );
   };
 
@@ -365,16 +389,18 @@ export default function Dispatch() {
             <fieldset>
               <legend>Routes on the map</legend>
               {available.map((p) => (
-                <label key={p} className="check">
-                  <input
-                    type="radio"
-                    name="dispatch-shown"
-                    value={p}
-                    checked={effective === p}
-                    onChange={() => setShown(p)}
-                  />{' '}
-                  {SHOWN_NAMES[p]}
-                </label>
+                <div key={p}>
+                  <label className="check">
+                    <input
+                      type="radio"
+                      name="dispatch-shown"
+                      value={p}
+                      checked={effective === p}
+                      onChange={() => setShown(p)}
+                    />{' '}
+                    {SHOWN_NAMES[p]}
+                  </label>
+                </div>
               ))}
             </fieldset>
           )}
@@ -450,10 +476,12 @@ export default function Dispatch() {
             <p>
               <label htmlFor="dispatch-capacity">Capacity of a van, in units</label>
               <input
+                ref={capacityField}
                 id="dispatch-capacity"
                 type="number"
                 inputMode="numeric"
                 min={1}
+                step={1}
                 value={capacity}
                 disabled={!staff || busy !== null}
                 onChange={(e) => setCapacity(e.target.value)}
@@ -530,18 +558,20 @@ export default function Dispatch() {
             <fieldset>
               <legend>Which plan</legend>
               {(['proposed', 'submitted'] as const).map((p) => (
-                <label key={p} className="check">
-                  <input
-                    type="radio"
-                    name="dispatch-publish"
-                    value={p}
-                    checked={publish === p}
-                    disabled={!staff || busy !== null || !day[p]}
-                    onChange={() => setPublish(p)}
-                  />{' '}
-                  {SHOWN_NAMES[p]}
-                  {day[p] ? '' : ' (none yet)'}
-                </label>
+                <div key={p}>
+                  <label className="check">
+                    <input
+                      type="radio"
+                      name="dispatch-publish"
+                      value={p}
+                      checked={publish === p}
+                      disabled={!staff || busy !== null || !day[p]}
+                      onChange={() => setPublish(p)}
+                    />{' '}
+                    {SHOWN_NAMES[p]}
+                    {day[p] ? '' : ' (none yet)'}
+                  </label>
+                </div>
               ))}
             </fieldset>
             {picked !== null && picked.unassigned.length > 0 && (
@@ -562,7 +592,9 @@ export default function Dispatch() {
                 plan={published}
                 title={`Published plan, version ${published.plan_v}, made by the ${published.source}`}
               />
-              <h3 data-tour="dispatch-complete">Stop completion</h3>
+              <h3 data-tour="dispatch-complete" ref={completion} tabIndex={-1}>
+                Stop completion
+              </h3>
               {todo.length === 0 ? (
                 <p className="hint">Every stop of the published plan is delivered.</p>
               ) : (
@@ -571,7 +603,8 @@ export default function Dispatch() {
                     <li key={row.order}>
                       <button
                         type="button"
-                        disabled={!staff || busy !== null}
+                        disabled={!staff}
+                        aria-disabled={busy !== null || undefined}
                         onClick={() => complete(row.stop ?? 0)}
                       >
                         {busy === `complete-${row.stop}` ? 'Saving…' : `Stop ${row.stop} delivered`}

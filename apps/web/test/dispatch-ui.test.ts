@@ -140,8 +140,14 @@ describe('the plan and the stops', () => {
     const d = day([stop(1, 1, 8, { van: 1, stop: 1 }), stop(2, 2, 5, { status: 'provisional' })]);
     const out = renderToStaticMarkup(createElement(DispatchStops, { day: d, data: route }));
     for (const head of ['Order', 'Place', 'Window', 'Zone', 'Units', 'Status', 'Van', 'Stop']) {
-      expect(out).toContain(`<th scope="col">${head}</th>`);
+      expect(out).toContain(`<th scope="col" class="whitespace-nowrap">${head}</th>`);
     }
+    // On a phone the head is hidden and the rows stack, so each value carries its own label.
+    for (const label of ['Order', 'Place', 'Window', 'Units', 'Status', 'Van', 'Stop']) {
+      expect(out).toContain(`<span class="font-semibold sm:hidden">${label}: </span>`);
+    }
+    // The table breaks only between words ("Delivered", not "Delivere d").
+    expect(out).toContain('<table class="[overflow-wrap:normal]">');
     expect(out).toContain('9:00 am to 11:00 am');
     expect(out).toContain('Zone 1');
     expect(out).toContain('Provisional (not paid yet)');
