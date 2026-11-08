@@ -415,6 +415,50 @@ impl Generated {
     }
 }
 
+/// Business minutes an open order only placed keeps before its slot when a sandbox is born: the
+/// 15 minutes its hold lasts (docs/domain.md, "Order": an unpaid order expires 15 minutes after
+/// placement), so it is never shown pending at a slot that has already passed.
+pub const PENDING_LEAD_MINUTES: i64 = 15;
+
+impl Generated {
+    /// The seed as a sandbox born at business time `now` holds it (the console audit of
+    /// 2026-11-08, findings 10 and 37). The generator knows the birth date, not the minute, so
+    /// the Worker applies this to what it generated, and the seed's JSON is unchanged:
+    ///
+    /// - **Nothing happened after `now`.** An open order placed later than two minutes before
+    ///   `now` is placed then instead, and paid a minute after, so its receipt, its timeline
+    ///   rows and its stop are dated before the sandbox's birth. Its slot stays, so its lead
+    ///   time only grows. A payment id keeps its random part and takes the payment's new time.
+    /// - **No order is pending at a slot that has passed.** An order only placed whose slot
+    ///   starts less than [`PENDING_LEAD_MINUTES`] after `now` is paid instead (confirmed), with
+    ///   a payment id from its order id, so nothing new is drawn.
+    ///
+    /// The `Schedule` days are derived again, so a place is reserved for every paid order.
+    pub fn born_at(mut self, now: BusinessTime) -> Generated {
+        let at = |t: BusinessTime, minutes: i64| {
+            bakery_domain::calendar::plus_elapsed_minutes(t, minutes)
+                .expect("seed times are far inside the year range")
+        };
+        let latest = at(now, -2);
+        let pending_until = at(now, PENDING_LEAD_MINUTES);
+        for o in &mut self.open_orders {
+            if o.placed_at > latest {
+                o.placed_at = latest;
+            }
+            if o.state == OpenState::Placed && o.slot_start < pending_until {
+                o.state = OpenState::Confirmed;
+                o.payment_id = Some(Ulid::from_parts(0, o.id.as_u128().wrapping_add(1)));
+            }
+            if let Some(p) = o.payment_id {
+                let paid_ms = u64::try_from(at(o.placed_at, 1).unix_ms()).expect("after 1970");
+                o.payment_id = Some(Ulid::from_parts(paid_ms, p.as_u128()));
+            }
+        }
+        self.schedule = schedule_days(self.born.days(), &self.open_orders);
+        self
+    }
+}
+
 /// Draws a sandbox's synthetic things from one seed, always in the same order.
 pub struct Generator {
     seed: Seed,
@@ -1048,7 +1092,7 @@ fn totals(lines: &[OrderLine]) -> (Cents, Cents, Cents) {
 mod tests {
     use super::*;
     use calendar::days_from_civil;
-    use std::collections::HashSet;
+    use std::collections::{BTreeSet, HashSet};
 
     fn born(text: &str) -> BirthDate {
         BirthDate::parse(text).unwrap()
@@ -1482,6 +1526,107 @@ mod tests {
             );
             assert_eq!(o.kind == OrderKind::Delivery, o.zone.is_some());
         }
+    }
+
+    #[test]
+    fn born_at_a_minute_nothing_is_dated_after_it_and_nothing_is_pending_at_a_passed_slot() {
+        for seed in [1, 8, 21, 42, 99, 777] {
+            for (date, minute) in [
+                ("2026-11-07", 3 * 60),
+                ("2026-11-07", 9 * 60 + 17),
+                ("2026-11-08", 9 * 60 + 26),
+                ("2026-11-08", 12 * 60),
+                ("2026-11-07", 16 * 60),
+                ("2026-11-09", 10 * 60),
+            ] {
+                let g = generate(seed, date);
+                let now = BakeryDate::from_days(born(date).days()).at_local(minute);
+                let b = g.clone().born_at(now);
+                assert_eq!(b, g.clone().born_at(now), "deterministic");
+                assert_eq!(b.open_orders.len(), g.open_orders.len());
+                for (o, before) in b.open_orders.iter().zip(&g.open_orders) {
+                    let ctx = format!("seed {seed} {date} {minute}: {}", o.id);
+                    assert_eq!(
+                        (o.id, o.slot_start),
+                        (before.id, before.slot_start),
+                        "{ctx}"
+                    );
+                    assert!(o.placed_at < now, "{ctx}");
+                    assert!(o.placed_at <= before.placed_at, "{ctx}");
+                    // The lead only grows.
+                    assert!(
+                        o.slot_start.unix_ms() - o.placed_at.unix_ms()
+                            >= before.slot_start.unix_ms() - before.placed_at.unix_ms(),
+                        "{ctx}: lead"
+                    );
+                    assert_eq!(
+                        o.payment_id.is_none(),
+                        o.state == OpenState::Placed,
+                        "{ctx}"
+                    );
+                    if let Some(p) = o.payment_id {
+                        assert!(i64::try_from(p.unix_ms()).unwrap() < now.unix_ms(), "{ctx}");
+                        assert!(p.unix_ms() as i64 > o.placed_at.unix_ms(), "{ctx}");
+                    }
+                    if o.state == OpenState::Placed {
+                        assert!(
+                            o.slot_start.unix_ms() - now.unix_ms() >= PENDING_LEAD_MINUTES * 60_000,
+                            "{ctx}: pending at a passed slot"
+                        );
+                        assert_eq!(before.state, OpenState::Placed);
+                    } else if before.state == OpenState::Placed {
+                        assert_eq!(o.state, OpenState::Confirmed, "{ctx}");
+                    } else {
+                        assert_eq!(o.state, before.state, "{ctx}");
+                    }
+                    // A payment that did not move keeps its id.
+                    if before.placed_at == o.placed_at && before.payment_id.is_some() {
+                        assert_eq!(o.payment_id, before.payment_id, "{ctx}");
+                    }
+                }
+                let ids: BTreeSet<Ulid> =
+                    b.open_orders.iter().filter_map(|o| o.payment_id).collect();
+                assert_eq!(
+                    ids.len(),
+                    b.open_orders
+                        .iter()
+                        .filter(|o| o.payment_id.is_some())
+                        .count()
+                );
+                // The days hold a reserved place for every paid order, held for the rest.
+                for day in &b.schedule {
+                    for place in &day.places {
+                        let o = b
+                            .open_orders
+                            .iter()
+                            .find(|o| o.id == place.reference)
+                            .unwrap();
+                        assert_eq!(
+                            place.status == HoldStatus::Held,
+                            o.state == OpenState::Placed
+                        );
+                    }
+                }
+            }
+        }
+        // Born after every placement and payment, with every pending slot well ahead, nothing
+        // changes.
+        let mut unchanged = 0;
+        for seed in 0..40 {
+            let g = generate(seed, DATE);
+            let last = g.open_orders.iter().map(|o| o.placed_at).max().unwrap();
+            let now = last.plus_minutes(3).unwrap();
+            let pending_ahead = g
+                .open_orders
+                .iter()
+                .filter(|o| o.state == OpenState::Placed)
+                .all(|o| o.slot_start.unix_ms() - now.unix_ms() >= PENDING_LEAD_MINUTES * 60_000);
+            if pending_ahead {
+                assert_eq!(g.clone().born_at(now), g, "seed {seed}");
+                unchanged += 1;
+            }
+        }
+        assert!(unchanged > 0);
     }
 
     #[test]

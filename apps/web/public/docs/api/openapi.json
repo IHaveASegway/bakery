@@ -72,7 +72,7 @@
       },
       "ActivityResponse": {
         "additionalProperties": false,
-        "description": "`GET /v1/sandboxes/{id}/activity`: the sandbox's logged events (clock moves, faults,\nmenu and capacity changes, payment intents, routes, traffic, token rotations), newest first\nby business time (ties by event id); `?limit=` keeps the newest that many (50 when left out,\nat most 500). Any session of the sandbox reads it.",
+        "description": "`GET /v1/sandboxes/{id}/activity`: the sandbox's logged events (clock moves, faults,\nmenu and capacity changes, payment intents, orders paid, catering steps, routes, traffic,\ntoken rotations, campaigns sent and rebuilds finished), newest first\nby business time (ties by event id); `?limit=` keeps the newest that many (50 when left out,\nat most 500). Any session of the sandbox reads it.",
         "properties": {
           "entries": {
             "items": {
@@ -750,7 +750,7 @@
       },
       "CompleteStopRequest": {
         "additionalProperties": false,
-        "description": "`POST /v1/sandboxes/{id}/dispatch/{date}/complete`, staff only: a stop of the published plan\nis delivered. Again for a delivered stop changes nothing.",
+        "description": "`POST /v1/sandboxes/{id}/dispatch/{date}/complete`, staff only: a stop of the published plan\nis delivered. Again for a delivered stop changes nothing. Refused 409 `not-ready` while the\nstop's order is still confirmed or in production: the kitchen marks it ready first.",
         "properties": {
           "stop": {
             "description": "The stop's number in the published plan, from 1.",
@@ -1398,7 +1398,7 @@
             "type": "string"
           },
           "stripe_id": {
-            "description": "Stripe's id: the intent's `pi_...` for a payment, the refund's `re_...` for a refund.",
+            "description": "Stripe's id: the intent's `pi_...` for a payment, the refund's `re_...` for a refund;\n`seed:<payment>` for a seeded order's payment, which the seed made and Stripe never saw.",
             "type": "string"
           }
         },
@@ -2175,7 +2175,7 @@
       },
       "PlanRequest": {
         "additionalProperties": false,
-        "description": "`POST /v1/sandboxes/{id}/dispatch/{date}/plan`, staff only: the plan VROOM made in the\nbrowser. It carries no minutes: the server computes them from the matrix. Refused with 422\n`stop-missing`, `stop-twice`, `stop-unknown`, `over-capacity`, `route-ends`, `vans` or\n`no-stops`.",
+        "description": "`POST /v1/sandboxes/{id}/dispatch/{date}/plan`, staff only: the plan VROOM made in the\nbrowser. It carries no minutes: the server computes them from the matrix. Refused with 422\n`stop-missing`, `stop-twice`, `stop-unknown`, `over-capacity`, `route-ends`, `vans`,\n`window` or `no-stops`. `window`: the vans leave the bakery at 09:00, a van early at a door\nwaits for the stop's window to open and spends 3 minutes there, and each stop must be\nreached by its window's close (`StopView.window` plus 120 minutes).",
         "properties": {
           "vans": {
             "items": {
@@ -2248,7 +2248,7 @@
         "description": "A plan as the dispatch screen shows it (ADR 0012, decision 5). Its minutes are the server's\nown arithmetic over the matrix, whoever made the plan.",
         "properties": {
           "last_back": {
-            "description": "When the last van is back, a business time: the vans leave at 09:00 and drive the\nmatrix's minutes, with no time at the door counted.",
+            "description": "When the last van is back, a business time: the vans leave at 09:00, drive the matrix's\nminutes, spend 3 minutes at each door and wait at a door they reach before its window\nopens.",
             "type": "string"
           },
           "minutes": {
@@ -3091,7 +3091,7 @@
             ]
           },
           "window": {
-            "description": "The delivery window's start, a business time.",
+            "description": "The delivery window's start, a business time (RFC 3339 with the bakery's offset). The\nwindow is 2 hours long: it closes 120 minutes after this. A plan must reach the stop\nbetween the two, waiting at the door when it is early (rule `window`).",
             "type": "string"
           },
           "zone": {
@@ -8687,7 +8687,7 @@
                 }
               }
             },
-            "description": "`dispatch`: `no-plan`",
+            "description": "`dispatch`: `no-plan`, or `not-ready` (the stop's order is not ready yet)",
             "x-problems": [
               "dispatch"
             ]
@@ -8897,7 +8897,7 @@
                 }
               }
             },
-            "description": "`dispatch`: `route-ends`, `vans`, `stop-unknown`, `stop-twice`, `over-capacity`, `stop-missing` or `no-stops`; `idempotency-key`: the same key again with a different body",
+            "description": "`dispatch`: `route-ends`, `vans`, `stop-unknown`, `stop-twice`, `over-capacity`, `stop-missing`, `window` (a stop reached after its delivery window closes) or `no-stops`; `idempotency-key`: the same key again with a different body",
             "x-problems": [
               "dispatch",
               "idempotency-key"

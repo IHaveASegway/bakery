@@ -793,6 +793,51 @@ pub fn is_stripe_id(text: &str, prefix: &str) -> bool {
     })
 }
 
+/// The prefix of the intent id a payment the seed made carries in place of Stripe's `pi_...`:
+/// the seed made the order paid and Stripe never saw it (the console audit of 2026-11-08,
+/// finding 14). It is never a Stripe id, so nothing sends it to Stripe.
+pub const SEEDED_INTENT_PREFIX: &str = "seed:";
+
+/// Whether an intent id is one the seed made.
+pub fn is_seeded_intent(intent: &str) -> bool {
+    intent.starts_with(SEEDED_INTENT_PREFIX)
+}
+
+impl PaymentRecord {
+    /// Whether the seed made this payment: then there is nothing at Stripe to refund.
+    pub fn is_seeded(&self) -> bool {
+        self.intent.as_deref().is_some_and(is_seeded_intent)
+    }
+}
+
+/// The events that record a payment the seed made for an open order, so the ledger, the
+/// board and the CRM agree from birth: the payment created, its intent id
+/// (`seed:<payment>`) and its success, the same id standing for Stripe's event. Written into
+/// Billing's log with no outbox rows: the Order is already paid, and nothing is relayed.
+pub fn seeded_payment(payment: Ulid, reference: Ulid, amount: Cents) -> Vec<BillingEvent> {
+    let intent = format!("{SEEDED_INTENT_PREFIX}{payment}");
+    vec![
+        BillingEvent::PaymentIntentCreated {
+            payment,
+            purpose: Purpose::Order,
+            reference,
+            amount_cents: amount,
+        },
+        BillingEvent::PaymentIntentRecorded {
+            payment,
+            intent: intent.clone(),
+        },
+        BillingEvent::PaymentSucceeded {
+            payment,
+            purpose: Purpose::Order,
+            reference,
+            amount_cents: amount,
+            stripe_event: intent.clone(),
+            intent,
+        },
+    ]
+}
+
 impl Aggregate for Billing {
     type State = BillingState;
     type Command = BillingCommand;
@@ -2386,6 +2431,31 @@ mod tests {
                 prop_assert!(ledger.net(reference) >= Cents::ZERO);
             }
             prop_assert_eq!(ledger.net_total(), Cents(ledger.paid_total().0 - ledger.refunded_total().0));
+        }
+    }
+
+    #[test]
+    fn a_seeded_payment_is_in_the_ledger_and_never_a_stripe_id() {
+        let payment = Ulid::from_parts(1_793_000_000_000, 41);
+        let order = Ulid::from_parts(1_793_000_000_000, 42);
+        let events = seeded_payment(payment, order, Cents(1_128));
+        let state = crate::replay::<Billing>(&events);
+        let record = state.payment(payment).unwrap();
+        assert_eq!(record.status, PaymentStatus::Succeeded);
+        assert!(record.is_seeded());
+        assert!(!is_stripe_id(record.intent.as_deref().unwrap(), "pi_"));
+        let at: BusinessTime = "2026-11-08T08:01:00-07:00".parse().unwrap();
+        let ledger = Ledger::from_events(events.iter().map(|e| (at, e)));
+        assert_eq!(ledger.paid_total(), Cents(1_128));
+        assert_eq!(ledger.paid(order), Cents(1_128));
+        assert_eq!(ledger.entries()[0].stripe_id, format!("seed:{payment}"));
+        // A payment the bakery took through Stripe is not seeded.
+        assert!(!is_seeded_intent("pi_123"));
+        for e in &events {
+            assert_eq!(
+                BillingEvent::from_parts(e.name(), &e.to_data()).as_ref(),
+                Ok(e)
+            );
         }
     }
 }

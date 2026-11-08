@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Smoke-tests PR 5 on `wrangler dev` against scripts/fake-stripe.mjs: an order paid the way the
-# Payment Element pays it and shown confirmed on the board within a second, the same intent
+# Payment Element pays it and shown confirmed on the board within a second (after a fresh
+# ledger holding the seeded paid orders' payments, `seed:<payment>`, the console audit of
+# 2026-11-08, finding 14), the same intent
 # for a remount, a webhook replayed five times counted once, a body altered by one byte and a
 # signature six minutes old refused with 400, a partial and a full refund each issued once with
 # the order's ledger netting to zero, an expired order's intent canceled at Stripe, the
@@ -186,11 +188,13 @@ wait_order() {
 }
 
 # ledger_until NAME JAR SANDBOX EXPR: polls the ledger until EXPR holds over it, up to 10 s.
+# EXPR also reads `live`, the entries that went through Stripe, and `S`, the cents of the seeded
+# orders' payments (stripe_id `seed:<payment>`), which every sandbox's ledger starts with.
 ledger_until() {
   local name="$1" jar_name="$2" id="$3" expr="$4"
   for _ in $(seq 1 50); do
     get_as "$name" "$jar_name" "/v1/sandboxes/$id/billing/ledger"
-    if node -e "const b = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); if (!($expr)) process.exit(1)" "$TMP/$name.body" 2>/dev/null; then return 0; fi
+    if node -e "const b = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); const seed = (e) => e.stripe_id.startsWith('seed:'); const live = b.entries.filter((e) => !seed(e)); const S = b.entries.filter(seed).reduce((n, e) => n + e.amount_cents, 0); if (!($expr)) process.exit(1)" "$TMP/$name.body" 2>/dev/null; then return 0; fi
     sleep 0.2
   done
   return 1
@@ -377,6 +381,17 @@ expect_json guest_live "b.state === 'live' && b.children >= 36 && typeof b.perso
 
 get_as menu G "/v1/sandboxes/$GID/menu"
 ORDER="$(order_json menu 0 2)" || { fail "no item on the seeded menu fits a slot 4 h out"; ORDER='{}'; }
+# A fresh sandbox's ledger holds the seeded orders' payments (the console audit of 2026-11-08,
+# finding 14): one per seeded order past `placed`, each its order's total, so the ledger, the
+# board and the timelines agree.
+check "a fresh ledger holds the seeded paid orders' payments" "ledger_until ledger_0 G '$GID' \"b.entries.length >= 1 && live.length === 0 && b.entries.every((e) => e.kind === 'payment' && e.purpose === 'order') && b.paid_cents === S && b.net_cents === S\""
+SEEDED_OK=1
+for ref in $(json_field ledger_0 "b.entries.map((e) => e.ref + ':' + e.amount_cents).join(' ')"); do
+  get_as seeded_order G "/v1/sandboxes/$GID/orders/${ref%%:*}"
+  node -e "const b = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); process.exit(['confirmed', 'in_production', 'ready'].includes(b.status) && b.total_cents === Number(process.argv[2]) ? 0 : 1)" "$TMP/seeded_order.body" "${ref##*:}" || SEEDED_OK=""
+done
+check "each seeded payment is a seeded order's total, and the order is paid on the board" "[[ -n '$SEEDED_OK' ]]"
+
 command_as place G 192.0.2.51 POST "/v1/sandboxes/$GID/orders" "$ORDER"
 expect_status place 201
 OID="$(json_field place b.id)"
@@ -415,7 +430,7 @@ check "the order reads confirmed, as the storefront polls it" "wait_order paid G
 pay pay_paid G "$GID" "$OID"
 expect_problem pay_paid 409 order
 expect_json pay_paid "b.detail.includes('not-payable')"
-check "the ledger shows the payment" "ledger_until ledger_1 G '$GID' \"b.entries.length === 1 && b.entries[0].kind === 'payment' && b.entries[0].ref === '$OID' && b.entries[0].amount_cents === $TOTAL && b.entries[0].stripe_id === '$PI' && b.net_cents === $TOTAL && b.paid_cents === $TOTAL && b.refunded_cents === 0\""
+check "the ledger shows the payment" "ledger_until ledger_1 G '$GID' \"live.length === 1 && live[0].kind === 'payment' && live[0].ref === '$OID' && live[0].amount_cents === $TOTAL && live[0].stripe_id === '$PI' && b.net_cents === S + $TOTAL && b.paid_cents === S + $TOTAL && b.refunded_cents === 0\""
 
 # ---------- a webhook replayed five times ----------
 
@@ -429,7 +444,7 @@ stripe_call confirm_r POST "/v1/payment_intents/$PI_R/confirm" "payment_method=p
 check "the replayed event was delivered 5 times, each answered 200" "stripe_until events_r \"b.some(e => e.type === 'payment_intent.succeeded' && e.intent === '$PI_R' && e.deliveries.length === 5 && e.deliveries.every(d => d.status === 200))\""
 EVT_R="$(json_field events_r "b.find(e => e.type === 'payment_intent.succeeded' && e.intent === '$PI_R').id")"
 check "the order reads confirmed" "wait_order paid_r G '$GID' '$RID' confirmed"
-check "the ledger changed once: one payment line for the order" "ledger_until ledger_r G '$GID' \"b.entries.filter(e => e.ref === '$RID').length === 1 && b.entries.length === 2\""
+check "the ledger changed once: one payment line for the order" "ledger_until ledger_r G '$GID' \"b.entries.filter(e => e.ref === '$RID').length === 1 && live.length === 2\""
 check "Billing applied it once and replayed it 4 times" "(( $(log_count "\"stripe_event\":\"$EVT_R\",\"outcome\":\"applied\"") == 1 && $(log_count "\"stripe_event\":\"$EVT_R\",\"outcome\":\"replayed\"") == 4 ))"
 get_as paid_r_events G "/v1/sandboxes/$GID/orders/$RID"
 expect_json paid_r_events "b.events_seq === 2"
@@ -529,7 +544,7 @@ check "the order recorded it: OrderRefunded, still confirmed" "wait_order part_d
 command_as refund_full D 192.0.2.52 POST "/v1/sandboxes/$DID/orders/$DOID/refund" '{"reason":"goodwill"}'
 expect_status refund_full 200
 expect_json refund_full "b.amount_cents === $((DTOTAL - PART)) && b.status === 'refund_pending' && b.refund !== '$REFUND_1'"
-check "the full refund reaches the ledger once, and the order's lines net to zero" "ledger_until ledger_full D '$DID' \"b.entries.filter(e => e.ref === '$DOID' && e.kind === 'refund').length === 2 && b.entries.filter(e => e.ref === '$DOID').reduce((n, e) => n + e.amount_cents, 0) === 0 && b.net_cents === 0 && b.paid_cents === $DTOTAL && b.refunded_cents === $DTOTAL\""
+check "the full refund reaches the ledger once, and the order's lines net to zero" "ledger_until ledger_full D '$DID' \"b.entries.filter(e => e.ref === '$DOID' && e.kind === 'refund').length === 2 && b.entries.filter(e => e.ref === '$DOID').reduce((n, e) => n + e.amount_cents, 0) === 0 && b.net_cents === S && b.paid_cents === S + $DTOTAL && b.refunded_cents === $DTOTAL\""
 check "the order ends cancelled once the whole refund is issued" "wait_order full_d D '$DID' '$DOID' cancelled"
 check "Billing issued each refund once at Stripe: two refunds requested at the fake" "request reqs_refund '$STRIPE/_requests' && node -e \"process.exit(JSON.parse(require('fs').readFileSync('$TMP/reqs_refund.body','utf8')).filter(r => r.path === '/v1/refunds' && r.status === 200).length === 2 ? 0 : 1)\""
 command_as refund_after D 192.0.2.52 POST "/v1/sandboxes/$DID/orders/$DOID/refund" '{"reason":"goodwill"}'
@@ -582,7 +597,7 @@ VISA="$(grep -c '"event":"sim_pay".*"step":"confirm","card":"visa","status":200'
 DECLINED="$(grep -c '"event":"sim_pay".*"step":"confirm","card":"declined","status":200' "$LOG" || true)"
 check "the Simulator's orders are paid: $SIM_PLACED placed, $SIM_PAID confirmed on the board, $VISA visa and $DECLINED declined confirms" "(( SIM_PLACED >= 1 && SIM_PAID >= 1 && SIM_PAID == VISA && VISA + DECLINED == SIM_PLACED ))"
 check "a declined simulated card is a PaymentFailed, not a payment" "(( DECLINED == 0 )) || stripe_until events_sim \"b.filter(e => e.type === 'payment_intent.payment_failed').length === $DECLINED\""
-check "the ledger holds the Simulator's payments" "ledger_until ledger_sim D '$DID' \"b.entries.filter(e => e.kind === 'payment').length === 1 + $SIM_PAID\""
+check "the ledger holds the Simulator's payments" "ledger_until ledger_sim D '$DID' \"live.filter(e => e.kind === 'payment').length === 1 + $SIM_PAID\""
 
 # ---------- the wipe's Stripe cleanup ----------
 

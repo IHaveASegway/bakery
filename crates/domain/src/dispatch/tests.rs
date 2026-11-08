@@ -109,10 +109,16 @@ fn submit(routes: &[(u8, &[u128])]) -> DispatchCommand {
     }
 }
 
+/// A stop's completion, its order ready.
+fn complete(stop: u16) -> DispatchCommand {
+    DispatchCommand::CompleteStop { stop, ready: true }
+}
+
 fn publish(plan: PlanChoice) -> DispatchCommand {
     DispatchCommand::Publish {
         plan,
         departed: false,
+        matrix: line_city(),
     }
 }
 
@@ -404,6 +410,7 @@ fn a_plan_is_not_replaced_once_a_van_has_left() {
     let gone = |plan| DispatchCommand::Publish {
         plan,
         departed: true,
+        matrix: line_city(),
     };
     // Nothing published yet: `departed` cannot hold, and the first publish goes through.
     let s = step(day(), propose(2, 20));
@@ -418,7 +425,7 @@ fn a_plan_is_not_replaced_once_a_van_has_left() {
         Dispatch::decide(&s, &gone(PlanChoice::Proposed), &ctx(1)),
         Ok(vec![])
     );
-    let (_, events) = run(s, &DispatchCommand::CompleteStop { stop: 1 }, 2);
+    let (_, events) = run(s, &complete(1), 2);
     assert_eq!(events.len(), 1);
 }
 
@@ -450,10 +457,7 @@ fn a_plan_is_checked_again_when_it_is_published() {
 #[test]
 fn stops_are_numbered_across_the_vans_and_completed_once() {
     let s = step(day(), submit(&[(1, &[2, 1]), (2, &[3])]));
-    assert_eq!(
-        refused(&s, DispatchCommand::CompleteStop { stop: 1 }),
-        "no-plan"
-    );
+    assert_eq!(refused(&s, complete(1)), "no-plan");
     let (s, events) = run(s, &publish(PlanChoice::Submitted), 1);
     let DispatchEvent::RoutePublished { vans, .. } = &events[0] else {
         panic!()
@@ -470,24 +474,19 @@ fn stops_are_numbered_across_the_vans_and_completed_once() {
     assert_eq!(plan.stop_number(ulid(3)), Some(3));
     assert_eq!(plan.stop_at(2), Some(ulid(1)));
     assert_eq!(plan.stop_at(0), None);
-    let (s, events) = run(s, &DispatchCommand::CompleteStop { stop: 2 }, 2);
+    let (s, events) = run(s, &complete(2), 2);
     assert_eq!(
         events,
         vec![DispatchEvent::StopCompleted {
             date: date(),
             stop: 2,
             order: ulid(1),
+            route: Some("van-1".into()),
         }]
     );
     assert_eq!(s.stop(ulid(1)).unwrap().status, StopStatus::Completed);
-    assert_eq!(
-        Dispatch::decide(&s, &DispatchCommand::CompleteStop { stop: 2 }, &ctx(3)),
-        Ok(vec![])
-    );
-    assert_eq!(
-        refused(&s, DispatchCommand::CompleteStop { stop: 4 }),
-        "stop-unknown"
-    );
+    assert_eq!(Dispatch::decide(&s, &complete(2), &ctx(3)), Ok(vec![]));
+    assert_eq!(refused(&s, complete(4)), "stop-unknown");
     // A delivered stop leaves the plannable set, so the next plan is the rest.
     assert_eq!(s.plannable().len(), 2);
     assert_eq!(refused(&s, submit(&[(1, &[1, 2, 3])])), "stop-unknown");
@@ -538,7 +537,7 @@ fn every_event_round_trips_through_its_envelope_parts_and_the_log_folds() {
         propose(2, 20),
         submit(&[(1, &[1, 2]), (2, &[3])]),
         publish(PlanChoice::Submitted),
-        DispatchCommand::CompleteStop { stop: 3 },
+        complete(3),
         DispatchCommand::RemoveStop {
             order: ulid(4),
             reason: RemoveReason::Expired,
@@ -595,6 +594,8 @@ fn every_refusal_has_a_slug() {
             order: o,
             place: 70,
         },
+        DispatchError::Late { van: 1, order: o },
+        DispatchError::NotReady { stop: 1 },
     ]
     .iter()
     .map(DispatchError::rule)
@@ -614,6 +615,8 @@ fn every_refusal_has_a_slug() {
             "capacity",
             "wrong-day",
             "place-unknown",
+            "window",
+            "not-ready",
         ]
     );
 }
@@ -623,11 +626,16 @@ fn every_refusal_has_a_slug() {
 // -------------------------------------------------------------------------------------------
 
 fn confirmed(order: u128, place: PlaceIndex, units: u32) -> Stop {
+    confirmed_at(order, place, units, 9 * 60)
+}
+
+/// A confirmed stop whose window starts `start` local minutes after midnight.
+fn confirmed_at(order: u128, place: PlaceIndex, units: u32, start: u16) -> Stop {
     Stop {
         order: ulid(order),
         customer: ulid(500 + order),
         place,
-        window: window(),
+        window: date().at_local(start),
         zone: "z1".into(),
         units,
         status: StopStatus::Confirmed,
@@ -699,8 +707,8 @@ fn an_asymmetric_matrix_is_never_driven_backwards() {
     assert_eq!(plan.minutes, 5 + 1 + 5);
 }
 
-/// One generated instance: stops at random places with random units, and a random matrix whose
-/// triangle inequality is not enforced.
+/// One generated instance: stops at random places with random units in random windows of the
+/// day's three, and a random matrix whose triangle inequality is not enforced.
 #[derive(Debug, Clone)]
 struct Instance {
     stops: Vec<Stop>,
@@ -716,8 +724,9 @@ fn instance(symmetric: bool) -> impl Strategy<Value = Instance> {
                 proptest::collection::vec(1u32..=30, n),
                 proptest::collection::vec(0..places as u8, n),
                 proptest::collection::vec(proptest::collection::vec(1u32..=60, places), places),
+                proptest::collection::vec(0usize..3, n),
             )
-                .prop_map(move |(units, at, raw)| {
+                .prop_map(move |(units, at, raw, windows)| {
                     let rows: Vec<Vec<u32>> = (0..places)
                         .map(|i| {
                             (0..places)
@@ -731,7 +740,10 @@ fn instance(symmetric: bool) -> impl Strategy<Value = Instance> {
                         .collect();
                     Instance {
                         stops: (0..n)
-                            .map(|k| confirmed(k as u128 + 1, at[k], units[k]))
+                            .map(|k| {
+                                let start = crate::calendar::WINDOW_STARTS[windows[k]];
+                                confirmed_at(k as u128 + 1, at[k], units[k], start)
+                            })
                             .collect(),
                         vans,
                         capacity,
@@ -770,10 +782,48 @@ fn check_plan(i: &Instance) -> Result<(), TestCaseError> {
         })
         .sum();
     prop_assert_eq!(plan.minutes, recomputed);
-    // Room to spare means nobody is left behind.
-    let total: u32 = i.stops.iter().map(|s| s.units).sum();
-    if u64::from(total) * 2 <= u64::from(i.vans) * u64::from(i.capacity) {
-        prop_assert!(plan.unassigned.is_empty(), "{:?}", plan.unassigned);
+    // Every van reaches each of its stops within its window, waiting when early.
+    let stop = |o: &Ulid| i.stops.iter().find(|s| s.order == *o).unwrap();
+    let doors =
+        |orders: &[Ulid]| -> Vec<Door> { orders.iter().map(|o| Door::of(stop(o))).collect() };
+    for r in &plan.routes {
+        let times = route_times(&doors(&r.stops), &i.matrix);
+        prop_assert_eq!(times.late, None, "van {} is late", r.van);
+        for (k, o) in r.stops.iter().enumerate() {
+            let door = Door::of(stop(o));
+            prop_assert!(door.open <= times.serve[k] && times.serve[k] <= door.close);
+        }
+    }
+    // A stop is left behind only when it is too big for any van, or every van is out and none
+    // has the room or the time to take it anywhere in its route.
+    for o in &plan.unassigned {
+        let s = stop(o);
+        if s.units > i.capacity {
+            continue;
+        }
+        prop_assert_eq!(
+            plan.routes.len(),
+            usize::from(i.vans),
+            "{} left with a van free",
+            o
+        );
+        for r in &plan.routes {
+            let load: u32 = r.stops.iter().map(units).sum();
+            if load + s.units > i.capacity {
+                continue;
+            }
+            for at in 0..=r.stops.len() {
+                let mut tried = r.stops.clone();
+                tried.insert(at, *o);
+                prop_assert!(
+                    route_times(&doors(&tried), &i.matrix).late.is_some(),
+                    "{} fits van {} at {}",
+                    o,
+                    r.van,
+                    at
+                );
+            }
+        }
     }
     // The same stops in another order give the same plan.
     let mut reversed = i.stops.clone();
@@ -820,7 +870,12 @@ fn check_plan(i: &Instance) -> Result<(), TestCaseError> {
             .collect(),
         matrix: i.matrix.clone(),
     };
-    let published = execute::<Dispatch>(s.clone(), &publish(PlanChoice::Proposed), &ctx(2));
+    let publish_proposed = DispatchCommand::Publish {
+        plan: PlanChoice::Proposed,
+        departed: false,
+        matrix: i.matrix.clone(),
+    };
+    let published = execute::<Dispatch>(s.clone(), &publish_proposed, &ctx(2));
     if plan.unassigned.is_empty() {
         let s = execute::<Dispatch>(s, &browser, &ctx(3)).unwrap().0;
         prop_assert_eq!(s.submitted().unwrap().minutes, plan.minutes);
@@ -847,4 +902,176 @@ proptest! {
     fn the_savings_plan_holds_the_invariants_on_an_asymmetric_matrix(i in instance(false)) {
         check_plan(&i)?;
     }
+}
+
+// -------------------------------------------------------------------------------------------
+// Delivery windows (the console audit of 2026-11-08, finding 6)
+// -------------------------------------------------------------------------------------------
+
+/// The audit's day on [`line_city`]: stop 1 at place 1 in the 13:00 to 15:00 window, stop 2 at
+/// place 2 in the 11:00 to 13:00 window, both confirmed, 5 units each.
+fn two_windows() -> DispatchState {
+    let mut s = DispatchState::new(date());
+    for (order, place, start) in [(1, 1, 13 * 60), (2, 2, 11 * 60)] {
+        s = step(
+            s,
+            DispatchCommand::AddStop(AddStop {
+                order: ulid(order),
+                customer: ulid(500 + order),
+                place,
+                window: date().at_local(start),
+                zone: "z1".into(),
+                units: 5,
+            }),
+        );
+        s = step(s, confirm(order));
+    }
+    s
+}
+
+#[test]
+fn the_server_serves_the_earlier_window_first_and_waits_for_each_to_open() {
+    let s = step(two_windows(), propose(1, 20));
+    let plan = s.proposed().unwrap();
+    // Without windows the savings join 1 then 2 (the smaller order id first, the drive the same
+    // both ways); with them, the 11:00 stop comes first.
+    assert_eq!(plan.routes[0].stops, vec![ulid(2), ulid(1)]);
+    assert!(plan.unassigned.is_empty());
+    // The drive is 10 + 4 + 10 minutes; the van waits for 11:00 at place 2 and for 13:00 at
+    // place 1, so it is back at 13:00 plus 3 minutes at the door and 10 back, not at 9:30.
+    assert_eq!(plan.minutes, 24);
+    let summary = plan.summary(&s, &line_city());
+    assert_eq!(summary.last_back, date().at_local(13 * 60 + 3 + 10));
+    let times = route_times(&s.doors(&plan.routes[0].stops), &line_city());
+    assert_eq!(times.serve, [2 * 60, 4 * 60]);
+    assert_eq!(times.late, None);
+    // And it publishes.
+    assert!(Dispatch::decide(&s, &publish(PlanChoice::Proposed), &ctx(1)).is_ok());
+}
+
+#[test]
+fn a_plan_that_reaches_a_stop_after_its_window_is_refused() {
+    let s = two_windows();
+    // The browser's plan in the wrong order: place 1 at 13:00, then place 2 at 13:07, after its
+    // window closed at 13:00.
+    assert_eq!(refused(&s, submit(&[(1, &[1, 2])])), "window");
+    assert_eq!(
+        Dispatch::decide(&s, &submit(&[(1, &[1, 2])]), &ctx(0)),
+        Err(DispatchError::Late {
+            van: 1,
+            order: ulid(2)
+        })
+    );
+    // On two vans, or in window order, it is on time.
+    let (_, events) = run(s.clone(), &submit(&[(1, &[1]), (2, &[2])]), 1);
+    assert_eq!(events.len(), 1);
+    let (s, _) = run(s, &submit(&[(1, &[2, 1])]), 2);
+    let (_, events) = run(s, &publish(PlanChoice::Submitted), 3);
+    assert_eq!(events.len(), 1);
+}
+
+#[test]
+fn a_route_without_one_of_its_stops_is_checked_on_its_own_drives() {
+    // On a matrix without the triangle inequality, taking a stop out can make the next one later:
+    // 1 -> 2 -> 3 is 1 + 1 minutes, 1 -> 3 is 200.
+    let m = Arc::new(
+        TravelMatrix::new(
+            vec![
+                vec![0, 1, 1, 1],
+                vec![1, 0, 1, 200],
+                vec![1, 1, 0, 1],
+                vec![1, 200, 1, 0],
+            ],
+            0,
+        )
+        .unwrap(),
+    );
+    let mut s = DispatchState::new(date());
+    for order in 1..=3 {
+        s = step(s, add(order, order as u8, 1));
+        s = step(s, confirm(order));
+    }
+    let routes = vec![SubmittedRoute {
+        van: 1,
+        stops: vec![ulid(1), ulid(2), ulid(3)],
+        start: None,
+        end: None,
+    }];
+    let s = step(
+        s,
+        DispatchCommand::SubmitPlan {
+            routes,
+            matrix: m.clone(),
+        },
+    );
+    let s = step(
+        s,
+        DispatchCommand::RemoveStop {
+            order: ulid(2),
+            reason: RemoveReason::Cancelled,
+        },
+    );
+    // The plan names a removed stop, which is refused first; with stop 2 delivered instead
+    // the rest would be 1 then 3, 200 minutes apart.
+    let publish = DispatchCommand::Publish {
+        plan: PlanChoice::Submitted,
+        departed: false,
+        matrix: m.clone(),
+    };
+    assert_eq!(refused(&s, publish), "stop-unknown");
+    let late = vec![VanRoute {
+        van: 1,
+        stops: vec![ulid(1), ulid(3)],
+    }];
+    assert_eq!(
+        s.check_windows(&late, &m),
+        Err(DispatchError::Late {
+            van: 1,
+            order: ulid(3)
+        })
+    );
+}
+
+#[test]
+fn a_stop_is_completed_only_once_its_order_is_ready() {
+    let s = step(day(), submit(&[(1, &[2, 1]), (2, &[3])]));
+    let (s, _) = run(s, &publish(PlanChoice::Submitted), 1);
+    let not_ready = DispatchCommand::CompleteStop {
+        stop: 3,
+        ready: false,
+    };
+    assert_eq!(refused(&s, not_ready.clone()), "not-ready");
+    assert_eq!(s.stop(ulid(3)).unwrap().status, StopStatus::Confirmed);
+    // Ready, it is completed, and the event names its van for the order.
+    let (s, events) = run(s, &complete(3), 2);
+    assert_eq!(
+        events,
+        vec![DispatchEvent::StopCompleted {
+            date: date(),
+            stop: 3,
+            order: ulid(3),
+            route: Some("van-2".into()),
+        }]
+    );
+    // Once completed, a second completion is nothing, ready or not.
+    assert_eq!(Dispatch::decide(&s, &not_ready, &ctx(3)), Ok(vec![]));
+}
+
+#[test]
+fn a_stop_completed_before_the_route_was_recorded_still_folds() {
+    // A `StopCompleted` written before the route was added reads with no route.
+    let data = serde_json::json!({
+        "date": DATE,
+        "stop": 1,
+        "order": ulid(1).to_string(),
+    });
+    assert_eq!(
+        DispatchEvent::from_parts("StopCompleted", &data),
+        Ok(DispatchEvent::StopCompleted {
+            date: date(),
+            stop: 1,
+            order: ulid(1),
+            route: None,
+        })
+    );
 }

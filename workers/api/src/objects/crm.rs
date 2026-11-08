@@ -32,7 +32,9 @@
 //!   `GET /_segment/<slug>`, `GET /_campaigns`, `GET /_campaign/<id>`, `GET /_leads`,
 //!   `GET /_activity?limit=` → the contracts' responses, from the projection as it stands
 //!   (partial while a rebuild runs, said by `Projection-State: rebuilding`); 404 for an unknown
-//!   customer, segment or campaign.
+//!   customer, segment or campaign. The activity feed adds Crm's own `CampaignSent` and
+//!   `ProjectionRebuildFinished` from its `events` (`crm::activity_feed`), which a rebuild
+//!   leaves alone.
 //! - `POST /_rebuild {key}` → 202 `RebuildResponse`; 409 `{error: "rebuild"}` while one runs;
 //!   the same key again is a replay. `GET /_rebuild` → 200 `RebuildResponse`.
 //! - `GET /_projection` → the projection's JSON text, byte for byte as stored: the debug read the
@@ -61,7 +63,8 @@ use bakery_contracts::{
 use bakery_domain::crm::{
     Audience, BodyTemplate, Campaign, CampaignCommand, CampaignError, CampaignState, CampaignTable,
     Campaigns, CrmError, CrmEvent, CrmProjection, CustomerRow, Directory, Outcome, REBUILD_BATCH,
-    Rebuild, RebuildState, SEGMENT_SAMPLE, Segment, SubjectTemplate, log_entry, segment_members,
+    Rebuild, RebuildState, SEGMENT_SAMPLE, Segment, SubjectTemplate, activity_feed, log_entry,
+    segment_members,
 };
 use bakery_domain::outbox::{CommandCheck, Stamp, StreamHead, check_command, envelopes};
 use bakery_domain::{
@@ -720,10 +723,13 @@ impl Crm {
                     })?),
                     "/_activity" => {
                         let limit = limit_of(query, ACTIVITY_DEFAULT, ACTIVITY_MAX);
+                        let own = if has_table(&self.sql(), "events")? {
+                            stream::events(&self.sql(), meta.sandbox_id()?, &meta.name)?
+                        } else {
+                            Vec::new()
+                        };
                         Some(serde_json::to_value(ActivityResponse {
-                            entries: held
-                                .projection
-                                .activity()
+                            entries: activity_feed(&held.projection, &own)
                                 .iter()
                                 .rev()
                                 .take(limit)
