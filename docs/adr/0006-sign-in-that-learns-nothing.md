@@ -84,3 +84,7 @@ Two-way for the mechanism: adding passkeys, changing hash parameters or moving t
 - A visitor's identifier (a raw `sub` or GitHub `id`, an email, a chosen name) is found in any store, log or analytics data point.
 - GitHub starts returning an email or name in `GET /user` to an app with no scopes, or documents a way to ask for the `id` alone.
 - Joseph moves Q43, or three visitors ask for email sign-in in a quarter, through hello@ihaveasegway.com or an issue.
+
+## Postscript 2026-11-09
+
+As built, 2026-11-09: the account id is `HMAC-SHA256(ACCOUNT_HMAC_KEY, "<provider>:" + subject)`, `google:` or `github:` before the provider's id, added in one place (`crates/app/src/auth/account.rs`). PKCE `S256` is sent to GitHub too (`workers/api/src/http/oauth.rs`).

@@ -74,3 +74,7 @@ Two-way for the lifetime: the wipe time, the backstop and the seed are configura
 - Visitors ask for persistence: three or more requests in a quarter, through hello@ihaveasegway.com or an issue.
 - A personal datum (a real email, phone number or card number) is found in any store, log or Stripe object. Then free text is turned off by flag the same day and this record is reopened.
 - Rows written for seeding exceed 4,000 a sandbox, twice the estimate.
+
+## Postscript 2026-11-09
+
+As built, 2026-11-09: `Billing`, when the Sandbox wipes it, deletes the Stripe objects it created, not the `Sandbox` itself (`workers/api/src/objects/billing.rs`; [architecture.md](../architecture.md#the-nightly-wipe)). The privacy page names the 30 days of point-in-time recovery, and the console shows a countdown to the wipe, as decided.
