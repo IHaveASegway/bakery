@@ -531,22 +531,24 @@ describe('dist', () => {
   // later and is not counted), and the page's inline scripts. Each file counts once per page.
   //
   // Measured 2026-11-09 with node's gzipSync at its default level, per class (the largest page of
-  // the class): guide only 80,307 B (home, privacy); API reference 80,560 B; status 83,081 B;
-  // storefront 92,397 B (menu, sign-in); checkout 108,667 B; console screens 126,921 B (the
+  // the class): guide only 80,313 B (home, privacy); API reference 80,566 B; status 83,087 B;
+  // storefront 92,403 B (menu, sign-in); checkout 108,673 B; console screens 126,927 B (the
   // console, dispatch, catering and the inbox). Each budget is the measured size plus a quarter,
   // rounded up to the next 1,000 B. The ADR's own numbers (5,000 B for a public page, 120,000 B for
   // an app screen or the checkout) are not met on the public pages: every island page carries the
   // guide's bar, and its React runtime is most of the total. A page that is not named below must
   // load no script.
   //
-  // Moved 2026-11-09, when the guide replaced the tour (measured again after the interface's new
-  // shells, #97, merged): every class fell, by about 11,000 to 13,900 B, because
-  // the first load now buys only the guide's bar (the switch, the recorder's button, a polite live
-  // region) and the trace store that hears the page's writes, its socket and its feed. The notes,
-  // the hotspots, the recorder panel and the entries they explain load after the island mounts, in
-  // a chunk of 22,229 B gzipped that a dynamic import brings and this sum does not count. Before,
-  // with the tour: tour only 93,993 B; API reference 94,246 B; status 96,768 B; storefront
-  // 103,074 B; checkout 119,128 B; console screens 135,699 B.
+  // Moved 2026-11-09, when the guide replaced the tour. These budgets hold the first load only:
+  // the guide's bar and the trace store. With the guide on, the default, the page then loads the
+  // deferred layer (the test after these holds it, at 22,512 B to 23,001 B), so a page with the
+  // guide on costs more than it did with the tour. Per class, first load / with the guide on /
+  // the tour's total it replaces (measured at f8b5192): guide only 80,313 / 103,314 / 94,187;
+  // API reference 80,566 / 103,567 / 94,440; status 83,087 / 106,088 / 96,960; storefront
+  // 92,403 / 114,915 / 103,417; checkout 108,673 / 131,185 / 119,472; console screens
+  // 126,927 / 149,708 / 136,394. The first load is smaller than the tour's by 9,467 B to 13,874 B;
+  // with the guide on the page is larger, by 9,127 B to 13,314 B. A visitor who turns the guide off
+  // loads the first load alone on later pages.
   describe('JavaScript per page', () => {
     const KB = 1_000;
     const BUDGETS: Record<string, { budget: number; pages: string[] }> = {
@@ -609,6 +611,57 @@ describe('dist', () => {
     };
 
     const files = htmlFiles('');
+
+    // The guide's deferred load (components/Guide.tsx): the Layer chunk that a dynamic import brings
+    // once the island has mounted and the guide is on or the recorder is open, with every chunk it
+    // imports statically that the page's first load does not already carry, gzipped the same way.
+    // Measured 2026-11-09: 22,512 B to 23,001 B (the light pages carry less React in their first
+    // load, so their deferred load is the larger). The budget is the largest plus a quarter,
+    // rounded up to the next 1,000 B. The bytes buy the 65 entries, the notes, the hotspots, the
+    // recorder panel and the short path.
+    const DEFERRED_BUDGET = 29_000;
+    const firstLoad = (html: string) => {
+      const queue = [
+        ...[...html.matchAll(/<script[^>]*\ssrc="\/_astro\/([^"]+)"/g)].map((m) => m[1]),
+        ...[...html.matchAll(/<link[^>]*rel="modulepreload"[^>]*href="\/_astro\/([^"]+)"/g)].map(
+          (m) => m[1],
+        ),
+        ...[...html.matchAll(/(?:component|renderer)-url="\/_astro\/([^"]+)"/g)].map((m) => m[1]),
+      ];
+      return closure(queue, new Set());
+    };
+    const closure = (start: (string | undefined)[], skip: Set<string>) => {
+      const queue = [...start];
+      const seen = new Set<string>();
+      for (let name = queue.pop(); name !== undefined; name = queue.pop()) {
+        if (seen.has(name) || skip.has(name)) continue;
+        seen.add(name);
+        queue.push(...staticImports(page(`_astro/${name}`)));
+      }
+      return seen;
+    };
+
+    test('the guide’s deferred load, the layer and what only it imports, is within 29,000 B gzipped on every island page', async () => {
+      const { gzipSync } = await import('node:zlib');
+      const pages = files.filter((f) => classOf(f) !== 'none');
+      expect(pages.length).toBeGreaterThan(5);
+      for (const file of pages) {
+        const first = firstLoad(page(file));
+        const guide = [...first].find((name) => name.startsWith('Guide.'));
+        expect(guide, `${file}: the guide island in the first load`).toBeDefined();
+        const layer = page(`_astro/${guide}`).match(
+          /import\([`"']\.\/(Layer\.[^`"']+\.js)[`"']\)/,
+        )?.[1];
+        expect(layer, `${file}: the layer, imported dynamically by the guide`).toBeDefined();
+        const deferred = closure([layer], first);
+        const bytes = [...deferred].reduce(
+          (n, name) => n + gzipSync(page(`_astro/${name}`)).length,
+          0,
+        );
+        expect(bytes, `${file}: ${bytes} B gzipped`).toBeGreaterThan(10_000);
+        expect(bytes, `${file}: ${bytes} B gzipped`).toBeLessThanOrEqual(DEFERRED_BUDGET);
+      }
+    });
 
     test('every page named in a class is built', () => {
       for (const c of Object.values(BUDGETS)) for (const f of c.pages) expect(files).toContain(f);

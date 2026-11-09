@@ -26,13 +26,13 @@ Facts, as of 2026-11-09 (measured in this change's worktree):
 3. **A trace store in the page,** `apps/web/src/lib/trace.ts`, takes evidence from sources behind one interface: the page's own writes (a hook in `send`: route, method, path, status, time and key, never a body), the socket's commands, answers and envelopes, and the activity feed's new entries. An event belongs to the visitor's action when its `cause` is the action's key or the id of an event that does; a simulated event never does, so simulated traffic opens no note. A third source, the server's flight recorder, is typed and not built; it plugs in without changing the notes.
 4. **The switch** is on by default and remembered for the browser tab in `sessionStorage` (`bakery-guide` = `off` while off); the privacy page says so.
 5. **The How it's built page gains a decision table** from the same entries: one row a principle, with the tool, why here, when it is the wrong tool and the essay. It loads no script.
-6. **The layer loads after the island mounts.** The bar and the trace store are in the first load; the notes, hotspots, panel and entries are a chunk of 22,229 B gzipped that a dynamic import brings (measured 2026-11-09).
+6. **The layer loads after the island mounts, and only while it is needed.** The bar and the trace store are in the first load. The notes, hotspots, panel and entries are a deferred load of 22,512 B to 23,001 B gzipped (measured 2026-11-09, held under 29,000 B) that a dynamic import brings while the guide is on or the recorder is open; a visitor who turns the guide off does not load it on later pages.
 
 ## Alternatives considered
 
 | Option | Gains | Costs | Verdict |
 |---|---|---|---|
-| **A. Live notes, hotspots and a recorder from one set of entries (chosen)** | Learnability: the explanation arrives where and when the thing happens, with the visitor's own ids and timings. Cost: the first load fell by about 13,700 B a page class. Consistency: the notes, the hotspots and the How it's built table say the same words | Complexity: a trace store, correlation by `cause`, and placement code. Testability: a note's behaviour needs a browser to prove, so an end-to-end spec carries it | Chosen |
+| **A. Live notes, hotspots and a recorder from one set of entries (chosen)** | Learnability: the explanation arrives where and when the thing happens, with the visitor's own ids and timings. Cost: the first load is smaller than the tour's, by 9,467 B to 13,874 B a page class (2026-11-09). Consistency: the notes, the hotspots and the How it's built table say the same words | Cost: with the guide on, the default, a page loads 9,127 B to 13,314 B more than it did with the tour, the deferred layer. Complexity: a trace store, correlation by `cause`, and placement code. Testability: a note's behaviour needs a browser to prove, so an end-to-end spec carries it | Chosen |
 | B. Keep the tour, restyle the drawer | Least work; the content stays | Learnability: still a slideshow taken apart from the action, which is what Joseph rejected | Rejected |
 | C. A tour library (Shepherd.js, Intro.js, driver.js) | Ready-made popovers and steps | Security and cost: a script and often inline styles the policy refuses; it walks steps, it does not watch what the visitor did | Rejected, as the tour's own row in [stack.md](../stack.md) rejected it |
 | D. Notes only from the server, through a flight recorder | Every hop, consumers and retries included, with real lag | Feasibility: not built yet. Availability: a demo whose explanation depends on a second socket. The page's own evidence is already there | Deferred: the recorder is typed as a source and joins later |
@@ -43,12 +43,13 @@ Facts, as of 2026-11-09 (measured in this change's worktree):
 Good:
 
 - The signature minute explains itself: a press on the board shows the frame sent, the event that came back with its sequence number, and the judgment behind the tool, beside the card.
-- Every first load is lighter, because the entries and the notes come after the page is usable.
+- The first load is lighter than the tour's, because the entries and the notes come after the page is usable, and a visitor who turns the guide off never loads them. Per class (2026-11-09, gzipped), first load / with the guide on / the tour's total: home and privacy 80,313 / 103,314 / 94,187 B; the API reference 80,566 / 103,567 / 94,440 B; status 83,087 / 106,088 / 96,960 B; the storefront 92,403 / 114,915 / 103,417 B; the checkout 108,673 / 131,185 / 119,472 B; the console 126,927 / 149,708 / 136,394 B.
 - The decision table and the notes cannot disagree, being one source, and both are tested.
 - Simulated traffic never interrupts: it carries a `sim:` cause, and nothing the visitor did not press opens a note.
 
 Bad:
 
+- With the guide on, which is the default, every island page loads more JavaScript than it did with the tour, by 9,127 B to 13,314 B gzipped (2026-11-09): the deferred layer of 22,512 B to 23,001 B, held under 29,000 B by `apps/web/test/dist.test.ts`.
 - The guide sees only what the page sees. On a page with no socket (the checkout) the events are shown as expected, not observed, until the activity feed or, later, the recorder says otherwise.
 - A note is placed by script after mount, so it can lag a frame behind a page that moves under it; and with no room on any side it docks in a corner, further from its anchor.
 - The guide's layer is dark in both schemes, so its colours (the `guide-*` roles in `apps/web/src/styles/tokens.css`) are the same in every theme block, and a hotspot needs a disc and a ring so that one of the two shows on a light page and the other on a dark one; `apps/web/test/tokens.test.ts` holds both.

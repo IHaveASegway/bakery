@@ -80,6 +80,8 @@ Decided on 2026-11-09 by the session, under Joseph's delegation of the same day;
 
 As built on 2026-11-09, every page takes one of three shells, chosen from its path in `Base.astro`: prose for reading, shop for the storefront and app for the console, which keeps its pages static and adds no script of its own. The styles are a component layer, `components.css`, that every screen uses in place of its own buttons, over the semantic tokens in `tokens.css`; the change moved no JavaScript budget.
 
+As built on 2026-11-09, the live guide replaced the tour ([ADR 0014](0014-a-live-guide-in-place-of-the-tour.md)) and the budgets moved down to hold the first load only, measured with `apps/web/test/dist.test.ts`'s sum, gzipped. The first load is smaller than the tour's total, and with the guide on, the default, the page is larger, because the guide then loads a deferred layer of 22,512 B to 23,001 B, held by a budget of its own (29,000 B). Per class, first load / with the guide on / the tour's total: home and privacy 80,313 / 103,314 / 94,187 B; the API reference 80,566 / 103,567 / 94,440 B; status 83,087 / 106,088 / 96,960 B; the storefront 92,403 / 114,915 / 103,417 B; the checkout 108,673 / 131,185 / 119,472 B; the console 126,927 / 149,708 / 136,394 B. A visitor who turns the guide off loads only the first load on later pages.
+
 ## Patterns and further reading
 
 - Islands architecture: ["Islands Architecture"](https://jasonformat.com/islands-architecture/) (blog, 2020).
