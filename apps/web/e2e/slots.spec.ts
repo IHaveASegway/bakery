@@ -86,10 +86,18 @@ test('a past slot and a full slot are not offered, and a free one is chosen', as
   expect([past, free, full].every(Boolean), JSON.stringify(schedule.slots)).toBe(true);
   if (past === undefined || free === undefined || full === undefined) return;
 
+  // A click before the menu's island has hydrated does nothing (the button is the server's HTML), so
+  // wait for Astro to mark the island hydrated (it drops the island's `ssr` attribute), and then for
+  // the cart's own line saying it took the item, before leaving the page.
   await page.goto('/menu/');
+  await expect(page.locator('astro-island[component-url*="StoreMenu"]')).not.toHaveAttribute(
+    'ssr',
+    /.*/,
+  );
   await page
     .getByRole('button', { name: `Add ${item.name}, ${variant.label}, to the cart` })
     .click();
+  await expect(page.getByText(`Added ${item.name}, ${variant.label}.`)).toBeVisible();
   await page.goto('/checkout/');
   const picker = page.getByRole('group', { name: 'Pickup time' });
   await expect(page.locator('#day')).toHaveValue(day);
