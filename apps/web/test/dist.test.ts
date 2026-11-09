@@ -539,7 +539,7 @@ describe('dist', () => {
   // guide's bar, and its React runtime is most of the total. A page that is not named below must
   // load no script.
   //
-  // Moved 2026-11-09, when the guide replaced the tour: every class fell by about 13,700 B, because
+  // Moved 2026-11-09, when the guide replaced the tour: every class fell, by 11,027 to 13,882 B, because
   // the first load now buys only the guide's bar (the switch, the recorder's button, a polite live
   // region) and the trace store that hears the page's writes, its socket and its feed. The notes,
   // the hotspots, the recorder panel and the entries they explain load after the island mounts, in
