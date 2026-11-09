@@ -17,9 +17,6 @@
 //! fourth attempt, the Queue's last after 3 retries (wrangler.jsonc), is `dead_lettered`. The
 //! count is as lossy as the recorder: a hop never recorded is not counted.
 //!
-//! Shipped expand first (ADR 0015): the class is bound and exported before anything seeds it,
-//! feeds it or routes to it, so the items only the consumer and the routes use are marked so.
-//!
 //! Paths:
 //!
 //! - `POST /_seed {birth}` → 201; 200 when already seeded. An empty ring.
@@ -62,11 +59,9 @@ use super::stream::{self, BACKSTOP};
 use crate::clock::SystemClock;
 use crate::random;
 
-#[allow(dead_code)] // nothing calls the class until the consumer and the routes are wired
 pub const BINDING: &str = "RECORDER";
 pub const CLASS: &str = "Recorder";
 
-#[allow(dead_code)] // nothing calls the class until the consumer and the routes are wired
 pub fn name(sandbox: Ulid) -> String {
     format!("recorder:{sandbox}")
 }
@@ -131,7 +126,6 @@ struct SeqRow {
 // ---------- hops, attempts and pages (pure, tested natively) ----------
 
 /// `delivered_at - recorded_at` in milliseconds, 0 when the clocks disagree.
-#[allow(dead_code)] // nothing calls the class until the consumer and the routes are wired
 pub fn lag_ms(recorded_at: WallTime, delivered_at: WallTime) -> u64 {
     u64::try_from(delivered_at.unix_ms() - recorded_at.unix_ms()).unwrap_or(0)
 }
@@ -141,7 +135,6 @@ pub fn lag_ms(recorded_at: WallTime, delivered_at: WallTime) -> u64 {
 /// when `failed` the one after them did not, so it and every later one wait for the retry. The
 /// envelope's `data` is not read: a hop carries none of it. The attempt is the Recorder's to
 /// count, so it is 1 here.
-#[allow(dead_code)] // nothing calls the class until the consumer and the routes are wired
 pub fn hop(
     envelope: &Envelope,
     routes: &[Subscriber],

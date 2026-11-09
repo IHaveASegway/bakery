@@ -41,14 +41,23 @@
 //! For each message on `bakery-events-dlq`: write it, with the consumer's last error for it,
 //! to the owning Sandbox (`/_dead-letter`), log `dlq` and ack. A wiped sandbox has nowhere to
 //! keep it, and the message is acked.
+//!
+//! Since 2026-11-09 the flight recorder (ADR 0015; objects/recorder.rs): once a message's
+//! deliveries are decided, the consumer builds its hop (the envelope's ids, type, sequence and
+//! times, each routed class with its outcome, never `data`), and at the end of the batch sends
+//! each sandbox's `Recorder` one `/_record` with that sandbox's hops, through `wait_until`, so
+//! the handler returns, and every ack stands, before it is sent. A failure to record is one
+//! `trace_drop` line with the sandbox and the count, and changes nothing else. With the flag
+//! `off` nothing is delivered, so nothing is recorded.
 
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 
 use bakery_app::Clock;
 use bakery_app::analytics::{Event, Point};
 use bakery_app::names::sandbox_object_name;
 use bakery_app::routing::{Subscriber, deliver_to, reference, strip_for};
-use bakery_contracts::{CateringResponse, Flag, OrderResponse};
+use bakery_contracts::{CateringResponse, Flag, OrderResponse, TraceHop};
 use bakery_domain::{BakeryDate, BusinessTime, Envelope, Ulid};
 use worker::{Cache, Context, Env, MessageBatch, MessageExt, Method, Result, console_log, event};
 
@@ -58,7 +67,7 @@ use crate::metrics;
 use crate::objects::sandbox::{self, CustomerBirth, DeadLetterIn, DeliveryError, RegisterCustomer};
 use crate::objects::sql::{call, call_empty};
 use crate::objects::{
-    billing, catering, control, crm, customer, dispatch, inbox, kitchen, order, schedule,
+    billing, catering, control, crm, customer, dispatch, inbox, kitchen, order, recorder, schedule,
 };
 
 /// The dead-letter queue's name, as `batch.queue()` reports it.
@@ -72,11 +81,38 @@ thread_local! {
 }
 
 #[event(queue)]
-async fn queue(batch: MessageBatch<String>, env: Env, _ctx: Context) -> Result<()> {
+async fn queue(batch: MessageBatch<String>, env: Env, ctx: Context) -> Result<()> {
     if batch.queue() == DLQ {
         dead_letters(&batch, &env).await
     } else {
-        consume(&batch, &env).await
+        let hops = consume(&batch, &env).await?;
+        if !hops.is_empty() {
+            ctx.wait_until(record(env, hops));
+        }
+        Ok(())
+    }
+}
+
+/// Each sandbox's hops of the batch to its `Recorder`, one request a sandbox, after the batch's
+/// acks. Best effort: a failure is logged as `trace_drop`, with the sandbox and the count only.
+async fn record(env: Env, hops: BTreeMap<Ulid, Vec<TraceHop>>) {
+    for (sandbox, hops) in hops {
+        let n = hops.len();
+        let status = call(
+            &env,
+            recorder::BINDING,
+            &recorder::name(sandbox),
+            Method::Post,
+            "/_record",
+            Some(&recorder::RecordIn { hops }),
+        )
+        .await
+        .map_or(0, |r| r.status_code());
+        if status != 200 {
+            console_log!(
+                "{{\"event\":\"trace_drop\",\"sandbox\":\"{sandbox}\",\"hops\":{n},\"status\":{status}}}"
+            );
+        }
     }
 }
 
@@ -174,9 +210,11 @@ fn subscriber(to: Subscriber, envelope: &Envelope) -> Option<(&'static str, Stri
     }
 }
 
-async fn consume(batch: &MessageBatch<String>, env: &Env) -> Result<()> {
+/// The batch, and the hop of every message whose deliveries were decided, by sandbox.
+async fn consume(batch: &MessageBatch<String>, env: &Env) -> Result<BTreeMap<Ulid, Vec<TraceHop>>> {
     let off = flag(env).await == Flag::Off;
     let (mut acked, mut retried, mut poisoned) = (0u32, 0u32, 0u32);
+    let mut hops: BTreeMap<Ulid, Vec<TraceHop>> = BTreeMap::new();
     for message in batch.raw_iter() {
         if off {
             message.retry();
@@ -211,7 +249,18 @@ async fn consume(batch: &MessageBatch<String>, env: &Env) -> Result<()> {
             forget_old_menu(env, &envelope).await;
         }
         let mut delivered = 0;
-        match deliver(env, &envelope, &mut delivered).await {
+        let outcome = deliver(env, &envelope, &mut delivered).await;
+        let routes: Vec<Subscriber> = deliver_to(&envelope).iter().map(|r| r.to).collect();
+        hops.entry(envelope.sandbox)
+            .or_default()
+            .push(recorder::hop(
+                &envelope,
+                &routes,
+                delivered,
+                outcome.is_err(),
+                SystemClock::new().now_wall(),
+            ));
+        match outcome {
             Ok(()) => {
                 message.ack();
                 acked += 1;
@@ -233,7 +282,7 @@ async fn consume(batch: &MessageBatch<String>, env: &Env) -> Result<()> {
         "{{\"event\":\"queue_batch\",\"queue\":{:?},\"acked\":{acked},\"retried\":{retried},\"poisoned\":{poisoned},\"off\":{off}}}",
         batch.queue()
     );
-    Ok(())
+    Ok(hops)
 }
 
 /// Every live subscriber gets the envelope, stripped for it. The first failure is the error;
@@ -862,6 +911,30 @@ mod tests {
         assert_eq!(order_in(&e), None);
         e.stream = format!("order:{OTHER}:{OTHER}");
         assert_eq!(order_in(&e), None);
+    }
+
+    /// The hop a pickup's `OrderPlaced` gets names the classes the routing table gives it, in its
+    /// order, and an envelope from the wire leaves its `data` behind.
+    #[test]
+    fn a_hop_names_the_routed_classes_and_no_data() {
+        let mut e: Envelope =
+            serde_json::from_str(&envelope(SANDBOX, &format!("order:{SANDBOX}:{OTHER}"))).unwrap();
+        e.event_type = "OrderPlaced".into();
+        e.data = serde_json::json!({ "kind": "pickup", "note": "Two boxes, please" });
+        let routes: Vec<Subscriber> = deliver_to(&e).iter().map(|r| r.to).collect();
+        let hop = recorder::hop(&e, &routes, 1, true, e.recorded_at);
+        let to: Vec<(&str, bakery_contracts::TraceOutcome)> = hop
+            .deliveries
+            .iter()
+            .map(|d| (d.to.as_str(), d.outcome))
+            .collect();
+        use bakery_contracts::TraceOutcome::{Delivered, Retried};
+        assert_eq!(
+            to,
+            [("Kitchen", Delivered), ("Crm", Retried), ("Inbox", Retried)]
+        );
+        assert_eq!(hop.lag_ms, 0);
+        assert!(!serde_json::to_string(&hop).unwrap().contains("Two boxes"));
     }
 
     /// Polls a future that never waits, as `deliver_each`'s are in the test below.
