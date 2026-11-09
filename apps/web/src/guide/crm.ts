@@ -104,7 +104,7 @@ export const CRM: GuideEntry[] = [
     id: 'crm-customers',
     screen: 'console',
     target: 'crm-customers',
-    title: 'Consent, by command',
+    title: 'Changing a customer’s consent',
     what: 'Sixty made-up customers, read from the CRM’s projection, not from the orders. A consent change is a command to the Customer object.',
     why: 'Commands go to the object that owns the customer and the list is only a view, so the list can be rebuilt and never decides.',
     whenNot:

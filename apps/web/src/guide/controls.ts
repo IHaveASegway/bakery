@@ -180,7 +180,7 @@ export const CONTROLS: GuideEntry[] = [
     id: 'controls-new-sandbox',
     screen: 'console',
     target: 'controls-actions',
-    title: 'Starting again from a fresh seed',
+    title: 'A fresh sandbox',
     what: 'A signed-in account keeps one current sandbox. Making a new one with replace deletes the old one first.',
     why: 'Without replace, create returns the sandbox you already have, so a double click never makes two.',
     whenNot: 'Not for two sandboxes side by side: an account has one at a time.',

@@ -60,7 +60,7 @@ export const SIGNIN: GuideEntry[] = [
     id: 'signin-providers',
     screen: 'signin',
     target: 'signin-providers',
-    title: 'Google or GitHub, learning nothing',
+    title: 'Signing in with Google or GitHub',
     what: 'Google and GitHub tell the bakery only a number for the account, kept as a keyed hash. These are links: the browser goes to the provider and comes back with a session cookie.',
     why: 'Delegating sign-in means the bakery stores no password and no email for these accounts.',
     whenNot:
