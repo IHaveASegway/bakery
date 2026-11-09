@@ -491,4 +491,93 @@ describe('dist', () => {
       expect(gzipSync(html()).length).toBeLessThan(60_000);
     });
   });
+
+  // ADR 0008, decision 8, asks for a byte budget per page type. This sums, for every built page,
+  // the gzipped bytes of the JavaScript it loads: each module script and modulepreload link, each
+  // island's component and renderer, every chunk those import statically (a dynamic import loads
+  // later and is not counted), and the page's inline scripts. Each file counts once per page.
+  //
+  // Measured 2026-11-09 with node's gzipSync at its default level, per class (the largest page of
+  // the class): tour only 93,993 B (home, privacy); API reference 94,246 B; status 96,768 B;
+  // storefront 103,074 B (menu, sign-in); checkout 119,128 B; console screens 135,699 B (the
+  // console, dispatch, catering and the inbox). Each budget is the measured size plus a quarter,
+  // rounded up to the next 1,000 B. The ADR's own numbers (5,000 B for a public page, 120,000 B for
+  // an app screen or the checkout) are not met today: every island page carries the tour, and its
+  // React runtime is 65,840 B of the total. The budgets here hold the line where the pages are and
+  // fail a page that grows by a quarter. A page that is not named below must load no script.
+  describe('JavaScript per page', () => {
+    const KB = 1_000;
+    const BUDGETS: Record<string, { budget: number; pages: string[] }> = {
+      none: { budget: 0, pages: [] },
+      tour: { budget: 118 * KB, pages: ['index.html', 'privacy/index.html'] },
+      api: { budget: 118 * KB, pages: ['docs/api/index.html'] },
+      status: { budget: 121 * KB, pages: ['status/index.html'] },
+      storefront: { budget: 129 * KB, pages: ['menu/index.html', 'signin/index.html'] },
+      checkout: { budget: 149 * KB, pages: ['checkout/index.html'] },
+      console: {
+        budget: 170 * KB,
+        pages: [
+          'app/index.html',
+          'app/dispatch/index.html',
+          'catering/index.html',
+          'inbox/index.html',
+        ],
+      },
+    };
+    const classOf = (file: string) =>
+      Object.entries(BUDGETS).find(([, c]) => c.pages.includes(file))?.[0] ?? 'none';
+
+    const htmlFiles = (dir: string): string[] =>
+      readdirSync(`${dist}${dir}`).flatMap((name) => {
+        const rel = `${dir}${name}`;
+        if (statSync(`${dist}${rel}`).isDirectory()) return htmlFiles(`${rel}/`);
+        return rel.endsWith('.html') ? [rel] : [];
+      });
+
+    // Static imports of a built chunk: `import"./x.js"`, `import{a}from"./x.js"`, `export*from"./x.js"`.
+    const staticImports = (code: string) =>
+      [
+        ...code.matchAll(
+          /(?:^|[;}\s])(?:import|export)\s*(?:[^'"()]*?from\s*)?["']\.\/([^"']+\.js)["']/g,
+        ),
+      ].map((m) => m[1]);
+
+    const scriptBytes = async (html: string) => {
+      const { gzipSync } = await import('node:zlib');
+      const queue = [
+        ...[...html.matchAll(/<script[^>]*\ssrc="\/_astro\/([^"]+)"/g)].map((m) => m[1]),
+        ...[...html.matchAll(/<link[^>]*rel="modulepreload"[^>]*href="\/_astro\/([^"]+)"/g)].map(
+          (m) => m[1],
+        ),
+        ...[...html.matchAll(/(?:component|renderer)-url="\/_astro\/([^"]+)"/g)].map((m) => m[1]),
+      ];
+      const seen = new Set<string>();
+      let bytes = 0;
+      for (let name = queue.pop(); name !== undefined; name = queue.pop()) {
+        if (seen.has(name)) continue;
+        seen.add(name);
+        const code = page(`_astro/${name}`);
+        bytes += gzipSync(code).length;
+        queue.push(...staticImports(code));
+      }
+      for (const m of html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)) {
+        bytes += gzipSync(m[1] ?? '').length;
+      }
+      return bytes;
+    };
+
+    const files = htmlFiles('');
+
+    test('every page named in a class is built', () => {
+      for (const c of Object.values(BUDGETS)) for (const f of c.pages) expect(files).toContain(f);
+    });
+
+    test.each(files)('%s stays inside its class budget', async (file) => {
+      const cls = classOf(file);
+      const bytes = await scriptBytes(page(file));
+      expect(bytes, `${file} (${cls}): ${bytes} B gzipped`).toBeLessThanOrEqual(
+        BUDGETS[cls]?.budget ?? 0,
+      );
+    });
+  });
 });

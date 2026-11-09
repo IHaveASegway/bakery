@@ -1,5 +1,5 @@
 // The dispatch day is kept in the address (audit N13), and the catering page says what is true signed out (P4).
-import { demoAccount, expect, liveSandbox, test } from './fixtures';
+import { demoAccount, expect, expectNoAxeViolations, liveSandbox, test } from './fixtures';
 
 test('the dispatch day is kept in the address and survives a reload', async ({ page }) => {
   await demoAccount(page);
@@ -7,6 +7,7 @@ test('the dispatch day is kept in the address and survives a reload', async ({ p
   await page.goto('/app/dispatch/');
   const day = page.getByLabel('Day');
   await expect(day).toBeEnabled();
+  await expectNoAxeViolations(page);
   const options = await day
     .locator('option')
     .evaluateAll((o) => o.map((x) => x.getAttribute('value')));
@@ -32,5 +33,6 @@ test.describe('signed out', () => {
       page.getByText('You have no sandbox yet, so there are no catering events to show.'),
     ).toBeVisible();
     await expect(page.getByText('seed menu')).toHaveCount(0);
+    await expectNoAxeViolations(page);
   });
 });
