@@ -143,7 +143,7 @@ export const CONTROLS: GuideEntry[] = [
     screen: 'console',
     target: 'controls-clock',
     title: 'The clock',
-    what: 'Business time is the wall clock plus an offset the Sandbox keeps and hands to every object. When it moves, each object works out its timers again.',
+    what: 'Business time is the wall clock plus an offset the Sandbox keeps and hands to every object. It only moves forward, at most 14 days ahead. When it moves, each object works out its timers again.',
     why: 'Moving business time shows an expiry or a week’s reminder in one click.',
     whenNot:
       'Not for the platform’s own clocks: cookies, Stripe’s timestamps and the nightly wipe keep wall time.',
