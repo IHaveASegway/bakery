@@ -28,7 +28,7 @@ export function resolveAnchor(first: unknown, fallbacks: (() => Element | null)[
  * The thing a pressed control is about: the card or row it sits in (a board card, a table row),
  * so the note sits beside the whole card and never over the card that just moved.
  */
-function around(element: Element): Element {
+export function around(element: Element): Element {
   return element.closest('li, tr') ?? element;
 }
 

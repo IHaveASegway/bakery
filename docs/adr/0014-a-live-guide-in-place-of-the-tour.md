@@ -26,7 +26,7 @@ Facts, as of 2026-11-09 (measured in this change's worktree):
 3. **A trace store in the page,** `apps/web/src/lib/trace.ts`, takes evidence from sources behind one interface: the page's own writes (a hook in `send`: route, method, path, status, time and key, never a body), the socket's commands, answers and envelopes, and the activity feed's new entries. An event belongs to the visitor's action when its `cause` is the action's key or the id of an event that does; a simulated event never does, so simulated traffic opens no note. A third source, the server's flight recorder, is typed and not built; it plugs in without changing the notes.
 4. **The switch** is on by default and remembered for the browser tab in `sessionStorage` (`bakery-guide` = `off` while off); the privacy page says so.
 5. **The How it's built page gains a decision table** from the same entries: one row a principle, with the tool, why here, when it is the wrong tool and the essay. It loads no script.
-6. **The layer loads after the island mounts.** The bar and the trace store are in the first load; the notes, hotspots, panel and entries are a chunk of 22,125 B gzipped that a dynamic import brings (measured 2026-11-09).
+6. **The layer loads after the island mounts.** The bar and the trace store are in the first load; the notes, hotspots, panel and entries are a chunk of 22,229 B gzipped that a dynamic import brings (measured 2026-11-09).
 
 ## Alternatives considered
 
@@ -51,7 +51,7 @@ Bad:
 
 - The guide sees only what the page sees. On a page with no socket (the checkout) the events are shown as expected, not observed, until the activity feed or, later, the recorder says otherwise.
 - A note is placed by script after mount, so it can lag a frame behind a page that moves under it; and with no room on any side it docks in a corner, further from its anchor.
-- The guide's dark layer has its own colours in `apps/web/src/styles/guide.css`, outside `apps/web/src/styles/tokens.css`, whose header says it is the one file that holds a colour. The layer is the same in both schemes on purpose, and its colours are held by their own contrast test, `apps/web/test/guide-tokens.test.ts`.
+- The guide's layer is dark in both schemes, so its colours (the `guide-*` roles in `apps/web/src/styles/tokens.css`) are the same in every theme block, and a hotspot needs a disc and a ring so that one of the two shows on a light page and the other on a dark one; `apps/web/test/tokens.test.ts` holds both.
 - The click that marks an action as the visitor's is a heuristic: a write that starts more than 2 s after the click is treated as the page's own.
 
 ## When not to do this

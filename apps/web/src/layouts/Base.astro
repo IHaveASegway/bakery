@@ -19,7 +19,7 @@ interface Props {
 const { title, description, screen } = Astro.props;
 
 // The public shell: the bakery's name, the nav and the footer, on every page. Plain links; a page
-// with the tour also runs the small script that turns "Sign in" into "Console" (SessionLink.astro).
+// with the guide also runs the small script that turns "Sign in" into "Console" (SessionLink.astro).
 const NAV = [
   { href: '/menu/', label: 'Menu' },
   { href: '/catering/', label: 'Catering' },
@@ -141,7 +141,7 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
     <main id="main" tabindex="-1">
       <slot />
     </main>
-    <footer class={screen ? 'site-footer with-tour' : 'site-footer'}>
+    <footer class={screen ? 'site-footer with-guide' : 'site-footer'}>
       <div class="footer-inner">
         <nav aria-label="More">
           <ul class="footer-nav">

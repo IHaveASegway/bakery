@@ -159,6 +159,9 @@
   --guide-text: oklch(0.97 0.01 240);
   --guide-muted: oklch(0.8 0.02 248);
   --guide-accent: oklch(0.82 0.14 212);
+  --guide-edge: oklch(0.62 0.03 255);
+  --guide-accent-ink: oklch(0.2 0.03 262);
+  --guide-bad: oklch(0.8 0.1 28);
   /* The names the earlier pages and the site's copy read, kept as the roles above. */
   --background: var(--surface);
   --surface-1: var(--surface-raised);
@@ -255,6 +258,9 @@
   --guide-text: oklch(0.97 0.01 240);
   --guide-muted: oklch(0.8 0.02 248);
   --guide-accent: oklch(0.82 0.14 212);
+  --guide-edge: oklch(0.62 0.03 255);
+  --guide-accent-ink: oklch(0.2 0.03 262);
+  --guide-bad: oklch(0.8 0.1 28);
   --background: var(--surface);
   --surface-1: var(--surface-raised);
   --surface-2: oklch(0.235 0.02 262);
@@ -363,6 +369,9 @@
     --guide-text: oklch(0.97 0.01 240);
     --guide-muted: oklch(0.8 0.02 248);
     --guide-accent: oklch(0.82 0.14 212);
+    --guide-edge: oklch(0.62 0.03 255);
+    --guide-accent-ink: oklch(0.2 0.03 262);
+    --guide-bad: oklch(0.8 0.1 28);
     --background: var(--surface);
     --surface-1: var(--surface-raised);
     --surface-2: oklch(0.235 0.02 262);

@@ -2,9 +2,9 @@
   The guide, "Under the hood" (components/Guide.tsx; docs/architecture.md, "The guide"; ADR 0014).
 
   Its layer is dark in both colour schemes, so it never reads as part of the bakery. Its colours are
-  its own custom properties, scoped to its root (.guide-layer), and test/guide-tokens.test.ts holds
+  the guide-* roles in tokens.css, the same in every theme block, and test/tokens.test.ts holds
   every pair: text 4.5 to 1 on each of the layer's surfaces, and the edge of anything that floats
-  over the page 3 to 1 against the page's background in both schemes. This sheet styles nothing
+  over the page 3 to 1 against the page's surfaces in both schemes. This sheet styles nothing
   outside the guide but the ring on the element a note points at, which uses the page's own ring.
 
   Nothing is positioned from markup: a note's place and caret are set through the style object
@@ -13,17 +13,6 @@
 */
 
 .guide-layer {
-  --guide-surface: #171a21;
-  --guide-raised: #232731;
-  --guide-hairline: #333947;
-  --guide-edge: #7a8499;
-  --guide-text: #eef0f5;
-  --guide-muted: #aab1bf;
-  --guide-accent: #8fb8ff;
-  --guide-accent-ink: #0d1424;
-  --guide-bad: #ffa59a;
-  --guide-shadow: 0 8px 24px rgb(0 0 0 / 0.28), 0 2px 6px rgb(0 0 0 / 0.2);
-
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.5;
@@ -37,7 +26,7 @@
   min-height: 28px;
   margin: 0;
   padding: 4px 10px;
-  border: 1px solid var(--guide-hairline);
+  border: 1px solid var(--guide-border);
   border-radius: 6px;
   background: transparent;
   color: var(--guide-text);
@@ -53,7 +42,7 @@
 
 .guide-layer button:disabled {
   border-style: solid;
-  border-color: var(--guide-hairline);
+  border-color: var(--guide-border);
   background: transparent;
   color: var(--guide-muted);
   cursor: default;
@@ -97,7 +86,7 @@
   border: 1px solid var(--guide-edge);
   border-radius: 10px;
   background: var(--guide-surface);
-  box-shadow: var(--guide-shadow);
+  box-shadow: var(--shadow-raised);
 }
 
 .guide-layer .guide-switch,
@@ -219,7 +208,7 @@
   border: 1px solid var(--guide-edge);
   border-radius: 10px;
   background: var(--guide-surface);
-  box-shadow: var(--guide-shadow);
+  box-shadow: var(--shadow-raised);
   animation: guide-in 180ms ease-out;
   overscroll-behavior: contain;
 }
@@ -320,7 +309,7 @@
   gap: 8px;
   margin: 0 0 10px;
   padding: 0 0 0 14px;
-  border-left: 2px solid var(--guide-hairline);
+  border-left: 2px solid var(--guide-border);
   list-style: none;
 }
 
@@ -374,7 +363,7 @@
   max-width: 100%;
   overflow-wrap: anywhere;
   padding: 1px 6px;
-  border: 1px solid var(--guide-hairline);
+  border: 1px solid var(--guide-border);
   border-radius: 4px;
   background: var(--guide-raised);
   color: var(--guide-text);
@@ -413,7 +402,7 @@
   display: grid;
   gap: 8px;
   padding-top: 10px;
-  border-top: 1px solid var(--guide-hairline);
+  border-top: 1px solid var(--guide-border);
 }
 
 .guide-label {
@@ -463,7 +452,7 @@
   margin: 6px 0;
   padding: 8px;
   overflow-x: auto;
-  border: 1px solid var(--guide-hairline);
+  border: 1px solid var(--guide-border);
   border-radius: 6px;
   background: var(--guide-raised);
 }
@@ -519,7 +508,7 @@
   border: 1px solid var(--guide-edge);
   border-radius: 10px;
   background: var(--guide-surface);
-  box-shadow: var(--guide-shadow);
+  box-shadow: var(--shadow-raised);
   overscroll-behavior: contain;
 }
 
@@ -600,7 +589,7 @@
     border: 1px solid var(--guide-edge);
     border-radius: 10px;
     background: var(--guide-surface);
-    box-shadow: var(--guide-shadow);
+    box-shadow: var(--shadow-raised);
   }
 
   .guide-extra .guide-quiet {

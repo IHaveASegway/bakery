@@ -6,7 +6,7 @@ import { describeCrmError } from '../lib/crm-errors';
 import { type Message as Text } from '../lib/messages';
 import GuestNote from './GuestNote';
 import Message from './Message';
-import { HOW } from '../tour/how';
+import { HOW } from '../guide/how';
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 

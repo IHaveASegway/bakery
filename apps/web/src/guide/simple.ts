@@ -60,7 +60,7 @@ export const SIGNIN: GuideEntry[] = [
     id: 'signin-providers',
     screen: 'signin',
     target: 'signin-providers',
-    title: 'Sign in with an account you have',
+    title: 'Google or GitHub, learning nothing',
     what: 'Google and GitHub tell the bakery only a number for the account, kept as a keyed hash. These are links: the browser goes to the provider and comes back with a session cookie.',
     why: 'Delegating sign-in means the bakery stores no password and no email for these accounts.',
     whenNot:
@@ -415,7 +415,7 @@ export const PRIVACY: GuideEntry[] = [
     id: 'privacy-wipe',
     screen: 'privacy',
     target: 'privacy-wipe',
-    title: 'Wipe now',
+    title: 'Deleting the sandbox at once',
     what: 'Wipe now runs the night’s wipe for your sandbox alone, right away. There is no undo.',
     why: 'The Sandbox registers every object it makes, so one command can find and delete all of them.',
     whenNot:

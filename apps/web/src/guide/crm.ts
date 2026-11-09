@@ -104,7 +104,7 @@ export const CRM: GuideEntry[] = [
     id: 'crm-customers',
     screen: 'console',
     target: 'crm-customers',
-    title: 'Customers and consent',
+    title: 'Consent, by command',
     what: 'Sixty made-up customers, read from the CRM’s projection, not from the orders. A consent change is a command to the Customer object.',
     why: 'Commands go to the object that owns the customer and the list is only a view, so the list can be rebuilt and never decides.',
     whenNot:
@@ -124,7 +124,7 @@ export const CRM: GuideEntry[] = [
     id: 'crm-segments',
     screen: 'console',
     target: 'crm-segments',
-    title: 'Segments',
+    title: 'Who a campaign reaches',
     what: 'Five segments, each a query over the CRM’s projections, with a count and a sample. Campaigns are aimed at them.',
     why: 'A projection shaped for the question makes a count one query, not a scan of every order.',
     whenNot: 'Not for a count that must be exact to the second: it trails the events by a moment.',
@@ -217,7 +217,7 @@ export const CRM: GuideEntry[] = [
     id: 'crm-leads',
     screen: 'console',
     target: 'crm-leads',
-    title: 'The catering lead pipeline',
+    title: 'Catering, stage by stage',
     what: 'Catering events grouped by stage, from inquiry to won or lost. It is another projection of the same events.',
     why: 'Another view of the same events costs one more consumer, not a change to the catering object.',
     whenNot:

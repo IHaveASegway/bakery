@@ -548,3 +548,29 @@ describe('the writes no entry names', () => {
     }
   });
 });
+
+describe('a hotspot’s name never contains a control’s', () => {
+  // A hotspot is a button named "Under the hood: <title>". Role queries match names by substring,
+  // so a title holding a control's label (an entry titled "Wipe now") makes the page's own button
+  // ambiguous for a screen reader's list and for every spec that presses it. The specs' button
+  // names are the controls a visitor presses; the guide's own (its bar and its panel) are left out.
+  test('no entry’s hotspot name holds a button name the browser specs press', () => {
+    const dir = new URL('../e2e/', import.meta.url);
+    const names = new Set<string>();
+    for (const file of readdirSync(dir).filter((f) => f.endsWith('.ts'))) {
+      const text = readFileSync(new URL(file, dir), 'utf8');
+      for (const m of text.matchAll(/getByRole\(\s*'button',\s*\{\s*name:\s*'([^']+)'/g)) {
+        names.add(m[1] as string);
+      }
+    }
+    const own = ['Under the hood', 'Show me around', 'Recorder', 'Where the menu came from'];
+    const pressed = [...names].filter((n) => !own.some((o) => n.startsWith(o)));
+    expect(pressed.length).toBeGreaterThan(5);
+    const hits = allSteps.flatMap((entry) =>
+      pressed
+        .filter((n) => `Under the hood: ${entry.title}`.toLowerCase().includes(n.toLowerCase()))
+        .map((n) => `${entry.id} ~ ${n}`),
+    );
+    expect(hits).toEqual([]);
+  });
+});

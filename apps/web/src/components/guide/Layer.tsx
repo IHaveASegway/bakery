@@ -64,6 +64,12 @@ export default function Layer({
   useEffect(() => {
     if (!on) setLive(null);
   }, [on]);
+  // The recorder shows what a note shows; while it is open, no note lies over it.
+  useEffect(() => {
+    if (!panel) return;
+    setLive(null);
+    setStanding(null);
+  }, [panel]);
 
   const group = useMemo(
     () =>
@@ -75,14 +81,22 @@ export default function Layer({
     // The entry is chosen once the first request is known; later evidence does not change it.
     [live?.gesture, group[0]?.id, screen],
   );
-  const liveAnchor = useCallback(
-    () =>
-      resolveAnchor(live === null ? null : traces.anchorOf(live.gesture), [
-        focusInPage,
-        () => (liveEntry === null ? null : targetOf(liveEntry.target)),
-      ]),
-    [live, liveEntry],
-  );
+  // The pressed element; once it has gone (a card drawn again in its new column), the element the
+  // page put the focus on; while the focus is elsewhere (the recorder), the last such element; and
+  // only then the entry's own element.
+  const lastFocused = useRef<Element | null>(null);
+  const liveAnchor = useCallback(() => {
+    const focused = focusInPage();
+    if (focused !== null) lastFocused.current = focused;
+    return resolveAnchor(live === null ? null : traces.anchorOf(live.gesture), [
+      () => focused,
+      () => lastFocused.current,
+      () => (liveEntry === null ? null : targetOf(liveEntry.target)),
+    ]);
+  }, [live, liveEntry]);
+  useEffect(() => {
+    lastFocused.current = null;
+  }, [live?.gesture]);
   // One sentence, once, when the first answer is in.
   const first = group[0];
   useEffect(() => {
@@ -330,13 +344,14 @@ function Hotspots({
         if (element === null) continue;
         const rect = element.getBoundingClientRect();
         if (rect.width === 0 && rect.height === 0) continue;
-        // Outside the element's top-right corner when there is room, else just inside it.
+        // Outside the element's top-right corner when there is room; on a narrow screen, just
+        // above its right end instead, so the mark never sits on the text it explains.
         const outside = rect.right + 8 + 28 <= width;
         next.push({
           target: entry.target,
           title: entry.title,
-          top: Math.round(rect.top + window.scrollY),
-          left: Math.round((outside ? rect.right + 8 : rect.right - 28) + window.scrollX),
+          top: Math.round((outside ? rect.top : Math.max(0, rect.top - 28)) + window.scrollY),
+          left: Math.round((outside ? rect.right + 8 : rect.right - 24) + window.scrollX),
         });
       }
       setShown((before) => (JSON.stringify(before) === JSON.stringify(next) ? before : next));

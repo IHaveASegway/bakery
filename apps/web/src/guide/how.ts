@@ -1,6 +1,6 @@
-// The "How this works" lines each screen carries, kept in one place so the screen and the first
-// step of its tour say the same words (docs/architecture.md, "The tour": the drawer is one of the
-// tour's steps). A component renders `How this works: ${HOW.x}`; a tour step's `what` is HOW.x.
+// The "How this works" lines some screens carry, kept in one place. A component renders
+// `How this works: ${HOW.x}`. The guide's entries for the same elements say it shorter, in three
+// sentences at most (docs/architecture.md, "The guide").
 export const HOW = {
   menuSeed:
     'This is the demo’s seed menu, the one every new sandbox starts with. With a sandbox, the menu comes from its own Catalog through the API.',

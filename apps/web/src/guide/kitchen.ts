@@ -84,7 +84,7 @@ export const KITCHEN: GuideEntry[] = [
     id: 'kitchen-ledger',
     screen: 'console',
     target: 'kitchen-ledger',
-    title: 'The ledger',
+    title: 'The payments record',
     what: 'Every payment, refund and invoice the Billing object has recorded, newest first. It is written from Stripe’s own events.',
     why: 'Writing the ledger from the provider’s events means it can be checked line by line against Stripe.',
     whenNot: 'Not a live balance: a payment shows here only after its webhook arrives.',

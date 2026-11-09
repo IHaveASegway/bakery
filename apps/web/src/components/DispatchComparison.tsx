@@ -1,5 +1,5 @@
 import { clockText, type BrowserSolver, type Figures, type Report } from '../lib/dispatch';
-import { HOW } from '../tour/how';
+import { HOW } from '../guide/how';
 
 const SOURCE_NAMES = { server: 'Server (savings heuristic)', browser: 'Browser (VROOM)' } as const;
 

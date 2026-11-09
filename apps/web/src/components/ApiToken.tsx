@@ -11,7 +11,7 @@ import Message from './Message';
  * The console's API token (Q42 · Q-api-access, docs/security.md, "The API token"). Signed-in
  * sandboxes only. "Issue token" shows the new token once, in a box with a copy button; "Rotate"
  * makes a new one and the old stops at once. The token is held in this page's memory
- * (lib/token-store.ts) so the tour can fill its curl examples, and nowhere else: not localStorage,
+ * (lib/token-store.ts) so the guide can fill its curl examples, and nowhere else: not localStorage,
  * not a cookie, not a URL. A guest sees the panel switched off.
  */
 export default function ApiToken({ sandboxId, isGuest }: { sandboxId: string; isGuest: boolean }) {

@@ -13,7 +13,7 @@ import { describeError, type Message as Text } from '../lib/messages';
 import { whenText } from '../lib/when';
 import GuestNote from './GuestNote';
 import Message from './Message';
-import { HOW } from '../tour/how';
+import { HOW } from '../guide/how';
 
 /**
  * Time travel: the business clock shown live, and four steps that move it forward. Business time

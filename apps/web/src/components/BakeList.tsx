@@ -1,7 +1,7 @@
 import { bakeLineText, groupBakeLines, type BakeList as Day } from '../lib/kitchen';
 import { dateLabel } from '../lib/schedule';
 import { clockOfText } from '../lib/when';
-import { HOW } from '../tour/how';
+import { HOW } from '../guide/how';
 
 /**
  * The kitchen board's bake lists, one panel per bakery day, today first: what to have ready for

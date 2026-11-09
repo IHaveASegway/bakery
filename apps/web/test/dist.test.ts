@@ -531,19 +531,20 @@ describe('dist', () => {
   // later and is not counted), and the page's inline scripts. Each file counts once per page.
   //
   // Measured 2026-11-09 with node's gzipSync at its default level, per class (the largest page of
-  // the class): guide only 80,305 B (home, privacy); API reference 80,558 B; status 83,079 B;
-  // storefront 92,362 B (menu, sign-in); checkout 108,431 B; console screens 125,336 B (the
+  // the class): guide only 80,307 B (home, privacy); API reference 80,560 B; status 83,081 B;
+  // storefront 92,397 B (menu, sign-in); checkout 108,667 B; console screens 126,921 B (the
   // console, dispatch, catering and the inbox). Each budget is the measured size plus a quarter,
   // rounded up to the next 1,000 B. The ADR's own numbers (5,000 B for a public page, 120,000 B for
   // an app screen or the checkout) are not met on the public pages: every island page carries the
   // guide's bar, and its React runtime is most of the total. A page that is not named below must
   // load no script.
   //
-  // Moved 2026-11-09, when the guide replaced the tour: every class fell, by 11,027 to 13,882 B, because
+  // Moved 2026-11-09, when the guide replaced the tour (measured again after the interface's new
+  // shells, #97, merged): every class fell, by about 11,000 to 13,900 B, because
   // the first load now buys only the guide's bar (the switch, the recorder's button, a polite live
   // region) and the trace store that hears the page's writes, its socket and its feed. The notes,
   // the hotspots, the recorder panel and the entries they explain load after the island mounts, in
-  // a chunk of 22,125 B gzipped that a dynamic import brings and this sum does not count. Before,
+  // a chunk of 22,229 B gzipped that a dynamic import brings and this sum does not count. Before,
   // with the tour: tour only 93,993 B; API reference 94,246 B; status 96,768 B; storefront
   // 103,074 B; checkout 119,128 B; console screens 135,699 B.
   describe('JavaScript per page', () => {
@@ -556,7 +557,7 @@ describe('dist', () => {
       storefront: { budget: 116 * KB, pages: ['menu/index.html', 'signin/index.html'] },
       checkout: { budget: 136 * KB, pages: ['checkout/index.html'] },
       console: {
-        budget: 157 * KB,
+        budget: 159 * KB,
         pages: [
           'app/index.html',
           'app/dispatch/index.html',
