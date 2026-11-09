@@ -15,12 +15,21 @@ export const LINGER_MS = 8_000;
  * the event arrives; the board puts the focus on the new one, which is the first fallback.
  */
 export function resolveAnchor(first: unknown, fallbacks: (() => Element | null)[]): Element | null {
-  if (first instanceof Element && first.isConnected) return first;
+  if (typeof Element === 'undefined') return null;
+  if (first instanceof Element && first.isConnected) return around(first);
   for (const next of fallbacks) {
     const found = next();
-    if (found !== null && found.isConnected) return found;
+    if (found !== null && found.isConnected) return around(found);
   }
   return null;
+}
+
+/**
+ * The thing a pressed control is about: the card or row it sits in (a board card, a table row),
+ * so the note sits beside the whole card and never over the card that just moved.
+ */
+function around(element: Element): Element {
+  return element.closest('li, tr') ?? element;
 }
 
 /**
@@ -53,14 +62,23 @@ export function Note({
   const [inside, setInside] = useState({ pointer: false, focus: false });
   const [corner, setCorner] = useState(false);
 
-  // Place the note, and keep it placed while the page scrolls or resizes, one frame at a time.
+  // Place the note beside its anchor, ring the anchor, and keep both right while the page
+  // scrolls, resizes or redraws (a card that moved is a new element), one frame at a time.
   useLayoutEffect(() => {
     const note = box.current;
     if (note === null) return;
     let frame = 0;
+    let ringed: Element | null = null;
+    const ring = (target: Element | null) => {
+      if (target === ringed) return;
+      ringed?.removeAttribute('data-guide-anchor');
+      target?.setAttribute('data-guide-anchor', '');
+      ringed = target;
+    };
     const place = () => {
       frame = 0;
       const target = anchor();
+      ring(target);
       if (window.matchMedia(PHONE).matches || target === null) {
         note.style.removeProperty('top');
         note.style.removeProperty('left');
@@ -68,17 +86,23 @@ export function Note({
         setCorner(target === null);
         return;
       }
-      setCorner(false);
       const rect = target.getBoundingClientRect();
       const at = placeNote(
         { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
         { width: note.offsetWidth, height: note.offsetHeight },
         { width: document.documentElement.clientWidth, height: window.innerHeight - BAR_ROOM },
       );
+      setCorner(false);
+      if (at.scroll !== undefined && at.scroll !== 0) {
+        // Docked, and the anchor was under the dock: move the page once so it shows above it.
+        // The scroll calls place again, which then finds the anchor clear.
+        window.scrollBy({ top: at.scroll, behavior: 'auto' });
+      }
       note.style.top = `${Math.round(at.top)}px`;
       note.style.left = `${Math.round(at.left)}px`;
       note.style.setProperty('--guide-caret', `${Math.round(at.caret)}px`);
-      note.setAttribute('data-side', at.side);
+      if (at.side === 'none') note.removeAttribute('data-side');
+      else note.setAttribute('data-side', at.side);
     };
     const soon = () => {
       if (frame === 0) frame = requestAnimationFrame(place);
@@ -86,22 +110,22 @@ export function Note({
     place();
     window.addEventListener('scroll', soon, { passive: true, capture: true });
     window.addEventListener('resize', soon);
-    const watch = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(soon);
-    watch?.observe(note);
+    const sizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(soon);
+    sizes?.observe(note);
+    const main = document.querySelector('main');
+    const redraws = typeof MutationObserver === 'undefined' ? null : new MutationObserver(soon);
+    if (main !== null) redraws?.observe(main, { childList: true, subtree: true });
+    // The focus moving (the board puts it on a moved card's next button) can change the anchor.
+    document.addEventListener('focusin', soon);
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener('scroll', soon, { capture: true });
       window.removeEventListener('resize', soon);
-      watch?.disconnect();
+      sizes?.disconnect();
+      redraws?.disconnect();
+      document.removeEventListener('focusin', soon);
+      ring(null);
     };
-  }, [anchor, changed]);
-
-  // The ring on the anchor, by an attribute the guide's sheet draws.
-  useEffect(() => {
-    const target = anchor();
-    if (target === null) return;
-    target.setAttribute('data-guide-anchor', '');
-    return () => target.removeAttribute('data-guide-anchor');
   }, [anchor, changed]);
 
   // Close after a while, unless pinned or in use.

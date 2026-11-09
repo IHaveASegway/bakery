@@ -9,12 +9,6 @@ const routeOf = routeMatcher(ROUTE_SHAPES);
 export const routeIdOf = (trace: Trace): string | null =>
   trace.transport === 'socket' ? 'kitchen-socket' : routeOf(trace.method, trace.path);
 
-/** The route's path template for a trace, such as `/v1/sandboxes/{id}/orders/{oid}/payment`. */
-export function templateOf(trace: Trace): string | null {
-  const id = routeIdOf(trace);
-  return ROUTE_SHAPES.find((shape) => shape.routeId === id)?.path ?? null;
-}
-
 /** The entry that explains what the visitor's traces did. */
 export function entryForTraces(group: readonly Trace[], screen: ScreenId, anchor: unknown) {
   const first = group[0];

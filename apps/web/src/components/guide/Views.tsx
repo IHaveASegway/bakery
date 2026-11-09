@@ -10,16 +10,24 @@ import {
 import { liveToken, tokenStore } from '../../lib/token-store';
 import { expectedHops, type FeedArrival, type Trace } from '../../lib/trace';
 import { useSandboxPhase } from '../../lib/use-session';
-import { templateOf } from './match';
+import { ROUTE_SHAPES } from '../../guide';
+import { routeIdOf } from './match';
 import { ulid } from '../../lib/ulid';
 
 // ---- Words, pure, so the tests can read them ----
 
-/** A path as a note shows it: the sandbox's part folded to `…`, a query string dropped. */
+/**
+ * A path as a note shows it: the sandbox's part folded to `…`, every long id cut to its last six
+ * characters as the board shows an order (`…/orders/…M6TY92/payment`), a query string dropped.
+ */
 export function shortPath(path: string): string {
   const bare = path.split('?')[0] ?? path;
   const rest = bare.replace(/^\/v1\/sandboxes\/[^/]+/, '');
-  return rest === bare ? bare : rest === '' ? '…/{sandbox}' : `…${rest}`;
+  const short = (rest === bare ? bare : rest === '' ? '…/{sandbox}' : `…${rest}`)
+    .split('/')
+    .map((part) => (part.length > 12 && !part.startsWith('{') ? shortId(part) : part))
+    .join('/');
+  return short;
 }
 
 /** The object a stream belongs to, as the domain names it: `order:…` is the Order object. */
@@ -36,13 +44,21 @@ export function objectOf(stream: string | null): string | null {
 export const actionWords = (action: string | null) => (action ?? 'command').replaceAll('_', ' ');
 
 /**
- * The first hop of a trace: what was sent and what came back. With the route's template the path
- * reads `…/orders/{oid}/payment`, not the order's own id, which the page already shows.
+ * What a request row is, in a word or two: the last fixed part of its route's path, such as
+ * "Orders", "Payment" or "Publish", so two requests from one click read apart.
  */
-export function requestText(
-  trace: Trace,
-  template: string | null = null,
-): { sent: string; answer: string } {
+export function requestLabel(trace: Trace): string {
+  const shape = ROUTE_SHAPES.find((r) => r.routeId === routeIdOf(trace));
+  const word = shape?.path
+    .split('/')
+    .filter((part) => part !== '' && !part.startsWith('{'))
+    .at(-1);
+  if (word === undefined || word === 'v1') return 'Request';
+  return (word.charAt(0).toUpperCase() + word.slice(1)).replaceAll('-', ' ');
+}
+
+/** The first hop of a trace: what was sent and what came back. */
+export function requestText(trace: Trace): { sent: string; answer: string } {
   if (trace.transport === 'socket') {
     const answer =
       trace.outcome === 'pending'
@@ -55,7 +71,7 @@ export function requestText(
     return { sent: `cmd ${trace.action ?? ''}`.trim(), answer };
   }
   return {
-    sent: `${trace.method} ${shortPath(template ?? trace.path)}`,
+    sent: `${trace.method} ${shortPath(trace.path)}`,
     answer: trace.status === null ? 'no answer' : String(trace.status),
   };
 }
@@ -167,7 +183,7 @@ export function TraceChain({
   return (
     <ol className="guide-chain">
       {traces.map((trace) => {
-        const { sent, answer } = requestText(trace, templateOf(trace));
+        const { sent, answer } = requestText(trace);
         const bad = trace.outcome === 'refused' || trace.outcome === 'failed';
         return (
           <li
@@ -176,23 +192,27 @@ export function TraceChain({
             data-state={trace.outcome === 'pending' ? 'expected' : 'observed'}
           >
             <span className="guide-hop-kind">
-              {trace.transport === 'socket' ? 'Sent' : 'Request'}
+              {trace.transport === 'socket' ? 'Sent' : requestLabel(trace)}
             </span>
-            <code className="guide-chip">{sent}</code>
-            <code className={bad ? 'guide-chip guide-chip-bad' : 'guide-chip'}>{answer}</code>
-            {trace.ms !== null && <span className="guide-meta">{trace.ms} ms</span>}
-            {trace.key !== null && (
-              <span className="guide-meta" title={trace.key}>
-                {trace.transport === 'socket' ? 'id' : 'key'} <code>{shortId(trace.key)}</code>
-              </span>
-            )}
+            <span className="guide-hop-body">
+              <code className="guide-chip">{sent}</code>
+              <code className={bad ? 'guide-chip guide-chip-bad' : 'guide-chip'}>{answer}</code>
+              {trace.ms !== null && <span className="guide-meta">{trace.ms} ms</span>}
+              {trace.key !== null && (
+                <span className="guide-meta" title={trace.key}>
+                  {trace.transport === 'socket' ? 'id' : 'key'} <code>{shortId(trace.key)}</code>
+                </span>
+              )}
+            </span>
           </li>
         );
       })}
       {decider !== null && (
         <li className="guide-hop" data-state="observed">
           <span className="guide-hop-kind">Decided</span>
-          <span>by the {decider} object</span>
+          <span className="guide-hop-body">
+            <span>by the {decider} object</span>
+          </span>
         </li>
       )}
       {hops.map((hop) => {
@@ -203,26 +223,28 @@ export function TraceChain({
             <span className="guide-hop-kind">
               {hop.state === 'observed' && event?.source === 'socket' ? 'Came back' : 'Event'}
             </span>
-            <code className="guide-chip">{hop.type}</code>
-            {hop.state === 'observed' && event !== null ? (
-              <span className="guide-meta">
-                {event.seq !== null && <>seq {event.seq}</>}
-                {event.stream !== null && <> on {objectOf(event.stream)}</>}
-                {event.lagMs !== undefined && <>, {event.lagMs} ms after it was written</>}
-              </span>
-            ) : (
-              <span className="guide-meta">
-                {hop.state === 'seen-in-feed' ? 'in the activity feed' : 'expected'}
-              </span>
-            )}
-            {delivered.length > 0 && (
-              <span className="guide-meta">
-                to{' '}
-                {delivered
-                  .map((d) => `${d.to}${d.attempt > 1 ? ` (attempt ${d.attempt})` : ''}`)
-                  .join(', ')}
-              </span>
-            )}
+            <span className="guide-hop-body">
+              <code className="guide-chip">{hop.type}</code>
+              {hop.state === 'observed' && event !== null ? (
+                <span className="guide-meta">
+                  {event.seq !== null && <>seq {event.seq}</>}
+                  {event.stream !== null && <> on {objectOf(event.stream)}</>}
+                  {event.lagMs !== undefined && <>, {event.lagMs} ms after it was written</>}
+                </span>
+              ) : (
+                <span className="guide-meta">
+                  {hop.state === 'seen-in-feed' ? 'in the activity feed' : 'expected'}
+                </span>
+              )}
+              {delivered.length > 0 && (
+                <span className="guide-meta">
+                  to{' '}
+                  {delivered
+                    .map((d) => `${d.to}${d.attempt > 1 ? ` (attempt ${d.attempt})` : ''}`)
+                    .join(', ')}
+                </span>
+              )}
+            </span>
           </li>
         );
       })}

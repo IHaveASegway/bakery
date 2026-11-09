@@ -162,10 +162,15 @@ export interface Box {
 export interface Placement {
   top: number;
   left: number;
-  /** The side of the note the caret is on, pointing at the anchor. */
-  side: 'left' | 'right' | 'top' | 'bottom';
+  /** The side of the note the caret is on, pointing at the anchor; `none` when docked. */
+  side: 'left' | 'right' | 'top' | 'bottom' | 'none';
   /** The caret's offset along that side, from the note's corner. */
   caret: number;
+  /**
+   * Docked with no corner clear of the anchor: how far to scroll the page (down, in pixels) so the
+   * anchor sits above the note. Absent when nothing needs to move.
+   */
+  scroll?: number;
 }
 
 /** The gap between the anchor and the note, and the room kept from the window's edges. */
@@ -176,10 +181,21 @@ const CARET_MIN = 16;
 const clamp = (value: number, low: number, high: number) =>
   Math.min(Math.max(value, low), Math.max(low, high));
 
+const overlaps = (a: Box, top: number, left: number, size: { width: number; height: number }) =>
+  !(
+    left >= a.left + a.width ||
+    left + size.width <= a.left ||
+    top >= a.top + a.height ||
+    top + size.height <= a.top
+  );
+
 /**
- * Where a note of `note` size sits beside `anchor` in a `view` (all in window coordinates): to the
- * right if it fits, else to the left, else below, else above, kept inside the window, with the
- * caret pointing at the anchor's middle. A phone's sheet does not use this: CSS puts it at the foot.
+ * Where a note of `note` size sits beside `anchor` in a `view` (all in window coordinates), never
+ * over it: to the right if it fits, else to the left, else below, else above, with the caret
+ * pointing at the anchor's middle. When no side has room it docks in a corner of the window (the
+ * foot first, where the view already stops short of the guide's bar) that does not cover the
+ * anchor, with no caret; the anchor keeps its ring so the eye still finds it. A phone's sheet does
+ * not use this: CSS puts it at the foot.
  */
 export function placeNote(
   anchor: Box,
@@ -188,8 +204,10 @@ export function placeNote(
 ): Placement {
   const middleY = anchor.top + anchor.height / 2;
   const middleX = anchor.left + anchor.width / 2;
-  const fitsRight = anchor.left + anchor.width + GAP + note.width + EDGE <= view.width;
-  const fitsLeft = anchor.left - GAP - note.width >= EDGE;
+  const tallEnough = note.height + 2 * EDGE <= view.height;
+  const fitsRight =
+    tallEnough && anchor.left + anchor.width + GAP + note.width + EDGE <= view.width;
+  const fitsLeft = tallEnough && anchor.left - GAP - note.width >= EDGE;
   if (fitsRight || fitsLeft) {
     const left = fitsRight ? anchor.left + anchor.width + GAP : anchor.left - GAP - note.width;
     const top = clamp(middleY - note.height / 2, EDGE, view.height - note.height - EDGE);
@@ -200,15 +218,36 @@ export function placeNote(
       caret: clamp(middleY - top, CARET_MIN, note.height - CARET_MIN),
     };
   }
-  const below = anchor.top + anchor.height + GAP + note.height + EDGE <= view.height;
-  const top = below ? anchor.top + anchor.height + GAP : anchor.top - GAP - note.height;
-  const left = clamp(middleX - note.width / 2, EDGE, view.width - note.width - EDGE);
-  return {
-    top: clamp(top, EDGE, view.height - note.height - EDGE),
-    left,
-    side: below ? 'top' : 'bottom',
-    caret: clamp(middleX - left, CARET_MIN, note.width - CARET_MIN),
-  };
+  const wideEnough = note.width + 2 * EDGE <= view.width;
+  const below = anchor.top + anchor.height + GAP;
+  const above = anchor.top - GAP - note.height;
+  const fitsBelow = wideEnough && below + note.height + EDGE <= view.height;
+  const fitsAbove = wideEnough && above >= EDGE;
+  if (fitsBelow || fitsAbove) {
+    const left = clamp(middleX - note.width / 2, EDGE, view.width - note.width - EDGE);
+    return {
+      top: fitsBelow ? below : above,
+      left,
+      side: fitsBelow ? 'top' : 'bottom',
+      caret: clamp(middleX - left, CARET_MIN, note.width - CARET_MIN),
+    };
+  }
+  const foot = Math.max(EDGE, view.height - note.height - EDGE);
+  const right = Math.max(EDGE, view.width - note.width - EDGE);
+  const corners = [
+    { top: foot, left: right },
+    { top: foot, left: EDGE },
+    { top: EDGE, left: right },
+    { top: EDGE, left: EDGE },
+  ];
+  const free = corners.find((c) => !overlaps(anchor, c.top, c.left, note));
+  if (free !== undefined) return { ...free, side: 'none', caret: 0 };
+  // No corner is clear: dock at the foot and bring the anchor up above the note, if it fits there.
+  const dock = corners[0]!;
+  const room = dock.top - GAP;
+  const scroll =
+    anchor.height <= room - EDGE ? Math.round(anchor.top + anchor.height - room) : undefined;
+  return { ...dock, side: 'none', caret: 0, ...(scroll === undefined ? {} : { scroll }) };
 }
 
 // ---- The short path ("Show me around") ----

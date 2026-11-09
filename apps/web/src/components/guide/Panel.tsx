@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { GuideEntry, ScreenId } from '../../lib/guide';
 import type { FeedArrival, Trace } from '../../lib/trace';
-import { entryForTraces, expectedFor, routeIdOf, templateOf } from './match';
+import { entryForTraces, expectedFor, routeIdOf } from './match';
 import { EntryBody, TraceChain, WhyLines, requestText } from './Views';
 
 /** The visitor's traces grouped by the click that made them, newest click first. */
@@ -71,7 +71,7 @@ export default function Panel({
             const first = group[0] as Trace;
             const entry = entryForTraces(group, screen, null);
             const id = `trace-${first.id}`;
-            const { sent, answer } = requestText(first, templateOf(first));
+            const { sent, answer } = requestText(first);
             return (
               <li key={id}>
                 <button

@@ -86,6 +86,7 @@
 
 .guide-bar {
   position: fixed;
+  white-space: nowrap;
   right: 16px;
   bottom: 16px;
   z-index: 50;
@@ -100,8 +101,18 @@
 }
 
 .guide-layer .guide-switch,
-.guide-layer .guide-quiet {
+.guide-layer .guide-quiet,
+.guide-layer .guide-more {
   border-color: transparent;
+}
+
+/* On a wide screen the extra buttons sit in the bar and the menu's button is not needed. */
+.guide-extra {
+  display: contents;
+}
+
+.guide-layer .guide-more {
+  display: none;
 }
 
 .guide-layer .guide-switch {
@@ -200,7 +211,7 @@
   left: 0;
   z-index: 40;
   box-sizing: border-box;
-  width: 344px;
+  width: 312px;
   max-width: calc(100vw - 16px);
   max-height: calc(100vh - 16px);
   overflow: auto;
@@ -315,11 +326,18 @@
 
 .guide-hop {
   position: relative;
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.guide-hop-body {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 2px 6px;
-  padding-left: 76px;
+  min-width: 0;
 }
 
 /* A dot on the line for each hop: filled once observed, hollow while expected. */
@@ -346,12 +364,9 @@
 }
 
 .guide-hop-kind {
-  position: absolute;
-  top: 1px;
-  left: 0;
-  width: 72px;
   color: var(--guide-muted);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .guide-chip {
@@ -563,18 +578,47 @@
     bottom: 8px;
   }
 
+  /* On a phone the bar is one pill, the switch and a menu button; the menu opens above it. */
+  .guide-layer .guide-more {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    padding: 0;
+  }
+
+  .guide-extra {
+    display: none;
+  }
+
+  .guide-extra[data-open] {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 6px);
+    display: grid;
+    gap: 2px;
+    padding: 4px;
+    border: 1px solid var(--guide-edge);
+    border-radius: 10px;
+    background: var(--guide-surface);
+    box-shadow: var(--guide-shadow);
+  }
+
+  .guide-extra .guide-quiet {
+    text-align: left;
+    white-space: nowrap;
+  }
+
   .guide-note,
   .guide-note.guide-corner {
     top: auto !important;
     right: 0;
-    bottom: 0;
     left: 0 !important;
     width: auto;
     max-width: none;
+    bottom: 56px;
     max-height: 34vh;
-    /* Room at the foot for the bar, which stays above the sheet. */
-    padding-bottom: 64px;
-    border-radius: 10px 10px 0 0;
+    border-radius: 10px;
+    margin: 0 8px;
   }
 
   .guide-note[data-side]::before {
@@ -583,13 +627,12 @@
 
   .guide-panel {
     top: auto;
-    right: 0;
-    bottom: 0;
-    left: 0;
+    right: 8px;
+    bottom: 56px;
+    left: 8px;
     width: auto;
     max-width: none;
-    height: 72vh;
-    border-radius: 10px 10px 0 0;
+    height: 70vh;
   }
 }
 

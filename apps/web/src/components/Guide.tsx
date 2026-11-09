@@ -41,6 +41,10 @@ export default function Guide({ screen }: { screen: ScreenId }) {
   const [path, setPath] = useState(0);
   const [said, setSaid] = useState('');
   const panelButton = useRef<HTMLButtonElement>(null);
+  const moreButton = useRef<HTMLButtonElement>(null);
+  // On a phone the bar is one pill: the switch, and a small menu for the rest (CSS hides one or
+  // the other by width, so nothing here depends on the window's size).
+  const [more, setMore] = useState(false);
   const hasPath = (PATHS[screen]?.length ?? 0) > 0;
 
   useEffect(() => {
@@ -57,7 +61,11 @@ export default function Guide({ screen }: { screen: ScreenId }) {
 
   const closePanel = useCallback(() => {
     setPanel(false);
-    panelButton.current?.focus();
+    setMore(false);
+    // The focus goes back to the button that opened the panel, or on a phone to the menu's.
+    const back = panelButton.current;
+    if (back !== null && back.offsetParent !== null) back.focus();
+    else moreButton.current?.focus();
   }, []);
 
   return (
@@ -76,27 +84,52 @@ export default function Guide({ screen }: { screen: ScreenId }) {
           </span>
           Under the hood
         </button>
-        {hasPath && on && (
+        <button
+          ref={moreButton}
+          type="button"
+          className="guide-more"
+          aria-expanded={more}
+          aria-controls="guide-extra"
+          aria-label="More of Under the hood"
+          disabled={!ready}
+          onClick={() => setMore((m) => !m)}
+        >
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+            <circle cx="3" cy="8" r="1.5" fill="currentColor" />
+            <circle cx="8" cy="8" r="1.5" fill="currentColor" />
+            <circle cx="13" cy="8" r="1.5" fill="currentColor" />
+          </svg>
+        </button>
+        <div id="guide-extra" className="guide-extra" data-open={more || undefined}>
+          {hasPath && on && (
+            <button
+              type="button"
+              className="guide-quiet"
+              disabled={!ready}
+              onClick={() => {
+                setMore(false);
+                setPath((n) => n + 1);
+              }}
+            >
+              Show me around
+            </button>
+          )}
           <button
+            ref={panelButton}
             type="button"
             className="guide-quiet"
+            aria-expanded={panel}
+            aria-controls={panel ? 'guide-panel' : undefined}
             disabled={!ready}
-            onClick={() => setPath((n) => n + 1)}
+            onClick={() => {
+              setMore(false);
+              if (panel) closePanel();
+              else setPanel(true);
+            }}
           >
-            Show me around
+            Recorder
           </button>
-        )}
-        <button
-          ref={panelButton}
-          type="button"
-          className="guide-quiet"
-          aria-expanded={panel}
-          aria-controls={panel ? 'guide-panel' : undefined}
-          disabled={!ready}
-          onClick={() => (panel ? closePanel() : setPanel(true))}
-        >
-          Recorder
-        </button>
+        </div>
       </div>
       <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {said}
