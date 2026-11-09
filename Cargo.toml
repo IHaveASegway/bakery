@@ -28,6 +28,11 @@ thiserror = "=2.0.21"
 rand_chacha = { version = "=0.10.0", default-features = false }
 rand_core = "=0.10.1"
 proptest = "=1.12.0"
+# NFC for the free-text caps (docs/domain.md, "Free text and personal data"). Already in the
+# Worker through url's IDNA support (idna_adapter turns on compiled_data), so the module carries
+# its tables once; pinned to the version Cargo.lock resolves there. Unicode-3.0, allowed in
+# deny.toml for these crates.
+icu_normalizer = { version = "=2.4.0", default-features = false, features = ["compiled_data"] }
 # Sign-in (docs/security.md, "Sign-in and sessions"). All RustCrypto or zero-dependency, pure
 # Rust, built for wasm32-unknown-unknown with no getrandom backend: randomness comes in as bytes.
 # HMAC-SHA256 for the session and OAuth cookies, account ids and IP hashes; replaces nothing.

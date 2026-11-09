@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TaxRateRequest",
+  "description": "`PATCH /v1/sandboxes/{id}/menu/tax-rate`, signed-in sessions only: the tax rate every order\nplaced from the next version pays, 0 to 3,000 basis points (8.50% is 850). It is not a draft:\nthe Catalog publishes it at once as a version of its own, and any price drafts keep waiting.",
+  "type": "object",
+  "properties": {
+    "tax_bp": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "tax_bp"
+  ]
+}

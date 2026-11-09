@@ -2,8 +2,8 @@
 // It lives in sessionStorage, which is the visitor's own choice of items and nothing personal;
 // checkout clears it (docs/security.md, the storefront's data; docs/domain.md, "Free text").
 // Everything here is pure except the two storage functions, which take the storage as an argument.
-import { DEFAULT_TAX_BP, taxCents } from './money';
-import { findVariant, inSeason, type ItemView, type MenuView } from './menu';
+import { taxCents } from './money';
+import { findVariant, inSeason, taxBpOf, type ItemView, type MenuView } from './menu';
 import { ZONES, type Local, type Zone } from './slots';
 
 /** An order holds 1 to 20 lines, each a quantity of 1 to 24 (docs/domain.md, "Order"). */
@@ -80,8 +80,10 @@ export function removeLine(cart: Cart, variant: string): Cart {
 
 /** The note's length the way the API counts it: Unicode scalar values after NFC, no controls. */
 export function normalizeNote(text: string): string {
+  // Controls first, then NFC, as the Worker does: a control between a letter and its accent
+  // cannot then keep them apart.
   // eslint-disable-next-line no-control-regex
-  return text.normalize('NFC').replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g, '');
+  return text.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g, '').normalize('NFC');
 }
 
 export const noteLength = (text: string) => Array.from(normalizeNote(text)).length;
@@ -94,8 +96,11 @@ export interface Totals {
   missing: string[];
 }
 
-/** Subtotal, tax once on the subtotal (half-up) and total, all as cents. */
-export function totals(lines: CartLine[], menu: MenuView, taxBp: number = DEFAULT_TAX_BP): Totals {
+/**
+ * Subtotal, tax once on the subtotal (half-up) and total, all as cents. The rate is the menu's own
+ * unless the caller names one.
+ */
+export function totals(lines: CartLine[], menu: MenuView, taxBp: number = taxBpOf(menu)): Totals {
   let subtotal = 0;
   const missing: string[] = [];
   for (const line of lines) {

@@ -898,6 +898,46 @@ sleep 1
 list_objects list_wiped
 check "list-objects: exits 0 after the wipes: every child is empty, the Simulators too" "(( LIST_EXIT == 0 ))"
 
+# ---------- the tax rate (2026-11-09) ----------
+# The rate is published with the menu: set it, see the menu carry it, place an order and see the
+# tax at that rate, refuse 3,001 bp, and set it back. A fresh sandbox, after the wipes above.
+
+command_as tax_sandbox D 192.0.2.44 POST /v1/sandboxes '{"replace":false}'
+expect_status tax_sandbox 201
+TID="$(json_field tax_sandbox b.id)"
+check "tax: seeding reaches live within 20 s" "wait_live tax_live D '$TID'"
+get_as tax_menu_1 D "/v1/sandboxes/$TID/menu"
+expect_json tax_menu_1 "b.version === 1 && b.tax_bp === 1000"
+command_as tax_set D 192.0.2.44 PATCH "/v1/sandboxes/$TID/menu/tax-rate" '{"tax_bp":850}'
+expect_status tax_set 200
+expect_json tax_set "b.version === 2 && b.pending.length === 0"
+command_as tax_same D 192.0.2.44 PATCH "/v1/sandboxes/$TID/menu/tax-rate" '{"tax_bp":850}'
+expect_json tax_same "b.version === 2"
+get_as tax_menu_2 D "/v1/sandboxes/$TID/menu"
+expect_header tax_menu_2 etag '"v2"'
+expect_json tax_menu_2 "b.version === 2 && b.tax_bp === 850"
+TPICK="$(pickable tax_menu_2 240)" || { fail "tax: no item on the menu fits a slot 4 h out"; TPICK='{}'; }
+TVARIANT="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).variant || '')" "$TPICK")"
+TSLOT="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).slot || '')" "$TPICK")"
+command_as tax_order D 192.0.2.44 POST "/v1/sandboxes/$TID/orders" "{\"kind\":\"pickup\",\"slot\":\"$TSLOT\",\"lines\":[{\"variant\":\"$TVARIANT\",\"qty\":3}]}"
+expect_status tax_order 201
+expect_json tax_order "b.menu_version === 2 && b.tax_cents === Math.floor((b.subtotal_cents * 850 + 5000) / 10000) && b.total_cents === b.subtotal_cents + b.tax_cents && b.tax_cents !== Math.floor((b.subtotal_cents * 1000 + 5000) / 10000)"
+command_as tax_high D 192.0.2.44 PATCH "/v1/sandboxes/$TID/menu/tax-rate" '{"tax_bp":3001}'
+expect_problem tax_high 422 menu
+expect_json tax_high "b.detail.includes('tax-rate-range')"
+command_as tax_guest G 192.0.2.41 PATCH "/v1/sandboxes/$TID/menu/tax-rate" '{"tax_bp":900}'
+check "tax: a guest's cookie cannot set another sandbox's rate: $(status_of tax_guest)" "[[ '$(status_of tax_guest)' =~ ^(401|403|404)$ ]]"
+command_as tax_back D 192.0.2.44 PATCH "/v1/sandboxes/$TID/menu/tax-rate" '{"tax_bp":1000}'
+expect_json tax_back "b.version === 3"
+get_as tax_menu_3 D "/v1/sandboxes/$TID/menu"
+expect_json tax_menu_3 "b.version === 3 && b.tax_bp === 1000"
+get_as tax_order_get D "/v1/sandboxes/$TID/orders/$(json_field tax_order b.id)"
+expect_json tax_order_get "b.menu_version === 2 && b.tax_cents === $(json_field tax_order b.tax_cents)"
+command_as tax_wipe D 192.0.2.44 DELETE "/v1/sandboxes/$TID"
+expect_status tax_wipe 200
+
+# ---------- end of the tax rate ----------
+
 stop_pid "$SERVER_PID"; SERVER_PID=""
 
 # ---------- what the log holds ----------

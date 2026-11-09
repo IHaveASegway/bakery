@@ -8,6 +8,7 @@ import type {
   MenuVariant,
 } from '../contracts';
 import staticMenu from '../data/menu.json';
+import { DEFAULT_TAX_BP, taxPercent } from './money';
 
 export type ItemView = MenuItem;
 export type VariantView = MenuVariant;
@@ -26,6 +27,14 @@ export interface Found {
   item: ItemView;
   variant: VariantView;
   category: string;
+}
+
+/**
+ * The tax rate a menu was published with, in basis points. The static menu has none, and a menu
+ * cached before the field existed leaves it out: both read as the default.
+ */
+export function taxBpOf(menu: MenuView): number {
+  return menu.tax_bp ?? DEFAULT_TAX_BP;
 }
 
 /** The item and variant a variant slug names, if the menu has it. */
@@ -105,6 +114,12 @@ export function statusSaid(name: string, paused: boolean, version: number): stri
   return paused
     ? `${name} is paused. That was published at once as version ${version}: the storefront shows it paused now. Price drafts still wait for Publish.`
     : `${name} is on sale again. That was published at once as version ${version}. Price drafts still wait for Publish.`;
+}
+
+/** What the editor says after a tax rate is set: published at once, or already the rate. */
+export function taxRateSaid(bp: number, before: number | null, version: number): string {
+  if (before === version) return `Tax is already ${taxPercent(bp)}%. Nothing was published.`;
+  return `Tax is now ${taxPercent(bp)}%. That was published at once as version ${version}: the next order pays it, and orders already placed keep their rate. Price drafts still wait for Publish.`;
 }
 
 /** What the editor shows as waiting for Publish, read from `GET .../menu/drafts`. */

@@ -54,6 +54,7 @@ pub enum RouteId {
     PatchMenuItem,
     PublishMenu,
     GetMenuDrafts,
+    SetTaxRate,
     PlaceOrder,
     GetOrder,
     CancelOrder,
@@ -294,6 +295,15 @@ pub const ROUTES: &[Route] = &[
         "/v1/sandboxes/{id}/menu/drafts",
         Scope::SignedIn,
         Limit::None,
+        Bearer::Yes,
+    ),
+    // 2026-11-09: the tax rate, published with the menu.
+    route(
+        RouteId::SetTaxRate,
+        "PATCH",
+        "/v1/sandboxes/{id}/menu/tax-rate",
+        Scope::SignedIn,
+        Limit::Command,
         Bearer::Yes,
     ),
     route(
@@ -931,6 +941,17 @@ mod tests {
         );
         assert_eq!(
             id_of(match_route(
+                "PATCH",
+                &format!("/v1/sandboxes/{s}/menu/tax-rate")
+            )),
+            Some((RouteId::SetTaxRate, some(s)))
+        );
+        assert_eq!(
+            match_route("POST", &format!("/v1/sandboxes/{s}/menu/tax-rate")),
+            Matched::MethodNotAllowed("PATCH, OPTIONS".into())
+        );
+        assert_eq!(
+            id_of(match_route(
                 "GET",
                 &format!("/v1/sandboxes/{s}/menu/drafts")
             )),
@@ -1269,6 +1290,7 @@ mod tests {
             RouteId::PatchMenuItem,
             RouteId::PublishMenu,
             RouteId::GetMenuDrafts,
+            RouteId::SetTaxRate,
             RouteId::Redrive,
             RouteId::AdvanceClock,
             RouteId::StartTraffic,

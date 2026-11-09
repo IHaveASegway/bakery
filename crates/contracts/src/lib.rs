@@ -607,6 +607,22 @@ pub struct MenuItemPatch {
     pub status: Option<MenuItemStatus>,
 }
 
+/// `PATCH /v1/sandboxes/{id}/menu/tax-rate`, signed-in sessions only: the tax rate every order
+/// placed from the next version pays, 0 to 3,000 basis points (8.50% is 850). It is not a draft:
+/// the Catalog publishes it at once as a version of its own, and any price drafts keep waiting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TaxRateRequest {
+    pub tax_bp: u32,
+}
+
+/// The demo's rate before staff change it, 1,000 bp or 10.00%: `DEFAULT_TAX_BP` in the domain.
+pub const DEFAULT_TAX_BP: u32 = 1_000;
+
+fn default_tax_bp() -> u32 {
+    DEFAULT_TAX_BP
+}
+
 /// The answer to a staff edit or a publish: the published version and the items with drafts
 /// still waiting for a publish.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -683,6 +699,11 @@ pub struct MenuCategory {
 #[serde(deny_unknown_fields)]
 pub struct MenuResponse {
     pub version: u32,
+    /// The tax rate in basis points that an order placed against this version pays; staff set
+    /// it with `PATCH .../menu/tax-rate`. A menu cached before the field existed leaves it out,
+    /// which reads as the default, 1,000.
+    #[serde(default = "default_tax_bp")]
+    pub tax_bp: u32,
     pub categories: Vec<MenuCategory>,
 }
 
@@ -1868,6 +1889,7 @@ pub fn schemas() -> Vec<(&'static str, String)> {
         ),
         ("MenuItemPatch.schema.json", render::<MenuItemPatch>()),
         ("MenuEditResponse.schema.json", render::<MenuEditResponse>()),
+        ("TaxRateRequest.schema.json", render::<TaxRateRequest>()),
         ("MenuResponse.schema.json", render::<MenuResponse>()),
         (
             "MenuDraftsResponse.schema.json",
@@ -2269,6 +2291,12 @@ mod tests {
             .is_err(),
             "a client never names the customer"
         );
+        let rate: TaxRateRequest = serde_json::from_str(r#"{"tax_bp":850}"#).unwrap();
+        assert_eq!(rate.tax_bp, 850);
+        assert!(serde_json::from_str::<TaxRateRequest>(r#"{"tax_bp":850,"x":1}"#).is_err());
+        assert!(serde_json::from_str::<TaxRateRequest>(r#"{"tax_bp":-1}"#).is_err());
+        let menu: MenuResponse = serde_json::from_str(r#"{"version":3,"categories":[]}"#).unwrap();
+        assert_eq!(menu.tax_bp, DEFAULT_TAX_BP);
         let patch: MenuItemPatch = serde_json::from_str(r#"{"status":"paused"}"#).unwrap();
         assert_eq!(patch.status, Some(MenuItemStatus::Paused));
         assert_eq!(patch.price_cents, None);

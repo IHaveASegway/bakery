@@ -1774,6 +1774,13 @@
             },
             "type": "array"
           },
+          "tax_bp": {
+            "default": 1000,
+            "description": "The tax rate in basis points that an order placed against this version pays; staff set\nit with `PATCH .../menu/tax-rate`. A menu cached before the field existed leaves it out,\nwhich reads as the default, 1,000.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
           "version": {
             "format": "uint32",
             "minimum": 0,
@@ -3179,6 +3186,22 @@
           "thank-you"
         ],
         "type": "string"
+      },
+      "TaxRateRequest": {
+        "additionalProperties": false,
+        "description": "`PATCH /v1/sandboxes/{id}/menu/tax-rate`, signed-in sessions only: the tax rate every order\nplaced from the next version pays, 0 to 3,000 basis points (8.50% is 850). It is not a draft:\nthe Catalog publishes it at once as a version of its own, and any price drafts keep waiting.",
+        "properties": {
+          "tax_bp": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tax_bp"
+        ],
+        "title": "TaxRateRequest",
+        "type": "object"
       },
       "TimelineEntry": {
         "additionalProperties": false,
@@ -10812,6 +10835,158 @@
           "menu"
         ],
         "x-pr": 4,
+        "x-session": "signed-in"
+      }
+    },
+    "/v1/sandboxes/{id}/menu/tax-rate": {
+      "patch": {
+        "description": "A signed-in session of sandbox `{id}`; a guest gets 403 `guest-scope`. The sandbox's API token may stand in for the cookie.",
+        "operationId": "set-tax-rate",
+        "parameters": [
+          {
+            "description": "The sandbox's ULID, from the session or the token.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKeyOptional"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaxRateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MenuEditResponse"
+                }
+              }
+            },
+            "description": "`{version, pending}`; the same rate again publishes nothing"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`body`: a body that is not the contract's JSON; `token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
+            "x-problems": [
+              "body",
+              "token"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
+            "x-problems": [
+              "token",
+              "session"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`origin`: a cookie request without the storefront's exact `Origin`, or `Sec-Fetch-Site: cross-site`; `guest-scope`: a guest's session: sign in for this",
+            "x-problems": [
+              "origin",
+              "guest-scope"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "another sandbox's id, or one naming nothing"
+          },
+          "410": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`wiped`: the sandbox is being wiped or is gone",
+            "x-problems": [
+              "wiped"
+            ]
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`menu`: `tax-rate-range` outside 0 to 3,000 bp",
+            "x-problems": [
+              "menu"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: the session's or IP hash's limit, or with a token the token's, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
+            ]
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerToken": []
+          }
+        ],
+        "summary": "The tax rate in basis points, published at once as a version of its own",
+        "tags": [
+          "menu"
+        ],
+        "x-pr": 20,
         "x-session": "signed-in"
       }
     },
