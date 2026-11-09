@@ -3551,7 +3551,7 @@
       },
       "TraceResponse": {
         "additionalProperties": false,
-        "description": "The flight recorder's read, `GET .../trace` once its route is served: the hops recorded after\nthe cursor `after`, oldest first and newest last, at most 50 batches of them; then `cursor` for the next call. Any session of the\nsandbox reads it, a guest's included. The recorder keeps the last 200 batches the consumer\nsent it and drops older ones, so a cursor older than that misses hops, and says so.",
+        "description": "`GET /v1/sandboxes/{id}/trace`: the hops recorded after the cursor `after`, oldest first and\nnewest last, at most 50 batches of them; then `cursor` for the next call. Any session of the\nsandbox reads it, a guest's included. The recorder keeps the last 200 batches the consumer\nsent it and drops older ones, so a cursor older than that misses hops, and says so.",
         "properties": {
           "cursor": {
             "description": "Pass as `after` for the hops after these; the same cursor again when there are none.",
@@ -13319,6 +13319,315 @@
         "x-session": "signed-in"
       }
     },
+    "/v1/sandboxes/{id}/trace": {
+      "get": {
+        "description": "A session of sandbox `{id}`, a guest's included. The sandbox's API token may stand in for the cookie.",
+        "operationId": "get-trace",
+        "parameters": [
+          {
+            "description": "The sandbox's ULID, from the session or the token.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the cursor of the last batch already read; 0 or left out for the oldest kept",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TraceResponse"
+                }
+              }
+            },
+            "description": "the hops after `after`, with the next cursor"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
+            "x-problems": [
+              "token"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`token`: a token that is malformed, expired, rotated or not an API token (`token`, `expired`, `rotated`, `purpose`); `session`: no session, or one that does not verify",
+            "x-problems": [
+              "token",
+              "session"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "another sandbox's id, or one naming nothing"
+          },
+          "410": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`wiped`: the sandbox is being wiped or is gone",
+            "x-problems": [
+              "wiped"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: with a token, the token's limit: every request it makes counts, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`seeding`: the sandbox is still being seeded",
+            "x-problems": [
+              "seeding"
+            ]
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerToken": []
+          }
+        ],
+        "summary": "The flight recorder's hops after a cursor, newest last: who consumed each event, on which attempt, how long after it was written",
+        "tags": [
+          "trace"
+        ],
+        "x-pr": 21,
+        "x-session": "sandbox"
+      }
+    },
+    "/v1/sandboxes/{id}/trace/ws": {
+      "get": {
+        "description": "A session of sandbox `{id}`, by the cookie only, with the storefront's exact `Origin`.",
+        "operationId": "trace-socket",
+        "parameters": [
+          {
+            "description": "The sandbox's ULID, from the session or the token.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "the socket; frames in `x-websocket`"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`token`: a cookie and a token both (`both`), or a token in the query string (`query`)",
+            "x-problems": [
+              "token"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`token`: an API token: this route takes the session cookie only (`cookie-only`); `session`: no session, or one that does not verify",
+            "x-problems": [
+              "token",
+              "session"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`origin`: a cookie request without the storefront's exact `Origin`, or `Sec-Fetch-Site: cross-site`",
+            "x-problems": [
+              "origin"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "another sandbox's id"
+          },
+          "410": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`wiped`: the sandbox is being wiped or is gone",
+            "x-problems": [
+              "wiped"
+            ]
+          },
+          "426": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`upgrade`: without `Upgrade: websocket`",
+            "x-problems": [
+              "upgrade"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`rate-limit`: the session's or IP hash's limit, with `Retry-After`",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "x-problems": [
+              "rate-limit"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`seeding`: the sandbox is still being seeded",
+            "x-problems": [
+              "seeding"
+            ]
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "The flight recorder's socket, protocol v1 (`x-websocket`): a snapshot, then each batch as it is recorded",
+        "tags": [
+          "trace"
+        ],
+        "x-pr": 21,
+        "x-session": "cookie",
+        "x-websocket": {
+          "description": "Frames are JSON text, each with `\"v\": 1`; the hops are `TraceHop`s and every frame is a `TraceFrame`. Read only: a client sends nothing but `ping`. Limits as the kitchen socket's: 4 open sockets a sandbox (a fifth is told `bye` `limit` and closed with 1008), frames of at most 4 KB (1009), 10 frames a second a socket (1008), text frames only (1003). Lossy by design: a batch the consumer could not record is not sent, and a reconnecting client reads `GET .../trace?after=<cursor>` for what it missed.",
+          "frames": [
+            {
+              "direction": "server-to-client",
+              "shape": "{t: \"snapshot\", v: 1, hops: [TraceHop], cursor}",
+              "t": "snapshot",
+              "when": "on open: the hops of the ring's last 50 batches, newest last; `cursor` is the newest batch's, as `GET .../trace` gives it"
+            },
+            {
+              "direction": "server-to-client",
+              "shape": "{t: \"hops\", v: 1, hops: [TraceHop], cursor}",
+              "t": "hops",
+              "when": "each batch the Queue's consumer records after the snapshot, as it is written"
+            },
+            {
+              "direction": "server-to-client",
+              "shape": "{t: \"bye\", v: 1, reason: \"wiped\" | \"limit\"}",
+              "t": "bye",
+              "when": "before the server closes: 1001 at the wipe; 1008, 1009 or 1003 at a limit"
+            },
+            {
+              "direction": "client-to-server",
+              "shape": "{t: \"ping\", v: 1}",
+              "t": "ping",
+              "when": "answered `{t: \"pong\", v: 1}` by the platform's auto-response, which does not wake the object; any other frame is ignored"
+            },
+            {
+              "direction": "server-to-client",
+              "shape": "{t: \"pong\", v: 1}",
+              "t": "pong",
+              "when": "the answer to a `ping`"
+            }
+          ],
+          "protocol": "v1"
+        }
+      }
+    },
     "/v1/sandboxes/{id}/traffic": {
       "delete": {
         "description": "A signed-in session of sandbox `{id}`; a guest gets 403 `guest-scope`. The sandbox's API token may stand in for the cookie.",
@@ -13925,6 +14234,9 @@
     },
     {
       "name": "kitchen"
+    },
+    {
+      "name": "trace"
     },
     {
       "name": "traffic"

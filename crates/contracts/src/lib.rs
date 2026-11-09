@@ -1916,8 +1916,8 @@ pub struct TraceHop {
     pub deliveries: Vec<TraceDelivery>,
 }
 
-/// The flight recorder's read, `GET .../trace` once its route is served: the hops recorded after
-/// the cursor `after`, oldest first and newest last, at most 50 batches of them; then `cursor` for the next call. Any session of the
+/// `GET /v1/sandboxes/{id}/trace`: the hops recorded after the cursor `after`, oldest first and
+/// newest last, at most 50 batches of them; then `cursor` for the next call. Any session of the
 /// sandbox reads it, a guest's included. The recorder keeps the last 200 batches the consumer
 /// sent it and drops older ones, so a cursor older than that misses hops, and says so.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

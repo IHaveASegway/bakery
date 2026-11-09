@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "TraceResponse",
-  "description": "The flight recorder's read, `GET .../trace` once its route is served: the hops recorded after\nthe cursor `after`, oldest first and newest last, at most 50 batches of them; then `cursor` for the next call. Any session of the\nsandbox reads it, a guest's included. The recorder keeps the last 200 batches the consumer\nsent it and drops older ones, so a cursor older than that misses hops, and says so.",
+  "description": "`GET /v1/sandboxes/{id}/trace`: the hops recorded after the cursor `after`, oldest first and\nnewest last, at most 50 batches of them; then `cursor` for the next call. Any session of the\nsandbox reads it, a guest's included. The recorder keeps the last 200 batches the consumer\nsent it and drops older ones, so a cursor older than that misses hops, and says so.",
   "type": "object",
   "properties": {
     "cursor": {
