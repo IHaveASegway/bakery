@@ -74,3 +74,7 @@ Two-way per crate, expensive as a whole. `crates/domain` and `crates/app` would 
 - A DO handler's `cpuTime` p99 in production passes 100 ms, the trigger the site's ADR 0014 set for its own handlers, since a long handler stalls every request queued behind it in that object.
 - Cloudflare ships Rust support for Workflows or for DO RPC. Then the alarm-and-Queue saga and the HTTP stubs are candidates for replacement, each in its own record.
 - `wrangler dev` integration tests take more than 10 minutes in CI, or miss a bug a first-party harness would have caught.
+
+## Postscript 2026-11-09
+
+As built, 2026-11-09: the Worker routes with a table of its own (`workers/api/src/http/routes.rs`, matched by `match_route`), not the `worker` crate's `Router`. Two of the six ports have Worker adapters, `Clock` (`workers/api/src/clock.rs`) and `PaymentGateway` (`workers/api/src/stripe.rs`); `EventStore`, `Outbox`, `Mailbox` and `IdGen` are used by the native tests' fakes, and the objects write events and the outbox through `workers/api/src/objects/stream.rs` directly. Keeping those four as test seams or removing them is a decision pending, listed in the roadmap's Remaining work. The WebAssembly budget is uncompressed bytes, not gzip: PR 10's stripped module plus 25%, 5,317,776 B in `workers/api/budgets.json`, checked by `verify`. The `wrangler dev` smoke scripts run by hand; no CI job runs them, and CI's `e2e` job covers the browser paths on both Workers.

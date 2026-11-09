@@ -128,7 +128,7 @@ const SOURCES = [
     <p>
       The batches keep the object usable. Cloudflare’s documentation said on {READ} that Durable
       Objects are single-threaded and cooperatively multi-tasked, like code in a browser. The
-      bakery’s reading, in ADR 0012, is that long work in one piece holds an object’s other requests
+      bakery’s reading, in ADR 0003, is that long work in one piece holds an object’s other requests
       behind it. Between runs of 200 entries the object answers them. Each run is also its own
       alarm, and an alarm handler had 15 minutes of wall time on {READ}, which a run of 200 entries
       does not approach.

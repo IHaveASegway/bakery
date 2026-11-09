@@ -20,6 +20,8 @@ Status: Draft for review in PR 1 · 2026-11-04
 | [0012](0012-delivery-dispatch.md) | Delivery dispatch: VROOM in the browser to plan, a savings heuristic in Rust to propose, the object to decide | Proposed |
 | [0013](0013-the-api-and-socket-contract-v1.md) | The API and socket contract v1: one route table in Rust, an OpenAPI 3.1 document generated from it, and additive-only changes after acceptance | Proposed |
 
+As of 2026-11-09 all thirteen are still Proposed, though each has been built on. Each now ends with a dated `## Postscript 2026-11-09` that says where the build differs from the record, with file paths. Accepting them is Joseph's decision, listed in the roadmap's Remaining work.
+
 Open decisions that have not reached an ADR yet are the numbered questions in [product.md](../product.md), cited across these records by number and short name (for example Q23 · Q-auth). Several records here state an assumption that holds until a question is answered, and say which.
 
 ## How a decision moves

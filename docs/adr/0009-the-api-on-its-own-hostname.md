@@ -67,6 +67,10 @@ One-way-ish for the hostname once third parties hold it. Stripe's webhook endpoi
 - The hostname has to move, for example to give the bakery its own domain once Q2 · Q-name is answered.
 - The `Origin` check refuses a legitimate request from a browser that strips the header on same-site requests.
 
+## Postscript 2026-11-09
+
+As built, 2026-11-09: the kill switch's pre-built WAF rule is also turned on by the 15-minute breaker at `off`, through the Rulesets API (`workers/api/src/breaker.rs`). The breaker is not configured in production as of 2026-11-09 (`GET /v1/status` says `unconfigured`).
+
 ## Patterns and further reading
 
 - Cross-origin resource sharing: WHATWG, [Fetch Standard, CORS protocol](https://fetch.spec.whatwg.org/#http-cors-protocol).
