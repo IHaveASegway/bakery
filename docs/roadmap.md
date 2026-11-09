@@ -619,7 +619,7 @@ In the route table's numbering the work that starts from [Remaining work](#remai
 - [x] The CRM smoke's amount patterns (2026-11-09, `scripts/smoke-crm.sh` 179 then 189, #86 merged): a seeded balance of $1,000.00 or more failed the seeded-catering check on some days; the patterns accept thousands separators.
 - [x] NFC, the tax rate with the published menu, the dispatch gap recorded (2026-11-09, `cargo test` 638, `pnpm --filter web test` 1,343, `scripts/smoke-orders.sh` 247 checks, #88 merged): R49, R50, R51.
 
-Production: deployed again from 17:57 UTC on 2026-11-09, when the Turnstile site key reached the build (R1), and on every merge since.
+Production: deployed again from 17:57 UTC on 2026-11-09, when the Turnstile site key reached the build (R1), and on every merge since. On `main` after #88, `scripts/smoke-orders.sh` runs 252 checks and `scripts/smoke-crm.sh` 189, all passing (measured 2026-11-09).
 
 ## Built beyond the plan
 
