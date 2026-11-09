@@ -1,6 +1,6 @@
 # ADR 0009: The API on its own hostname, api.bakery.ihaveasegway.com, behind CORS and a host-only cookie
 
-Status: Proposed · 2026-11-04 · Deciders: Joseph Peterson
+Status: Accepted · 2026-11-09, by delegation; as amended by the postscript below · Proposed 2026-11-04 · Deciders: Joseph Peterson
 
 ## Context
 

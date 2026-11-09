@@ -423,9 +423,9 @@ Every check has a local command (README, "Commands"): `cargo test --workspace`, 
 
 ## Patterns and further reading
 
-- Build once, deploy the same artifact: Jez Humble and David Farley, *Continuous Delivery* (2010), chapter 5.
-- Blue/green: Martin Fowler, "BlueGreenDeployment" (2010). Expand, migrate, contract: Danilo Sato, "ParallelChange" (2014).
-- Fitness functions: Neal Ford, Rebecca Parsons and Patrick Kua, *Building Evolutionary Architectures* (2017).
-- Least privilege for CI: GitHub Security Lab, "Keeping your GitHub Actions and workflows secure".
-- Ports and adapters: Alistair Cockburn, "Hexagonal Architecture" (2005).
+- Build once, deploy the same artifact: *Continuous Delivery* (book, 2010), chapter 5.
+- Blue/green: "BlueGreenDeployment" (bliki, 2010). Expand, migrate, contract: "ParallelChange" (bliki, 2014).
+- Fitness functions: *Building Evolutionary Architectures* (book, 2017).
+- Least privilege for CI: "Keeping your GitHub Actions and workflows secure" (GitHub Security Lab).
+- Ports and adapters: "Hexagonal Architecture" (essay, 2005).
 - The site's pipeline, from which this one is derived: [delivery.md](https://github.com/IHaveASegway/website/blob/main/docs/delivery.md) and [its ci.yml](https://github.com/IHaveASegway/website/blob/main/.github/workflows/ci.yml).

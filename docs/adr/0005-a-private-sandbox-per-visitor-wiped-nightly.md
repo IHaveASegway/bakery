@@ -1,6 +1,6 @@
 # ADR 0005: A private, seeded sandbox per visitor, wiped every night, holding no personal data by construction
 
-Status: Proposed · 2026-11-04 · Deciders: Joseph Peterson
+Status: Accepted · 2026-11-09, by delegation; as amended by the postscript below · Proposed 2026-11-04 · Deciders: Joseph Peterson
 
 ## Context
 
