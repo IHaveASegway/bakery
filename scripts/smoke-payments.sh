@@ -4,8 +4,9 @@
 # ledger holding the seeded paid orders' payments, `seed:<payment>`, the console audit of
 # 2026-11-08, finding 14), the same intent
 # for a remount, a webhook replayed five times counted once, a body altered by one byte and a
-# signature six minutes old refused with 400, a partial and a full refund each issued once with
-# the order's ledger netting to zero, a seeded order refunded in Billing alone (`seed:<refund>`,
+# signature six minutes old refused with 400, an event for a payment Billing does not know yet
+# answered 409 `webhook-later` so Stripe retries it, a partial and a full refund each issued
+# once with the order's ledger netting to zero, a seeded order refunded in Billing alone (`seed:<refund>`,
 # no Stripe call, the order cancelled), an expired order's intent canceled at Stripe, the
 # Simulator's orders paid, the wipe's Stripe cleanup, and a second Worker run whose
 # STRIPE_SECRET_KEY is a key of the mode the bakery never uses: every payment route answers 503
@@ -492,6 +493,14 @@ signed hook_old "$UNKNOWN_BODY" -360
 expect_problem hook_old 400 timestamp
 signed hook_four "$UNKNOWN_BODY" -240
 expect_status hook_four 200
+# A payment Billing does not know yet: a live sandbox's event for an intent it never made. 409
+# `webhook-later`, so Stripe delivers it again, and the order paid above stays as it was.
+LATER_BODY="${UNKNOWN_BODY//evt_fake_unknown_sandbox/evt_fake_not_yet}"
+LATER_BODY="${LATER_BODY//pi_fakeunknown/pi_fakenotyet}"
+LATER_BODY="${LATER_BODY//$STRANGER/$GID}"
+signed hook_later "$LATER_BODY"
+expect_problem hook_later 409 webhook-later
+check "the early event is logged 409 webhook-later, and Billing applied nothing of it" "grep -q '\"route\":\"/v1/stripe/webhook\".*\"status\":409.*\"reason\":\"webhook-later\"' '$LOG' && ! grep -q 'evt_fake_not_yet\",\"outcome\":\"applied' '$LOG'"
 signed hook_not_json 'not json'
 expect_problem hook_not_json 400 body
 signed hook_other "{\"id\":\"evt_fake_other\",\"object\":\"event\",\"type\":\"customer.created\",\"livemode\":false,\"created\":$NOW_S,\"data\":{\"object\":{\"object\":\"customer\",\"id\":\"cus_fake_1\"}}}"
