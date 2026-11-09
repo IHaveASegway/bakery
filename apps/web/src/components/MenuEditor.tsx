@@ -228,6 +228,7 @@ export default function MenuEditor({
         <p className="actions">
           <button
             type="button"
+            className="btn btn-secondary btn-sm"
             disabled={isGuest}
             aria-disabled={busy || undefined}
             onClick={() => {
@@ -269,7 +270,14 @@ export default function MenuEditor({
                 <li key={item.slug}>
                   <p>
                     <strong>{item.name}</strong>
-                    {status === 'paused' && ' (paused)'}
+                    {status === 'paused' && (
+                      <>
+                        {' '}
+                        <span className="badge" data-tone="pending">
+                          paused
+                        </span>
+                      </>
+                    )}
                     <br />
                     <span className="hint">
                       {item.variants.map((v) => `${v.label} ${dollars(v.price_cents)}`).join(', ')}
@@ -301,6 +309,7 @@ export default function MenuEditor({
                   <p className="actions">
                     <button
                       type="button"
+                      className="btn btn-secondary btn-sm"
                       disabled={isGuest}
                       aria-disabled={busy || undefined}
                       aria-label={`Set the price of ${item.name}`}
@@ -320,6 +329,7 @@ export default function MenuEditor({
                     </button>
                     <button
                       type="button"
+                      className="btn btn-quiet btn-sm"
                       disabled={isGuest}
                       aria-disabled={busy || undefined}
                       aria-label={`${status === 'paused' ? 'Resume' : 'Pause'} ${item.name}`}
@@ -349,9 +359,10 @@ export default function MenuEditor({
           </ul>
         </section>
       ))}
-      <p>
+      <p className="publish-bar">
         <button
           type="button"
+          className="btn btn-primary"
           disabled={isGuest}
           aria-disabled={busy || undefined}
           onClick={() => {

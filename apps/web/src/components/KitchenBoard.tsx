@@ -10,7 +10,7 @@ import {
 import { AFTER_BOARD } from '../lib/console-sections';
 import { dateOf, mountainLocal } from '../lib/slots';
 import { useKitchen, type Command } from '../lib/use-kitchen';
-import { whenText } from '../lib/when';
+import { clockOfText, shortDate, whenText } from '../lib/when';
 import BakeList from './BakeList';
 import GuestNote from './GuestNote';
 import RefundControls from './RefundControls';
@@ -28,6 +28,26 @@ const RULES: Record<string, string> = {
 
 /** `country-loaf/whole` as "country loaf, whole". */
 const variantWords = (slug: string) => slug.replaceAll('-', ' ').replace('/', ', ');
+
+/** The words on a card's one button, short enough for a column; its accessible name keeps the
+ *  whole label ("Start production for order 4KX2QF"), which these words are part of. */
+const SHORT_LABELS = {
+  start_production: 'Start',
+  mark_ready: 'Mark ready',
+  mark_picked_up: 'Picked up',
+} as const;
+
+/** A card shows this many lines, then "+2 more" that opens to the rest. */
+const LINES_SHOWN = 3;
+
+/** Each column's status tone (components.css, .badge[data-tone]). */
+const TONE: Record<Card['state'], string> = {
+  pending: 'pending',
+  confirmed: 'confirmed',
+  in_production: 'making',
+  ready: 'ready',
+  out_for_delivery: 'out',
+};
 
 /** The last six characters of a ULID: enough to tell cards apart. */
 const shortId = (id: string) => id.slice(-6);
@@ -79,21 +99,44 @@ export function CardView({
     (button.current ?? item.current)?.focus();
     onFocused?.();
   }, [focusHere, onFocused]);
+  const shown = card.lines.slice(0, LINES_SHOWN);
+  const rest = card.lines.slice(LINES_SHOWN);
+  const refundable = canAct && card.state !== 'pending';
   return (
     <li className="card" ref={item} tabIndex={-1}>
-      <p>
-        <strong>{card.kind === 'pickup' ? 'Pickup' : 'Delivery'}</strong>{' '}
-        <time dateTime={card.slot}>{whenText(card.slot)}</time> <code>{shortId(card.order)}</code>
+      <p className="card-head">
+        <span className="badge" data-tone="kind">
+          {card.kind === 'pickup' ? 'Pickup' : 'Delivery'}
+        </span>{' '}
+        <code className="card-id">{shortId(card.order)}</code>
+      </p>
+      <p className="card-when">
+        <time dateTime={card.slot} title={whenText(card.slot)}>
+          <span className="card-clock">{clockOfText(card.slot)}</span>{' '}
+          <span className="card-date">{shortDate(card.slot)}</span>
+        </time>
       </p>
       <ul className="card-lines">
-        {card.lines.map((l) => (
+        {shown.map((l) => (
           <li key={l.variant}>
             {l.qty} × {variantWords(l.variant)}
           </li>
         ))}
       </ul>
+      {rest.length > 0 && (
+        <details className="card-more">
+          <summary>+{rest.length} more</summary>
+          <ul className="card-lines">
+            {rest.map((l) => (
+              <li key={l.variant}>
+                {l.qty} × {variantWords(l.variant)}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {route !== null && <p>{route}</p>}
-      {card.note && <p>Note: {card.note}</p>}
+      {card.note && <p className="card-note">Note: {card.note}</p>}
       {(card.last || card.cause) && (
         <p className="hint">
           {card.last ?? 'Last event'}
@@ -105,25 +148,46 @@ export function CardView({
           )}
         </p>
       )}
-      {canAct && action && (
-        <button
-          ref={button}
-          type="button"
-          disabled={!open}
-          aria-label={`${action.label} for order ${shortId(card.order)}`}
-          onClick={() => onAct(card)}
-        >
-          {action.label}
-        </button>
-      )}
-      {/* A pending card is unpaid, so there is nothing to refund yet. */}
-      {canAct && card.state !== 'pending' && (
-        <RefundControls
-          sandboxId={sandboxId}
-          order={card.order}
-          label={shortId(card.order)}
-          onRefunded={onRefunded}
-        />
+      {((canAct && action) || refundable) && (
+        <div className="card-actions">
+          {canAct && action && (
+            <button
+              ref={button}
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={!open}
+              aria-label={`${action.label} for order ${shortId(card.order)}`}
+              onClick={() => onAct(card)}
+            >
+              {SHORT_LABELS[action.action]}
+            </button>
+          )}
+          {/* A pending card is unpaid, so there is nothing to refund yet. Refunds are destructive,
+              so they wait in the card's overflow menu, never beside the next step. */}
+          {refundable && (
+            <details className="menu">
+              <summary
+                className="btn btn-quiet btn-sm btn-icon"
+                aria-label={`More for order ${shortId(card.order)}`}
+                title="More: refunds"
+              >
+                <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                  <circle cx="3" cy="8" r="1.5" />
+                  <circle cx="8" cy="8" r="1.5" />
+                  <circle cx="13" cy="8" r="1.5" />
+                </svg>
+              </summary>
+              <div className="menu-panel">
+                <RefundControls
+                  sandboxId={sandboxId}
+                  order={card.order}
+                  label={shortId(card.order)}
+                  onRefunded={onRefunded}
+                />
+              </div>
+            </details>
+          )}
+        </div>
       )}
     </li>
   );
@@ -153,6 +217,8 @@ export default function KitchenBoard({
   const [refunded, setRefunded] = useState<{ said: string; order: string } | null>(null);
   const refundLine = useRef<HTMLParagraphElement>(null);
   const clearFollow = useRef(() => setFollow(null)).current;
+  // The column a phone shows; null until the visitor picks one.
+  const [shown, setShown] = useState<Card['state'] | null>(null);
   const open = kitchen.status === 'open';
   const groups = groupByState(kitchen.board);
   const total = groups.reduce((n, g) => n + g.cards.length, 0);
@@ -168,6 +234,9 @@ export default function KitchenBoard({
     if (followed === undefined) {
       document.getElementById(`board-${follow.from}`)?.focus();
       setFollow(null);
+    } else if (followed.state !== follow.from) {
+      // On a phone only one column shows: show the card's new one, so the focus can land on it.
+      setShown(followed.state);
     }
   }, [follow, followed, kitchen.commands]);
 
@@ -189,104 +258,147 @@ export default function KitchenBoard({
         : 'The kitchen closed this connection: this sandbox already has 4 boards open.',
   }[kitchen.status];
 
+  // On a phone the columns become one list under a segmented control; until the visitor picks, it
+  // shows the first column that has cards.
+  // A card this page moved shows its new column at once, in the same paint its button takes focus.
+  const moved =
+    follow !== null && followed !== undefined && followed.state !== follow.from
+      ? followed.state
+      : null;
+  const showing = moved ?? shown ?? groups.find((g) => g.cards.length > 0)?.state ?? 'pending';
+
   return (
     <>
-      <h3 id="board-heading" tabIndex={-1} data-tour="kitchen-board">
-        Kitchen board
-      </h3>
-      <p aria-live="polite">{status}</p>
-      <p className="hint">
-        {kitchen.sockets === null
-          ? 'Screens watching: not known yet.'
-          : `${kitchen.sockets} ${kitchen.sockets === 1 ? 'screen is' : 'screens are'} watching this board.`}{' '}
-        {total} {total === 1 ? 'card' : 'cards'} on the board.
-      </p>
-      {kitchen.status === 'ended' && kitchen.ended !== 'wiped' && (
-        <p>
-          <button type="button" onClick={kitchen.reconnect}>
-            Connect again
-          </button>
-        </p>
-      )}
-      {isGuest && <GuestNote />}
-      <div aria-live="polite" className="messages">
-        {refunded !== null && (
-          <p className="hint" ref={refundLine} tabIndex={-1}>
-            {refunded.said}
+      <section className="panel board-panel" aria-labelledby="board-heading">
+        <div className="panel-head">
+          <h3 id="board-heading" tabIndex={-1} data-tour="kitchen-board">
+            Kitchen board
+          </h3>
+          <div className="board-status">
+            <p aria-live="polite" className="live-status" data-status={kitchen.status}>
+              {status}
+            </p>
+            <p className="hint">
+              {kitchen.sockets === null
+                ? 'Screens watching: not known yet.'
+                : `${kitchen.sockets} ${kitchen.sockets === 1 ? 'screen is' : 'screens are'} watching this board.`}{' '}
+              {total} {total === 1 ? 'card' : 'cards'} on the board.
+            </p>
+          </div>
+        </div>
+        {kitchen.status === 'ended' && kitchen.ended !== 'wiped' && (
+          <p>
+            <button type="button" className="btn btn-primary" onClick={kitchen.reconnect}>
+              Connect again
+            </button>
           </p>
         )}
-        {kitchen.commands.slice(0, 3).map((c) => (
-          <p key={c.id} className={c.status === 'nack' || c.status === 'lost' ? 'problem' : 'hint'}>
-            {commandText(c)}
-          </p>
-        ))}
-      </div>
-      <a className="skip-inline" href={`#${AFTER_BOARD}`}>
-        Skip the board’s cards
-      </a>
-      {groups.map((group) => (
-        <section key={group.state} aria-labelledby={`board-${group.state}`} className="column">
-          <h4 id={`board-${group.state}`} tabIndex={-1}>
-            {group.label} ({group.cards.length})
-          </h4>
-          {group.cards.length === 0 ? (
-            <p className="hint">Nothing here.</p>
-          ) : (
-            <ul className="cards">
-              {group.cards.map((card) => (
-                <CardView
-                  key={card.order}
-                  card={card}
-                  sandboxId={sandboxId}
-                  onRefunded={(said) => {
-                    setRefunded({ said, order: card.order });
-                    onRefunded();
-                  }}
-                  canAct={!isGuest}
-                  open={open}
-                  focusHere={
-                    follow !== null && follow.order === card.order && follow.from !== card.state
-                  }
-                  onFocused={clearFollow}
-                  onAct={(c) => {
-                    const a = actionFor(c);
-                    if (!a) return;
-                    setFollow({ order: c.order, from: c.state });
-                    kitchen.send(c.order, a.action);
-                  }}
-                />
-              ))}
-            </ul>
+        {isGuest && <GuestNote />}
+        <div aria-live="polite" className="messages">
+          {refunded !== null && (
+            <p className="hint" ref={refundLine} tabIndex={-1}>
+              {refunded.said}
+            </p>
           )}
-        </section>
-      ))}
-
-      <BakeList lists={bakeLists} today={today} />
-
-      <h3 id="feed-heading" tabIndex={-1}>
-        Activity feed
-      </h3>
-      <p className="hint">The last 50 events the board applied, newest first.</p>
-      {kitchen.feed.length === 0 ? (
-        <p className="hint">No events yet since this page connected.</p>
-      ) : (
-        <div role="log" aria-labelledby="feed-heading">
-          <ol className="feed">
-            {kitchen.feed.map((e) => (
-              <li key={e.id}>
-                <strong>{e.type}</strong> <code>{e.stream}</code> seq {e.seq}
-                {e.cause && (
-                  <>
-                    , cause <code>{e.cause}</code>
-                    {isSimulated(e.cause) && ' (simulated)'}
-                  </>
-                )}
-                , <time dateTime={e.time}>{whenText(e.time, { seconds: true })}</time>
-              </li>
-            ))}
-          </ol>
+          {kitchen.commands.slice(0, 3).map((c) => (
+            <p
+              key={c.id}
+              className={c.status === 'nack' || c.status === 'lost' ? 'problem' : 'hint'}
+            >
+              {commandText(c)}
+            </p>
+          ))}
         </div>
-      )}
+        <a className="skip-inline" href={`#${AFTER_BOARD}`}>
+          Skip the board’s cards
+        </a>
+        <div className="segmented board-switch" role="group" aria-label="Column to show">
+          {groups.map((group) => (
+            <button
+              key={group.state}
+              type="button"
+              aria-pressed={group.state === showing}
+              onClick={() => setShown(group.state)}
+            >
+              {group.label} ({group.cards.length})
+            </button>
+          ))}
+        </div>
+        <div className="board" data-show={showing}>
+          {groups.map((group) => (
+            <section
+              key={group.state}
+              aria-labelledby={`board-${group.state}`}
+              className="column"
+              data-state={group.state}
+            >
+              <h4 id={`board-${group.state}`} tabIndex={-1} data-tone={TONE[group.state]}>
+                {group.label} ({group.cards.length})
+              </h4>
+              {group.cards.length === 0 ? (
+                <p className="hint">Nothing here.</p>
+              ) : (
+                <ul className="cards">
+                  {group.cards.map((card) => (
+                    <CardView
+                      key={card.order}
+                      card={card}
+                      sandboxId={sandboxId}
+                      onRefunded={(said) => {
+                        setRefunded({ said, order: card.order });
+                        onRefunded();
+                      }}
+                      canAct={!isGuest}
+                      open={open}
+                      focusHere={
+                        follow !== null && follow.order === card.order && follow.from !== card.state
+                      }
+                      onFocused={clearFollow}
+                      onAct={(c) => {
+                        const a = actionFor(c);
+                        if (!a) return;
+                        setFollow({ order: c.order, from: c.state });
+                        kitchen.send(c.order, a.action);
+                      }}
+                    />
+                  ))}
+                </ul>
+              )}
+            </section>
+          ))}
+        </div>
+      </section>
+
+      <div className="panel half">
+        <BakeList lists={bakeLists} today={today} />
+      </div>
+
+      <div className="panel half">
+        <h3 id="feed-heading" tabIndex={-1}>
+          Activity feed
+        </h3>
+        <p className="hint">The last 50 events the board applied, newest first.</p>
+        {kitchen.feed.length === 0 ? (
+          <p className="hint">No events yet since this page connected.</p>
+        ) : (
+          <div role="log" aria-labelledby="feed-heading" className="feed-scroll" tabIndex={0}>
+            <ol className="feed">
+              {kitchen.feed.map((e) => (
+                <li key={e.id}>
+                  <strong>{e.type}</strong> <code>{e.stream}</code> seq {e.seq}
+                  {e.cause && (
+                    <>
+                      , cause <code>{e.cause}</code>
+                      {isSimulated(e.cause) && ' (simulated)'}
+                    </>
+                  )}
+                  , <time dateTime={e.time}>{whenText(e.time, { seconds: true })}</time>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+      </div>
     </>
   );
 }

@@ -40,6 +40,27 @@ export function whenText(
   return `${clock} on ${dateLabel(dateOf(l))}`;
 }
 
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * A moment as people say it, short enough for a card: "Tue 10 Nov, 8:15 am", on the bakery's
+ * clock (design brief, 2026-11-09). The long form, whenText, goes in the element's title.
+ */
+export function shortWhen(value: string): string {
+  const date = shortDate(value);
+  return date === value ? value : `${date}, ${clockOfText(value)}`;
+}
+
+/** "Tue 10 Nov", the bakery's date of a moment, short. The text itself when it is not a time. */
+export function shortDate(value: string): string {
+  const ms = Date.parse(value);
+  if (Number.isNaN(ms) || !/T\d{2}:\d{2}/.test(value)) return value;
+  const l = mountainLocal(ms);
+  const weekday = WEEKDAYS[new Date(Date.UTC(l.year, l.month - 1, l.day)).getUTCDay()];
+  return `${weekday} ${l.day} ${MONTHS[l.month - 1]}`;
+}
+
 /** "8:15 am", the bakery's clock alone, for a list that already names the day. */
 export function clockOfText(value: string): string {
   const ms = Date.parse(value);

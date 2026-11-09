@@ -39,7 +39,11 @@ export default function Guest() {
         resetKey={resetKey}
         onUnavailable={() => setUnavailable(true)}
       />
-      <button type="submit" disabled={busy || unavailable || token === null}>
+      <button
+        type="submit"
+        className="btn btn-primary"
+        disabled={busy || unavailable || token === null}
+      >
         {busy ? 'Making your sandbox…' : 'Try it as a guest'}
       </button>
       <Message error={error} />

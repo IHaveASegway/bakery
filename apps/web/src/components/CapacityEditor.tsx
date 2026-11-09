@@ -188,7 +188,7 @@ export default function CapacityEditor({
       </p>
       {live.error && (
         <Message error={live.error}>
-          <button type="button" onClick={() => void live.refresh()}>
+          <button type="button" className="btn btn-secondary" onClick={() => void live.refresh()}>
             Try again
           </button>
         </Message>
@@ -292,7 +292,7 @@ export default function CapacityEditor({
           </span>
         </p>
         <p>
-          <button type="submit" disabled={busy || isGuest}>
+          <button type="submit" className="btn btn-primary" disabled={busy || isGuest}>
             {busy ? 'Saving…' : 'Set capacity'}
           </button>
         </p>

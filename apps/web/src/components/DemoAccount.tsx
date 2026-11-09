@@ -66,7 +66,7 @@ function CreateAccount() {
           can look it up later, so write it down now, with the password you chose.
         </p>
         <p>
-          <button type="button" onClick={copy}>
+          <button type="button" className="btn btn-secondary" onClick={copy}>
             Copy username
           </button>
         </p>
@@ -75,7 +75,7 @@ function CreateAccount() {
           {copied === 'no' && <p>Copying failed. Select the username above and copy it by hand.</p>}
         </Message>
         <p>
-          <a className="action" href="/app/">
+          <a className="btn btn-primary" href="/app/">
             Continue to the console
           </a>
         </p>
@@ -114,7 +114,11 @@ function CreateAccount() {
         resetKey={resetKey}
         onUnavailable={() => setUnavailable(true)}
       />
-      <button type="submit" disabled={busy || unavailable || token === null}>
+      <button
+        type="submit"
+        className="btn btn-primary"
+        disabled={busy || unavailable || token === null}
+      >
         {busy ? 'Creating…' : 'Create a demo account'}
       </button>
       <Message error={error} />
@@ -178,7 +182,7 @@ function SignIn() {
           onChange={(e) => setPassword(e.target.value)}
         />
       </p>
-      <button type="submit" disabled={busy}>
+      <button type="submit" className="btn btn-primary" disabled={busy}>
         {busy ? 'Signing in…' : 'Sign in'}
       </button>
       <Message error={error} />

@@ -59,10 +59,10 @@ export default function Receipt({
         </p>
       )}
       <p className="actions">
-        <a className="action" href="/app/">
+        <a className="btn btn-primary" href="/app/">
           Watch it on the kitchen board
         </a>
-        <a className="action" href="/menu/">
+        <a className="btn btn-secondary" href="/menu/">
           Order something else
         </a>
       </p>
