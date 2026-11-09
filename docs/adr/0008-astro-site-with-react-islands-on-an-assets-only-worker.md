@@ -1,6 +1,6 @@
 # ADR 0008: The storefront is an Astro site with React islands on an assets-only Worker at bakery.ihaveasegway.com
 
-Status: Proposed · 2026-11-04 · Deciders: Joseph Peterson
+Status: Accepted · 2026-11-09, by delegation; as amended by the postscript below · Proposed 2026-11-04 · Deciders: Joseph Peterson
 
 ## Context
 
@@ -76,7 +76,9 @@ Two-way. The output is files in `dist/`. Moving the app screens to server render
 
 As built, 2026-11-09: since the tour (PR 10), every screen with a tour step carries its island and the small script that turns Sign in into Console, including `/docs/api/`, which also has a copy script (`apps/web/src/layouts/Base.astro`, `apps/web/src/policy.ts`). Seventeen pages carry no script at all: About, How it's built, its fourteen essays and the 404. Byte budgets per page class are now checked by `apps/web/test/dist.test.ts` (2026-11-09): the 17 script-free pages must stay at 0 B, and every other page is held to a gzipped JavaScript budget set from its measured size plus a quarter, from 118,000 B for the pages that carry only the tour to 170,000 B for the console screens. Decision 8's own figures (5,000 B for a public page, 120,000 B for an app screen) are not met: the tour and React are on every island page, and the console measures 135,699 B. The status island's chunk and the API page's HTML keep their own budgets.
 
+Decided on 2026-11-09 by the session, under Joseph's delegation of the same day; revisable: decision 8 is amended. Budgets are per page class, at each class's measured size plus 25%, as `apps/web/test/dist.test.ts` holds them, and a page with no script stays at 0 B. The 5,000 B and 120,000 B figures are retired, because every island page carries React and the guide (roadmap R61). The Stripe.js and solver rules of decision 8 are unchanged. PR 21 re-takes the measurements after the interface and the live guide land (roadmap PR 21).
+
 ## Patterns and further reading
 
-- Islands architecture: Jason Miller, ["Islands Architecture"](https://jasonformat.com/islands-architecture/) (2020).
+- Islands architecture: ["Islands Architecture"](https://jasonformat.com/islands-architecture/) (blog, 2020).
 - Static-first delivery and its cost arithmetic: [the site's ADR 0002](https://github.com/IHaveASegway/website/blob/main/docs/adr/0002-host-on-workers-static-assets.md) and [the site's cost.md](https://github.com/IHaveASegway/website/blob/main/docs/cost.md).

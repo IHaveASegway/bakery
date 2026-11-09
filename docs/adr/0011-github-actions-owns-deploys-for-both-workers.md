@@ -1,6 +1,6 @@
 # ADR 0011: GitHub Actions owns build, gates and deploys, for both Workers
 
-Status: Proposed · 2026-11-04 · Deciders: Joseph Peterson
+Status: Accepted · 2026-11-09, by delegation; as amended by the postscript below · Proposed 2026-11-04 · Deciders: Joseph Peterson
 
 ## Context
 
@@ -81,5 +81,5 @@ As built, 2026-11-09: stage 1's own check is health and CORS, and `prod-smoke` r
 
 ## Patterns and further reading
 
-- Deployment pipeline and build once: Jez Humble and David Farley, *Continuous Delivery* (2010), [continuousdelivery.com](https://continuousdelivery.com/).
-- Expand and contract for schema changes: Martin Fowler, ["Parallel Change"](https://martinfowler.com/bliki/ParallelChange.html) (2014).
+- Deployment pipeline and build once: *Continuous Delivery* (book, 2010), [continuousdelivery.com](https://continuousdelivery.com/).
+- Expand and contract for schema changes: ["Parallel Change"](https://martinfowler.com/bliki/ParallelChange.html) (bliki, 2014).

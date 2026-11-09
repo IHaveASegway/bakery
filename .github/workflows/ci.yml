@@ -158,6 +158,28 @@ jobs:
       - name: Bundle the API without deploying it (the bytes firewall scans)
         working-directory: workers/api
         run: pnpm exec wrangler deploy --dry-run --outdir dist
+      # The startup budget's local half (delivery.md, "Quality gates"): Wrangler's `check startup`
+      # loads the scanned bundle in a local workerd and profiles its startup phase, with no
+      # credential and no upload. It runs on a copy, so the artifact keeps exactly the bytes
+      # firewall scans. A runner's CPU is not Cloudflare's, so the figure is a guide; the budget
+      # is 500 ms, half the platform's 1 s limit. The deploy job checks Cloudflare's own figure.
+      - name: The API's startup stays inside its budget (wrangler check startup, 500 ms)
+        run: |
+          copy="$RUNNER_TEMP/api-startup"
+          rm -rf "$copy"
+          cp -r workers/api/dist "$copy"
+          node scripts/api-deploy-config.mjs workers/api/wrangler.jsonc "$copy"
+          pnpm exec wrangler deploy --config "$copy/wrangler.json" --dry-run --outfile "$RUNNER_TEMP/api.bundle" > "$RUNNER_TEMP/api-bundle.log"
+          pnpm exec wrangler check startup --worker "$RUNNER_TEMP/api.bundle" --outfile "$RUNNER_TEMP/api-startup.cpuprofile"
+          # The profile's window, start to end, in microseconds: the import of the bundle and the
+          # instantiation of its WebAssembly, idle samples included.
+          ms="$(jq -r '(.endTime - .startTime) / 1000 | ceil' "$RUNNER_TEMP/api-startup.cpuprofile")"
+          budget=500
+          echo "the API's local startup profile spans $ms ms; the budget is $budget ms"
+          if [ "$ms" -gt "$budget" ]; then
+            echo "::error::the API's local startup profile spans $ms ms, over the startup budget of $budget ms (docs/delivery.md, \"Quality gates\")"
+            exit 1
+          fi
       - name: The API's WebAssembly stays inside its budget (workers/api/budgets.json, spike S1 plus 25%)
         run: |
           wasm=workers/api/build/index_bg.wasm
@@ -836,6 +858,26 @@ jobs:
             exit 1
           fi
           echo "bakery-api answers with main@${SHA:0:8} and exact CORS" >> "$GITHUB_STEP_SUMMARY"
+      # The startup budget (delivery.md, "Quality gates"): Cloudflare's own figure, which Wrangler
+      # prints as "Worker Startup Time: <n> ms". A deploy is live before this can run, so a figure
+      # over 500 ms fails the job after the fact, prod-verdict opens an Incident with the rollback
+      # command, and the response is operations.md's rollback runbook. A missing line warns.
+      - name: Stage 1's startup time, from the deploy's own output (budget 500 ms)
+        if: steps.api.outputs.deployed == 'true'
+        run: |
+          budget=500
+          startup="$(grep -oE 'Worker Startup Time: [0-9]+ ms' "$RUNNER_TEMP/api-deploy.log" | awk '{ print $4 }' | tail -n 1 || true)"
+          if [ -z "$startup" ]; then
+            echo "::warning::the API's deploy printed no 'Worker Startup Time' line, so its startup budget was not checked (Wrangler's wording may have changed)"
+            echo "bakery-api startup time: not reported by Wrangler, so not checked" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "bakery-api startup time: $startup ms (budget $budget ms)" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$startup" -gt "$budget" ]; then
+            echo "::error::bakery-api, now live, starts in $startup ms, over the startup budget of $budget ms; roll it back (docs/operations.md, \"Rollback\")"
+            exit 1
+          fi
+          echo "bakery-api starts in $startup ms; the budget is $budget ms"
       - name: Stage 2, the web Worker, uploaded, smoked on its Version URL, then promoted
         id: web
         if: steps.tip.outputs.go == 'true' && steps.scope.outputs.alone != 'true'
@@ -845,16 +887,40 @@ jobs:
           LIVE_VERSION: ${{ steps.live.outputs.web_version }}
         run: |
           config=apps/web/wrangler.jsonc
+          # The startup budget (delivery.md, "Quality gates"): Wrangler prints Cloudflare's figure as
+          # "Worker Startup Time: <n> ms". Over 500 ms fails; a missing line warns. `wrangler deploy`
+          # leaves the line out when the figure is 0, so a first deploy may warn.
+          startup_check() {
+            local budget=500 startup
+            startup="$(grep -oE 'Worker Startup Time: [0-9]+ ms' "$RUNNER_TEMP/web.log" | awk '{ print $4 }' | tail -n 1 || true)"
+            if [ -z "$startup" ]; then
+              echo "::warning::the web Worker's $1 printed no 'Worker Startup Time' line, so its startup budget was not checked (Wrangler's wording may have changed)"
+              echo "bakery-web startup time: not reported by Wrangler, so not checked" >> "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+            echo "bakery-web startup time: $startup ms (budget $budget ms)" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$startup" -gt "$budget" ]; then
+              echo "::error::the web Worker's $1 reports a startup time of $startup ms, over the startup budget of $budget ms"
+              return 1
+            fi
+            echo "bakery-web starts in $startup ms; the budget is $budget ms"
+          }
+          late_check=false
           if [ -z "$LIVE_VERSION" ]; then
             # The first deploy: routes and Custom Domains are not part of a version (delivery.md).
             pnpm exec wrangler deploy --config "$config" --message "main@$SHA" | tee "$RUNNER_TEMP/web.log"
             version="$(grep -oE 'Current Version ID: [0-9a-f-]{36}' "$RUNNER_TEMP/web.log" | awk '{ print $4 }' | tail -n 1)"
+            late_check=true # live already: checked after the outputs are written
           else
             pnpm exec wrangler versions upload --config "$config" --tag "${SHA:0:8}" --message "main@$SHA" | tee "$RUNNER_TEMP/web.log"
             version="$(grep -oE 'Worker Version ID: [0-9a-f-]{36}' "$RUNNER_TEMP/web.log" | awk '{ print $4 }' | tail -n 1)"
             preview="$(grep -oE 'https://[A-Za-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/web.log" | head -n 1)"
             if [ -z "$version" ] || [ -z "$preview" ]; then
               echo "::error::the upload reported no version id or Version URL (confirm Wrangler's output on launch day)"
+              exit 1
+            fi
+            if ! startup_check upload; then
+              echo "::error::nothing was promoted; bakery-web stays at ${LIVE_VERSION}"
               exit 1
             fi
             # The Version URL smoke: each page answers 200 with the policy, and is the artifact.
@@ -877,6 +943,10 @@ jobs:
           echo "deployed=true" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "bakery-web deployed: $version (was ${LIVE_VERSION:-none})" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$late_check" = true ] && ! startup_check deploy; then
+            echo "::error::bakery-web is live with it; roll it back or fix forward (docs/operations.md, \"Rollback\")"
+            exit 1
+          fi
 
   rollback:
     # workflow_dispatch from main with worker, rollback_to and reason (docs/operations.md,
