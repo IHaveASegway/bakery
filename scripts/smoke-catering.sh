@@ -4,8 +4,9 @@
 #
 # - The inquiry: 201 with Location, the same key replayed (200, Idempotent-Replayed); refused
 #   with the rule named (422 `catering`): 6 days out (`catering-lead`, naming the earliest
-#   date), a headcount of 9 and of 201, and a brief holding an email, a phone number, a card
-#   number passing Luhn or a URL, each naming its class and never echoing the brief.
+#   date), a Monday (`closed-day`), a headcount of 9 and of 201, and a brief holding an email,
+#   a phone number, a card number passing Luhn or a URL, each naming its class and never
+#   echoing the brief.
 # - The full saga: quote, accept (the day held), the deposit through the fake Stripe (the same
 #   intent on a second deposit call; `confirmed` only after the webhook, delivered twice and
 #   recorded once), production, delivered, `InvoiceIssued` and `invoiced` with its due date,
@@ -17,6 +18,8 @@
 # - Reminders and cancellations: a quoted event's follow-up fires when the clock passes it; a
 #   confirmed event cancelled 8 or more days out has its deposit refunded at the fake and in
 #   the ledger, one cancelled 3 days out does not, and a cancelled event keeps no timer row.
+# - A fresh quote watched expiring by clock advance: issued 7 open days before its event, it is
+#   valid until its production day begins, which comes before 14 business days.
 # - The quote's expiry after 14 business days, by clock advance, on the seed's quoted event (a
 #   fresh quote cannot reach it under the clock's 14-day cap), and the seeded accepted event
 #   born with a live deposit hold.
@@ -490,6 +493,11 @@ SIX="$(cal 'isMon(addDays(a[0], 6)) ? addDays(a[0], 5) : addDays(a[0], 6)' "$TOD
 command_as too_soon D 192.0.2.92 POST "/v1/sandboxes/$AID/catering" "$(inquiry "$SIX" 40)"
 expect_problem too_soon 422 catering
 expect_json too_soon "/\\bcatering-lead\\b/.test(b.detail) && b.detail.includes('$EARLIEST') && b.detail.includes('7 business days')"
+# A Monday, the first after the earliest date: the bakery is closed, whatever the lead.
+MONDAY="$(cal '(() => { let d = addDays(a[0], 1); while (!isMon(d)) d = addDays(d, 1); return d; })()' "$EARLIEST")"
+command_as closed_monday D 192.0.2.92 POST "/v1/sandboxes/$AID/catering" "$(inquiry "$MONDAY" 40)"
+expect_problem closed_monday 422 catering
+expect_json closed_monday "/\\bclosed-day\\b/.test(b.detail)"
 for hc in 9 201; do
   command_as "headcount_$hc" D 192.0.2.92 POST "/v1/sandboxes/$AID/catering" "$(inquiry "$EARLIEST" "$hc")"
   expect_problem "headcount_$hc" 422 catering
@@ -650,6 +658,12 @@ expect_json ev_q "!b.some(e => e.type === 'refund.created' && e.intent === '$PI_
 get_as ledger_q E "/v1/sandboxes/$BID/billing/ledger"
 expect_json ledger_q "!b.entries.some(e => e.ref === '$Q' && e.kind === 'refund')"
 check "q, cancelled 3 days out, has no timer row left" "(( $(timers_of "$BID" "$Q") == 0 ))"
+# r's fresh quote, issued above, is valid until midnight starting its production day (the day
+# before the event comes before 14 business days). Two more days put the clock on that day.
+VALID_R="$(json_field r_quote b.valid_until)"
+advance_days E 192.0.2.93 "$BID" 2
+check "two more days pass r's fresh quote ($VALID_R): r is expired, with no reminder left" "catering_until r_expired E '$BID' '$R' \"b.state === 'expired' && b.reminders.length === 0\""
+check "one CateringQuoteExpired in r's log" "(( $(events_of "$BID" "$R" CateringQuoteExpired) == 1 ))"
 
 # ---------- the refusals of the staff steps and a quote's total, on sandbox a ----------
 

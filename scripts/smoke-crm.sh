@@ -13,6 +13,8 @@
 #   includes it.
 # - The double fire: a second alarm after the send (the clock advanced again) leaves one
 #   `CampaignSent` in Crm's log and one message per recipient.
+# - A campaign a day ahead: scheduled a day and five minutes out, still scheduled after a `1d`
+#   step, sent 15 business minutes later, its send timer gone.
 # - Campaign rules: 201 with Location, the same key replayed (Idempotent-Replayed), the PATCH of a
 #   draft with its Idempotency-Key replayed, 422 `campaign` `schedule-too-soon` with the earliest
 #   time as an ISO business time, 409 `out-of-order` editing a scheduled one, cancel back to
@@ -35,6 +37,8 @@
 #   409 `rebuild` while it runs), `applied` climbing to `total` over several alarms, then every
 #   response and the projection byte-identical (the activity feed gains only the rebuild's own
 #   row), and `ProjectionRebuildFinished` with `events` = the log's length.
+# - The loop guard: rebuilds one after another spend Crm's 100 alarm-driven re-arms of the UTC
+#   day; the 101st is refused, `alarm_guard` is logged once, and nothing is armed after it.
 # - The wipe: scripts/list-objects.mjs exits 0, the Customer, Crm and Inbox objects included.
 #
 # The Mailbox rule ("no Mailbox implementation can address a non-sandbox recipient") is proven
@@ -732,6 +736,26 @@ STATS_B="$(json_field ce_stats_E "[b.recipients, b.delivered, b.opened, b.clicke
 echo "campaign to everyone (recipients, delivered, opened, clicked): a $STATS_A, b $STATS_B"
 check "the same opens and clicks in both sandboxes, inside the engagement bounds" "[[ '$STATS_A' == '$STATS_B' ]] && node -e \"const [r, d, o, c] = '$STATS_A'.split(',').map(Number); process.exit(r === d && o >= 0.2 * d && o <= 0.7 * d && c >= 1 && c <= o ? 0 : 1)\""
 
+# ---------- a campaign a day ahead, on sandbox b ----------
+
+# Scheduled a day and five minutes ahead: one `1d` step leaves it scheduled with its timer row,
+# and 15 business minutes more send it. Sandbox b is not compared with a again after this.
+CD="$(ulid)"
+KEY="$CD" command_as cd E 192.0.2.83 POST "/v1/sandboxes/$BID/campaigns" '{"subject":"thank-you","body":"announcement","segment":"everyone"}'
+expect_status cd 201
+SEND_D="$(biz_iso "$BID" E 1445)"
+command_as cd_sched E 192.0.2.83 POST "/v1/sandboxes/$BID/campaigns/$CD/schedule" "{\"send_at\":\"$SEND_D\"}"
+expect_json cd_sched "b.state === 'scheduled' && b.send_at === '$SEND_D'"
+command_as cd_day E 192.0.2.83 POST "/v1/sandboxes/$BID/clock" '{"step":"1d"}'
+expect_status cd_day 200
+sleep 2
+get_as cd_not_yet E "/v1/sandboxes/$BID/campaigns/$CD"
+check "a day later, five minutes short of send_at ($SEND_D), it is still scheduled with its send timer" "[[ '$(json_field cd_not_yet b.state)' == scheduled ]] && (( $(sql_count Crm "crm:$BID" "SELECT count(*) AS n FROM timers WHERE id = 'send:$CD'") == 1 ))"
+command_as cd_past E 192.0.2.83 POST "/v1/sandboxes/$BID/clock" '{"step":"15m"}'
+expect_status cd_past 200
+check "15 business minutes past it, the day-ahead campaign is sent to everyone" "until_json cd_sent E '/v1/sandboxes/$BID/campaigns/$CD' \"b.state === 'sent' && b.recipients > 0 && b.delivered === b.recipients\""
+check "and keeps no send timer" "(( $(sql_count Crm "crm:$BID" "SELECT count(*) AS n FROM timers WHERE id = 'send:$CD'") == 0 ))"
+
 # ---------- the stripping: no note or brief anywhere Crm or the Inbox writes ----------
 
 get_as a_inbox_all D "/v1/sandboxes/$AID/inbox?limit=500"
@@ -870,6 +894,44 @@ echo "    (sends_deferred was logged $DEFER_RUNS times over $STEPS rebuild steps
 check "sends_deferred is logged at most once per rebuild run ($DEFER_RUNS lines, $STEPS steps)" "(( DEFER_RUNS >= 1 && DEFER_RUNS <= STEPS + 1 ))"
 check "the wait spent at most 15 re-arms ($SPENT), and no alarm_guard was logged" "(( SPENT <= 15 )) && ! grep -q '\"event\":\"alarm_guard\"' '$TMP/defer.log'"
 
+# ---------- the loop guard: the 101st alarm-driven re-arm ----------
+
+# Each rebuild step is an alarm run that re-arms the next one 300 ms later, so every rebuild
+# spends three or four of Crm's 100 alarm-driven re-arms a UTC day (docs/architecture.md, "The
+# rules, restated for Rust", rule 4). Rebuilds are started one after another, each run to its end,
+# until the ledger holds 100; the next re-arm is refused: `alarm_guard` is logged, nothing is
+# armed, and the rebuild it cut off stays where it was until the wipe. Each rebuild is one command
+# and takes over a second, and a pause keeps the session well inside its 60 commands a minute. A
+# run that crosses midnight UTC starts a new day's ledger and makes a few more rebuilds.
+GUARD_FROM="$(wc -l < "$LOG")"
+GUARD_DAY="$(date -u +%F)"
+rearms_today() { sql_count Crm "crm:$AID" "SELECT coalesce(max(n), 0) AS n FROM rearms WHERE day = '$(date -u +%F)'"; }
+GUARD_START="$(rearms_today)"
+GUARD_RUNS=0
+GUARD_FINISHED=0
+guard_log() { tail -n "+$((GUARD_FROM + 1))" "$LOG" > "$TMP/guard.log"; }
+guard_logged() { guard_log; grep -qF '"event":"alarm_guard","reason":"rearm-cap","object":"Crm"' "$TMP/guard.log"; }
+for _ in $(seq 1 60); do
+  if guard_logged; then break; fi
+  command_as guard_rb D 192.0.2.82 POST "/v1/sandboxes/$AID/rebuild"
+  GUARD_RUNS=$((GUARD_RUNS + 1))
+  for _ in $(seq 1 100); do
+    get_as guard_poll D "/v1/sandboxes/$AID/rebuild"
+    if [[ "$(json_field guard_poll b.state)" == finished ]]; then GUARD_FINISHED=$((GUARD_FINISHED + 1)); break; fi
+    if guard_logged; then break; fi
+    sleep 0.1
+  done
+  sleep 1
+done
+GUARD_END="$(rearms_today)"
+echo "    ($GUARD_RUNS rebuilds from $GUARD_START re-arms today ($GUARD_DAY) to $GUARD_END; $GUARD_FINISHED ran to their end)"
+check "the 101st alarm-driven re-arm is refused: alarm_guard logged for Crm, once" "guard_logged && (( $(grep -c '"event":"alarm_guard"' "$TMP/guard.log") == 1 ))"
+check "every rebuild before it ran to its end, and the day's ledger stops at 100" "(( GUARD_FINISHED >= GUARD_RUNS - 1 && GUARD_END == 100 ))"
+get_as guard_cut D "/v1/sandboxes/$AID/rebuild"
+sleep 2
+get_as guard_still D "/v1/sandboxes/$AID/rebuild"
+check "nothing is armed after it: the rebuild reads the same 2 s later ($(json_field guard_cut "b.state + ', ' + b.applied + ' of ' + b.total")), and the ledger still holds 100" "cmp -s '$TMP/guard_cut.body' '$TMP/guard_still.body' && (( $(rearms_today) == 100 ))"
+
 # ---------- the wipe ----------
 
 for s in "G:$GID:192.0.2.81" "D:$AID:192.0.2.82" "E:$BID:192.0.2.83"; do
@@ -883,7 +945,8 @@ node "$ROOT/scripts/list-objects.mjs" "$STATE" > "$TMP/list.out" 2> "$TMP/list.e
 LIST_EXIT=$?
 set -e
 check "list-objects exits 0 after the wipe, the Customer, Crm and Inbox objects included" "(( LIST_EXIT == 0 )) && grep -q '\"class\":\"Crm\"' '$TMP/list.out' && grep -q '\"class\":\"Inbox\"' '$TMP/list.out' && grep -q '\"class\":\"Customer\"' '$TMP/list.out'"
-check "no alarm_guard was logged" "! log_has '\"event\":\"alarm_guard\"'"
+head -n "$GUARD_FROM" "$LOG" > "$TMP/before_guard.log"
+check "no alarm_guard was logged before the loop guard's own section" "! grep -q '\"event\":\"alarm_guard\"' '$TMP/before_guard.log'"
 check "no delivery dead-lettered" "! log_has '\"event\":\"dlq\"'"
 
 echo

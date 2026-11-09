@@ -8,9 +8,10 @@
 # payment paths themselves are scripts/smoke-payments.sh's. Since the hardening after PR 13 it also
 # drives a retried placement whose place was given back: 409 `hold-lost` with no room, and with
 # room the place held again and the order placed on it. Since 2026-11-08 it reads the menu's
-# drafts route after a price edit and after the publish. It proves each line of docs/roadmap.md's
-# PR 4 "Done when" that can be proven locally, prints ok or FAIL per check as
-# scripts/smoke-auth.sh does, and exits non-zero on any failure.
+# drafts route after a price edit and after the publish. Since 2026-11-09 it places for a time
+# that is not a slot (422 `no-such-slot`) and for a Monday (422 `order`, not baked that day). It
+# proves each line of docs/roadmap.md's PR 4 "Done when" that can be proven locally, prints ok or
+# FAIL per check as scripts/smoke-auth.sh does, and exits non-zero on any failure.
 #
 # Usage: scripts/smoke-orders.sh   (from anywhere; needs cargo, worker-build, pnpm, node 22 and curl).
 #
@@ -457,6 +458,29 @@ expect_json too_many "b.detail.includes('too-many-lines')"
 command_as unknown_variant G 192.0.2.41 POST "/v1/sandboxes/$GID/orders" "{\"kind\":\"pickup\",\"slot\":\"$SLOT\",\"lines\":[{\"variant\":\"no-such/thing\",\"qty\":1}]}"
 expect_problem unknown_variant 422 order
 expect_json unknown_variant "b.detail.includes('not-on-menu')"
+# Five minutes after the picked slot: the right day and later, so the order's own rules pass,
+# but not one of the day's quarter-hour starts. The day's Schedule refuses it (PR 6).
+NO_SLOT="${SLOT:0:14}$(printf '%02d' $((10#${SLOT:14:2} + 5)))${SLOT:16}"
+command_as no_slot G 192.0.2.41 POST "/v1/sandboxes/$GID/orders" "{\"kind\":\"pickup\",\"slot\":\"$NO_SLOT\",\"lines\":[{\"variant\":\"$VARIANT\",\"qty\":1}]}"
+expect_problem no_slot 422 no-such-slot
+# A Monday at 10:00, the first after today: the Schedule's `closed-day` stands behind the order's
+# own rule, since the menu bakes nothing on a Monday (the catalog refuses `mon`), so the order
+# names the item not baked that day and holds no place. scripts/smoke-catering.sh drives
+# `closed-day` itself, on a catering inquiry.
+MONDAY_SLOT="$(node -e "
+  const TZ = 'America/Denver';
+  const parts = (ms) => { const o = {}; for (const p of new Intl.DateTimeFormat('en-US', { timeZone: TZ, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short' }).formatToParts(new Date(ms))) o[p.type] = p.value; return o; };
+  let ms = Date.now() + 86400000;
+  while (parts(ms).weekday !== 'Mon') ms += 86400000;
+  const p = parts(ms);
+  const noonUtc = Date.UTC(+p.year, +p.month - 1, +p.day, 12);
+  const q = parts(noonUtc);
+  const off = (+q.hour * 60 + +q.minute) - 720;
+  const a = Math.abs(off);
+  process.stdout.write(p.year + '-' + p.month + '-' + p.day + 'T10:00:00' + (off < 0 ? '-' : '+') + String(Math.floor(a / 60)).padStart(2, '0') + ':' + String(a % 60).padStart(2, '0'));")"
+command_as monday_order G 192.0.2.41 POST "/v1/sandboxes/$GID/orders" "{\"kind\":\"pickup\",\"slot\":\"$MONDAY_SLOT\",\"lines\":[{\"variant\":\"$VARIANT\",\"qty\":1}]}"
+expect_problem monday_order 422 order
+expect_json monday_order "b.detail.includes('not-baked-that-day')"
 get_as order_missing G "/v1/sandboxes/$GID/orders/01JC8Z6K3W9QF2N4T7XRB5M0HD"
 expect_status order_missing 404
 get_as order_cross D "/v1/sandboxes/$GID/orders/$OID"
