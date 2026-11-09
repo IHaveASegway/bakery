@@ -170,10 +170,8 @@ export default function CapacityEditor({
       <h3 id="capacity-heading" tabIndex={-1} data-tour="controls-capacity">
         Capacity
       </h3>
-      <p>
-        Each slot, zone, item and the catering line has a capacity the Schedule enforces: held plus
-        reserved places never pass it. Staff can change a capacity for a day. A lowered capacity
-        never drops a reservation; it only stops new ones.
+      <p className="hint">
+        Held and reserved places never pass a capacity; lowering one stops new ones.
       </p>
       {isGuest && <GuestNote />}
       <p>

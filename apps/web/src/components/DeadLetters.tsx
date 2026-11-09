@@ -55,9 +55,8 @@ export default function DeadLetters({
       <h3 id="dead-letters-heading" tabIndex={-1} data-tour="kitchen-dead-letters">
         Dead letters
       </h3>
-      <p>
-        A delivery that fails three times lands here with its last error. Switch off the fault, then
-        redrive it.
+      <p className="hint">
+        A delivery that fails three times lands here; switch the fault off, then redrive it.
       </p>
       <p>
         <button type="button" className="btn btn-secondary btn-sm" onClick={() => void refresh()}>

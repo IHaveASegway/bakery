@@ -48,10 +48,7 @@ export default function Segments({ sandboxId, refresh }: { sandboxId: string; re
       <h3 id="segments-heading" tabIndex={-1} data-tour="crm-segments">
         Segments
       </h3>
-      <p>
-        A segment is a rule over what the CRM knows. Who is in changes when an event arrives: place
-        an order, change a consent flag, or advance the clock, then look again.
-      </p>
+      <p className="hint">Who is in changes when an event arrives.</p>
       <Message error={error} />
       {segments === null ? (
         error === null && <p aria-live="polite">Loading the segments…</p>

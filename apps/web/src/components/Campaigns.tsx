@@ -138,9 +138,9 @@ export default function Campaigns({
       <h3 id="campaigns-heading" tabIndex={-1} data-tour="crm-campaigns">
         Campaigns
       </h3>
-      <p>
-        Compose a campaign from the templates, schedule it, then move the clock past its send time.
-        It goes to the sandbox’s <a href="/inbox/">inbox</a>; nothing leaves the sandbox.
+      <p className="hint">
+        Schedule one, move the clock past its send time, and find it in the{' '}
+        <a href="/inbox/">inbox</a>.
       </p>
       {isGuest && <GuestNote />}
 
