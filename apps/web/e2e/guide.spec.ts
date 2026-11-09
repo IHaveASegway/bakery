@@ -143,12 +143,19 @@ test('placing an order at checkout opens a note with the request, its status and
   await page.goto('/checkout/');
 
   // The first day on offer with a pickup time still open, once that day's schedule has been read.
-  const days = await page.locator('#day option').count();
-  const picker = page.getByRole('group', { name: 'Pickup time' });
   const status = page.locator('#slot-status');
+  await expect(status).toHaveText(/slots open\.|closed that day|not baked that day/);
+  const days = await page.locator('#day option').count();
+  expect(days).toBeGreaterThan(1);
+  const picker = page.getByRole('group', { name: 'Pickup time' });
   const open = picker.locator('input[type="radio"]:not([disabled])');
   for (let i = 0; i < days; i++) {
     await page.locator('#day').selectOption({ index: i });
+    const day = await page.locator('#day').inputValue();
+    // The day's own slots (a radio's value starts with its date), or the line that it is closed.
+    await expect(
+      picker.locator(`input[value^="${day}"]`).or(page.getByText('closed that day')).first(),
+    ).toBeVisible();
     await expect(status).toHaveText(/slots open\.|closed that day|not baked that day/);
     if ((await open.count()) > 0) break;
   }
