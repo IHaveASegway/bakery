@@ -110,9 +110,9 @@ export function blockerText(blocker: Blocker): string {
   }
 }
 
-/** "3 free", "1 free", "full". */
+/** "3 left", "1 left", "full". */
 export function freeText(choice: Choice): string {
-  return choice.free <= 0 ? 'full' : `${choice.free} free`;
+  return choice.free <= 0 ? 'full' : `${choice.free} left`;
 }
 
 /**

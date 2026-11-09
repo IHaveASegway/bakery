@@ -17,17 +17,53 @@ type Step =
   | { name: 'failed'; error: Text }
   | { name: 'ready'; stripe: Stripe; payment: PaymentResponse; persona: Persona };
 
-/** The sentence ADR 0007 decision 10 asks for, above the Element. */
+const TEST_CARD = '4242 4242 4242 4242';
+
+/** Copies the test card's number, and says so for a moment. */
+function CopyCard() {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 2_000);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  return (
+    <button
+      type="button"
+      className="btn btn-quiet btn-sm"
+      onClick={() => {
+        void navigator.clipboard
+          ?.writeText(TEST_CARD.replaceAll(' ', ''))
+          .then(() => setCopied(true))
+          .catch(() => undefined);
+      }}
+    >
+      <span aria-live="polite">{copied ? 'Copied' : 'Copy'}</span>
+    </button>
+  );
+}
+
+/**
+ * The sentence ADR 0007 decision 10 asks for, above the Element, with the test card on a line of
+ * its own that copies in one press.
+ */
 function TestCardNote() {
   return (
-    <p>
-      This is Stripe’s sandbox, so no money moves. Use the test card{' '}
-      <code>4242 4242 4242 4242</code> with any future date and any CVC. Stripe lists{' '}
-      <a href="https://docs.stripe.com/testing" rel="noreferrer">
-        test cards that decline or ask for 3-D Secure
-      </a>
-      . This page never asks for a real card.
-    </p>
+    <div className="test-card">
+      <p className="test-card-line">
+        <span className="test-card-label">Test card</span>
+        <code>{TEST_CARD}</code>
+        <CopyCard />
+        <span className="hint">any future date, any CVC</span>
+      </p>
+      <p className="hint">
+        This is Stripe’s sandbox, so no money moves. Stripe lists{' '}
+        <a href="https://docs.stripe.com/testing" rel="noreferrer">
+          test cards that decline or ask for 3-D Secure
+        </a>
+        . This page never asks for a real card.
+      </p>
+    </div>
   );
 }
 
@@ -45,6 +81,7 @@ export default function PaymentPanel({
   createIntent,
   onSubmitted,
   unconfigured = 'Nothing here asks for a card.',
+  returnTo,
 }: {
   sandboxId: string;
   intentKey: string;
@@ -52,6 +89,8 @@ export default function PaymentPanel({
   onSubmitted: () => void;
   /** What to add to "Payments are not configured on this build." when there is no key. */
   unconfigured?: string;
+  /** Where Stripe sends the visitor back after a redirect (3-D Secure); this page when not given. */
+  returnTo?: string;
 }) {
   const [step, setStep] = useState<Step>({ name: 'preparing' });
   const [tries, setTries] = useState(0);
@@ -145,6 +184,7 @@ export default function PaymentPanel({
               persona={step.persona}
               amountCents={step.payment.amount_cents}
               onSubmitted={onSubmitted}
+              returnTo={returnTo}
             />
           </Elements>
         </>
@@ -158,10 +198,12 @@ function PayForm({
   persona,
   amountCents,
   onSubmitted,
+  returnTo,
 }: {
   persona: Persona;
   amountCents: number;
   onSubmitted: () => void;
+  returnTo: string | undefined;
 }) {
   const stripe = useStripe();
   const elements = useElements();
@@ -179,7 +221,10 @@ function PayForm({
         confirmParams: {
           // The Element shows no billing fields, so the persona’s synthetic details go here.
           payment_method_data: { billing_details: billingDetails(persona) },
-          return_url: returnUrl(window.location),
+          return_url:
+            returnTo === undefined
+              ? returnUrl(window.location)
+              : new URL(returnTo, window.location.origin).href,
         },
         redirect: 'if_required',
       });
