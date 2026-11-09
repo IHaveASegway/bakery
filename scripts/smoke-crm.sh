@@ -13,6 +13,8 @@
 #   includes it.
 # - The double fire: a second alarm after the send (the clock advanced again) leaves one
 #   `CampaignSent` in Crm's log and one message per recipient.
+# - A campaign a day ahead: scheduled a day and five minutes out, still scheduled after a `1d`
+#   step, sent 15 business minutes later, its send timer gone.
 # - Campaign rules: 201 with Location, the same key replayed (Idempotent-Replayed), the PATCH of a
 #   draft with its Idempotency-Key replayed, 422 `campaign` `schedule-too-soon` with the earliest
 #   time as an ISO business time, 409 `out-of-order` editing a scheduled one, cancel back to
@@ -731,6 +733,26 @@ STATS_A="$(json_field ce_stats_D "[b.recipients, b.delivered, b.opened, b.clicke
 STATS_B="$(json_field ce_stats_E "[b.recipients, b.delivered, b.opened, b.clicked].join()")"
 echo "campaign to everyone (recipients, delivered, opened, clicked): a $STATS_A, b $STATS_B"
 check "the same opens and clicks in both sandboxes, inside the engagement bounds" "[[ '$STATS_A' == '$STATS_B' ]] && node -e \"const [r, d, o, c] = '$STATS_A'.split(',').map(Number); process.exit(r === d && o >= 0.2 * d && o <= 0.7 * d && c >= 1 && c <= o ? 0 : 1)\""
+
+# ---------- a campaign a day ahead, on sandbox b ----------
+
+# Scheduled a day and five minutes ahead: one `1d` step leaves it scheduled with its timer row,
+# and 15 business minutes more send it. Sandbox b is not compared with a again after this.
+CD="$(ulid)"
+KEY="$CD" command_as cd E 192.0.2.83 POST "/v1/sandboxes/$BID/campaigns" '{"subject":"thank-you","body":"announcement","segment":"everyone"}'
+expect_status cd 201
+SEND_D="$(biz_iso "$BID" E 1445)"
+command_as cd_sched E 192.0.2.83 POST "/v1/sandboxes/$BID/campaigns/$CD/schedule" "{\"send_at\":\"$SEND_D\"}"
+expect_json cd_sched "b.state === 'scheduled' && b.send_at === '$SEND_D'"
+command_as cd_day E 192.0.2.83 POST "/v1/sandboxes/$BID/clock" '{"step":"1d"}'
+expect_status cd_day 200
+sleep 2
+get_as cd_not_yet E "/v1/sandboxes/$BID/campaigns/$CD"
+check "a day later, five minutes short of send_at ($SEND_D), it is still scheduled with its send timer" "[[ '$(json_field cd_not_yet b.state)' == scheduled ]] && (( $(sql_count Crm "crm:$BID" "SELECT count(*) AS n FROM timers WHERE id = 'send:$CD'") == 1 ))"
+command_as cd_past E 192.0.2.83 POST "/v1/sandboxes/$BID/clock" '{"step":"15m"}'
+expect_status cd_past 200
+check "15 business minutes past it, the day-ahead campaign is sent to everyone" "until_json cd_sent E '/v1/sandboxes/$BID/campaigns/$CD' \"b.state === 'sent' && b.recipients > 0 && b.delivered === b.recipients\""
+check "and keeps no send timer" "(( $(sql_count Crm "crm:$BID" "SELECT count(*) AS n FROM timers WHERE id = 'send:$CD'") == 0 ))"
 
 # ---------- the stripping: no note or brief anywhere Crm or the Inbox writes ----------
 
