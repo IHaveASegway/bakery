@@ -7,13 +7,12 @@ test('a price drafted in another tab is shown on focus, and Publish stops for it
 }) => {
   await demoAccount(page);
   await liveSandbox(page);
-  await page.goto('/app/');
-  await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+  await page.goto('/app/menu/');
   await expect(page.getByText('No item waits for Publish.')).toBeVisible();
 
   // A second tab drafts a price.
   const other = await context.newPage();
-  await other.goto('/app/');
+  await other.goto('/app/menu/');
   await expect(other.getByText('No item waits for Publish.')).toBeVisible();
   await other.getByLabel('Price for every variant, in dollars').first().fill('7.77');
   await other
@@ -41,11 +40,11 @@ test('a price drafted in another tab is shown on focus, and Publish stops for it
 test('Publish stops for a draft the page had not shown', async ({ page, context }) => {
   await demoAccount(page);
   await liveSandbox(page);
-  await page.goto('/app/');
+  await page.goto('/app/menu/');
   await expect(page.getByText('No item waits for Publish.')).toBeVisible();
 
   const other = await context.newPage();
-  await other.goto('/app/');
+  await other.goto('/app/menu/');
   await expect(other.getByText('No item waits for Publish.')).toBeVisible();
   await other.getByLabel('Price for every variant, in dollars').first().fill('8.88');
   await other

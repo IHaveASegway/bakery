@@ -1,0 +1,366 @@
+/*
+  The console as seven pages (design brief, 2026-11-09): the top bar's live controls, the sidebar
+  that becomes a tab bar on a phone, and the workspaces' own layout. Colours and sizes come from
+  tokens.css; the components (buttons, badges, panels, tables) from components.css.
+*/
+
+/* The top bar: the name, "Console", the live controls the page's island draws (the sandbox, the
+   clock, traffic, who is signed in, Sign out), one link to the shop, and room for the guide's
+   switch at the right end. */
+.topbar-live {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.topbar-nav {
+  margin-left: 0;
+}
+
+.topbar-guide {
+  flex: none;
+  width: 44px;
+}
+
+.topbar-chip {
+  gap: 6px;
+  font-weight: 500;
+}
+
+.topbar-chip code {
+  font-size: var(--type-12);
+}
+
+.topbar-muted {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.traffic-switch::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tone-done-solid);
+}
+
+.traffic-switch[aria-pressed='true']::before {
+  background: var(--tone-ready-solid);
+}
+
+.topbar-spacer {
+  flex: 1 1 auto;
+}
+
+.topbar-who {
+  margin: 0 var(--space-2) 0 0;
+  color: var(--text-muted);
+  font-size: var(--type-13);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.popover {
+  position: relative;
+}
+
+.popover-panel {
+  left: 0;
+  right: auto;
+  width: 22rem;
+  max-width: calc(100vw - 2 * var(--space-4));
+}
+
+.popover-panel p {
+  margin: 0 0 var(--space-2);
+}
+
+.topbar-facts {
+  margin: 0 0 var(--space-3);
+  font-size: var(--type-13);
+}
+
+/* The sidebar: the seven workspaces with their icons, fixed beside the page on a wide screen. */
+.sidebar {
+  position: fixed;
+  z-index: 16;
+  top: var(--topbar-height);
+  bottom: 0;
+  left: 0;
+  box-sizing: border-box;
+  width: var(--sidebar-width);
+  padding: var(--space-4) var(--space-3) 96px;
+  border-right: 1px solid var(--border);
+  background: var(--surface-raised);
+  overflow-y: auto;
+}
+
+.shell-app:has(.sidebar) main,
+.shell-app:has(.sidebar) .site-footer {
+  margin-left: var(--sidebar-width);
+}
+
+.sidebar ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sidebar a,
+.tab-more > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.sidebar a:hover,
+.tab-more > summary:hover {
+  background: var(--surface-sunken);
+}
+
+.sidebar a[aria-current='page'],
+.tab-more > summary[aria-current='page'] {
+  background: var(--accent-tint);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.sidebar a[aria-current='page'] .ws-icon {
+  color: var(--accent);
+}
+
+.ws-icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.tab-more {
+  display: none;
+}
+
+.tab-more > summary {
+  list-style: none;
+}
+
+.tab-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* A page's head: its name, and nothing between it and its work. */
+.shell-app main > h1 {
+  margin: 0 0 var(--space-4);
+}
+
+.shell-app main > .lead-line {
+  max-width: 68ch;
+  margin: calc(-1 * var(--space-2)) 0 var(--space-4);
+  color: var(--text-muted);
+}
+
+.workspace {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.workspace.panel-grid {
+  gap: var(--space-4);
+}
+
+/* The ledger: three figures, then the table. */
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+}
+
+.stats > div {
+  min-width: 9rem;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-card);
+  background: var(--surface-sunken);
+}
+
+.stats dt {
+  font-size: var(--type-12);
+}
+
+.stats dd {
+  font-size: var(--type-22);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A table that scrolls in its own region holds its height inside the panel. */
+.panel .table-scroll[tabindex] {
+  max-height: 32rem;
+  overflow: auto;
+}
+
+/* The activity feed as a live strip under the board: the newest event first, sideways. */
+.feed-strip .panel-head {
+  margin-bottom: var(--space-2);
+}
+
+.feed-strip .panel-head .hint {
+  margin: 0;
+}
+
+.strip {
+  overflow-x: auto;
+  padding-bottom: var(--space-1);
+}
+
+.strip-list {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.strip-list li {
+  display: grid;
+  flex: none;
+  gap: 2px;
+  box-sizing: border-box;
+  width: 15rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+  font-size: var(--type-12);
+}
+
+.strip-list li:first-child {
+  border-color: var(--accent);
+}
+
+.strip-list strong {
+  font-size: var(--type-13);
+}
+
+.strip-list time {
+  color: var(--text-muted);
+}
+
+.strip-stream,
+.strip-cause {
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A phone: the sidebar becomes a tab bar at the foot of the window, four tabs and "More". */
+@media (max-width: 60rem) {
+  .topbar-live {
+    flex-wrap: wrap;
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  .topbar-spacer,
+  .topbar-who {
+    display: none;
+  }
+
+  .topbar-live > :last-child {
+    margin-left: auto;
+  }
+
+  .topbar-guide {
+    margin-left: auto;
+  }
+
+  .shell-app:has(.sidebar) main,
+  .shell-app:has(.sidebar) .site-footer {
+    margin-left: 0;
+  }
+
+  .shell-app:has(.sidebar) .site-footer {
+    padding-bottom: 72px;
+  }
+
+  .sidebar {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    z-index: 19;
+    display: flex;
+    width: auto;
+    padding: var(--space-1) var(--space-2);
+    border-top: 1px solid var(--border);
+    border-right: 0;
+    overflow: visible;
+  }
+
+  .sidebar .sidebar-list {
+    display: flex;
+    flex: 4 1 0;
+    gap: 2px;
+  }
+
+  .sidebar-list > li {
+    flex: 1 1 0;
+  }
+
+  .sidebar-list > .tab-overflow {
+    display: none;
+  }
+
+  .sidebar a,
+  .tab-more > summary {
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    min-height: 52px;
+    padding: 0 var(--space-1);
+    font-size: var(--type-12);
+  }
+
+  .tab-more {
+    position: relative;
+    display: block;
+    flex: 1 1 0;
+  }
+
+  .tab-more > ul {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + var(--space-2));
+    width: 12rem;
+    padding: var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-raised);
+  }
+
+  .tab-more > ul a {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: var(--space-3);
+    min-height: 40px;
+    padding: 0 var(--space-3);
+    font-size: var(--type-14);
+  }
+
+  /* The tour's button sits above the tab bar until the guide replaces it. */
+  .shell-app .tour-trigger {
+    bottom: 76px;
+  }
+}

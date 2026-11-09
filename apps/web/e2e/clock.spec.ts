@@ -20,14 +20,18 @@ test('advancing the clock a day moves the console’s business time and its days
   await demoAccount(page);
   const sandbox = await liveSandbox(page);
   const before = sandbox.clock_offset_s ?? 0;
-  await page.goto('/app/');
-  await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
-
-  const clockLine = page.locator('p', { hasText: 'Business time is' });
-  const businessNow = clockLine.locator('time');
+  // The capacity panel's days start at business today, on the menu page.
   const days = page.locator('#capacity-day option');
   const today = businessDate(Date.now() + before * 1000);
+  await page.goto('/app/menu/');
   await expect(days.first()).toHaveAttribute('value', today);
+
+  // The business clock is in the top bar on every console page; the kitchen's feed hears it move.
+  await page.goto('/app/');
+  await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+  await page.getByRole('button', { name: /^Business clock: / }).click();
+  const clockLine = page.locator('p', { hasText: 'Business time is' });
+  const businessNow = clockLine.locator('time');
   const shownBefore = Date.parse((await businessNow.getAttribute('datetime')) ?? '');
   await expectNoAxeViolations(page);
 
@@ -40,13 +44,15 @@ test('advancing the clock a day moves the console’s business time and its days
   await expect
     .poll(async () => Date.parse((await businessNow.getAttribute('datetime')) ?? '') - shownBefore)
     .toBeGreaterThanOrEqual(DAY_MS);
+  await expect(
+    page.getByRole('log').locator('li', { hasText: 'ClockAdvanced' }).first(),
+  ).toBeVisible();
+  await expectNoAxeViolations(page);
+
+  await page.goto('/app/menu/');
   await expect(days.first()).toHaveAttribute(
     'value',
     businessDate(Date.now() + read.body.clock_offset_s * 1000),
   );
   await expect(days.first()).not.toHaveAttribute('value', today);
-  await expect(
-    page.getByRole('log').locator('li', { hasText: 'ClockAdvanced' }).first(),
-  ).toBeVisible();
-  await expectNoAxeViolations(page);
 });

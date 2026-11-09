@@ -10,8 +10,7 @@ test.describe('catering queue', () => {
   }) => {
     await demoAccount(page);
     await liveSandbox(page);
-    await page.goto('/app/');
-    await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+    await page.goto('/app/catering/');
     await expectNoAxeViolations(page);
 
     const cardWithFocus = () =>
