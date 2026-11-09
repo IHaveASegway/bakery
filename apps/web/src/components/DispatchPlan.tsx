@@ -24,7 +24,7 @@ export default function DispatchPlan({ plan, title }: { plan: PlanView; title: s
           </>
         )}
       </p>
-      <div className="table-scroll">
+      <div className="table-scroll" role="region" aria-label={title} tabIndex={0}>
         <table>
           <thead>
             <tr>

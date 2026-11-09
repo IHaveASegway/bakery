@@ -12,8 +12,13 @@ test('the “On this page” list and the board’s skip link move the focus pas
   await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
   await expectNoAxeViolations(page);
 
+  // The sidebar: the 20 sections in their seven workspaces, and the dispatch page under Dispatch.
   const nav = page.getByRole('navigation', { name: 'On this page' });
-  await expect(nav.getByRole('link')).toHaveCount(20);
+  await expect(nav.getByRole('link')).toHaveCount(21);
+  await expect(nav.getByRole('link', { name: 'Delivery plans' })).toHaveAttribute(
+    'href',
+    '/app/dispatch/',
+  );
 
   // A link lands the focus on the section's heading; Tab then goes to what follows it.
   await nav.getByRole('link', { name: 'Ledger' }).click();

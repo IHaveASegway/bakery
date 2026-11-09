@@ -78,7 +78,7 @@ export default function SlotPicker({
         <ul className="choices">
           {choices.map((c) => (
             <li key={c.start}>
-              <label className="check">
+              <label className="chip">
                 <input
                   type="radio"
                   name="slot"
@@ -103,7 +103,11 @@ export default function SlotPicker({
           </p>
           {conflict.next_free !== null && (
             <p>
-              <button type="button" onClick={() => onTakeNext(conflict.next_free as string)}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => onTakeNext(conflict.next_free as string)}
+              >
                 Take {startText(conflict.next_free)}
               </button>
             </p>

@@ -1,51 +1,104 @@
 /* Tailwind reads class names from src/ only. */
 @import 'tailwindcss' source('../');
 @import './tokens.css';
+@import './components.css';
 
-/* System fonts until Joseph decides on faces (docs/stack.md). tokens.css names these fallback
-   stacks behind its self-hosted faces, which the bakery does not have yet. */
+/* System fonts: the bakery fetches no face (design brief, 2026-11-09). tokens.css names these
+   fallback stacks behind the site's self-hosted faces, which the bakery does not have. */
 :root {
-  --font-display-fallbacks: system-ui, sans-serif;
-  --font-wide-fallbacks: system-ui, sans-serif;
-  --font-label-fallbacks: system-ui, sans-serif;
-  --font-sans-fallbacks: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-mono-fallbacks: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-display-fallbacks: var(--font-ui);
+  --font-wide-fallbacks: var(--font-ui);
+  --font-label-fallbacks: var(--font-ui);
+  --font-sans-fallbacks: var(--font-ui);
+  --font-mono-fallbacks: var(--font-code);
   --font-reading-fallbacks: ui-serif, Georgia, serif;
 }
 
+/* The base: the page, its type, its links. The shells below set each page's width and size. */
 body {
   margin: 0;
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--surface);
+  color: var(--text);
   font-family: var(--font-sans);
-  line-height: 1.6;
+  font-size: var(--type-16);
+  line-height: var(--leading-body);
+}
+
+code,
+kbd,
+samp {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-weight: 600;
+  line-height: var(--leading-tight);
+}
+
+h1 {
+  margin: 0 0 var(--space-4);
+  font-size: var(--type-36);
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  margin: var(--space-7) 0 var(--space-3);
+  font-size: var(--type-22);
+}
+
+h3 {
+  margin: var(--space-6) 0 var(--space-2);
+  font-size: var(--type-18);
+}
+
+h4 {
+  margin: var(--space-5) 0 var(--space-2);
+  font-size: var(--type-16);
+}
+
+a {
+  color: var(--accent);
+}
+
+/* Links inside running text carry an underline as well as the colour (WCAG 1.4.1). Navigation
+   lists, buttons and link-styled controls keep the plain look. */
+:where(p, li, td, th, dd, dt, figcaption, blockquote, h4, h5, h6)
+  a:not(.action, .btn, .api-index a, .site-nav a, .footer-nav a, .sidebar a) {
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+:where(p, li, td, th, dd, dt, figcaption, blockquote, h4, h5, h6)
+  a:not(.action, .btn, .api-index a, .site-nav a, .footer-nav a, .sidebar a):hover {
+  text-decoration-thickness: 2px;
 }
 
 main {
-  max-width: 40rem;
-  margin: 0 auto;
-  padding: 2.5rem 1rem 4rem;
+  overflow-wrap: anywhere;
 }
 
-/* The public shell (layouts/Base.astro): the name and the nav, the footer. Full-width rules, with
-   the content kept to 64rem by the padding, so nothing needs a wrapper. Colors from tokens only. */
+main:focus {
+  outline: none;
+}
+
 .skip-link {
   position: absolute;
   top: -4rem;
   left: 1rem;
   z-index: 30;
-  padding: 0.5rem 0.75rem;
-  border: 2px solid var(--ring);
-  border-radius: var(--radius-md);
-  background: var(--background);
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--focus-ring);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
 }
 
 .skip-link:focus {
   top: 1rem;
-}
-
-main:focus {
-  outline: none;
 }
 
 /* A skip link inside the page, for the console's kitchen board: hidden until it has the focus, then
@@ -61,94 +114,147 @@ main:focus {
 
 .skip-inline:focus {
   display: inline-block;
-  margin: 0.5rem 0;
-  padding: 0.5rem 0.75rem;
-  border: 2px solid var(--ring);
-  border-radius: var(--radius-md);
-  background: var(--background);
+  margin: var(--space-2) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--focus-ring);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
 }
 
-/* The console's "On this page" list: a wrapped row of links, on a phone as on a desktop. */
-.page-nav ul {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 1rem;
-  margin: 0 0 1.5rem;
-  padding: 0;
-  list-style: none;
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
-.page-nav a {
-  display: inline-block;
-  padding-block: 0.25rem;
-}
-
-/* A heading takes the focus when an in-page link lands on it, so Tab goes on from there. */
-h3[tabindex='-1']:focus-visible,
-h4[tabindex='-1']:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-
-.site-header,
-.site-footer {
-  box-sizing: border-box;
-  padding-inline: max(1rem, calc((100% - 64rem) / 2));
-}
-
-.site-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem 2rem;
-  padding-block: 1rem;
+/* The masthead of the shop and the prose pages: the bakery's mark and name, then its nav. */
+.masthead {
   border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+
+.masthead-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-5);
+  box-sizing: border-box;
+  max-width: var(--shop-width);
+  min-height: 64px;
+  margin: 0 auto;
+  padding: var(--space-2) var(--space-5);
 }
 
 .site-name {
-  color: var(--foreground);
-  font-family: var(--font-display);
-  font-size: 1.125rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-size: var(--type-18);
   font-weight: 700;
+  line-height: 1.2;
   text-decoration: none;
+}
+
+.brand-mark {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .site-nav {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem 1.25rem;
+  align-items: center;
+  gap: var(--space-1);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .site-nav a {
-  display: inline-block;
-  padding-block: 0.25rem;
-  color: var(--foreground);
-  font-family: var(--font-wide);
-  font-size: 0.9375rem;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+  font-size: var(--type-14);
+  font-weight: 500;
   text-decoration: none;
 }
 
-.site-nav a:hover,
+.site-nav a:hover {
+  background: var(--surface-sunken);
+  color: var(--text);
+}
+
 .site-nav a[aria-current='page'] {
-  color: var(--primary);
-  text-decoration-line: underline;
-  text-decoration-thickness: 0.125em;
-  text-underline-offset: 0.3em;
+  background: var(--accent-tint);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.site-nav .session-link {
+  margin-left: var(--space-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  font-weight: 600;
 }
 
 .site-footer {
-  padding-block: 1.5rem 2rem;
+  margin-top: var(--space-8);
   border-top: 1px solid var(--border);
-  color: var(--muted-foreground);
-  font-size: 0.9375rem;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-size: var(--type-14);
 }
 
-.site-footer p {
-  margin: 0.75rem 0 0;
+.footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-6);
+  box-sizing: border-box;
+  max-width: var(--shop-width);
+  margin: 0 auto;
+  padding: var(--space-5);
+}
+
+.footer-inner p {
+  margin: 0;
+}
+
+.footer-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.footer-nav a {
+  display: inline-block;
+  padding-block: var(--space-1);
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.footer-nav a:hover {
+  color: var(--text);
+  text-decoration: underline;
 }
 
 /* Room under the footer for the tour's docked button, so it never covers a footer link. */
@@ -156,170 +262,450 @@ h4[tabindex='-1']:focus-visible {
   padding-bottom: 5rem;
 }
 
-h1 {
-  margin: 0 0 1rem;
-  font-size: 2.25rem;
-  line-height: 1.15;
+/* The shop: content up to 70rem (1120 px) wide, on a grid where the page asks for one. */
+.shell-shop main {
+  box-sizing: border-box;
+  max-width: var(--shop-width);
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5) var(--space-7);
 }
 
-a {
-  color: var(--primary);
+.shell-shop main > p,
+.shell-shop main > section > p {
+  max-width: 68ch;
 }
 
-a:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
+/* Prose: one column, 68 characters wide. */
+.shell-prose main {
+  box-sizing: border-box;
+  max-width: calc(var(--prose-width) + 2 * var(--space-5));
+  margin: 0 auto;
+  padding: var(--space-7) var(--space-5) var(--space-7);
 }
 
-/* Links inside running text carry an underline as well as the colour (WCAG 1.4.1). Navigation
-   lists (.site-nav, .api-index), buttons and link-styled controls (.action) keep the plain look. */
-:where(p, li, td, th, dd, dt, figcaption, blockquote, h4, h5, h6)
-  a:not(.action, .api-index a, .site-nav a) {
-  text-decoration-line: underline;
-  text-decoration-thickness: 0.0625em;
-  text-underline-offset: 0.2em;
+@media (max-width: 48rem) {
+  .masthead-inner,
+  .footer-inner {
+    padding-inline: var(--space-4);
+  }
+
+  .shell-shop main,
+  .shell-prose main {
+    padding: var(--space-5) var(--space-4) var(--space-7);
+  }
+
+  h1 {
+    font-size: var(--type-28);
+  }
+
+  .site-nav a {
+    padding: 0 var(--space-2);
+  }
+
+  .site-nav .session-link {
+    margin-left: 0;
+  }
 }
 
-:where(p, li, td, th, dd, dt, figcaption, blockquote, h4, h5, h6)
-  a:not(.action, .api-index a, .site-nav a):hover {
-  text-decoration-thickness: 0.125em;
+/* The app: the console's top bar, a sidebar where the page has one, and a workspace that fills
+   the rest. The console's base size is 14 px. */
+.shell-app {
+  font-size: var(--type-14);
 }
 
-/* Forms and the console. Colors come from tokens.css only. */
-h2 {
-  margin: 2.5rem 0 0.75rem;
-  font-size: 1.5rem;
-  line-height: 1.2;
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 18;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  box-sizing: border-box;
+  height: var(--topbar-height);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
 }
 
-h3 {
-  margin: 1.75rem 0 0.5rem;
-  font-size: 1.125rem;
+.topbar .site-name {
+  font-size: var(--type-14);
 }
 
-main {
-  overflow-wrap: anywhere;
+.topbar .brand-mark {
+  width: 24px;
+  height: 24px;
 }
 
-label {
-  display: block;
-  margin-bottom: 0.25rem;
+.topbar-title {
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--border);
+  color: var(--text-muted);
   font-weight: 600;
 }
 
-label.check {
-  display: inline-block;
-  font-weight: 400;
+.topbar-nav {
+  margin-left: auto;
 }
 
-input[type='text'],
-input[type='password'] {
+.topbar-nav .site-nav a {
+  min-height: 32px;
+  font-size: var(--type-13);
+}
+
+.shell-app main {
   box-sizing: border-box;
-  width: 100%;
-  padding: 0.5rem 0.625rem;
-  border: 1px solid var(--input);
-  border-radius: var(--radius-md);
-  background: var(--background);
-  color: var(--foreground);
-  font: inherit;
+  padding: var(--space-5) var(--space-6) var(--space-7);
 }
 
-input[type='checkbox'] {
-  width: 1.25rem;
-  height: 1.25rem;
-  vertical-align: -0.2em;
+.shell-app main > h1 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--type-22);
 }
 
-input:focus-visible,
-button:focus-visible,
-.action:focus-visible,
-[tabindex='0']:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
+.shell-app .site-footer {
+  margin-top: 0;
 }
 
-button,
-.action {
-  display: inline-block;
+.shell-app .footer-inner {
+  max-width: none;
+  padding-inline: var(--space-6);
+}
+
+.shell-app :is(h2, h3, h4)[id] {
+  scroll-margin-top: calc(var(--topbar-height) + 64px);
+}
+
+/* The sidebar: fixed beside the workspace on a wide screen. */
+.sidebar {
+  position: fixed;
+  z-index: 16;
+  top: var(--topbar-height);
+  bottom: 0;
+  left: 0;
   box-sizing: border-box;
-  min-height: 2.75rem;
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--primary);
-  border-radius: var(--radius-md);
-  background: var(--primary);
-  color: var(--primary-foreground);
-  font: inherit;
+  width: var(--sidebar-width);
+  padding: var(--space-4) var(--space-3) 96px;
+  border-right: 1px solid var(--border);
+  background: var(--surface-raised);
+  overflow-y: auto;
+}
+
+.shell-app:has(.sidebar) main,
+.shell-app:has(.sidebar) .site-footer {
+  margin-left: var(--sidebar-width);
+}
+
+.sidebar-group + .sidebar-group {
+  margin-top: var(--space-4);
+}
+
+.sidebar-label {
+  margin: 0 0 var(--space-1);
+  padding: 0 var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--type-12);
   font-weight: 600;
-  text-decoration: none;
-  cursor: pointer;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-button:disabled {
-  background: transparent;
-  color: var(--muted-foreground);
-  border-style: dashed;
-  border-color: var(--border);
-  cursor: not-allowed;
-}
-
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-}
-
-.choices {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
+.sidebar ul {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-form,
-section > section {
-  margin-top: 2.5rem;
-  padding-top: 0.25rem;
-  border-top: 1px solid var(--border);
+.sidebar a {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 32px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  text-decoration: none;
 }
 
-.hint,
-.note {
+.sidebar a:hover {
+  background: var(--surface-sunken);
+}
+
+.sidebar a[aria-current='page'] {
+  background: var(--accent-tint);
+  font-weight: 600;
+}
+
+/* The console's header row: who is signed in, and the way out. */
+.console-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  margin: 0 0 var(--space-2);
+}
+
+.console-head h2 {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--type-14);
+  font-weight: 500;
+}
+
+/* A workspace's group: its name, sticky while its panels scroll under it, then the panels on a
+   grid of six, two or three across where their content allows. */
+.workspace-group {
+  margin-top: var(--space-5);
+}
+
+.group-head {
+  position: sticky;
+  z-index: 5;
+  top: var(--topbar-height);
+  margin: 0 calc(-1 * var(--space-6)) var(--space-4);
+  padding: var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: var(--type-18);
+}
+
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.panel-grid > * {
+  grid-column: span 6;
+}
+
+.panel-grid > .third {
+  grid-column: span 2;
+}
+
+.panel-grid > .half {
+  grid-column: span 3;
+}
+
+.panel-grid > .two-thirds {
+  grid-column: span 4;
+}
+
+@media (max-width: 75rem) {
+  .panel-grid > .third,
+  .panel-grid > .two-thirds {
+    grid-column: span 3;
+  }
+}
+
+/* A phone or a narrow window: no fixed sidebar; it becomes a strip of links under the top bar. */
+@media (max-width: 60rem) {
+  .topbar {
+    position: static;
+    flex-wrap: wrap;
+    height: auto;
+    min-height: var(--topbar-height);
+    padding-block: var(--space-2);
+  }
+
+  .topbar-nav {
+    margin-left: 0;
+  }
+
+  .topbar-title {
+    display: none;
+  }
+
+  .shell-app main {
+    padding: var(--space-4) var(--space-4) var(--space-7);
+  }
+
+  .shell-app .footer-inner {
+    padding-inline: var(--space-4);
+  }
+
+  .shell-app:has(.sidebar) main,
+  .shell-app:has(.sidebar) .site-footer {
+    margin-left: 0;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 0;
+    bottom: auto;
+    display: flex;
+    gap: var(--space-4);
+    width: auto;
+    margin: 0 calc(-1 * var(--space-4)) var(--space-4);
+    padding: var(--space-2) var(--space-4);
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .sidebar-group {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .sidebar-group + .sidebar-group {
+    margin-top: 0;
+  }
+
+  .sidebar-label {
+    margin: 0;
+  }
+
+  .sidebar ul {
+    display: flex;
+    gap: 2px;
+  }
+
+  .sidebar a {
+    white-space: nowrap;
+  }
+
+  .group-head {
+    position: static;
+    margin-inline: 0;
+    padding-inline: 0;
+  }
+
+  .panel-grid > .third,
+  .panel-grid > .half,
+  .panel-grid > .two-thirds {
+    grid-column: span 6;
+  }
+
+  .panel {
+    padding: var(--space-4);
+  }
+}
+
+/* Forms. One look for every control: the hairline a control needs (3:1), the page's own type. */
+label {
   display: block;
-  margin-top: 0.25rem;
-  color: var(--muted-foreground);
-  font-size: 0.9375rem;
+  margin-bottom: var(--space-1);
+  font-size: var(--type-14);
+  font-weight: 600;
 }
 
-.problem {
-  margin: 0.75rem 0;
-  padding: 0.25rem 0 0.25rem 0.75rem;
-  border-left: 4px solid var(--destructive);
+label.check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: 0;
+  font-size: inherit;
+  font-weight: 400;
+}
+
+input[type='text'],
+input[type='password'],
+input[type='number'],
+input[type='datetime-local'],
+input[type='date'],
+select,
+textarea {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-height: 40px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+}
+
+input[type='text'],
+input[type='password'],
+textarea {
+  width: 100%;
+}
+
+select {
+  display: block;
+  width: auto;
+  min-width: 12rem;
+}
+
+textarea {
+  display: block;
+}
+
+input[type='number'] {
+  width: 6rem;
+}
+
+input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+input[type='radio'] {
+  width: 1.5rem;
+  height: 1.5rem;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+fieldset {
+  min-width: 0;
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  border: 0;
+}
+
+legend {
+  margin-bottom: var(--space-2);
+  padding: 0;
+  font-size: var(--type-14);
+  font-weight: 600;
+}
+
+/* A form inside a page is a group of its own; inside a panel or a menu it needs no rule above it. */
+main > form {
+  margin-top: var(--space-6);
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .draft {
-  padding: 0.5rem 0.75rem;
-  border: 1px dashed var(--border);
+  padding: var(--space-2) var(--space-3);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-control);
 }
 
 .lead {
-  font-size: 1.25rem;
+  font-size: var(--type-18);
 }
 
 .username {
-  font-size: 1.25rem;
+  font-size: var(--type-18);
   user-select: all;
 }
 
 dl {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 0.25rem 1rem;
+  gap: var(--space-1) var(--space-4);
 }
 
 dt {
-  color: var(--muted-foreground);
+  color: var(--text-muted);
 }
 
 dd {
@@ -333,59 +719,59 @@ dd {
 table {
   border-collapse: collapse;
   width: 100%;
-  font-size: 0.9375rem;
+  font-size: var(--type-14);
 }
 
 th,
 td {
-  padding: 0.5rem 0.5rem 0.5rem 0;
+  padding: var(--space-2) var(--space-2) var(--space-2) 0;
   border-bottom: 1px solid var(--border);
   text-align: left;
   vertical-align: top;
 }
 
 .asof {
-  margin-top: 2.5rem;
-  color: var(--muted-foreground);
+  margin-top: var(--space-7);
+  color: var(--text-muted);
 }
 
 /* Pages of running text (the home, About, How it's built, the essay): paragraphs and lists keep
    a line's space between them, which the reset takes away. */
 .prose :where(p, ul, ol, dl) {
-  margin: 0 0 1rem;
+  margin: 0 0 var(--space-4);
 }
 
 /* The launch home: the one line, said large, and the steps to try it. */
 .statement {
-  font-size: 1.25rem;
-  line-height: 1.45;
+  font-size: var(--type-22);
+  line-height: 1.4;
 }
 
 .try-steps {
-  padding-left: 1.5rem;
+  padding-left: var(--space-5);
   list-style: decimal;
 }
 
 .try-steps li {
-  margin-bottom: 0.5rem;
+  margin-bottom: var(--space-2);
 }
 
 /* How it's built: one section a principle. */
 .contents {
   columns: 16rem;
-  padding-left: 1.25rem;
+  padding-left: var(--space-5);
 }
 
 .principle {
-  margin-top: 2.5rem;
-  padding-top: 0.5rem;
+  margin-top: var(--space-7);
+  padding-top: var(--space-2);
   border-top: 1px solid var(--border);
   scroll-margin-top: 1rem;
 }
 
 .principle h3 {
-  margin-top: 0.75rem;
-  font-size: 1.25rem;
+  margin-top: var(--space-3);
+  font-size: var(--type-18);
 }
 
 .principle dl {
@@ -393,7 +779,7 @@ td {
 }
 
 .principle .links {
-  margin-top: 0.75rem;
+  margin-top: var(--space-3);
 }
 
 @media (max-width: 40rem) {
@@ -402,100 +788,28 @@ td {
   }
 }
 
-/* The essay: a long read in the reading face. */
+/* The essay: a long read at 18 px in the reading face. */
 .essay p,
 .essay li {
   font-family: var(--font-reading);
-  font-size: 1.125rem;
+  font-size: var(--type-18);
   line-height: 1.6;
 }
 
 .essay h2 {
-  font-size: 1.375rem;
+  font-size: var(--type-22);
 }
 
 .essay ul {
-  padding-left: 1.25rem;
+  padding-left: var(--space-5);
   list-style: disc;
 }
 
 .sources li {
-  margin-bottom: 0.5rem;
+  margin-bottom: var(--space-2);
 }
 
-/* The storefront (menu, cart, checkout) and the console's kitchen. Colors come from tokens only. */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
-select,
-textarea,
-input[type='datetime-local'],
-input[type='number'] {
-  box-sizing: border-box;
-  max-width: 100%;
-  padding: 0.5rem 0.625rem;
-  border: 1px solid var(--input);
-  border-radius: var(--radius-md);
-  background: var(--background);
-  color: var(--foreground);
-  font: inherit;
-}
-
-select,
-textarea {
-  display: block;
-  width: 100%;
-}
-
-input[type='number'] {
-  width: 5rem;
-}
-
-input[type='radio'] {
-  width: 1.5rem;
-  height: 1.5rem;
-  vertical-align: -0.3em;
-}
-
-select:focus-visible,
-textarea:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-
-fieldset {
-  min-width: 0;
-  margin: 0 0 1rem;
-  padding: 0;
-  border: 0;
-}
-
-legend {
-  padding: 0;
-  font-weight: 600;
-}
-
-button.link {
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--primary);
-  font-weight: 400;
-  text-decoration: underline;
-}
-
-button.link:disabled {
-  color: var(--muted-foreground);
-  border: 0;
-}
-
+/* Lists that are laid out, not bulleted. */
 .items,
 .variants,
 .cart-lines,
@@ -511,79 +825,24 @@ button.link:disabled {
   list-style: none;
 }
 
-.item {
-  display: grid;
-  grid-template-columns: 3rem minmax(0, 1fr);
-  gap: 0 1rem;
-  padding: 1rem 0;
+.feed li {
+  padding: var(--space-2) 0;
   border-bottom: 1px solid var(--border);
 }
 
-.item h3 {
-  margin: 0;
+.feed li:last-child {
+  border-bottom: 0;
 }
 
-.item p {
-  margin: 0.25rem 0;
-}
-
-.glyph {
-  width: 3rem;
-  height: 3rem;
-  color: var(--foreground);
-}
-
-.variants li,
-.cart-lines li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem 0.75rem;
-  padding: 0.375rem 0;
-}
-
-.variant-name,
-.line-name {
-  flex: 1 1 8rem;
-  font-weight: 600;
-}
-
-.price {
-  font-variant-numeric: tabular-nums;
-}
-
-.qty-hint {
-  flex: 1 0 100%;
-  order: 1;
-}
-
-.qty {
-  display: inline-block;
-  margin: 0;
-  font-weight: 400;
-}
-
-.totals {
-  max-width: 24rem;
-}
-
-.problem-slot {
-  margin: 0;
-}
-
-.column > h4 {
-  margin: 1.25rem 0 0.5rem;
-}
-
-.card,
 .letters li,
 .editor li,
 .events li,
 .queue li {
-  margin-bottom: 0.75rem;
-  padding: 0.5rem 0.75rem;
+  margin-bottom: var(--space-3);
+  padding: var(--space-3) var(--space-4);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
 }
 
 .card p,
@@ -591,11 +850,7 @@ button.link:disabled {
 .editor p,
 .events p,
 .queue p {
-  margin: 0.25rem 0;
-}
-
-.card-lines {
-  margin: 0.25rem 0;
+  margin: var(--space-1) 0;
 }
 
 /* The catering brief is the visitor's text, shown as text with its line breaks. */
@@ -604,19 +859,21 @@ button.link:disabled {
   overflow-wrap: anywhere;
 }
 
-.pay-form,
-.refunds form {
-  margin-top: 0.75rem;
-  border-top: 0;
+.price {
+  font-variant-numeric: tabular-nums;
 }
 
-.refunds {
-  margin-top: 0.5rem;
+.totals {
+  max-width: 24rem;
+  font-variant-numeric: tabular-nums;
 }
 
-.feed li {
-  padding: 0.375rem 0;
-  border-bottom: 1px solid var(--border);
+.totals dd {
+  text-align: right;
+}
+
+.problem-slot {
+  margin: 0;
 }
 
 /* On a phone the table's rows become blocks, so nothing scrolls sideways at 320 px. */
@@ -637,34 +894,16 @@ button.link:disabled {
     clip-path: inset(50%);
   }
   tr {
-    padding: 0.75rem 0;
+    padding: var(--space-3) 0;
     border-bottom: 1px solid var(--border);
   }
   th,
   td {
     border: 0;
-    padding: 0 0 0.25rem;
+    padding: 0 0 var(--space-1);
   }
   dl {
     grid-template-columns: 1fr;
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  button,
-  .action {
-    transition: background-color 120ms;
-  }
-
-  /* A card that arrives or moves on the board fades in; with reduced motion it just appears. */
-  .card {
-    animation: card-in 240ms ease-out;
-  }
-
-  @keyframes card-in {
-    from {
-      opacity: 0;
-    }
   }
 }
 
@@ -1035,4 +1274,613 @@ html.tour-open {
   .tour-card {
     scroll-behavior: auto;
   }
+}
+
+/* The shop's screens (design brief, 2026-11-09). The menu and the checkout put the cart in a side
+   column on a wide screen; the cart comes first in the page, so a phone shows it first. */
+.shop-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  column-gap: var(--space-6);
+  align-items: start;
+}
+
+.shop-split > * {
+  grid-column: 1;
+}
+
+.shop-split > .cart {
+  position: sticky;
+  top: var(--space-4);
+  grid-column: 2;
+  grid-row: 1 / span 12;
+  margin: 0;
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+}
+
+.shop-split > .cart h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--type-18);
+}
+
+.shop-split > form {
+  margin-top: 0;
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+}
+
+.shop-split > form > h2:first-child {
+  margin-top: 0;
+}
+
+.cart-lines li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'name name name'
+    'qty price remove';
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.line-name {
+  grid-area: name;
+  font-weight: 600;
+}
+
+.cart-lines .qty {
+  grid-area: qty;
+  margin: 0;
+  font-weight: 400;
+}
+
+.cart-lines .price {
+  grid-area: price;
+  text-align: right;
+}
+
+.cart-lines button {
+  grid-area: remove;
+}
+
+.qty-hint {
+  grid-column: 1 / -1;
+}
+
+.cart .totals {
+  grid-template-columns: 1fr auto;
+  max-width: none;
+  margin: var(--space-3) 0 0;
+}
+
+.cart .btn-primary {
+  margin-top: var(--space-2);
+}
+
+/* The menu: a grid of item cards under each category. */
+.menu .category h2 {
+  margin: var(--space-6) 0 var(--space-3);
+}
+
+.menu .category:first-child h2 {
+  margin-top: var(--space-2);
+}
+
+.items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: var(--space-4);
+}
+
+.item {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-content: start;
+  gap: 0 var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+}
+
+.item h3 {
+  margin: 0;
+  font-size: var(--type-16);
+}
+
+.item p {
+  margin: var(--space-1) 0;
+}
+
+.glyph {
+  width: 40px;
+  height: 40px;
+  color: var(--text);
+}
+
+.variants {
+  margin-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.variants li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    'name price add'
+    'lead lead add';
+  align-items: center;
+  gap: 0 var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.variants li:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.variant-name {
+  grid-area: name;
+  font-size: var(--type-14);
+  font-weight: 600;
+}
+
+.variants .price {
+  grid-area: price;
+  font-weight: 600;
+}
+
+.variants .hint {
+  grid-area: lead;
+  margin: 0;
+  font-size: var(--type-12);
+}
+
+.variants button {
+  grid-area: add;
+}
+
+/* Cards in a row that wrap: the sign-in page's three ways in. An island's wrapper takes no box, so
+   its forms are the grid's items. */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  align-items: start;
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+}
+
+.card-grid > astro-island {
+  display: contents;
+}
+
+.card-grid > :is(section, form),
+.card-grid > astro-island > :is(section, form) {
+  margin: 0;
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+}
+
+.card-grid h2 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--type-18);
+}
+
+@media (max-width: 60rem) {
+  .shop-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shop-split > .cart {
+    position: static;
+    grid-column: 1;
+    grid-row: auto;
+    margin-bottom: var(--space-4);
+  }
+}
+
+/* The console's screens. An empty state's heading keeps the ink. */
+.empty :is(h2, h3) {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--type-18);
+}
+
+.panel-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-4);
+}
+
+.panel-link p {
+  margin: 0;
+}
+
+/* A choice and its button on one line: a reason and Decline, a time and Schedule. */
+.inline-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.inline-action > label {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.inline-action > .hint {
+  flex-basis: 100%;
+}
+
+/* The kitchen board: five columns, each a well of compact cards. */
+.board-panel .panel-head {
+  align-items: flex-start;
+}
+
+.board-status {
+  text-align: right;
+}
+
+.board-status p {
+  margin: 0;
+}
+
+.live-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.live-status::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tone-done-solid);
+}
+
+.live-status[data-status='open']::before {
+  background: var(--tone-ready-solid);
+}
+
+.live-status[data-status='closed']::before {
+  background: var(--tone-pending-solid);
+}
+
+.live-status[data-status='ended']::before {
+  background: var(--tone-problem-solid);
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.board > .column {
+  min-width: 0;
+  padding: var(--space-2);
+  border-radius: var(--radius-card);
+  background: var(--surface-sunken);
+}
+
+.board > .column > h4 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-1) var(--space-1) var(--space-2);
+  font-size: var(--type-13);
+}
+
+.board > .column > h4::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.board h4[data-tone='pending']::before {
+  background: var(--tone-pending-solid);
+}
+.board h4[data-tone='confirmed']::before {
+  background: var(--tone-confirmed-solid);
+}
+.board h4[data-tone='making']::before {
+  background: var(--tone-making-solid);
+}
+.board h4[data-tone='ready']::before {
+  background: var(--tone-ready-solid);
+}
+.board h4[data-tone='out']::before {
+  background: var(--tone-out-solid);
+}
+
+.board > .column > .hint {
+  margin: 0 var(--space-1) var(--space-1);
+}
+
+.board .cards {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.board .card {
+  margin: 0;
+  padding: var(--space-2) 10px;
+  font-size: var(--type-13);
+  line-height: 1.35;
+}
+
+.board .card p {
+  margin: 0;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.card .card-head {
+  margin: 0;
+}
+
+.card-id {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: var(--type-12);
+}
+
+.card .card-when {
+  margin: 2px 0 0;
+}
+
+.card-clock {
+  font-size: var(--type-14);
+  font-weight: 600;
+}
+
+.card-date {
+  color: var(--text-muted);
+  font-size: var(--type-12);
+}
+
+.board .card-lines {
+  margin: var(--space-1) 0 0;
+}
+
+.card-more summary {
+  margin-top: 2px;
+  color: var(--accent);
+  font-size: var(--type-12);
+  cursor: pointer;
+}
+
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.card-actions > .btn-primary {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.card-actions > details.menu {
+  margin-left: auto;
+}
+
+.board .card .hint {
+  margin-top: 2px;
+  font-size: var(--type-12);
+}
+
+.board .badge {
+  min-height: 20px;
+  padding: 0 6px;
+}
+
+.board-switch {
+  display: none;
+}
+
+/* The feed and the menu editor scroll within their panels rather than stretch the row. */
+.feed-scroll {
+  max-height: 26rem;
+  overflow-y: auto;
+}
+
+.panel .editor li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 13rem) auto;
+  align-items: start;
+  gap: var(--space-1) var(--space-4);
+  margin-bottom: var(--space-2);
+  padding: var(--space-3);
+}
+
+.panel .editor li > p.actions {
+  padding-top: 20px;
+}
+
+.panel .editor .hint {
+  font-size: var(--type-12);
+}
+
+/* The bake list: each day's times as small cards side by side. */
+.panel > section.column .cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: var(--space-2);
+}
+
+.panel > section.column .card {
+  margin: 0;
+  padding: var(--space-2) 10px;
+  font-size: var(--type-13);
+  line-height: 1.35;
+}
+
+.panel > section.column h4 {
+  margin-top: var(--space-4);
+}
+
+/* A long table whose rows hold buttons scrolls inside its panel, under its sticky header (a scrolling
+   region needs something in it that takes the keyboard). */
+.panel .table-scroll:has(tbody button) {
+  max-height: 28rem;
+  overflow: auto;
+}
+
+.panel .editor li > p {
+  margin: 0;
+}
+
+.panel .editor li > p.hint {
+  grid-column: 1 / -1;
+}
+
+.panel .editor label {
+  color: var(--text-muted);
+  font-size: var(--type-12);
+  font-weight: 500;
+}
+
+.publish-bar {
+  position: sticky;
+  z-index: 2;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-4) calc(-1 * var(--space-5)) calc(-1 * var(--space-5));
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+  background: var(--surface-raised);
+}
+
+.publish-bar .hint {
+  margin: 0;
+}
+
+@media (max-width: 72rem) {
+  .board-switch {
+    display: flex;
+    width: 100%;
+    margin-top: var(--space-3);
+  }
+
+  .board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .board[data-show='pending'] > .column:not([data-state='pending']),
+  .board[data-show='confirmed'] > .column:not([data-state='confirmed']),
+  .board[data-show='in_production'] > .column:not([data-state='in_production']),
+  .board[data-show='ready'] > .column:not([data-state='ready']),
+  .board[data-show='out_for_delivery'] > .column:not([data-state='out_for_delivery']) {
+    display: none;
+  }
+}
+
+@media (max-width: 40rem) {
+  .panel .editor li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .panel .editor li > p.actions {
+    padding-top: 0;
+  }
+}
+
+@media (max-width: 60rem) {
+  .board-status {
+    text-align: left;
+  }
+
+  .publish-bar {
+    margin-inline: calc(-1 * var(--space-4));
+    margin-bottom: calc(-1 * var(--space-4));
+    padding-inline: var(--space-4);
+  }
+}
+
+/* The tour's button keeps its look over the new shells until the guide replaces it. */
+.tour-trigger,
+.tour-trigger:hover {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-foreground);
+  box-shadow: var(--shadow-raised);
+}
+
+/* Dispatch: the map large, the stops and the plans beside it. */
+.dispatch-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  align-items: start;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.dispatch-map-panel {
+  position: sticky;
+  top: calc(var(--topbar-height) + var(--space-4));
+}
+
+.dispatch-side {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.dispatch-layout .panel > h2:first-child {
+  margin: 0 0 var(--space-3);
+  font-size: var(--type-16);
+}
+
+@media (max-width: 75rem) {
+  .dispatch-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dispatch-map-panel {
+    position: static;
+  }
+}
+
+/* The checkout's slot chips: an even grid rather than a ragged row. */
+.choices:has(> li > .chip) {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+}
+
+.choices .chip {
+  width: 100%;
+}
+
+/* The home page's words keep a reading measure inside the shop's width. */
+.shell-shop .prose {
+  max-width: 46rem;
 }

@@ -78,6 +78,8 @@ As built, 2026-11-09: since the tour (PR 10), every screen with a tour step carr
 
 Decided on 2026-11-09 by the session, under Joseph's delegation of the same day; revisable: decision 8 is amended. Budgets are per page class, at each class's measured size plus 25%, as `apps/web/test/dist.test.ts` holds them, and a page with no script stays at 0 B. The 5,000 B and 120,000 B figures are retired, because every island page carries React and the guide (roadmap R61). The Stripe.js and solver rules of decision 8 are unchanged. PR 21 re-takes the measurements after the interface and the live guide land (roadmap PR 21).
 
+As built on 2026-11-09, every page takes one of three shells, chosen from its path in `Base.astro`: prose for reading, shop for the storefront and app for the console, which keeps its pages static and adds no script of its own. The styles are a component layer, `components.css`, that every screen uses in place of its own buttons, over the semantic tokens in `tokens.css`; the change moved no JavaScript budget.
+
 ## Patterns and further reading
 
 - Islands architecture: ["Islands Architecture"](https://jasonformat.com/islands-architecture/) (blog, 2020).

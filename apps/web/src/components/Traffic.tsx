@@ -70,6 +70,7 @@ export default function Traffic({ sandboxId, isGuest }: { sandboxId: string; isG
           <button
             key={rate}
             type="button"
+            className="btn btn-secondary btn-sm"
             disabled={busy || isGuest || running}
             onClick={() => void act(() => startTraffic(sandboxId, rate))}
           >
@@ -78,6 +79,7 @@ export default function Traffic({ sandboxId, isGuest }: { sandboxId: string; isG
         ))}
         <button
           type="button"
+          className={running ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'}
           disabled={busy || isGuest || !running}
           onClick={() => void act(() => stopTraffic(sandboxId))}
         >
