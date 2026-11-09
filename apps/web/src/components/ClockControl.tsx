@@ -91,6 +91,7 @@ export default function ClockControl({
           <button
             key={step}
             type="button"
+            className="btn btn-secondary btn-sm"
             disabled={isGuest}
             aria-disabled={busy !== null || undefined}
             aria-label={says}

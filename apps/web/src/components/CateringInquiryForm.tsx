@@ -185,7 +185,7 @@ export default function CateringInquiryForm({
         {warning !== null && <span className="problem">{warning}</span>}
       </p>
       <p>
-        <button type="submit" disabled={busy || reasons.length > 0}>
+        <button type="submit" className="btn btn-primary" disabled={busy || reasons.length > 0}>
           {busy ? 'Sending…' : retry ? 'Try again' : 'Send inquiry'}
         </button>
       </p>

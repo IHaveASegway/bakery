@@ -83,10 +83,10 @@ export default function ApiToken({ sandboxId, isGuest }: { sandboxId: string; is
       {isGuest ? (
         <>
           <p className="actions">
-            <button type="button" disabled>
+            <button type="button" className="btn btn-primary" disabled>
               Issue token
             </button>
-            <button type="button" disabled>
+            <button type="button" className="btn btn-secondary" disabled>
               Rotate
             </button>
           </p>
@@ -107,11 +107,17 @@ export default function ApiToken({ sandboxId, isGuest }: { sandboxId: string; is
             </dd>
           </dl>
           <p className="actions">
-            <button type="button" disabled={busy} onClick={() => void run('issue')}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={busy}
+              onClick={() => void run('issue')}
+            >
               Issue token
             </button>
             <button
               type="button"
+              className="btn btn-secondary"
               disabled={busy || !hasToken}
               aria-describedby="token-rotate-says"
               onClick={() => void run('rotate')}
@@ -143,10 +149,18 @@ export default function ApiToken({ sandboxId, isGuest }: { sandboxId: string; is
             onFocus={(e) => e.currentTarget.select()}
           />
           <p className="actions">
-            <button type="button" onClick={() => void copy(revealed.token)}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void copy(revealed.token)}
+            >
               Copy token
             </button>
-            <button type="button" onClick={() => dispatch({ type: 'hide' })}>
+            <button
+              type="button"
+              className="btn btn-quiet"
+              onClick={() => dispatch({ type: 'hide' })}
+            >
               Hide it
             </button>
           </p>

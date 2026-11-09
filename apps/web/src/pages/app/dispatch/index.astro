@@ -1,5 +1,6 @@
 ---
 import Base from '../../../layouts/Base.astro';
+import ConsoleNav from '../../../components/ConsoleNav';
 import Dispatch from '../../../components/Dispatch';
 import attribution from '../../../../public/app/dispatch/data/ATTRIBUTION.txt?raw';
 import { ODBL_URL, OSM_COPYRIGHT_URL, routeCredit } from '../../../lib/dispatch';
@@ -12,6 +13,7 @@ const { orsVersion } = routeCredit(attribution);
   description="One day's delivery stops on a map of Salt Lake City, the server's proposed plan, the plan VROOM makes in your browser, the two compared, and the one that is published."
   screen="dispatch"
 >
+  <ConsoleNav here="dispatch" />
   <h1>Dispatch</h1>
   <p>
     Staff plan each day's deliveries here: the confirmed stops, one to four vans leaving the bakery

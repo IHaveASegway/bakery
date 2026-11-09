@@ -65,7 +65,7 @@ export default function Ledger({ sandboxId, refresh }: { sandboxId: string; refr
           {entries.length === 0 ? (
             <p className="hint">No payments yet.</p>
           ) : (
-            <ol className="feed" aria-label="Ledger entries, newest first">
+            <ol className="feed feed-scroll" aria-label="Ledger entries, newest first" tabIndex={0}>
               {entries.map((e, i) => (
                 <li key={`${e.stripe_id ?? e.at}-${i}`}>
                   <strong>{e.kind === 'payment' ? 'Payment' : 'Refund'}</strong>{' '}
@@ -81,7 +81,12 @@ export default function Ledger({ sandboxId, refresh }: { sandboxId: string; refr
         </>
       )}
       <p>
-        <button type="button" disabled={busy} onClick={() => void load()}>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          disabled={busy}
+          onClick={() => void load()}
+        >
           Refresh the ledger
         </button>
       </p>

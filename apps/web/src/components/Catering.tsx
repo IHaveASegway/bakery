@@ -151,7 +151,12 @@ export default function Catering() {
             </ul>
           )}
           <p>
-            <button type="button" disabled={busy} onClick={() => void load()}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={busy}
+              onClick={() => void load()}
+            >
               Refresh
             </button>
           </p>

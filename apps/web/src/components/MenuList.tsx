@@ -104,6 +104,7 @@ export default function MenuList({ menu, onAdd }: Props) {
                           {onAdd && (
                             <button
                               type="button"
+                              className="btn btn-primary btn-sm"
                               disabled={unavailable}
                               aria-label={`Add ${item.name}, ${variant.label}, to the cart`}
                               onClick={() => onAdd(variant.slug, `${item.name}, ${variant.label}`)}

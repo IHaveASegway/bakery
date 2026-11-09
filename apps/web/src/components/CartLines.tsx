@@ -82,6 +82,7 @@ export default function CartLines({ cart, menu, update }: Props) {
             </span>
             <button
               type="button"
+              className="btn btn-quiet btn-sm"
               aria-label={`Remove ${name ?? 'this item'} from the cart`}
               onClick={() => update((c) => removeLine(c, line.variant))}
             >

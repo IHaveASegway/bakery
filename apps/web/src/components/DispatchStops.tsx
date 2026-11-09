@@ -41,7 +41,7 @@ export default function DispatchStops({
     return <p className="hint">This day has no delivery stops.</p>;
   }
   return (
-    <div className="table-scroll">
+    <div className="table-scroll" role="region" aria-label="Stops table" tabIndex={0}>
       <table className="[overflow-wrap:normal]">
         <caption className="sr-only">The day’s delivery stops</caption>
         <thead>

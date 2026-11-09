@@ -1,5 +1,6 @@
 ---
 import '../styles/global.css';
+import { shellFor, type Shell } from '../lib/shell';
 import tokensCss from '../styles/tokens.css?raw';
 import { chromeColor } from '../lib/tokens';
 import SessionLink from '../components/SessionLink.astro';
@@ -12,6 +13,8 @@ interface Props {
   description: string;
   /** The screen whose guide the page carries; a page with none (the 404) has no guide. */
   screen?: ScreenId;
+  /** The shell, when the page's path does not say it (src/lib/shell.ts). */
+  shell?: Shell;
 }
 const { title, description, screen } = Astro.props;
 
@@ -34,6 +37,8 @@ const FOOTER = [
   { href: SITE_LAB, label: 'The lab, on ihaveasegway.com' },
 ];
 const here = Astro.url.pathname;
+// Prose for reading, shop for the storefront, app for the console (design brief, 2026-11-09).
+const shell = Astro.props.shell ?? shellFor(here);
 // The page's address as the site states it, and the share tags that repeat its title and
 // description. The 404 is no page to point at, so it carries neither the canonical link nor the URL.
 const isNotFound = /^\/404(\.html|\/)?$/.test(here);
@@ -68,47 +73,89 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
     {canonical && <meta property="og:url" content={canonical} />}
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   </head>
-  <body>
+  <body class={`shell-${shell}`}>
     <a class="skip-link" href="#main">
       Skip to the page
     </a>
-    <header class="site-header">
-      <a class="site-name" href="/" aria-current={here === '/' ? 'page' : undefined}>
-        Proof of Concept Bakery
-      </a>
-      <nav aria-label="The bakery">
-        <ul class="site-nav">
-          {NAV.map(({ href, label }) => (
+    {shell === 'app' ? (
+      <header class="topbar">
+        <a class="site-name" href="/" aria-current={here === '/' ? 'page' : undefined}>
+          <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M3 15c0-5 4-9 9-9s9 4 9 9v2H3z" />
+            <path d="M8 10l1.5 3M12 9v4M16 10l-1.5 3" />
+          </svg>
+          <span>Proof of Concept Bakery</span>
+        </a>
+        <span class="topbar-title">Console</span>
+        <nav aria-label="The bakery" class="topbar-nav">
+          <ul class="site-nav">
+            {NAV.map(({ href, label }) => (
+              <li>
+                <a href={href} aria-current={current(href)}>
+                  {label}
+                </a>
+              </li>
+            ))}
             <li>
-              <a href={href} aria-current={current(href)}>
-                {label}
+              <a href={SESSION.href} aria-current={current(SESSION.href)} data-session-link>
+                {SESSION.label}
               </a>
             </li>
-          ))}
-          <li>
-            <a href={SESSION.href} aria-current={current(SESSION.href)} data-session-link>
-              {SESSION.label}
-            </a>
-          </li>
-        </ul>
-      </nav>
-    </header>
+          </ul>
+        </nav>
+      </header>
+    ) : (
+      <header class="masthead">
+        <div class="masthead-inner">
+          <a class="site-name" href="/" aria-current={here === '/' ? 'page' : undefined}>
+            <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M3 15c0-5 4-9 9-9s9 4 9 9v2H3z" />
+              <path d="M8 10l1.5 3M12 9v4M16 10l-1.5 3" />
+            </svg>
+            <span>Proof of Concept Bakery</span>
+          </a>
+          <nav aria-label="The bakery">
+            <ul class="site-nav">
+              {NAV.map(({ href, label }) => (
+                <li>
+                  <a href={href} aria-current={current(href)}>
+                    {label}
+                  </a>
+                </li>
+              ))}
+              <li>
+                <a
+                  class="session-link"
+                  href={SESSION.href}
+                  aria-current={current(SESSION.href)}
+                  data-session-link
+                >
+                  {SESSION.label}
+                </a>
+              </li>
+            </ul>
+          </nav>
+        </div>
+      </header>
+    )}
     <main id="main" tabindex="-1">
       <slot />
     </main>
     <footer class={screen ? 'site-footer with-tour' : 'site-footer'}>
-      <nav aria-label="More">
-        <ul class="site-nav">
-          {FOOTER.map(({ href, label }) => (
-            <li>
-              <a href={href} rel={href.startsWith('https:') ? 'noopener' : undefined}>
-                {label}
-              </a>
-            </li>
-          ))}
-        </ul>
-      </nav>
-      <p>Everything here is made up: the bakery, its customers, their orders and their cards.</p>
+      <div class="footer-inner">
+        <nav aria-label="More">
+          <ul class="footer-nav">
+            {FOOTER.map(({ href, label }) => (
+              <li>
+                <a href={href} rel={href.startsWith('https:') ? 'noopener' : undefined}>
+                  {label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        <p>Everything here is made up: the bakery, its customers, their orders and their cards.</p>
+      </div>
     </footer>
     {screen && <Guide screen={screen} client:idle />}
     {screen && <SessionLink />}

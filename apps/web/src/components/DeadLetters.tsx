@@ -60,7 +60,7 @@ export default function DeadLetters({
         redrive it.
       </p>
       <p>
-        <button type="button" onClick={() => void refresh()}>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => void refresh()}>
           Refresh
         </button>
       </p>
@@ -80,6 +80,7 @@ export default function DeadLetters({
               </p>
               <button
                 type="button"
+                className="btn btn-primary btn-sm"
                 disabled={isGuest || busy !== null}
                 aria-label={`Redrive ${letter.type} for ${letter.stream}`}
                 onClick={() => void send(letter)}
