@@ -6,6 +6,9 @@ import { defineConfig, devices } from '@playwright/test';
 
 const webPort = Number(process.env.E2E_WEB_PORT || 8797);
 const apiPort = Number(process.env.E2E_API_PORT || 8798);
+// A Chromium binary to launch instead of the one the lockfile's Playwright downloads, for a
+// machine that has another build (e2e/run.mjs's header). Unset in CI: its image has the match.
+const chromiumPath = process.env.E2E_CHROMIUM_PATH || undefined;
 
 export default defineConfig({
   testDir: '.',
@@ -32,6 +35,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'off',
     launchOptions: {
+      ...(chromiumPath ? { executablePath: chromiumPath } : {}),
       args: [
         // Never a proxy, even when the environment names one: a proxy resolves names itself, so
         // the rules below would not apply and a page could reach the real hostnames.

@@ -1,5 +1,6 @@
 // One visitor's cookie against another visitor's sandbox: the answer is a 404 problem document, the
 // same as for a sandbox that does not exist, so a sandbox's id is never confirmed to a stranger.
+import { nextClientIp } from './addresses';
 import { api, demoAccount, expect, liveSandbox, test, API } from './fixtures';
 
 // The 404 is the answer under test, and Chromium logs it.
@@ -7,20 +8,15 @@ test.use({ allowedStatuses: [404] });
 
 test("a sandbox's cookie gets a 404 for another sandbox's resources", async ({
   page,
-  clientIp,
-}) => {
+}, testInfo) => {
   await demoAccount(page);
   const first = await liveSandbox(page);
 
   // A second visitor from another address (sandbox creation is limited per address), in the same
   // browser: its sign-in replaces the cookie, so every call below carries the second visitor's.
+  const secondIp = nextClientIp(testInfo.workerIndex);
   await page.route(`${API}/**`, (route) =>
-    route.continue({
-      headers: {
-        ...route.request().headers(),
-        'cf-connecting-ip': `2001:db8::${clientIp.split('.')[3]}`,
-      },
-    }),
+    route.continue({ headers: { ...route.request().headers(), 'cf-connecting-ip': secondIp } }),
   );
   await demoAccount(page);
   const second = await liveSandbox(page);

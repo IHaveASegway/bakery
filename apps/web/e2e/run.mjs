@@ -13,6 +13,12 @@
 // and Playwright's Chromium (pnpm --filter web exec playwright install chromium; the e2e job runs
 // in Playwright's image, which has it). Arguments after `--` go to `playwright test`.
 //
+// A machine whose Chromium is another build than the one Playwright wants (a cloud session's, for
+// one) can name a binary with E2E_CHROMIUM_PATH, which e2e/playwright.config.ts passes as
+// launchOptions.executablePath:
+//   E2E_CHROMIUM_PATH=/path/to/chrome pnpm --filter web e2e
+// CI leaves it unset. A run on another build tests that build, not the lockfile's.
+//
 // Ports are fixed, and differ from the smoke scripts' (8787, 8788, 8790, 8791) so both can run on
 // one machine: web 8797, API 8798, fake providers 8799, fake Stripe 8800, the webhook relay 8801,
 // inspectors 9347 and 9348. Each can be moved with E2E_<NAME>_PORT. Every secret in the scratch
