@@ -37,6 +37,8 @@
 #   409 `rebuild` while it runs), `applied` climbing to `total` over several alarms, then every
 #   response and the projection byte-identical (the activity feed gains only the rebuild's own
 #   row), and `ProjectionRebuildFinished` with `events` = the log's length.
+# - The loop guard: rebuilds one after another spend Crm's 100 alarm-driven re-arms of the UTC
+#   day; the 101st is refused, `alarm_guard` is logged once, and nothing is armed after it.
 # - The wipe: scripts/list-objects.mjs exits 0, the Customer, Crm and Inbox objects included.
 #
 # The Mailbox rule ("no Mailbox implementation can address a non-sandbox recipient") is proven
@@ -892,6 +894,44 @@ echo "    (sends_deferred was logged $DEFER_RUNS times over $STEPS rebuild steps
 check "sends_deferred is logged at most once per rebuild run ($DEFER_RUNS lines, $STEPS steps)" "(( DEFER_RUNS >= 1 && DEFER_RUNS <= STEPS + 1 ))"
 check "the wait spent at most 15 re-arms ($SPENT), and no alarm_guard was logged" "(( SPENT <= 15 )) && ! grep -q '\"event\":\"alarm_guard\"' '$TMP/defer.log'"
 
+# ---------- the loop guard: the 101st alarm-driven re-arm ----------
+
+# Each rebuild step is an alarm run that re-arms the next one 300 ms later, so every rebuild
+# spends three or four of Crm's 100 alarm-driven re-arms a UTC day (docs/architecture.md, "The
+# rules, restated for Rust", rule 4). Rebuilds are started one after another, each run to its end,
+# until the ledger holds 100; the next re-arm is refused: `alarm_guard` is logged, nothing is
+# armed, and the rebuild it cut off stays where it was until the wipe. Each rebuild is one command
+# and takes over a second, and a pause keeps the session well inside its 60 commands a minute. A
+# run that crosses midnight UTC starts a new day's ledger and makes a few more rebuilds.
+GUARD_FROM="$(wc -l < "$LOG")"
+GUARD_DAY="$(date -u +%F)"
+rearms_today() { sql_count Crm "crm:$AID" "SELECT coalesce(max(n), 0) AS n FROM rearms WHERE day = '$(date -u +%F)'"; }
+GUARD_START="$(rearms_today)"
+GUARD_RUNS=0
+GUARD_FINISHED=0
+guard_log() { tail -n "+$((GUARD_FROM + 1))" "$LOG" > "$TMP/guard.log"; }
+guard_logged() { guard_log; grep -qF '"event":"alarm_guard","reason":"rearm-cap","object":"Crm"' "$TMP/guard.log"; }
+for _ in $(seq 1 60); do
+  if guard_logged; then break; fi
+  command_as guard_rb D 192.0.2.82 POST "/v1/sandboxes/$AID/rebuild"
+  GUARD_RUNS=$((GUARD_RUNS + 1))
+  for _ in $(seq 1 100); do
+    get_as guard_poll D "/v1/sandboxes/$AID/rebuild"
+    if [[ "$(json_field guard_poll b.state)" == finished ]]; then GUARD_FINISHED=$((GUARD_FINISHED + 1)); break; fi
+    if guard_logged; then break; fi
+    sleep 0.1
+  done
+  sleep 1
+done
+GUARD_END="$(rearms_today)"
+echo "    ($GUARD_RUNS rebuilds from $GUARD_START re-arms today ($GUARD_DAY) to $GUARD_END; $GUARD_FINISHED ran to their end)"
+check "the 101st alarm-driven re-arm is refused: alarm_guard logged for Crm, once" "guard_logged && (( $(grep -c '"event":"alarm_guard"' "$TMP/guard.log") == 1 ))"
+check "every rebuild before it ran to its end, and the day's ledger stops at 100" "(( GUARD_FINISHED >= GUARD_RUNS - 1 && GUARD_END == 100 ))"
+get_as guard_cut D "/v1/sandboxes/$AID/rebuild"
+sleep 2
+get_as guard_still D "/v1/sandboxes/$AID/rebuild"
+check "nothing is armed after it: the rebuild reads the same 2 s later ($(json_field guard_cut "b.state + ', ' + b.applied + ' of ' + b.total")), and the ledger still holds 100" "cmp -s '$TMP/guard_cut.body' '$TMP/guard_still.body' && (( $(rearms_today) == 100 ))"
+
 # ---------- the wipe ----------
 
 for s in "G:$GID:192.0.2.81" "D:$AID:192.0.2.82" "E:$BID:192.0.2.83"; do
@@ -905,7 +945,8 @@ node "$ROOT/scripts/list-objects.mjs" "$STATE" > "$TMP/list.out" 2> "$TMP/list.e
 LIST_EXIT=$?
 set -e
 check "list-objects exits 0 after the wipe, the Customer, Crm and Inbox objects included" "(( LIST_EXIT == 0 )) && grep -q '\"class\":\"Crm\"' '$TMP/list.out' && grep -q '\"class\":\"Inbox\"' '$TMP/list.out' && grep -q '\"class\":\"Customer\"' '$TMP/list.out'"
-check "no alarm_guard was logged" "! log_has '\"event\":\"alarm_guard\"'"
+head -n "$GUARD_FROM" "$LOG" > "$TMP/before_guard.log"
+check "no alarm_guard was logged before the loop guard's own section" "! grep -q '\"event\":\"alarm_guard\"' '$TMP/before_guard.log'"
 check "no delivery dead-lettered" "! log_has '\"event\":\"dlq\"'"
 
 echo
