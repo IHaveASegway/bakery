@@ -9,8 +9,8 @@ import SandboxView from '../src/components/SandboxView';
 import { AFTER_BOARD, CONSOLE_SECTIONS } from '../src/lib/console-sections';
 import MenuList from '../src/components/MenuList';
 import { STATIC_MENU } from '../src/lib/menu';
-import { TOURS } from '../src/tour';
-import { CONSOLE_ORDER } from '../src/tour/index';
+import { ENTRIES as TOURS } from '../src/guide';
+import { CONSOLE_ORDER } from '../src/guide/index';
 
 const sandbox = (state: SandboxResponse['state']): SandboxResponse => ({
   born: '2026-11-08T09:00:00Z',

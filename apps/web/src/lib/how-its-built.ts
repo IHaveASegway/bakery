@@ -4,7 +4,7 @@
 // it works here with the nuance that matters, where it runs, what a visitor can do to see it, and
 // the links. The tour's principles (src/tour/principles.ts) are read from here, so a tour step and
 // the page can never name a principle differently or link it somewhere else.
-import type { Principle } from './tour';
+import type { Principle } from './guide';
 import { adrUrl, essayOf, howUrl, labUrl, type LabOrNone } from './links';
 
 /**

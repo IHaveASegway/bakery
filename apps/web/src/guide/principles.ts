@@ -1,6 +1,6 @@
-// The principles the tour names (docs/domain.md, "The principle map"; Q33 · Q-principles). Each is
+// The principles the guide names (docs/domain.md, "The principle map"; Q33 · Q-principles). Each is
 // a section of the How it's built page, read from lib/how-its-built.ts with its links to the lab
-// page, the ADR and the section itself, so the tour and the page cannot drift.
+// page, the ADR and the section itself, so the guide and the page cannot drift.
 import { principle } from '../lib/how-its-built';
 
 export const QUEUE = principle('queue');

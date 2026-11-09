@@ -29,7 +29,7 @@ import {
 import { liveToken, tokenStore } from '../lib/token-store';
 import { useSandboxPhase } from '../lib/use-session';
 import { ulid } from '../lib/ulid';
-import { stepsFor } from '../tour';
+import { entriesFor as stepsFor } from '../guide';
 
 const TRIGGER = 'tour-trigger';
 const DOCK = 'tour-dock';

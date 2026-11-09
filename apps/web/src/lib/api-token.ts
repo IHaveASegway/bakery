@@ -4,7 +4,7 @@
 import type { TokenInfoResponse, TokenResponse } from '../contracts';
 import { ApiError } from './api';
 import { describeError, type Message } from './messages';
-import { maskToken } from './tour';
+import { maskToken } from './guide';
 
 export interface PanelState {
   /** `loading` until the first GET answers; `busy` while an issue or a rotate is out. */

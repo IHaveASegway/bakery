@@ -1,18 +1,20 @@
 // The console's controls that change the bakery itself: faults, the clock, simulated traffic, the
 // menu, capacity and the sandbox's own actions.
-import type { TourStep } from '../lib/tour';
-import { HOW } from './how';
+import type { GuideEntry } from '../lib/guide';
 import { ADMISSION, CACHE, CLOCK, IDEMPOTENCY, LEASE, LOAD, QUEUE, SANDBOX } from './principles';
 
-export const CONTROLS: TourStep[] = [
+export const CONTROLS: GuideEntry[] = [
   {
     id: 'controls-menu-edit',
     screen: 'console',
     target: 'controls-menu',
     title: 'Changing a price',
-    what: 'A new price is a draft on every variant of the item until you publish. Pausing or resuming an item publishes that one item at once. The menu you see on the public page does not change until the Catalog publishes a new version.',
+    what: 'A new price is a draft until you publish. Pausing or resuming an item publishes that one item at once.',
+    why: 'A draft changes nothing a customer reads, so a price can be edited with no cache to purge.',
+    whenNot: 'Not for a change that must reach customers this second: it waits for Publish.',
     events: ['MenuItemChanged'],
     principle: CACHE,
+    triggers: ['patch-menu-item', 'MenuItemChanged'],
     api: {
       routeId: 'patch-menu-item',
       method: 'PATCH',
@@ -26,9 +28,13 @@ export const CONTROLS: TourStep[] = [
     screen: 'console',
     target: 'controls-menu',
     title: 'Publishing the menu',
-    what: 'Publishing bumps the menu’s version. The cache is keyed by sandbox and version, so the next read misses once, fills, and every later read hits. Watch Bakery-Cache and the ETag change on the menu page.',
+    what: 'Publishing bumps the menu’s version. The next read misses once and fills, and every read after it hits.',
+    why: 'Keying the cache by version means an old menu is never served again, and nothing has to be found and deleted.',
+    whenNot:
+      'Not for data that changes on every write: each write would be a new version and every read a miss.',
     events: ['MenuPublished'],
     principle: CACHE,
+    triggers: ['publish-menu', 'MenuPublished'],
     api: {
       routeId: 'publish-menu',
       method: 'POST',
@@ -41,9 +47,12 @@ export const CONTROLS: TourStep[] = [
     screen: 'console',
     target: 'controls-tax',
     title: 'The tax rate',
-    what: 'The tax rate is published with the menu, at once, as a version of its own; price drafts keep waiting. An order is priced at the rate of the menu version it names, so a new rate applies to the next order and never to one already placed.',
+    what: 'The tax rate is published at once, as a version of its own. An order is priced at the rate of the menu version it names.',
+    why: 'Pricing against a named version means a new rate applies to the next order and never to one already placed.',
+    whenNot: 'Not for a correction that must reach past orders: that is a refund or an adjustment.',
     events: ['MenuPublished'],
     principle: CACHE,
+    triggers: ['set-tax-rate'],
     api: {
       routeId: 'set-tax-rate',
       method: 'PATCH',
@@ -57,9 +66,12 @@ export const CONTROLS: TourStep[] = [
     screen: 'console',
     target: 'controls-capacity',
     title: 'Capacity',
-    what: 'Set how many places a slot, a delivery zone, an item or catering has for a day. Places already taken stay; a cut below them only stops new ones. The Schedule is the single writer of places, so a last place can only go to one order.',
+    what: 'How many places a slot, a zone, an item or catering has for a day. Places already taken stay; a cut only stops new ones.',
+    why: 'The Schedule is the single writer of a day’s places, so a last place can only go to one order.',
+    whenNot: 'Not for a limit across days: one object per day cannot see the others.',
     events: ['CapacityChanged'],
     principle: LEASE,
+    triggers: ['set-capacity', 'CapacityChanged'],
     api: {
       routeId: 'set-capacity',
       method: 'PATCH',
@@ -73,9 +85,13 @@ export const CONTROLS: TourStep[] = [
     screen: 'console',
     target: 'controls-traffic',
     title: 'Simulated traffic',
-    what: 'Synthetic customers place orders the way a visitor does, through the same checks, so the board moves while you watch. It runs only while this page is open, at most 6 orders a minute and 30 minutes a day. Watch the board fill over its socket while the customer list and the activity feed trail the orders by a moment.',
+    what: 'Synthetic customers order through the same checks as you, at most 6 a minute. It runs only while this page is open.',
+    why: 'Real load through the real path shows the lag between a write and the views that follow it.',
+    whenNot:
+      'Not a load test: the rate is capped so the demo stays cheap, and nothing is measured.',
     events: ['TrafficStarted', 'OrderPlaced', 'OrderPaid'],
     principle: LOAD,
+    triggers: ['start-traffic', 'TrafficStarted'],
     api: {
       routeId: 'start-traffic',
       method: 'POST',
@@ -89,9 +105,12 @@ export const CONTROLS: TourStep[] = [
     screen: 'console',
     target: 'controls-traffic',
     title: 'Stopping traffic',
-    what: 'Stopping settles the minutes you did not use back to the day’s budget. Traffic also stops by itself when the console has been closed for 90 seconds, or when the sandbox is wiped.',
+    what: 'Stopping settles the unused minutes back to the day’s budget. Traffic also stops by itself 90 seconds after the console closes.',
+    why: 'A daily budget refuses work before it costs anything, so a forgotten tab cannot run up a bill.',
+    whenNot: 'Not where the work must finish whatever it costs: a budget ends it early.',
     events: ['TrafficStopped'],
     principle: ADMISSION,
+    triggers: ['stop-traffic', 'TrafficStopped'],
     api: {
       routeId: 'stop-traffic',
       method: 'DELETE',
@@ -104,9 +123,13 @@ export const CONTROLS: TourStep[] = [
     screen: 'console',
     target: 'controls-faults',
     title: 'Faults',
-    what: 'Make the kitchen or the inbox refuse deliveries. Events are not lost: the outbox keeps them, the queue retries, and after three failures they land in the dead letters above. Switch the fault off and redrive to watch the system heal.',
+    what: 'Make the kitchen or the inbox refuse deliveries. The outbox keeps the events, the queue retries, and after three failures they land in the dead letters.',
+    why: 'The outbox is written in the same transaction as the state, so a committed event is never lost, only late.',
+    whenNot:
+      'Not for a call that needs an answer now: a queued event is delivered later, maybe twice.',
     events: ['FaultSet'],
     principle: QUEUE,
+    triggers: ['set-fault', 'FaultSet'],
     api: {
       routeId: 'set-fault',
       method: 'POST',
@@ -120,9 +143,13 @@ export const CONTROLS: TourStep[] = [
     screen: 'console',
     target: 'controls-clock',
     title: 'The clock',
-    what: HOW.clock,
+    what: 'Business time is the wall clock plus an offset the Sandbox keeps and hands to every object. When it moves, each object works out its timers again.',
+    why: 'Moving business time shows an expiry or a week’s reminder in one click.',
+    whenNot:
+      'Not for the platform’s own clocks: cookies, Stripe’s timestamps and the nightly wipe keep wall time.',
     events: ['ClockAdvanced'],
     principle: CLOCK,
+    triggers: ['advance-clock', 'ClockAdvanced'],
     api: {
       routeId: 'advance-clock',
       method: 'POST',
@@ -136,9 +163,12 @@ export const CONTROLS: TourStep[] = [
     screen: 'console',
     target: 'controls-actions',
     title: 'Wipe now',
-    what: 'Deletes this sandbox and everything in it right away, as the night’s wipe would at 10:00 UTC. Any API token for it dies with it.',
+    what: 'Deletes this sandbox and everything in it right away, as the nightly wipe would. Any API token for it dies with it.',
+    why: 'The Sandbox keeps a register of every object it made, so a wipe knows everything there is to delete.',
+    whenNot: 'Not reversible: a real product would ask twice and offer an export first.',
     events: ['SandboxWiped'],
     principle: SANDBOX,
+    triggers: ['wipe-sandbox', 'SandboxWiped'],
     api: {
       routeId: 'wipe-sandbox',
       method: 'DELETE',
@@ -152,8 +182,11 @@ export const CONTROLS: TourStep[] = [
     target: 'controls-actions',
     title: 'A new sandbox',
     what: 'A signed-in account keeps one current sandbox. Making a new one with replace deletes the old one first.',
+    why: 'Without replace, create returns the sandbox you already have, so a double click never makes two.',
+    whenNot: 'Not for two sandboxes side by side: an account has one at a time.',
     events: ['SandboxWiped', 'SandboxSeeded'],
     principle: IDEMPOTENCY,
+    triggers: ['create-sandbox', 'SandboxSeeded'],
     api: {
       routeId: 'create-sandbox',
       method: 'POST',

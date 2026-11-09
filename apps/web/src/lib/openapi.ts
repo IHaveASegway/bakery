@@ -5,7 +5,7 @@
 // resolved here, and a ref that points nowhere throws, so the build stops rather than printing a
 // gap. Nothing is fetched at runtime and no third-party renderer is involved.
 import { check, resolveRef, type Json, type Schema } from './schema-check';
-import { fillPath } from './tour';
+import { fillPath } from './guide';
 
 // ---- The document, as much of it as the page reads ----
 

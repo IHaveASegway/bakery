@@ -1,18 +1,20 @@
 // The console's kitchen board and the money beside it. The board is a panel of the console, not a
-// screen of its own, so its steps belong to the console's tour.
-import type { TourStep } from '../lib/tour';
-import { HOW } from './how';
+// screen of its own, so its entries belong to the console's list.
+import type { GuideEntry } from '../lib/guide';
 import { CQRS, PAYMENTS, QUEUE, RAFT } from './principles';
 
-export const KITCHEN: TourStep[] = [
+export const KITCHEN: GuideEntry[] = [
   {
     id: 'kitchen-board',
     screen: 'console',
     target: 'kitchen-board',
     title: 'The kitchen board',
-    what: 'Paid orders arrive as cards and move from new to in production to ready to picked up. The board is live over a WebSocket; each button sends a command frame with its own id, which the Kitchen uses as an idempotency key, and the order object makes the move. One writer owns each order, so two tabs pressing the same button cannot disagree.',
+    what: 'Paid orders arrive as cards and move from confirmed to in production to ready. Each button sends a command frame over the socket, and its id is the idempotency key.',
+    why: 'Each order is its own object, so two tabs cannot disagree and nothing needs a lock.',
+    whenNot: 'Not for a question across orders, such as the day’s totals: that needs a projection.',
     events: ['OrderProductionStarted', 'OrderReady', 'OrderPickedUp'],
     principle: RAFT,
+    triggers: ['kitchen-socket', 'OrderProductionStarted', 'OrderReady', 'OrderPickedUp'],
     api: {
       routeId: 'heartbeat',
       method: 'POST',
@@ -25,9 +27,13 @@ export const KITCHEN: TourStep[] = [
     screen: 'console',
     target: 'kitchen-refund',
     title: 'Refunding an order',
-    what: 'Staff pick a reason and, optionally, an amount; with no amount, whatever is left is refunded. The Billing object asks Stripe, Stripe’s webhook confirms, and only then does the order record the refund and reverse the loyalty points.',
+    what: 'Staff pick a reason and, if they like, an amount. Billing asks Stripe, and only Stripe’s webhook makes the order record the refund.',
+    why: 'The refund’s key is built from the order and an attempt number, so pressing twice asks Stripe once.',
+    whenNot:
+      'Not for a refund that must show at once: the order changes only when the webhook lands.',
     events: ['OrderRefundRequested', 'RefundIssued', 'OrderRefunded'],
     principle: PAYMENTS,
+    triggers: ['refund', 'OrderRefundRequested', 'RefundIssued', 'OrderRefunded'],
     api: {
       routeId: 'refund',
       method: 'POST',
@@ -41,9 +47,13 @@ export const KITCHEN: TourStep[] = [
     screen: 'console',
     target: 'kitchen-bake',
     title: 'The bake list',
-    what: HOW.bake,
+    what: 'The day’s bake list, worked out by the Schedule from the places that are paid for. The board keeps the highest version it has seen, so a late message changes nothing.',
+    why: 'A projection lets the kitchen read one ready-made list instead of adding up orders on every view.',
+    whenNot:
+      'Not when a reader must see its own write at once: the list trails the payment by a moment.',
     events: ['BakeListChanged', 'SlotReserved', 'SlotReleased'],
     principle: CQRS,
+    triggers: [],
     api: {
       routeId: 'get-schedule',
       method: 'GET',
@@ -56,9 +66,13 @@ export const KITCHEN: TourStep[] = [
     screen: 'console',
     target: 'kitchen-dead-letters',
     title: 'Dead letters',
-    what: 'When a subscriber keeps failing, an event is retried three times and then parked here instead of being lost. Turn on a fault below, place an order, watch the retries, then redrive: the same event is delivered again, and the idempotent consumer makes the repeat harmless.',
+    what: 'An event a subscriber keeps refusing is retried three times, then parked here. Redrive delivers it again, and the idempotent consumer makes the repeat harmless.',
+    why: 'A dead-letter queue keeps a failing event instead of losing it, until someone fixes the cause.',
+    whenNot:
+      'Not a fix by itself: until a person redrives it, the kitchen does not have that card.',
     events: [],
     principle: QUEUE,
+    triggers: ['redrive'],
     api: {
       routeId: 'redrive',
       method: 'POST',
@@ -71,9 +85,12 @@ export const KITCHEN: TourStep[] = [
     screen: 'console',
     target: 'kitchen-ledger',
     title: 'The ledger',
-    what: 'Every payment, refund and invoice the Billing object has recorded, newest first. It is written from Stripe’s own events, so it can be checked against what Stripe says happened.',
+    what: 'Every payment, refund and invoice the Billing object has recorded, newest first. It is written from Stripe’s own events.',
+    why: 'Writing the ledger from the provider’s events means it can be checked line by line against Stripe.',
+    whenNot: 'Not a live balance: a payment shows here only after its webhook arrives.',
     events: ['PaymentIntentCreated', 'PaymentSucceeded', 'RefundIssued', 'InvoiceIssued'],
     principle: PAYMENTS,
+    triggers: [],
     api: {
       routeId: 'ledger',
       method: 'GET',

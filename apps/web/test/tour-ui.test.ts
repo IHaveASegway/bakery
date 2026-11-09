@@ -6,8 +6,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
 import Tour, { TourCard, revealDelta, tokenHint } from '../src/components/Tour';
 import { ESSAYS, ESSAY_PAGES } from '../src/lib/links';
-import { SCREENS } from '../src/lib/tour';
-import { TOURS } from '../src/tour';
+import { SCREENS } from '../src/lib/guide';
+import { ENTRIES as TOURS } from '../src/guide';
 
 const card = (screen: (typeof SCREENS)[number], index: number) =>
   renderToStaticMarkup(
@@ -38,7 +38,7 @@ describe('the open card', () => {
     const html = card('menu', how);
     expect(html).toContain(`${how + 1} of ${total}`);
     expect(html).toContain('Where the menu came from');
-    expect(html).toContain('This is the demo’s seed menu');
+    expect(html).toContain('the menu comes from its own Catalog');
     expect(html).toContain('Cache invalidation by version');
   });
 

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { SCREENS } from '../src/lib/tour';
+import { SCREENS } from '../src/lib/guide';
 import { PRINCIPLE_TABLE, PRINCIPLES } from '../src/lib/how-its-built';
 import { ESSAYS, ESSAY_PAGES, HOW_PATH, SITE_LAB, adrUrl, labUrl } from '../src/lib/links';
 import { RULE_PATHS } from '../src/policy';
