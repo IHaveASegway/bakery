@@ -30,6 +30,7 @@
       { "name": "CRM", "class_name": "Crm" },
       { "name": "INBOX", "class_name": "Inbox" },
       { "name": "DISPATCH", "class_name": "Dispatch" },
+      { "name": "RECORDER", "class_name": "Recorder" }, // the flight recorder (2026-11-09, ADR 0015)
     ],
   },
   // Declarative class lifecycle: each change is a deploy and a rollback boundary.
@@ -48,6 +49,7 @@
     "Crm": { "type": "durable-object", "storage": "sqlite" },
     "Inbox": { "type": "durable-object", "storage": "sqlite" },
     "Dispatch": { "type": "durable-object", "storage": "sqlite" },
+    "Recorder": { "type": "durable-object", "storage": "sqlite" },
   },
 
   "queues": {
