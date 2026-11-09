@@ -113,7 +113,7 @@ jobs:
         id: tools
         run: |
           meta="$(cargo metadata --no-deps --format-version 1 --locked)"
-          for tool in worker-build cargo-deny; do
+          for tool in worker-build cargo-deny cargo-audit; do
             version="$(jq -r --arg t "$tool" '.metadata.tools[$t] // empty' <<<"$meta")"
             if ! printf '%s' "$version" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+'; then
               echo "::error::cannot read an exact version for $tool from [workspace.metadata.tools]"
@@ -125,6 +125,8 @@ jobs:
         run: cargo install worker-build --locked --version "${{ steps.tools.outputs.worker-build }}"
       - name: Install cargo-deny (rule 12, --locked and pinned)
         run: cargo install cargo-deny --locked --version "${{ steps.tools.outputs.cargo-deny }}"
+      - name: Install cargo-audit (rule 12, --locked and pinned)
+        run: cargo install cargo-audit --locked --version "${{ steps.tools.outputs.cargo-audit }}"
       - run: pnpm install --frozen-lockfile
       # Rust: format, lint, test, supply chain
       - run: cargo fmt --all --check
@@ -132,6 +134,21 @@ jobs:
       - run: cargo test --workspace --locked
       - name: Licenses, advisories, bans and sources (cargo deny)
         run: cargo deny check
+      # .cargo/audit.toml holds the ignore list, the same as deny.toml's, with its reason.
+      - name: RustSec advisories, warnings included (cargo audit)
+        run: cargo audit --deny warnings
+      - name: The worker crate is pinned exactly (workers/api/Cargo.toml, through the workspace)
+        run: |
+          # worker is a 0.x crate, so a minor release can break; worker-build matches its version.
+          if ! grep -Eq '^worker = \{ *version = "=[0-9]+\.[0-9]+\.[0-9]+"' Cargo.toml; then
+            echo "::error file=Cargo.toml::worker is not pinned with = in [workspace.dependencies]"
+            exit 1
+          fi
+          if ! grep -Eq '^worker = \{ *workspace = true' workers/api/Cargo.toml; then
+            echo "::error file=workers/api/Cargo.toml::worker does not come from the workspace's exact pin"
+            exit 1
+          fi
+          grep -E '^worker = ' Cargo.toml workers/api/Cargo.toml
       - name: The OpenAPI document is the route table's and the schemas' (apps/web/public/docs/api/openapi.json)
         run: cargo run -q --locked -p bakery-contracts --bin openapi -- --check
       # The API's bundle: built once here from scanned source, scanned by firewall, never committed
@@ -197,6 +214,19 @@ jobs:
       - run: pnpm lint
       - run: pnpm format:check
       # Fitness functions that need no browser and no edge (delivery.md, "Quality gates")
+      - name: No KV namespace in any wrangler.jsonc (cost.md, "Guardrails")
+        run: |
+          bad=0
+          while IFS= read -r -d '' f; do
+            # trailing line comments are dropped first, as in the cache check below
+            if sed -E 's#(^|[[:space:]])//.*$##' "$f" | grep -q '"kv_namespaces"'; then
+              echo "::error file=$f::kv_namespaces is bound in this config; counters and flags live in Control"
+              bad=1
+            fi
+          done < <(find . -name wrangler.jsonc -not -path '*/node_modules/*' -not -path './target/*' -print0)
+          exit "$bad"
+      - name: No metadata in any tracked image or PDF (scripts/image-metadata.mjs)
+        run: node scripts/image-metadata.mjs --tracked
       - name: No Workers Cache in any wrangler.jsonc (it bills every asset request)
         run: |
           bad=0
