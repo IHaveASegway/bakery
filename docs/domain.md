@@ -2,7 +2,7 @@
 
 The made-up bakery's language and rules: the terms every doc, screen and type uses, the aggregates and the Durable Object (DO) that hosts each, their commands, events, invariants and state machines, the event catalog and its envelope, how money, time and identifiers are represented, how idempotency works at every boundary, what a sandbox is born with, and which of the site's Lab principles runs where. The code that implements it is `crates/domain` (aggregates as `decide` and `evolve`, events, value objects) and `crates/seed`; how objects, the Queue and the Workers fit together is [architecture.md](architecture.md). Why the bakery exists is [product.md](product.md).
 
-Status: Updated in PR 16 · 2026-11-06
+Status: Updated in PR 16 · 2026-11-06; reconciled with the code on 2026-11-09
 
 Prices, limits and versions are as of 2026-11-04, with sources. Every menu price, package price and tax rate on this page is the made-up bakery's demo data, not a platform price.
 
@@ -457,7 +457,7 @@ Every event has one shape, in each object's `events` and `outbox` tables and on 
 
 ## Money and time
 
-**Money** is an integer count of US cents, `i64`, everywhere: in Rust (`Cents(i64)`), in SQLite (`INTEGER`), on the wire (a JSON integer named `*_cents`). There are no floats and one currency, USD. Rates are basis points: tax defaults to 1,000 bp (10.00%), a flat demo rate the sandbox's staff can change in the console; the deposit is 2,500 bp. Tax is computed once per order on the subtotal and rounded half-up to the cent. Splits are computed as one part and a remainder, so a deposit and its balance always sum to the quote. A catering **business day** is an open day, Tuesday to Sunday, counted from the day after: the 7-business-day lead, the 14-business-day quote and the 3-business-day follow-up all count that way ([CateringEvent](#cateringevent)).
+**Money** is an integer count of US cents, `i64`, everywhere: in Rust (`Cents(i64)`), in SQLite (`INTEGER`), on the wire (a JSON integer named `*_cents`). There are no floats and one currency, USD. Rates are basis points: tax defaults to 1,000 bp (10.00%), a flat demo rate the sandbox's staff can change in the console; the deposit is 2,500 bp. As built (2026-11-09) the rate is the constant `DEFAULT_TAX_BP`, 1,000 bp (`crates/domain/src/order.rs`), and no route or console control changes it; whether to build the control is a decision pending, listed in the roadmap's Remaining work (2026-11-09). Tax is computed once per order on the subtotal and rounded half-up to the cent. Splits are computed as one part and a remainder, so a deposit and its balance always sum to the quote. A catering **business day** is an open day, Tuesday to Sunday, counted from the day after: the 7-business-day lead, the 14-business-day quote and the 3-business-day follow-up all count that way ([CateringEvent](#cateringevent)).
 
 **Business time and wall time.** Business time is wall time plus the sandbox's offset, held by the Sandbox and copied to each child ([architecture.md](architecture.md#time-travel)). Since PR 6 it is shown at America/Denver's offset for that instant, whatever the date: the Worker's clock and the domain's calendar both read the same rule, where PR 4 and PR 5 wrote `-07:00` all year. Every domain rule reads business time through the `Clock` port in `crates/app`: lead times, expiries, slots, reminders, quotes, campaigns. Platform alarms, the wipe, cookies, Stripe's timestamps and logs use wall time.
 
@@ -493,15 +493,17 @@ Every boundary that can repeat a message has a key and a table.
 | HTTP command | `Idempotency-Key` header, a ULID, required on every POST | the target object's `commands_seen`, with the stored result; creation keys in `Control`, checked at admission | the stored result again, with `Idempotent-Replayed: true`; a reused key with a different body gets 422 problem+json |
 | Socket command | the `cmd` frame's ULID `id` | the Kitchen's last 64 ids, then the Order's `commands_seen` | `ack` again, as in the site's protocol v1 |
 | Call to Stripe | Stripe's `Idempotency-Key` header, always led by the sandbox id: `<sandbox>:<ref>:<purpose>:<n>` to create an intent, and the purpose suffixed with the call for the others: `<sandbox>:<ref>:<purpose>-confirm:<n>`, `-cancel:<n>`, `-refund:<ordinal>` (`n` is the payment's attempt, `ordinal` the refund's), and for a balance invoice `<sandbox>:<catering>:balance-invoice:<n>` with `:item` and `:finalize` added for the invoice's two other calls, `balance-void:<n>` and `balance-pay:<n>`; a persona's Stripe customer is `<sandbox>:<persona>:customer`, and deleting one carries no key | Stripe | Stripe returns the first result[^brandur]; a key reused on a different body gets 400 `idempotency_error` ([Stripe](https://docs.stripe.com/api/idempotent_requests), as of 2026-11-05), which is why no two calls share one |
-| Stripe webhook | the Stripe event id | Billing's `webhooks_seen` | 200, no effect |
+| Stripe webhook | the Stripe event id | Billing's `webhooks_seen`, a set the aggregate folds from its own events, so the id and the state change are one write; there is no separate table (as built, 2026-11-09) | 200, no effect |
 | Queue delivery | the envelope's `id` | each subscriber's `seen` | ack, no effect |
 | Alarm | the `timers` row id | the object's `timers` | the row is gone, so nothing runs |
 
 All of them live and die with the sandbox, so none needs pruning. A command and its key are recorded in the same transaction as its events, so a crash between them cannot leave one without the other.
 
+**As built (2026-11-09).** The `seen` set takes three shapes. Schedule and Dispatch keep a `seen` table (`workers/api/src/objects/schedule.rs`, `dispatch.rs`); the Kitchen, the Inbox and Crm keep the set inside their one state row (`objects/kitchen.rs`); Billing folds it from its own events (`crates/domain/src/billing.rs`). In every shape the id and the change are one write. A sandbox creation's key is kept in `Control`'s `creations_seen` with the day and the answer, because admission is the one request a creation already makes (`workers/api/src/objects/control.rs`). An order's key maps to one order id in the Sandbox's `order_keys` (`objects/sandbox.rs`).
+
 ## The seed
 
-`crates/seed` turns a 64-bit seed and a birth date into a sandbox's entire starting state (Q26 · Q-seed). It uses a seeded PRNG and no clock, no network and no input but those two values; [stack.md](stack.md) picks the PRNG crate. Two sandboxes with the same seed and birth date are identical byte for byte, ULIDs included, since their random parts come from the PRNG and their time parts from the generated business times. A test in `crates/seed` serializes one sandbox twice and compares the bytes.
+`crates/seed` turns a 64-bit seed and a birth date into a sandbox's entire starting state (Q26 · Q-seed). It uses a seeded PRNG and no clock, no network and no input but those two values; [stack.md](stack.md) picks the PRNG crate. Two sandboxes with the same seed and birth date are identical byte for byte, ULIDs included, since their random parts come from the PRNG and their time parts from the generated business times. A test in `crates/seed` serializes one sandbox twice and compares the bytes. CI also runs `bakery-seed 42 2026-11-07` twice in `verify` and compares the bytes (`.github/workflows/ci.yml`, as of 2026-11-09).
 
 **Menu: 24 items in 5 categories** (Q5 · Q-menu):
 
@@ -602,6 +604,8 @@ Where each Lab principle runs in Proof of Concept (Q33 · Q-principles). Every s
 | none yet | load you can watch: lag between writes and projections | the `Simulator`, the Queue, Crm's projections; the essay at `/how-its-built/lag/` | start traffic; watch the board fill, then the customer list and the activity feed (reloaded every 10 s) trail the orders; no screen shows a Queue backlog (checked 2026-11-06) | [0004](adr/0004-queues-between-objects-and-alarms-for-time.md) |
 | none yet | time travel with a logical clock | the Sandbox's offset; the essay at `/how-its-built/time-travel/` | advance a day; watch expiries, reminders and tomorrow's bake list fire in order | [0004](adr/0004-queues-between-objects-and-alarms-for-time.md), [0005](adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md) |
 
+**As built (2026-11-09).** The page's table (`PRINCIPLE_TABLE` in `apps/web/src/lib/how-its-built.ts`, 17 rows as of 2026-11-09) is the full map. This table lists the principles with a lab page and the first seven without one. The page also has rows for payment keys, the private sandbox, no personal data, the API and the cost breaker; each of the 17 has an essay, fourteen pages in all (`apps/web/src/lib/links.ts`).
+
 
 ## Free text and personal data
 
@@ -612,7 +616,7 @@ The bakery holds no personal data by construction (Q14 · Q-free-text, [ADR 0005
 | Order note | 140 characters | the `Order`; the `Kitchen` board | staff, on the board |
 | Catering brief | 500 characters | the `CateringEvent` | staff, on the catering screen |
 
-Characters are Unicode scalar values after NFC normalization. Control characters other than a newline are removed. A value is rejected on write, with 422 problem+json that names the matched class and never echoes the text, when it contains:
+Characters are Unicode scalar values after NFC normalization. Control characters other than a newline are removed. As built (2026-11-09) no NFC normalization runs: the crate carries no Unicode tables, so a decomposed accent counts as two characters and a note can be refused early, never let through long (`crates/domain/src/free_text.rs`). Whether to add it is a decision pending, listed in the roadmap's Remaining work (2026-11-09). A value is rejected on write, with 422 problem+json that names the matched class and never echoes the text, when it contains:
 
 | Class | Pattern, in words |
 |---|---|
