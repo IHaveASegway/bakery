@@ -158,6 +158,28 @@ jobs:
       - name: Bundle the API without deploying it (the bytes firewall scans)
         working-directory: workers/api
         run: pnpm exec wrangler deploy --dry-run --outdir dist
+      # The startup budget's local half (delivery.md, "Quality gates"): Wrangler's `check startup`
+      # loads the scanned bundle in a local workerd and profiles its startup phase, with no
+      # credential and no upload. It runs on a copy, so the artifact keeps exactly the bytes
+      # firewall scans. A runner's CPU is not Cloudflare's, so the figure is a guide; the budget
+      # is 500 ms, half the platform's 1 s limit. The deploy job checks Cloudflare's own figure.
+      - name: The API's startup stays inside its budget (wrangler check startup, 500 ms)
+        run: |
+          copy="$RUNNER_TEMP/api-startup"
+          rm -rf "$copy"
+          cp -r workers/api/dist "$copy"
+          node scripts/api-deploy-config.mjs workers/api/wrangler.jsonc "$copy"
+          pnpm exec wrangler deploy --config "$copy/wrangler.json" --dry-run --outfile "$RUNNER_TEMP/api.bundle" > "$RUNNER_TEMP/api-bundle.log"
+          pnpm exec wrangler check startup --worker "$RUNNER_TEMP/api.bundle" --outfile "$RUNNER_TEMP/api-startup.cpuprofile"
+          # The profile's window, start to end, in microseconds: the import of the bundle and the
+          # instantiation of its WebAssembly, idle samples included.
+          ms="$(jq -r '(.endTime - .startTime) / 1000 | ceil' "$RUNNER_TEMP/api-startup.cpuprofile")"
+          budget=500
+          echo "the API's local startup profile spans $ms ms; the budget is $budget ms"
+          if [ "$ms" -gt "$budget" ]; then
+            echo "::error::the API's local startup profile spans $ms ms, over the startup budget of $budget ms (docs/delivery.md, \"Quality gates\")"
+            exit 1
+          fi
       - name: The API's WebAssembly stays inside its budget (workers/api/budgets.json, spike S1 plus 25%)
         run: |
           wasm=workers/api/build/index_bg.wasm
