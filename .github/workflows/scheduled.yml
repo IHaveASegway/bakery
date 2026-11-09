@@ -1,6 +1,7 @@
 # The scheduled jobs (docs/delivery.md, "From launch"; docs/operations.md, "The nightly wipe"):
-# bakery-objects, the morning object check after the 10:00 UTC wipe (and, at 12:17, the dead-letter
-# and breaker checks), and audit, the Monday audit.
+# bakery-objects, the morning object check after the 10:00 UTC wipe (the baseline run at 04:47
+# before it; at 12:17, the comparison and the dead-letter and breaker checks), and audit, the
+# Monday audit.
 #
 # A scheduled run does nothing unless the repository variable LAUNCHED is 'true' (Settings,
 # Secrets and variables, Actions, Variables), set on launch day, 2026-11-06. A run started by hand
@@ -17,7 +18,7 @@
 #     confirm the name on launch day). It has no analytics permission, by design: the 12:17 run's
 #     dead-letter step reads the public GET /v1/status, which needs no secret at all.
 # The GitHub token: issues: write for both jobs' issues, actions: read for bakery-objects to fetch
-# the 09:47 listing from that run, pull-requests: read and security-events: read for audit's
+# the baseline run's listing, pull-requests: read and security-events: read for audit's
 # Dependabot state.
 #
 # The times are off the hour (delivery.md: GitHub delays and drops runs at the top of it).
@@ -25,7 +26,10 @@ name: scheduled
 
 on:
   schedule:
-    - cron: '47 9 * * *' # bakery-objects: what holds data before the 10:00 UTC wipe
+    # bakery-objects' baseline run: what holds data before the 10:00 UTC wipe. At 04:47, five hours
+    # early, because GitHub started the 09:47 runs of 2026-11-06 to 2026-11-08 at 15:55 to 16:56 UTC,
+    # after the wipe; the run records its real start time and the 12:17 run checks it.
+    - cron: '47 4 * * *'
     - cron: '17 12 * * *' # bakery-objects: what still holds data after the wipe and its retries
     - cron: '17 7 * * 1' # audit: Monday
   workflow_dispatch:
@@ -46,23 +50,26 @@ jobs:
   bakery-objects:
     # Each Durable Object namespace of bakery-api, listed through the account API with the read
     # token (scripts/bakery-objects.mjs). The API gives an object's id and whether it holds data,
-    # never its age, so the 09:47 run keeps a listing and the 12:17 run compares with it: an
-    # object that held data before the wipe and still does after it survived the wipe. Objects
-    # holding data at 12:17 that were not in the 09:47 listing are visitors' new sandboxes. Ids
+    # never its age, so the baseline run (04:47) keeps a listing and the 12:17 run compares with it:
+    # an object that held data before the wipe and still does after it survived the wipe. Objects
+    # holding data at 12:17 that were not in the baseline listing are visitors' new sandboxes. The
+    # baseline keeps its real start time too: GitHub can start a scheduled run hours late, and a
+    # baseline taken after the wipe proves nothing, so the 12:17 run then says so and counts every
+    # object holding data, as when no baseline exists. Ids
     # never reach a log, an artifact or an issue, which are public here: only classes, counts and
     # hashes do.
     if: >-
       (vars.LAUNCHED == 'true' &&
-      (github.event.schedule == '47 9 * * *' || github.event.schedule == '17 12 * * *')) ||
+      (github.event.schedule == '47 4 * * *' || github.event.schedule == '17 12 * * *')) ||
       (github.event_name == 'workflow_dispatch' && inputs.job == 'bakery-objects')
     runs-on: ubuntu-latest
     timeout-minutes: 10 # rule 9
     permissions:
       contents: read
-      actions: read # the 09:47 listing, an artifact of that run
+      actions: read # the baseline listing, an artifact of that run
       issues: write # "Objects survived the wipe", "Messages dead-lettered", "Breaker tripped"
     env:
-      PHASE: ${{ github.event.schedule == '47 9 * * *' && 'before' || 'after' }}
+      PHASE: ${{ github.event.schedule == '47 4 * * *' && 'before' || 'after' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -71,7 +78,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           package-manager-cache: false # the script has no dependencies
-      - name: Today's 09:47 listing, from the run that made it
+      - name: Today's baseline listing, from the run that made it
         id: before
         if: env.PHASE == 'after'
         env:
@@ -89,7 +96,18 @@ jobs:
           done
           echo "found=$found" >> "$GITHUB_OUTPUT"
           if [ "$found" != true ]; then
-            echo "::warning::No 09:47 listing for $day: an object holding data now cannot be told from a sandbox made after the wipe."
+            echo "::warning::No baseline listing for $day: an object holding data now cannot be told from a sandbox made after the wipe."
+            exit 0
+          fi
+          # The baseline's real start time (UTC HH:MM). One taken at or after the 10:00 wipe, or one
+          # that does not say when it was taken, is no baseline: nothing is compared with it.
+          taken="$(grep -oxE '[0-2][0-9]:[0-5][0-9]' "$RUNNER_TEMP/before/taken-at.txt" 2> /dev/null || true)"
+          echo "taken=${taken:-unknown}" >> "$GITHUB_OUTPUT"
+          if [ -z "$taken" ] || [ "$taken" \> "09:59" ]; then
+            echo "late=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::The baseline run for $day started at ${taken:-an unknown time} UTC, not before the 10:00 wipe, so it is not compared with: an object holding data now cannot be told from a sandbox made after the wipe."
+          else
+            echo "late=false" >> "$GITHUB_OUTPUT"
           fi
       - name: List every namespace's objects (the read token)
         id: list
@@ -97,9 +115,13 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }} # rule 2: this step only
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           BEFORE_FOUND: ${{ steps.before.outputs.found }}
+          BEFORE_LATE: ${{ steps.before.outputs.late }}
         run: |
+          started="$(date -u +%H:%M)" # the run's real start, near enough: the steps before take seconds
           args=(--out "$RUNNER_TEMP/listing.json")
-          if [ "$BEFORE_FOUND" = true ]; then args+=(--before "$RUNNER_TEMP/before/listing.json"); fi
+          if [ "$BEFORE_FOUND" = true ] && [ "$BEFORE_LATE" = false ]; then
+            args+=(--before "$RUNNER_TEMP/before/listing.json")
+          fi
           set +e
           node scripts/bakery-objects.mjs "${args[@]}" > "$RUNNER_TEMP/summary.json"
           code=$?
@@ -107,19 +129,25 @@ jobs:
           if [ "$code" -eq 2 ]; then exit 1; fi # the listing failed: never read as a clean wipe
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT" # the 12:17 run looks for this day's listing
+          echo "$started" > "$RUNNER_TEMP/taken-at.txt" # kept with the baseline listing
+          if [ "$PHASE" = before ] && [ "$started" \> "09:59" ]; then
+            echo "::warning::this baseline run started at $started UTC, not before the 10:00 wipe; the 12:17 run will not compare with it"
+          fi
           {
-            echo "Phase: $PHASE (UTC $(date -u +%H:%M))"
+            echo "Phase: $PHASE (UTC $started)"
             echo
             echo '```json'
             cat "$RUNNER_TEMP/summary.json"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Keep the listing for the 12:17 run (hashes and counts only)
+      - name: Keep the baseline listing and its start time for the 12:17 run (hashes and counts only)
         if: env.PHASE == 'before'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: objects-before-${{ steps.list.outputs.day }}
-          path: ${{ runner.temp }}/listing.json
+          path: |
+            ${{ runner.temp }}/listing.json
+            ${{ runner.temp }}/taken-at.txt
           retention-days: 2
       - name: Open or update the issue when an object survived the wipe
         if: env.PHASE == 'after' && steps.list.outputs.code == '1'
@@ -128,16 +156,21 @@ jobs:
           REPO: ${{ github.repository }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           BEFORE_FOUND: ${{ steps.before.outputs.found }}
+          BEFORE_LATE: ${{ steps.before.outputs.late }}
+          BEFORE_TAKEN: ${{ steps.before.outputs.taken }}
         run: |
           title="Objects survived the wipe"
           survivors="$(jq -r '.survivors | to_entries | map("\(.key): \(.value)") | join(", ")' "$RUNNER_TEMP/summary.json")"
           {
             echo "$(date -u +%F), the 12:17 UTC check ($RUN):"
             echo
-            if [ "$BEFORE_FOUND" = true ]; then
-              echo "Objects that held data at 09:47 UTC and still do after the 10:00 wipe, by class: $survivors."
+            if [ "$BEFORE_FOUND" = true ] && [ "$BEFORE_LATE" = false ]; then
+              echo "Objects that held data in the baseline run ($BEFORE_TAKEN UTC) and still do after the 10:00 wipe, by class: $survivors."
+            elif [ "$BEFORE_FOUND" = true ]; then
+              echo "The baseline was taken after the wipe: its run started at $BEFORE_TAKEN UTC, so nothing was compared with it, and every object holding data is counted, by class: $survivors."
+              echo "Some may be sandboxes made after the wipe."
             else
-              echo "No 09:47 listing to compare with, so every object holding data is counted, by class: $survivors."
+              echo "No baseline listing to compare with, so every object holding data is counted, by class: $survivors."
               echo "Some may be sandboxes made after the wipe."
             fi
             echo

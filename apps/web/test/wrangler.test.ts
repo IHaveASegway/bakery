@@ -103,4 +103,9 @@ describe.skipIf(!existsSync(join(root, API)))(API, () => {
     const limits = (read(API) as { limits?: { cpu_ms?: unknown } }).limits;
     expect(typeof limits?.cpu_ms).toBe('number');
   });
+
+  test('turns invocation logs off: they record location fields', () => {
+    const api = read(API) as { observability?: { logs?: { invocation_logs?: unknown } } };
+    expect(api.observability?.logs?.invocation_logs).toBe(false);
+  });
 });
