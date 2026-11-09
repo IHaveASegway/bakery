@@ -499,7 +499,7 @@ describe('dist', () => {
   //
   // Measured 2026-11-09 with node's gzipSync at its default level, per class (the largest page of
   // the class): tour only 93,993 B (home, privacy); API reference 94,246 B; status 96,768 B;
-  // storefront 103,074 B (menu, sign-in); checkout 119,128 B; console screens 135,693 B (the
+  // storefront 103,074 B (menu, sign-in); checkout 119,128 B; console screens 135,699 B (the
   // console, dispatch, catering and the inbox). Each budget is the measured size plus a quarter,
   // rounded up to the next 1,000 B. The ADR's own numbers (5,000 B for a public page, 120,000 B for
   // an app screen or the checkout) are not met today: every island page carries the tour, and its
