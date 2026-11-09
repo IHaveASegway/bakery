@@ -5,9 +5,9 @@
 # - The seed: today's Dispatch holds one stop per open delivery order of the seed (provisional
 #   while unpaid, confirmed once paid) and the server's proposal when one is confirmed; the stops'
 #   places are the seed's personas' `p<n>` as matrix indexes, labelled with the map's names.
-# - Stops from orders: two delivery orders placed for the next open day and paid through the fake
-#   Stripe appear as stops, provisional, then confirmed; a third, left unpaid, is removed when the
-#   clock passes its 15 minutes (`expired`).
+# - Stops from orders: two delivery orders placed for the open day after the seeded one and paid
+#   through the fake Stripe appear as stops, provisional, then confirmed; a third, left unpaid, is
+#   removed when the clock passes its 15 minutes (`expired`).
 # - Propose with 2 vans of a capacity neither pair fits: every confirmed stop exactly once, no van
 #   over capacity, and the minutes are the matrix's (crates/seed/data/salt-lake-city/matrix.json,
 #   recomputed here). Its refusals: 422 `dispatch` with `vans`, `capacity`, `no-stops`.
@@ -524,8 +524,11 @@ expect_json g_today "b.stops.length >= 2"
 
 # ---------- the day's refusals before anything is planned ----------
 
-DAY="$(cal 'nthOpen(day(Date.now()), 1)')"
-EMPTY="$(cal 'nthOpen(day(Date.now()), 2)')"
+# The script's days come after the seeded day, not after today: on a Monday, when the bakery is
+# closed, the seed puts its open orders on Tuesday, and the first open day after today is that
+# same Tuesday, whose seeded stops would then share the vans with the script's own.
+DAY="$(cal 'nthOpen(a[0], 1)' "$SEEDED_DAY")"
+EMPTY="$(cal 'nthOpen(a[0], 2)' "$SEEDED_DAY")"
 FAR="$(cal 'addDays(day(Date.now()), 40)')"
 echo "orders go to $DAY; $EMPTY stays empty"
 get_as a_far D "/v1/sandboxes/$AID/dispatch/$FAR"
@@ -697,7 +700,7 @@ expect_json a_b_still "b.status === 'out_for_delivery'"
 
 # ---------- a stop is completed only once its order is ready ----------
 
-DAY2="$(cal 'nthOpen(day(Date.now()), 3)')"
+DAY2="$(cal 'nthOpen(a[0], 3)' "$SEEDED_DAY")"
 ORDER_E="$(delivery_order a_menu "$DAY2" 2)" || { fail "no item fits a delivery on $DAY2"; ORDER_E='{}'; }
 command_as a_place_e D 192.0.2.92 POST "/v1/sandboxes/$AID/orders" "$ORDER_E"
 expect_status a_place_e 201

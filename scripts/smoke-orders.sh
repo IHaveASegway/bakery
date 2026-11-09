@@ -776,8 +776,11 @@ done
 expect_problem ws_limited 429 rate-limit
 for pid in "${WS_L[@]}"; do kill -TERM "$pid" 2>/dev/null || true; wait "$pid" || true; done
 
-# A frame's limits, on the guest's board: 10 frames a second, 4 KB a frame, text only.
-probe G "$GID" --flood 11 --timeout 5 > "$TMP/ws_flood.out" || true
+# A frame's limits, on the guest's board: 10 frames a second, 4 KB a frame, text only. The Kitchen
+# counts frames by calendar second (the wall clock's, workers/api/src/objects/kitchen.rs), so the
+# probe sends the eleven just after a second begins: sent near a second's end they could be split
+# across two seconds, neither over 10, and no bye would come (one run in two on 2026-11-09).
+probe G "$GID" --flood 11 --at-second-start --timeout 5 > "$TMP/ws_flood.out" || true
 expect_probe "11 frames in a second: 10 answered, then bye limit and close 1008" "$TMP/ws_flood.out" "frames.filter((f) => f.t === 'nack' && f.rule === 'id').length === 10 && frames.some((f) => f.t === 'bye' && f.reason === 'limit') && closed && closed.code === 1008"
 BIG="$(node -e "process.stdout.write(JSON.stringify({ t: 'cmd', v: 1, id: '', pad: 'x'.repeat(5000) }))")"
 probe G "$GID" --raw "$BIG" --timeout 5 > "$TMP/ws_big.out" || true
