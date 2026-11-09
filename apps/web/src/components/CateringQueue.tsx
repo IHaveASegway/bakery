@@ -170,7 +170,12 @@ export default function CateringQueue({
         </ol>
       )}
       <p>
-        <button type="button" disabled={busy} onClick={() => void load()}>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          disabled={busy}
+          onClick={() => void load()}
+        >
           Refresh
         </button>
       </p>
@@ -275,6 +280,7 @@ export function QueueCard({
           <p>
             <button
               type="button"
+              className="btn btn-primary"
               disabled={!typed.ok}
               aria-disabled={busy || undefined}
               onClick={() => {
@@ -297,7 +303,7 @@ export function QueueCard({
       )}
 
       {actions.includes('decline') && (
-        <p>
+        <p className="inline-action">
           <label htmlFor={`decline-${id}`}>Reason</label>
           <select
             id={`decline-${id}`}
@@ -312,6 +318,7 @@ export function QueueCard({
           </select>{' '}
           <button
             type="button"
+            className="btn btn-danger btn-sm"
             aria-disabled={busy || undefined}
             onClick={() => {
               if (!busy) void act(() => declineInquiry(sandboxId, id, { reason: decline }));
@@ -327,6 +334,7 @@ export function QueueCard({
           {actions.includes('start-production') && (
             <button
               type="button"
+              className="btn btn-primary"
               aria-disabled={busy || undefined}
               onClick={() => {
                 if (!busy) void act(() => startCateringProduction(sandboxId, id));
@@ -338,6 +346,9 @@ export function QueueCard({
           {actions.includes('delivered') && (
             <button
               type="button"
+              className={
+                actions.includes('start-production') ? 'btn btn-secondary' : 'btn btn-primary'
+              }
               aria-disabled={busy || undefined}
               onClick={() => {
                 if (!busy) void act(() => markCateringDelivered(sandboxId, id), untilInvoiced);
@@ -350,7 +361,7 @@ export function QueueCard({
       )}
 
       {actions.includes('staff-cancel') && (
-        <p>
+        <p className="inline-action">
           <label htmlFor={`cancel-${id}`}>Reason</label>
           <select
             id={`cancel-${id}`}
@@ -365,6 +376,7 @@ export function QueueCard({
           </select>{' '}
           <button
             type="button"
+            className="btn btn-danger btn-sm"
             aria-disabled={busy || undefined}
             onClick={() => {
               if (!busy) void act(() => staffCancelCatering(sandboxId, id, { reason: cancel }));

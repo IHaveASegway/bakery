@@ -30,7 +30,7 @@ export default function DispatchComparison({
   return (
     <>
       <p aria-live="polite">{report.summary}</p>
-      <div className="table-scroll">
+      <div className="table-scroll" role="region" aria-label="Plans compared" tabIndex={0}>
         <table>
           <thead>
             <tr>

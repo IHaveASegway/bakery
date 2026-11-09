@@ -28,8 +28,10 @@ export default function StoreMenu() {
   const sum = totals(cart.lines, menu.menu);
   const count = cart.lines.reduce((n, l) => n + l.qty, 0);
 
+  // The cart comes first in the page, so a phone shows it first; on a wide screen the grid puts it
+  // in the side column, where it stays in view beside the menu.
   return (
-    <>
+    <div className="shop-split">
       <StatusLine phase={phase} />
       <section aria-labelledby="cart-heading" className="cart" data-tour="menu-cart">
         <h2 id="cart-heading">Your cart</h2>
@@ -37,7 +39,7 @@ export default function StoreMenu() {
         {cart.lines.length > 0 && (
           <p>
             {count} {count === 1 ? 'item' : 'items'}, {dollars(sum.subtotal_cents)} before tax.{' '}
-            <a className="action" href="/checkout/">
+            <a className="btn btn-primary" href="/checkout/">
               Check out
             </a>
           </p>
@@ -56,6 +58,6 @@ export default function StoreMenu() {
         menu={menu}
         onCheck={phase.name === 'live' ? () => void menu.refresh() : undefined}
       />
-    </>
+    </div>
   );
 }

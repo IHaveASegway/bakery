@@ -116,6 +116,7 @@ export default function CateringDetail({
         <p>
           <button
             type="button"
+            className="btn btn-primary"
             disabled={busy}
             onClick={() => void act(() => acceptQuote(sandboxId, event.catering))}
           >
@@ -155,6 +156,7 @@ export default function CateringDetail({
           <p>
             <button
               type="button"
+              className="btn btn-primary"
               disabled={busy}
               onClick={() =>
                 void act(
@@ -193,6 +195,7 @@ export default function CateringDetail({
           <p>
             <button
               type="button"
+              className="btn btn-danger"
               disabled={busy}
               onClick={() => void act(() => cancelCatering(sandboxId, event.catering, { reason }))}
             >

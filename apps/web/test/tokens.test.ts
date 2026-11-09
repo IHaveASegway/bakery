@@ -8,9 +8,21 @@ import { SELECTORS, block, stripComments, themeBlocks, themeColors } from '../sr
 // cross product, not a hand-picked list. The bakery owns its copy of tokens.css; the site's lab and
 // map tokens ride along until a later pull request prunes them.
 
-const SURFACES = ['background', 'surface-1', 'surface-2', 'ground'];
+const SURFACES = [
+  'surface',
+  'surface-raised',
+  'surface-sunken',
+  'background',
+  'surface-1',
+  'surface-2',
+  'ground',
+];
 /** Text: 4.5:1 on every surface (SC 1.4.3). */
 const TEXT = [
+  'text',
+  'text-muted',
+  'accent',
+  'danger',
   'foreground',
   'muted-foreground',
   'subtle-foreground',
@@ -20,9 +32,37 @@ const TEXT = [
   'destructive',
 ];
 /** Non-text: focus outlines and functional borders, 3:1 on every surface (SC 1.4.11). */
-const NON_TEXT = ['ring', 'input'];
-/** Text drawn on an accent fill, such as a button label, against each fill it sits on. */
-const ON_FILL: Record<string, string[]> = { 'primary-foreground': ['primary', 'primary-strong'] };
+const NON_TEXT = ['ring', 'input', 'focus-ring', 'border-strong'];
+/** The seven status tones of the design brief (2026-11-09): a badge is the word in text on the
+ *  tone's tint, with the tone's solid mark beside it. */
+const TONES = ['pending', 'confirmed', 'making', 'ready', 'out', 'done', 'problem'];
+/** Text drawn on a fill, such as a button's label or a badge's word, against each fill it sits on:
+ *  4.5:1. */
+const ON_FILL: Record<string, string[]> = {
+  'primary-foreground': ['primary', 'primary-strong'],
+  'accent-foreground': ['accent', 'accent-hover'],
+  'danger-foreground': ['danger', 'danger-hover'],
+  // The current item of a nav or a selected chip: the ink and the accent on the accent's tint.
+  text: ['accent-tint', 'danger-tint', ...TONES.map((t) => `tone-${t}-tint`)],
+  'text-muted': ['accent-tint', ...TONES.map((t) => `tone-${t}-tint`)],
+  accent: ['accent-tint'],
+  danger: ['danger-tint'],
+  // The guide's layer is dark in both schemes; its words keep to it.
+  'guide-text': ['guide-surface', 'guide-raised'],
+  'guide-muted': ['guide-surface', 'guide-raised'],
+  'guide-accent': ['guide-surface', 'guide-raised'],
+};
+/** A mark that is not text, against what it sits on: 3:1 (SC 1.4.11). A status's solid mark sits on
+ *  its own tint and on every surface; the guide's hairline separates hops on its card. */
+const MARKS: Record<string, string[]> = {
+  ...Object.fromEntries(
+    TONES.map((t) => [
+      `tone-${t}-solid`,
+      [`tone-${t}-tint`, 'surface', 'surface-raised', 'surface-sunken'],
+    ]),
+  ),
+  'focus-ring': ['accent-tint'],
+};
 
 const source = readFileSync(new URL('../src/styles/tokens.css', import.meta.url), 'utf8');
 const css = stripComments(source);
@@ -83,6 +123,14 @@ for (const [themeName, colors] of Object.entries(themes)) {
       for (const fill of fills) {
         test(`${name} on ${fill} reaches 4.5:1`, () => {
           expect(wcagContrast(get(name), get(fill))).toBeGreaterThanOrEqual(4.5);
+        });
+      }
+    }
+
+    for (const [name, grounds] of Object.entries(MARKS)) {
+      for (const ground of grounds) {
+        test(`${name} on ${ground} reaches 3:1`, () => {
+          expect(wcagContrast(get(name), get(ground))).toBeGreaterThanOrEqual(3);
         });
       }
     }

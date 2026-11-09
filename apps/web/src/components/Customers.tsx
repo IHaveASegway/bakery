@@ -43,15 +43,19 @@ export default function Customers({
         <p className="hint">No customers yet.</p>
       ) : (
         <div className="table-scroll">
-          <table>
+          <table className="table">
             <caption className="sr-only">Customers</caption>
             <thead>
               <tr>
                 <th scope="col">Customer</th>
                 <th scope="col">Zone</th>
                 <th scope="col">Consent</th>
-                <th scope="col">Points</th>
-                <th scope="col">Orders</th>
+                <th scope="col" className="num">
+                  Points
+                </th>
+                <th scope="col" className="num">
+                  Orders
+                </th>
                 <th scope="col">Last order</th>
               </tr>
             </thead>
@@ -71,8 +75,8 @@ export default function Customers({
                   </th>
                   <td>{zoneLabel(c.home_zone)}</td>
                   <td>{c.marketing ? 'Yes' : 'No'}</td>
-                  <td>{c.loyalty_points}</td>
-                  <td>{c.orders}</td>
+                  <td className="num">{c.loyalty_points}</td>
+                  <td className="num">{c.orders}</td>
                   <td>{whenText(c.last_order_at)}</td>
                 </tr>
               ))}

@@ -95,7 +95,10 @@ export default function Checkout() {
   const dates = useMemo(() => (now === null ? [] : horizonDates(now, HORIZON_DAYS)), [now]);
   const today = dates[0] ?? '';
   const cartDay = cart.slot === '' ? '' : dateOfStart(cart.slot);
-  const wanted = pickedDay ?? (cartDay === '' ? today : cartDay);
+  // Until the visitor picks a day, the picker opens on the first day with a time that suits the
+  // cart (the bakery's hours, its lead time, its baking days), never on a closed today.
+  const firstOpen = groups[0]?.date ?? today;
+  const wanted = pickedDay ?? (cartDay === '' ? firstOpen : cartDay);
   const liveDay = dates.includes(wanted) ? wanted : today;
   const schedule = useSchedule(live ? sandboxId : null, live ? liveDay : '');
   const baked = useMemo(
@@ -174,10 +177,10 @@ export default function Checkout() {
   }
 
   return (
-    <>
+    <div className="shop-split">
       <StatusLine phase={phase} />
 
-      <section aria-labelledby="cart-heading" data-tour="checkout-cart">
+      <section aria-labelledby="cart-heading" className="cart" data-tour="checkout-cart">
         <h2 id="cart-heading">Your cart</h2>
         <CartLines cart={cart} menu={menu.menu} update={update} />
         {cart.lines.length === 0 && ready && (
@@ -210,7 +213,7 @@ export default function Checkout() {
         <h2 id="receive-heading">Pickup or delivery</h2>
         <fieldset>
           <legend>How do you want it?</legend>
-          <label className="check">
+          <label className="chip">
             <input
               type="radio"
               name="kind"
@@ -222,7 +225,7 @@ export default function Checkout() {
             />{' '}
             Pickup, in 15-minute slots
           </label>{' '}
-          <label className="check">
+          <label className="chip">
             <input
               type="radio"
               name="kind"
@@ -353,7 +356,11 @@ export default function Checkout() {
         {live ? (
           <>
             <p>
-              <button type="submit" disabled={busy || reasons.length > 0}>
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={busy || reasons.length > 0}
+              >
                 {busy ? 'Placing your order…' : retry ? 'Try again' : 'Place order'}
               </button>
             </p>
@@ -383,6 +390,6 @@ export default function Checkout() {
       </form>
 
       <HowThisWorks menu={menu} />
-    </>
+    </div>
   );
 }

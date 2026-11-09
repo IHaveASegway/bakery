@@ -401,248 +401,275 @@ export default function Dispatch() {
       <Message error={error}>{said !== '' && <p>{said}</p>}</Message>
       {loading && day === null && <p className="hint">Reading the day’s stops…</p>}
       {error !== null && day === null && (
-        <button type="button" onClick={() => void load()}>
+        <button type="button" className="btn btn-primary" onClick={() => void load()}>
           Try again
         </button>
       )}
 
       {day !== null && (
-        <>
-          <h2>Map</h2>
-          {available.length > 1 && (
-            <fieldset>
-              <legend>Routes on the map</legend>
-              {available.map((p) => (
-                <div key={p}>
-                  <label className="check">
-                    <input
-                      type="radio"
-                      name="dispatch-shown"
-                      value={p}
-                      checked={effective === p}
-                      onChange={() => setShown(p)}
-                    />{' '}
-                    {SHOWN_NAMES[p]}
-                  </label>
-                </div>
-              ))}
-            </fieldset>
-          )}
-          {ready === null ? (
-            <p className="hint" aria-live="polite">
-              {route.failed === null
-                ? 'Loading the map…'
-                : `${route.failed.title}. ${route.failed.detail ?? ''}`}
-            </p>
-          ) : (
-            <>
-              <DispatchMap
-                data={ready.data}
-                isochrones={ready.isochrones}
-                stops={day.stops}
-                plan={plan}
-                caption={`Map of Salt Lake City: the bakery, the reach of a van from it in 5 to 30 minutes, and ${day.stops.length} stops${
-                  effective === null
-                    ? ''
-                    : `, with the routes of the ${SHOWN_NAMES[effective].toLowerCase()}`
-                }`}
-              />
-              <ul className="legend">
-                {plan?.vans.map((v) => (
-                  <li key={v.van}>
-                    <span className={`swatch swatch-${vanClass(v.van)}`} aria-hidden="true" />
-                    Van {v.van}: {v.stops.length} {v.stops.length === 1 ? 'stop' : 'stops'},{' '}
-                    {v.minutes} min
-                  </li>
+        <div className="dispatch-layout">
+          <div className="panel dispatch-map-panel">
+            <h2>Map</h2>
+            {available.length > 1 && (
+              <fieldset>
+                <legend>Routes on the map</legend>
+                {available.map((p) => (
+                  <div key={p}>
+                    <label className="check">
+                      <input
+                        type="radio"
+                        name="dispatch-shown"
+                        value={p}
+                        checked={effective === p}
+                        onChange={() => setShown(p)}
+                      />{' '}
+                      {SHOWN_NAMES[p]}
+                    </label>
+                  </div>
                 ))}
-              </ul>
-              <p className="hint">
-                Routes are drawn as straight lines between stops: the route data carry travel times,
-                not road geometry. The shaded bands are the minutes a van needs from the bakery,
-                without traffic. Numbers count the stops across the vans, van 1 first; open circles
-                are stops no plan has yet. The 64 faint points are the places a delivery can go:
-                public parks, libraries and stations that stand in for made-up addresses.
-              </p>
-            </>
-          )}
-
-          <h2>Stops</h2>
-          <DispatchStops day={day} data={ready?.data ?? null} />
-
-          <h2>Server’s plan</h2>
-          <p>
-            The server proposes with a savings heuristic written in Rust. It plans the day’s
-            confirmed stops; the vans and capacity you give become the day’s.
-          </p>
-          <form
-            aria-label="Propose a plan"
-            data-tour="dispatch-propose"
-            onSubmit={(e) => {
-              e.preventDefault();
-              propose();
-            }}
-          >
-            <p>
-              <label htmlFor="dispatch-vans">Vans</label>
-              <select
-                id="dispatch-vans"
-                value={vans}
-                disabled={!staff || busy !== null}
-                onChange={(e) => setVans(e.target.value)}
-              >
-                {[1, 2, 3, 4].map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </p>
-            <p>
-              <label htmlFor="dispatch-capacity">Capacity of a van, in units</label>
-              <input
-                ref={capacityField}
-                id="dispatch-capacity"
-                type="number"
-                inputMode="numeric"
-                min={1}
-                step={1}
-                value={capacity}
-                disabled={!staff || busy !== null}
-                onChange={(e) => setCapacity(e.target.value)}
-              />
-            </p>
-            <p>
-              <button type="submit" disabled={!staff || busy !== null}>
-                {busy === 'propose' ? 'Proposing…' : 'Propose'}
-              </button>
-            </p>
-          </form>
-          {day.proposed ? (
-            <DispatchPlan plan={day.proposed} title="Server’s proposal" />
-          ) : (
-            <p className="hint">No proposal yet for this day.</p>
-          )}
-
-          <h2 data-tour="dispatch-plan">Browser’s plan</h2>
-          <p>
-            VROOM, a vehicle routing solver, can plan the same stops in this browser, within the
-            same delivery windows: the vans leave at 9:00 am, and each stop is served in its window.
-            It loads when you first press the button, runs in a Web Worker, and sends the stops of
-            each van to the API, which checks them and works out the minutes itself.
-          </p>
-          <p>
-            <button
-              type="button"
-              disabled={!staff || busy !== null || day.stops.length === 0}
-              onClick={() => void planInBrowser()}
-            >
-              {busy === 'plan'
-                ? 'Planning…'
-                : solver === 'unavailable'
-                  ? 'Try the browser solver again'
-                  : 'Plan in the browser'}
-            </button>
-          </p>
-          <div aria-live="polite">
-            {solver === 'unavailable' && (
-              <p className="problem">
-                <strong>The browser’s solver is unavailable.</strong>{' '}
-                {solverSentence(failure ?? 'load')} {WITHOUT_SOLVER}
-              </p>
+              </fieldset>
             )}
-            {solver === 'ready' && solved !== null && (
-              <p className="hint">
-                VROOM {solved.version} planned in {Math.max(1, Math.round(solved.ms))} ms in this
-                browser.
+            {ready === null ? (
+              <p className="hint" aria-live="polite">
+                {route.failed === null
+                  ? 'Loading the map…'
+                  : `${route.failed.title}. ${route.failed.detail ?? ''}`}
               </p>
-            )}
-          </div>
-          {day.submitted ? (
-            <DispatchPlan plan={day.submitted} title="Browser’s plan, as the API checked it" />
-          ) : (
-            <p className="hint">No browser plan yet for this day.</p>
-          )}
-
-          <h2>Comparison</h2>
-          <DispatchComparison report={rep} solver={solver} />
-
-          <h2>Publish</h2>
-          <p>
-            Publishing makes one plan the record: drivers, the kitchen board and each order’s status
-            read it. The API checks the plan again against the day’s stops before it accepts it, and
-            publishing twice with one key stores one plan.
-          </p>
-          <form
-            aria-label="Publish a plan"
-            data-tour="dispatch-publish"
-            onSubmit={(e) => {
-              e.preventDefault();
-              publishPlan();
-            }}
-          >
-            <fieldset>
-              <legend>Which plan</legend>
-              {(['proposed', 'submitted'] as const).map((p) => (
-                <div key={p}>
-                  <label className="check">
-                    <input
-                      type="radio"
-                      name="dispatch-publish"
-                      value={p}
-                      checked={publish === p}
-                      disabled={!staff || busy !== null || !day[p]}
-                      onChange={() => setPublish(p)}
-                    />{' '}
-                    {SHOWN_NAMES[p]}
-                    {day[p] ? '' : ' (none yet)'}
-                  </label>
-                </div>
-              ))}
-            </fieldset>
-            {picked !== null && picked.unassigned.length > 0 && (
-              <p className="hint">
-                This plan leaves {picked.unassigned.length} stop out. The API will refuse to publish
-                it.
-              </p>
-            )}
-            <p>
-              <button type="submit" disabled={!staff || busy !== null || picked === null}>
-                {busy === 'publish' ? 'Publishing…' : 'Publish'}
-              </button>
-            </p>
-          </form>
-          {published !== null && (
-            <>
-              <DispatchPlan
-                plan={published}
-                title={`Published plan, version ${published.plan_v}, made by the ${published.source}`}
-              />
-              <h3 data-tour="dispatch-complete" ref={completion} tabIndex={-1}>
-                Stop completion
-              </h3>
-              {todo.length === 0 ? (
-                <p className="hint">Every stop of the published plan is delivered.</p>
-              ) : (
-                <ul className="choices">
-                  {todo.map((row) => (
-                    <li key={row.order}>
-                      <button
-                        type="button"
-                        disabled={!staff}
-                        aria-disabled={busy !== null || undefined}
-                        onClick={() => complete(row.stop ?? 0)}
-                      >
-                        {busy === `complete-${row.stop}` ? 'Saving…' : `Stop ${row.stop} delivered`}
-                      </button>{' '}
-                      van {row.van}, order <code>{shortId(row.order)}</code>, window{' '}
-                      {windowText(row.window)}
+            ) : (
+              <>
+                <DispatchMap
+                  data={ready.data}
+                  isochrones={ready.isochrones}
+                  stops={day.stops}
+                  plan={plan}
+                  caption={`Map of Salt Lake City: the bakery, the reach of a van from it in 5 to 30 minutes, and ${day.stops.length} stops${
+                    effective === null
+                      ? ''
+                      : `, with the routes of the ${SHOWN_NAMES[effective].toLowerCase()}`
+                  }`}
+                />
+                <ul className="legend">
+                  {plan?.vans.map((v) => (
+                    <li key={v.van}>
+                      <span className={`swatch swatch-${vanClass(v.van)}`} aria-hidden="true" />
+                      Van {v.van}: {v.stops.length} {v.stops.length === 1 ? 'stop' : 'stops'},{' '}
+                      {v.minutes} min
                     </li>
                   ))}
                 </ul>
+                <p className="hint">
+                  Routes are drawn as straight lines between stops: the route data carry travel
+                  times, not road geometry. The shaded bands are the minutes a van needs from the
+                  bakery, without traffic. Numbers count the stops across the vans, van 1 first;
+                  open circles are stops no plan has yet. The 64 faint points are the places a
+                  delivery can go: public parks, libraries and stations that stand in for made-up
+                  addresses.
+                </p>
+              </>
+            )}
+          </div>
+          <div className="dispatch-side">
+            <div className="panel">
+              <h2>Stops</h2>
+              <DispatchStops day={day} data={ready?.data ?? null} />
+            </div>
+
+            <div className="panel">
+              <h2>Server’s plan</h2>
+              <p>
+                The server proposes with a savings heuristic written in Rust. It plans the day’s
+                confirmed stops; the vans and capacity you give become the day’s.
+              </p>
+              <form
+                aria-label="Propose a plan"
+                data-tour="dispatch-propose"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  propose();
+                }}
+              >
+                <p>
+                  <label htmlFor="dispatch-vans">Vans</label>
+                  <select
+                    id="dispatch-vans"
+                    value={vans}
+                    disabled={!staff || busy !== null}
+                    onChange={(e) => setVans(e.target.value)}
+                  >
+                    {[1, 2, 3, 4].map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </p>
+                <p>
+                  <label htmlFor="dispatch-capacity">Capacity of a van, in units</label>
+                  <input
+                    ref={capacityField}
+                    id="dispatch-capacity"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    step={1}
+                    value={capacity}
+                    disabled={!staff || busy !== null}
+                    onChange={(e) => setCapacity(e.target.value)}
+                  />
+                </p>
+                <p>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={!staff || busy !== null}
+                  >
+                    {busy === 'propose' ? 'Proposing…' : 'Propose'}
+                  </button>
+                </p>
+              </form>
+              {day.proposed ? (
+                <DispatchPlan plan={day.proposed} title="Server’s proposal" />
+              ) : (
+                <p className="hint">No proposal yet for this day.</p>
               )}
-            </>
-          )}
-        </>
+            </div>
+
+            <div className="panel">
+              <h2 data-tour="dispatch-plan">Browser’s plan</h2>
+              <p>
+                VROOM, a vehicle routing solver, can plan the same stops in this browser, within the
+                same delivery windows: the vans leave at 9:00 am, and each stop is served in its
+                window. It loads when you first press the button, runs in a Web Worker, and sends
+                the stops of each van to the API, which checks them and works out the minutes
+                itself.
+              </p>
+              <p>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={!staff || busy !== null || day.stops.length === 0}
+                  onClick={() => void planInBrowser()}
+                >
+                  {busy === 'plan'
+                    ? 'Planning…'
+                    : solver === 'unavailable'
+                      ? 'Try the browser solver again'
+                      : 'Plan in the browser'}
+                </button>
+              </p>
+              <div aria-live="polite">
+                {solver === 'unavailable' && (
+                  <p className="problem">
+                    <strong>The browser’s solver is unavailable.</strong>{' '}
+                    {solverSentence(failure ?? 'load')} {WITHOUT_SOLVER}
+                  </p>
+                )}
+                {solver === 'ready' && solved !== null && (
+                  <p className="hint">
+                    VROOM {solved.version} planned in {Math.max(1, Math.round(solved.ms))} ms in
+                    this browser.
+                  </p>
+                )}
+              </div>
+              {day.submitted ? (
+                <DispatchPlan plan={day.submitted} title="Browser’s plan, as the API checked it" />
+              ) : (
+                <p className="hint">No browser plan yet for this day.</p>
+              )}
+            </div>
+
+            <div className="panel">
+              <h2>Comparison</h2>
+              <DispatchComparison report={rep} solver={solver} />
+            </div>
+
+            <div className="panel">
+              <h2>Publish</h2>
+              <p>
+                Publishing makes one plan the record: drivers, the kitchen board and each order’s
+                status read it. The API checks the plan again against the day’s stops before it
+                accepts it, and publishing twice with one key stores one plan.
+              </p>
+              <form
+                aria-label="Publish a plan"
+                data-tour="dispatch-publish"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  publishPlan();
+                }}
+              >
+                <fieldset>
+                  <legend>Which plan</legend>
+                  {(['proposed', 'submitted'] as const).map((p) => (
+                    <div key={p}>
+                      <label className="check">
+                        <input
+                          type="radio"
+                          name="dispatch-publish"
+                          value={p}
+                          checked={publish === p}
+                          disabled={!staff || busy !== null || !day[p]}
+                          onChange={() => setPublish(p)}
+                        />{' '}
+                        {SHOWN_NAMES[p]}
+                        {day[p] ? '' : ' (none yet)'}
+                      </label>
+                    </div>
+                  ))}
+                </fieldset>
+                {picked !== null && picked.unassigned.length > 0 && (
+                  <p className="hint">
+                    This plan leaves {picked.unassigned.length} stop out. The API will refuse to
+                    publish it.
+                  </p>
+                )}
+                <p>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={!staff || busy !== null || picked === null}
+                  >
+                    {busy === 'publish' ? 'Publishing…' : 'Publish'}
+                  </button>
+                </p>
+              </form>
+              {published !== null && (
+                <>
+                  <DispatchPlan
+                    plan={published}
+                    title={`Published plan, version ${published.plan_v}, made by the ${published.source}`}
+                  />
+                  <h3 data-tour="dispatch-complete" ref={completion} tabIndex={-1}>
+                    Stop completion
+                  </h3>
+                  {todo.length === 0 ? (
+                    <p className="hint">Every stop of the published plan is delivered.</p>
+                  ) : (
+                    <ul className="choices">
+                      {todo.map((row) => (
+                        <li key={row.order}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            disabled={!staff}
+                            aria-disabled={busy !== null || undefined}
+                            onClick={() => complete(row.stop ?? 0)}
+                          >
+                            {busy === `complete-${row.stop}`
+                              ? 'Saving…'
+                              : `Stop ${row.stop} delivered`}
+                          </button>{' '}
+                          van {row.van}, order <code>{shortId(row.order)}</code>, window{' '}
+                          {windowText(row.window)}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );

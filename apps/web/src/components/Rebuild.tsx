@@ -95,6 +95,7 @@ export default function Rebuild({
       <p>
         <button
           type="button"
+          className="btn btn-secondary"
           disabled={isGuest || starting || running}
           onClick={() => void start()}
         >
