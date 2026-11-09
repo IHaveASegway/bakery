@@ -11,7 +11,7 @@ Facts, as of 2026-11-09:
 - **One consumer.** Every event leaves its object through the outbox and the relay onto `bakery-events`, and one handler, `workers/api/src/queue.rs`, routes each envelope to its subscriber objects by the static table in `crates/app/src/routing.rs`. It stops at a message's first failed delivery and retries the message; after 3 retries the platform moves it to `bakery-events-dlq` (`workers/api/wrangler.jsonc`, `max_retries: 3`).
 - **No attempt count in the binding.** `worker` 0.8.7, the version in `Cargo.lock`, gives a queue message `id`, `timestamp`, `body`, `ack` and `retry`, and no `attempts` ([architecture.md](../architecture.md#events-and-the-outbox), "Dead letters").
 - **Batches.** The consumer takes up to 10 messages a batch and does not wait for a batch to fill (`max_batch_timeout: 0`), so at a visitor's pace most batches hold one message.
-- **Prices.** A Durable Object request is 1M a month included on Workers Paid, then $0.15 per million; an outgoing WebSocket message is free and an incoming one counts 1/20 of a request; each SQLite row written is 50M a month included, then $1.00 per million ([DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/), as of 2026-11-04, the page updated 2026-10-18). The per-sandbox meter it adds to is [cost.md's](../cost.md#the-per-sandbox-meter); the recorder's own figures join it with the wiring.
+- **Prices.** A Durable Object request is 1M a month included on Workers Paid, then $0.15 per million; an outgoing WebSocket message is free and an incoming one counts 1/20 of a request; each SQLite row written is 50M a month included, then $1.00 per million ([DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/), as of 2026-11-04, the page updated 2026-10-18). Per-sandbox figures are in [cost.md](../cost.md#the-flight-recorder).
 
 ## Decision
 
@@ -27,7 +27,7 @@ Facts, as of 2026-11-09:
 
 | Option | Gains | Costs | Verdict |
 |---|---|---|---|
-| **A. A Recorder per sandbox, fed after the batch, lossy (chosen)** | Latency and availability: nothing in a command's or a delivery's path waits for it; a broken Recorder loses hops, not events. Evolvability: its own class, its own schema, removable alone. Cost: one DO request a sandbox a batch | Cost: about a third more DO requests per sandbox at the visitor's pace ([cost.md](../cost.md#the-per-sandbox-meter)). Consistency: lossy by design; the attempt count is the Recorder's own | Chosen |
+| **A. A Recorder per sandbox, fed after the batch, lossy (chosen)** | Latency and availability: nothing in a command's or a delivery's path waits for it; a broken Recorder loses hops, not events. Evolvability: its own class, its own schema, removable alone. Cost: one DO request a sandbox a batch | Cost: about a third more DO requests per sandbox at the visitor's pace ([cost.md](../cost.md#the-flight-recorder)). Consistency: lossy by design; the attempt count is the Recorder's own | Chosen |
 | B. Record inside the Kitchen, which already holds a socket per console | No new class or socket | Evolvability: the Kitchen becomes the hub for every event, the bottleneck ADR 0004's alternatives table rejects. Security: the board's socket would carry what every subscriber did | Rejected |
 | C. Record synchronously, before the ack | A hop for every delivery, never lost | Availability and latency: a slow or broken Recorder would delay or fail every delivery, and observability would sit in the event path | Rejected |
 | D. Workers Logs or Analytics Engine as the store, read back by the page | No new object | Latency and security: logs are minutes behind and account-wide, not a visitor's own; Analytics Engine has no per-sandbox read path the router could scope, and costs a query per read | Rejected |
@@ -47,7 +47,7 @@ Bad:
 
 - Lossy by design: a batch whose `/_record` fails is gone, the socket has no replay, and the attempt count misses attempts it was never told of. A retry made with the flag `off` is not seen at all.
 - One more class: 15 classes, and 37 children per seeded sandbox. It is a class lifecycle change, which ships alone ([ADR 0011](0011-github-actions-owns-deploys-for-both-workers.md), decision 9).
-- One DO request per sandbox per consumer batch, about 50 per sandbox session, which brings forward the first DO-request overage on Paid ([cost.md](../cost.md#the-per-sandbox-meter)).
+- One DO request per sandbox per consumer batch, about 50 per sandbox session, which brings forward the first DO-request overage on Paid ([cost.md](../cost.md#the-flight-recorder)).
 
 ## When not to do this
 

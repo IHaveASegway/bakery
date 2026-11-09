@@ -111,7 +111,7 @@ One sandbox session of about 20 minutes, then its share of the nightly wipe. As 
 | DO GB-s | 2.56 | 0.22 | 2.78 | × 0.128 |
 | Rows written | 2,500 | 2,500 | 5,000 | 2,000 at seed (alarms included) + 500 in use; wipe one per row removed (S5) |
 | Rows read | 20,000 | 0 | 20,000 | Assumed: snapshots, menu, projections, one rebuild over 720 history events |
-| Stored data, peak | ≈1 MB | to 0 | — | 35 × 12 KB (planning figure: 36 children as built on 2026-11-06) + 2,500 × 200 B |
+| Stored data, peak | ≈1 MB | to 0 | — | 35 × 12 KB (planning figure: 36 children as built on 2026-11-06, 37 since 2026-11-09) + 2,500 × 200 B |
 | Queue operations | 147 | 3 | 150 | 50 events × 3, `SandboxSeeded` and `SandboxWiped` included |
 | Analytics Engine points | 5 | 0 | 5 | As built on 2026-11-06 (PR 13, `workers/api/src/metrics.rs` and its call sites): `sandbox_created` once on admission, then one `order_placed` per order, one `payment_succeeded` or `payment_failed` per payment and one `refund_issued` per refund the visitor causes, and one `dlq` per dead letter. The 5 assumes a visitor who places 2 orders and pays both (assumed, not measured); seeding writes none. `wipe` is one point per wipe, not per sandbox: 1 a day, under 0.01 per sandbox at 300 |
 | Log events | 165 | 35 | 200 | One per Worker request and consumer batch; one per object wiped |
@@ -127,7 +127,7 @@ One sandbox session of about 20 minutes, then its share of the nightly wipe. As 
 | Rows written | 1,500 | 1,500 | 3,000 | 180 × 8 = 1,440 + 30 `setAlarm()` rows + 30 minute-ledger rows; the wipe deletes as many |
 | Queue operations | 546 | 0 | 546 | 180 events × 3 = 540, + 6 for `TrafficStarted` and `TrafficStopped` |
 
-Rows written at seed, by object, as built on 2026-11-06 (approximate; [domain.md](domain.md) owns the seed, Q26 · Q-seed; instances from `workers/api/src/objects/sandbox.rs`, which seeds 36 children; the rows each are the plan's estimates except where the last column says otherwise, and none is measured until spike S5):
+Rows written at seed, by object, as built on 2026-11-06 (approximate; [domain.md](domain.md) owns the seed, Q26 · Q-seed; instances from `workers/api/src/objects/sandbox.rs`, which seeded 36 children then and 37 since the `Recorder` of 2026-11-09, whose 3 seed rows are in [the flight recorder](#the-flight-recorder) and not in this table; the rows each are the plan's estimates except where the last column says otherwise, and none is measured until spike S5):
 
 | Object | Instances | Rows each | Rows | Tables |
 |---|---|---|---|---|
@@ -167,6 +167,36 @@ From 2026-12-01 logs bill by volume: 200 × 500 B = 100 KB per sandbox, so Free'
 - **On Free, rows written bind at 20 sandboxes a day,** half of them the previous night's wipe. Without the wipe it would be 40.
 - **On Paid, DO requests run out first and cost least:** $0.15 at about 6,450 sandboxes a month, then Queues at 6,666, then rows written at 10,000.
 - **Rows written are the meter to watch:** a seed twice as large halves Free's capacity and doubles Paid's marginal cost.
+
+## The flight recorder
+
+Added on 2026-11-09 ([ADR 0015](adr/0015-a-lossy-flight-recorder-beside-the-event-path.md); `workers/api/src/objects/recorder.rs`). Prices from the [price sheet](#price-sheet) (as of 2026-11-04, [DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/)); the counts are from the code, not measured on the platform.
+
+**One recorded batch** is one `POST /_record` from the consumer to the sandbox's `Recorder`:
+
+| Meter | Per batch | Arithmetic |
+|---|---|---|
+| DO requests | 1 | The `/_record`; the consumer's own Worker request is the batch's, already counted |
+| Rows written | 1, or 2 once the ring is full | The batch row; from the 201st batch on, the trim deletes the oldest. A hop not delivered everywhere adds 1 (its retry count), and 1 more when it is delivered or dead-lettered. No AUTOINCREMENT, so no sequence row |
+| Rows read | about 1 a hop, + 1 | Each hop's retry lookup by key, and the newest `seq` |
+| Socket messages | 0 billed | A `hops` frame to each open socket is an outgoing message, free; a client's `ping` is 1/20 of a request; each upgrade is 1 request |
+| Stored data | at most 200 rows | About 450 B a hop as JSON, up to 10 hops a batch: under 1 MB a sandbox at the worst |
+
+Its birth and its wipe add, per sandbox: 1 request and 3 rows at seeding (the `meta` row, the backstop timer and its `setAlarm()`), and 1 request and one row removed per row held at the wipe.
+
+**Against the per-sandbox meter.** [The per-sandbox meter](#the-per-sandbox-meter) assumes 50 events a session. With `max_batch_timeout: 0` most batches at a visitor's pace hold one message, so the upper bound is 50 batches: 50 requests and 50 rows. With the seed's 3 rows and request, the wipe's 53 rows and request, and 2 socket upgrades for the guide, a sandbox adds 54 DO requests and 106 rows written: **155 + 54 = 209 DO requests** and **5,000 + 106 = 5,106 rows written**. Then:
+
+| Meter | Before | With the recorder | Arithmetic |
+|---|---|---|---|
+| DO requests, sandboxes a month inside Paid's 1M | 6,451 | **4,784** | 1,000,000 ÷ 209 |
+| DO requests, Paid cents per 1,000 sandboxes past it | 2.3 | 3.1 | 209,000 × $0.15/M |
+| DO requests, Free sandboxes a day at 100% | 645 | 478 | 100,000 ÷ 209 |
+| Rows written, Free sandboxes a day at 100% | 20 | 19 | 100,000 ÷ 5,106 = 19.6 |
+| Rows written, Paid $ per 1,000 past 50M | $5.00 | $5.11 | 5,106,000 × $1.00/M |
+
+So on Paid the first overage, DO requests at $0.15, comes at about 4,780 sandboxes a month instead of 6,450, still 16 times scenario A's 300. With 30 minutes of simulated traffic, its 180 events add up to 180 requests and, past the ring's 200 batches, a trim delete each: at most 180 requests and 210 rows, and the wipe removes at most 200 rows. Seeding's events mostly arrive in batches of several (the smoke's log shows batches of 4 to 9 while a sandbox seeds), so the real figure is below these bounds.
+
+**Lossy by design.** A `/_record` that fails is logged as `trace_drop` and never retried, so the recorder never costs a retry, a second write or a delayed ack. With the flag `off` the consumer delivers nothing and the recorder costs nothing.
 
 ## Scenarios
 
@@ -249,7 +279,7 @@ Not in force as of 2026-11-09: until the breaker's secrets are set, a loop is bo
 
 Two hours of the worst row would cost $95.12 (0.5 hours: $23.78, 0.75 hours: $35.67). A bug in a class every sandbox holds loops in every live sandbox at once: two hours at $15.88 cost $318 on a quiet day (10 live) and $63,520 on a launch day (2,000). On Free the same loop spends the day's rows in 1.4 minutes (100,000 ÷ 1,200 a second) and darkens every DO on the account, at $0.
 
-What stops it: the loop guard bounds each object to 100 re-arms a day, about 400 rows; 2,000 sandboxes × 36 children at that bound is 28.8M rows (36 as built on 2026-11-06, `workers/api/src/objects/sandbox.rs`; 35 before PR 9), inside the 50M. The consumer holds no producer for `bakery-events`, by type ([architecture.md](architecture.md)). For an internal loop the breaker sets `Control` to `off` and enables the WAF rule; the consumer reads the flag (cached 60 s, `workers/api/src/queue.rs`) and stops routing, so messages drain to `bakery-events-dlq` after 3 retries, and the DLQ writer stores them as the Sandbox's `dead_letters`, counted as `dlq` points that the 12:17 run turns into an issue. Nothing warns the operator that a trip makes dead letters. Decided on 2026-11-09 by the session, under Joseph's delegation of the same day; revisable: a message that dies while the bakery is `off` is kept as a dead letter and not counted as a `dlq` point, so the morning check opens no issue for the switch doing its job (roadmap R21; built as R67, until then such dead letters are counted). Alarms need the guard or a deploy: neither the flag nor the WAF rule reaches them ([operations.md](operations.md#breaker-tripped)).
+What stops it: the loop guard bounds each object to 100 re-arms a day, about 400 rows; 2,000 sandboxes × 37 children at that bound is 29.6M rows (37 as built on 2026-11-09 with the `Recorder`, `workers/api/src/objects/sandbox.rs`; 36 from PR 9, 35 before it), inside the 50M. The `Recorder` arms only its backstop, so in practice it adds one alarm row, not 400. The consumer holds no producer for `bakery-events`, by type ([architecture.md](architecture.md)). For an internal loop the breaker sets `Control` to `off` and enables the WAF rule; the consumer reads the flag (cached 60 s, `workers/api/src/queue.rs`) and stops routing, so messages drain to `bakery-events-dlq` after 3 retries, and the DLQ writer stores them as the Sandbox's `dead_letters`, counted as `dlq` points that the 12:17 run turns into an issue. Nothing warns the operator that a trip makes dead letters. Decided on 2026-11-09 by the session, under Joseph's delegation of the same day; revisable: a message that dies while the bakery is `off` is kept as a dead letter and not counted as a `dlq` point, so the morning check opens no issue for the switch doing its job (roadmap R21; built as R67, until then such dead letters are counted). Alarms need the guard or a deploy: neither the flag nor the WAF rule reaches them ([operations.md](operations.md#breaker-tripped)).
 
 ### E. The nightly wipe
 
