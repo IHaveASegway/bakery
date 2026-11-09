@@ -47,19 +47,21 @@ export default function LeadPipeline({
         error === null && <p aria-live="polite">Loading the pipeline…</p>
       ) : (
         <div className="table-scroll">
-          <table>
+          <table className="table">
             <caption className="sr-only">Leads by stage</caption>
             <thead>
               <tr>
                 <th scope="col">Stage</th>
-                <th scope="col">Leads</th>
+                <th scope="col" className="num">
+                  Leads
+                </th>
               </tr>
             </thead>
             <tbody>
               {stages.map((s) => (
                 <tr key={s.stage}>
                   <th scope="row">{leadStageLabel(s.stage)}</th>
-                  <td>{s.count}</td>
+                  <td className="num">{s.count}</td>
                 </tr>
               ))}
             </tbody>

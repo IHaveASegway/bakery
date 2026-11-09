@@ -89,6 +89,7 @@ export default function RefundControls({
       <p className="actions">
         <button
           type="button"
+          className="btn btn-danger btn-sm"
           aria-disabled={busy || undefined}
           aria-label={`Refund order ${label}`}
           onClick={() => {
@@ -100,6 +101,7 @@ export default function RefundControls({
         <button
           ref={toggle}
           type="button"
+          className="btn btn-secondary btn-sm"
           aria-disabled={busy || undefined}
           aria-expanded={part}
           aria-controls={field + '-form'}
@@ -134,7 +136,12 @@ export default function RefundControls({
             Up to the order’s total, such as 4 or 4.50.
           </span>
           <p>
-            <button type="submit" disabled={amount.trim() === ''} aria-disabled={busy || undefined}>
+            <button
+              type="submit"
+              className="btn btn-danger btn-sm"
+              disabled={amount.trim() === ''}
+              aria-disabled={busy || undefined}
+            >
               Send refund
             </button>
           </p>

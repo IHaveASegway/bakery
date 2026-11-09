@@ -116,7 +116,11 @@ export default function PaymentPanel({
         <>
           <Message error={step.error} />
           <p>
-            <button type="button" onClick={() => setTries((n) => n + 1)}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setTries((n) => n + 1)}
+            >
               Try again
             </button>
           </p>
@@ -205,7 +209,11 @@ function PayForm({
         onChange={(e) => setComplete(e.complete)}
       />
       <p>
-        <button type="submit" disabled={stripe === null || busy || !complete}>
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={stripe === null || busy || !complete}
+        >
           {busy ? 'Paying…' : `Pay ${dollars(amountCents)}`}
         </button>
       </p>

@@ -46,7 +46,7 @@ export default function Activity({ sandboxId, refresh }: { sandboxId: string; re
       ) : entries.length === 0 ? (
         <p className="hint">Nothing has happened yet.</p>
       ) : (
-        <ol className="feed" aria-label="Activity, newest first">
+        <ol className="feed feed-scroll" aria-label="Activity, newest first" tabIndex={0}>
           {entries.map((e) => (
             <li key={`${e.at}-${e.type}-${e.summary}`}>
               <time dateTime={e.at}>{whenText(e.at)}</time>: {timesIn(e.summary)}
