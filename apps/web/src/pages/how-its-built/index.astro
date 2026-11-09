@@ -2,6 +2,7 @@
 import Base from '../../layouts/Base.astro';
 import { GROUPS, ONE_LINE, RECRUITER_LINE, principleOf, sections } from '../../lib/how-its-built';
 import { ESSAY_PAGES, SITE_LAB } from '../../lib/links';
+import { decisionRows } from '../../guide/decisions';
 
 // How it's built (Q6 · Q-public, Q32 · Q-links, Q33 · Q-principles): one section per principle,
 // from the data the guide reads (lib/how-its-built.ts), so the page and the guide cannot drift. A
@@ -10,6 +11,9 @@ import { ESSAY_PAGES, SITE_LAB } from '../../lib/links';
 // title. Three pairs of sections share one: the two idempotency sections, CQRS and load, and the
 // sandbox and no personal data.
 const essays = ESSAY_PAGES;
+// The decision table: each principle's tool, why it is used here and when it would be the wrong
+// one, in the guide's own words (guide/decisions.ts), with the essay that argues it.
+const decisions = decisionRows();
 const groups = (['lab', 'new', 'demo'] as const).map((group) => ({
   group,
   ...GROUPS[group],
@@ -40,6 +44,38 @@ const groups = (['lab', 'new', 'demo'] as const).map((group) => ({
       that explains the principle on its own, where there is one, and the decision record (ADR) that
       chose it. The guide on every screen links back here.
     </p>
+
+    <h2 id="decisions-title">Why each tool, and when not</h2>
+    <p>
+      One row a principle: the tool, why the bakery uses it here, and when it would be the wrong
+      tool. The guide says the same beside each thing it explains, and each essay makes the case.
+    </p>
+    <div class="table-scroll" role="region" aria-labelledby="decisions-title" tabindex="0">
+      <table class="decisions">
+        <thead>
+          <tr>
+            <th scope="col">Tool</th>
+            <th scope="col">Why here</th>
+            <th scope="col">When it is the wrong tool</th>
+            <th scope="col">The essay</th>
+          </tr>
+        </thead>
+        <tbody>
+          {decisions.map((d) => (
+            <tr id={`decision-${d.principle.id}`}>
+              <th scope="row">
+                <a href={`#${d.principle.id}`}>{d.principle.name}</a>
+              </th>
+              <td>{d.why}</td>
+              <td>{d.whenNot}</td>
+              <td>
+                {d.principle.essay && <a href={d.principle.essay.url}>{d.principle.essay.title}</a>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
 
     <nav aria-labelledby="contents-title">
       <h2 id="contents-title">Contents</h2>

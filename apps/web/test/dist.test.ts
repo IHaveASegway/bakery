@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { SCREENS } from '../src/lib/guide';
 import { PRINCIPLE_TABLE, PRINCIPLES } from '../src/lib/how-its-built';
+import { decisionRows } from '../src/guide/decisions';
 import { ESSAYS, ESSAY_PAGES, HOW_PATH, SITE_LAB, adrUrl, labUrl } from '../src/lib/links';
 import { RULE_PATHS } from '../src/policy';
 import { fileURLToPath } from 'node:url';
@@ -170,6 +171,24 @@ describe('dist', () => {
 
   describe('the How it’s built page', () => {
     const html = () => page('how-its-built/index.html');
+
+    // The decision table (guide/decisions.ts): a row a principle, in the guide's own words, on a
+    // page that still loads no script.
+    test('carries the decision table: each principle’s tool, why, when not and essay', () => {
+      const text = html();
+      expect(text).toContain('Why each tool, and when not');
+      const rows = [...text.matchAll(/<tr id="decision-([a-z-]+)"/g)].map((m) => m[1]);
+      expect(rows).toEqual(PRINCIPLE_TABLE.map((p) => p.id));
+      for (const entry of decisionRows()) {
+        const row = text.slice(text.indexOf(`id="decision-${entry.principle.id}"`));
+        const cells = row.slice(0, row.indexOf('</tr>'));
+        expect(cells, entry.id).toContain(entry.principle.name);
+        expect(cells, entry.id).toContain(entry.why.replaceAll('’', '’'));
+        expect(cells, entry.id).toContain(entry.whenNot.replaceAll('’', '’'));
+        expect(cells, entry.id).toContain(`href="${entry.principle.essay?.url}"`);
+      }
+      expect(text).not.toContain('<script');
+    });
 
     test('has a section for every principle, in order, each with its lab page where there is one and its ADR', () => {
       let at = -1;

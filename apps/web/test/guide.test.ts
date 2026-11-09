@@ -32,7 +32,8 @@ import {
   type LabName,
 } from '../src/lib/links';
 import { RAFT } from '../src/guide/principles';
-import { ALL_ENTRIES, CONSOLE_ORDER, ENTRIES, PATHS } from '../src/guide';
+import { ALL_ENTRIES, CONSOLE_ORDER, ENTRIES, OTHER_WRITES, PATHS } from '../src/guide';
+import { DECISIONS, decisionRows } from '../src/guide/decisions';
 
 interface Operation {
   operationId: string;
@@ -527,5 +528,23 @@ describe('the console’s order and the short paths', () => {
     expect(PATHS.menu?.[0]?.entry).toBe('menu-list');
     expect(PATHS.checkout?.map((s) => s.entry)).toContain('checkout-form');
     expect(PATHS.console?.[0]?.entry).toBe('kitchen-board');
+  });
+});
+
+describe('the decision table’s rows', () => {
+  test('every principle has one row, spoken by an entry of its own principle', () => {
+    expect(Object.keys(DECISIONS).sort()).toEqual(PRINCIPLE_TABLE.map((p) => p.id).sort());
+    const rows = decisionRows();
+    expect(rows.map((e) => e.principle.id)).toEqual(PRINCIPLE_TABLE.map((p) => p.id));
+  });
+});
+
+describe('the writes no entry names', () => {
+  test('are real write routes, with the document’s method and path', () => {
+    for (const shape of OTHER_WRITES) {
+      const found = operations.get(shape.routeId);
+      expect(found, shape.routeId).toBeDefined();
+      expect([found?.method, found?.path]).toEqual([shape.method, shape.path]);
+    }
   });
 });
