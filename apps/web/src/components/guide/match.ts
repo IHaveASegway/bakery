@@ -42,3 +42,24 @@ export function expectedFor(entry: GuideEntry | null, group: readonly Trace[]): 
   if (one !== undefined) return [one];
   return entry?.events ?? [];
 }
+
+/**
+ * Which of the visitor's actions opens a live note now, if any: the newest one made by a click,
+ * once, while the guide is on and the recorder panel is closed. An action taken while the panel is
+ * open becomes the panel's newest row instead, and one taken while the guide is off opens nothing;
+ * either is marked seen, so neither opens late when the panel closes or the guide comes back on. `seen` is updated in place.
+ */
+export function noteToOpen(
+  traces: readonly Trace[],
+  seen: Set<number>,
+  state: { on: boolean; panel: boolean },
+): number | null {
+  const gesture = traces.find((t) => t.gesture !== null)?.gesture ?? null;
+  if (gesture === null || seen.has(gesture)) return null;
+  seen.add(gesture);
+  return state.on && !state.panel ? gesture : null;
+}
+
+/** The actions already in the store when the layer mounts: seen, so none of them opens late. */
+export const gesturesIn = (traces: readonly Trace[]): Set<number> =>
+  new Set(traces.flatMap((t) => (t.gesture === null ? [] : [t.gesture])));

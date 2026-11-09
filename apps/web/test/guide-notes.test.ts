@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
 import { Note, resolveAnchor } from '../src/components/guide/Note';
 import { byGesture } from '../src/components/guide/Panel';
-import { expectedFor, routeIdOf } from '../src/components/guide/match';
+import { expectedFor, gesturesIn, noteToOpen, routeIdOf } from '../src/components/guide/match';
 import {
   TraceChain,
   WhyLines,
@@ -366,5 +366,39 @@ describe('the switch', () => {
     expect(switchOn('on')).toBe(true);
     expect(switchOn('garbage')).toBe(true);
     expect(switchOn('off')).toBe(false);
+  });
+});
+
+describe('when a live note opens', () => {
+  const action = (gesture: number | null, id = `t-${gesture}`) => trace({ id, gesture });
+
+  test('the newest action made by a click opens one, once', () => {
+    const seen = new Set<number>();
+    expect(noteToOpen([action(2), action(1)], seen, { on: true, panel: false })).toBe(2);
+    expect(noteToOpen([action(2), action(1)], seen, { on: true, panel: false })).toBeNull();
+  });
+
+  test('with the recorder open, the action is the panel’s row and no note opens, even after it closes', () => {
+    const seen = new Set<number>();
+    expect(noteToOpen([action(3)], seen, { on: true, panel: true })).toBeNull();
+    expect(noteToOpen([action(3)], seen, { on: true, panel: false })).toBeNull();
+    // A new action once the panel is closed opens a note again.
+    expect(noteToOpen([action(4), action(3)], seen, { on: true, panel: false })).toBe(4);
+  });
+
+  test('with the guide off nothing opens, and turning it on does not open the old action', () => {
+    const seen = new Set<number>();
+    expect(noteToOpen([action(5)], seen, { on: false, panel: false })).toBeNull();
+    expect(noteToOpen([action(5)], seen, { on: true, panel: false })).toBeNull();
+  });
+
+  test('a layer that mounts late treats what the store already held as seen', () => {
+    const seen = gesturesIn([action(7), action(null, 'heartbeat'), action(6)]);
+    expect([...seen].sort()).toEqual([6, 7]);
+    expect(noteToOpen([action(7)], seen, { on: true, panel: false })).toBeNull();
+  });
+
+  test('the page’s own calls (no click) never open one', () => {
+    expect(noteToOpen([action(null, 'beat')], new Set(), { on: true, panel: false })).toBeNull();
   });
 });

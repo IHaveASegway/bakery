@@ -11,7 +11,7 @@ import {
 import { PATHS, entriesFor } from '../../guide';
 import { PATH_CLOSED, pathReduce, type GuideEntry, type ScreenId } from '../../lib/guide';
 import { traces } from '../../lib/trace';
-import { entryForTraces, expectedFor, routeIdOf, targetOf } from './match';
+import { entryForTraces, expectedFor, gesturesIn, noteToOpen, routeIdOf, targetOf } from './match';
 import { Note, resolveAnchor } from './Note';
 import Panel from './Panel';
 import { EntryBody, NoteHead, TraceChain, WhyLines, traceSentence } from './Views';
@@ -51,16 +51,16 @@ export default function Layer({
 
   // ---- The live note: the visitor's latest action, while the guide is on ----
   const [live, setLive] = useState<{ gesture: number; pinned: boolean } | null>(null);
-  const opened = useRef(new Set<number>());
-  const said = useRef(new Set<number>());
+  // The layer mounts only while it is needed, so what the store held before it mounted is old news.
+  const opened = useRef(gesturesIn(traces.getSnapshot().traces));
+  const said = useRef(gesturesIn(traces.getSnapshot().traces));
   const newest = snapshot.traces.find((t) => t.gesture !== null);
   useEffect(() => {
-    const gesture = newest?.gesture ?? null;
-    if (!on || gesture === null || opened.current.has(gesture)) return;
-    opened.current.add(gesture);
+    const gesture = noteToOpen(snapshot.traces, opened.current, { on, panel });
+    if (gesture === null) return;
     setLive({ gesture, pinned: false });
     setStanding(null);
-  }, [on, newest?.gesture]);
+  }, [on, panel, snapshot.traces]);
   useEffect(() => {
     if (!on) setLive(null);
   }, [on]);

@@ -4,7 +4,8 @@ import { SWITCH_KEY, switchOn, type ScreenId } from '../lib/guide';
 import '../styles/guide.css';
 
 // The layer (notes, hotspots, the recorder panel, the short path) and the entries it reads are
-// loaded after the island mounts, so a page's first paint never waits for them.
+// loaded after the island mounts, so a page's first paint never waits for them, and only while the
+// guide is on or the recorder is open.
 const Layer = lazy(() => import('./guide/Layer'));
 
 /** sessionStorage may be missing, full or blocked: the guide is then on, and forgets nothing. */
@@ -134,7 +135,9 @@ export default function Guide({ screen }: { screen: ScreenId }) {
       <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {said}
       </p>
-      {ready && (
+      {/* The layer is loaded only while it is needed: the guide is on, or the recorder is open.
+          A visitor who turned the guide off downloads none of it on later pages. */}
+      {ready && (on || panel) && (
         <Suspense fallback={null}>
           <Layer
             screen={screen}
