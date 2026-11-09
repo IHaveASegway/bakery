@@ -531,24 +531,32 @@ describe('dist', () => {
   // later and is not counted), and the page's inline scripts. Each file counts once per page.
   //
   // Measured 2026-11-09 with node's gzipSync at its default level, per class (the largest page of
-  // the class): tour only 93,993 B (home, privacy); API reference 94,246 B; status 96,768 B;
-  // storefront 103,074 B (menu, sign-in); checkout 119,128 B; console screens 135,699 B (the
+  // the class): guide only 80,305 B (home, privacy); API reference 80,558 B; status 83,079 B;
+  // storefront 92,362 B (menu, sign-in); checkout 108,431 B; console screens 125,336 B (the
   // console, dispatch, catering and the inbox). Each budget is the measured size plus a quarter,
   // rounded up to the next 1,000 B. The ADR's own numbers (5,000 B for a public page, 120,000 B for
-  // an app screen or the checkout) are not met today: every island page carries the tour, and its
-  // React runtime is 65,840 B of the total. The budgets here hold the line where the pages are and
-  // fail a page that grows by a quarter. A page that is not named below must load no script.
+  // an app screen or the checkout) are not met on the public pages: every island page carries the
+  // guide's bar, and its React runtime is most of the total. A page that is not named below must
+  // load no script.
+  //
+  // Moved 2026-11-09, when the guide replaced the tour: every class fell by about 13,700 B, because
+  // the first load now buys only the guide's bar (the switch, the recorder's button, a polite live
+  // region) and the trace store that hears the page's writes, its socket and its feed. The notes,
+  // the hotspots, the recorder panel and the entries they explain load after the island mounts, in
+  // a chunk of 22,125 B gzipped that a dynamic import brings and this sum does not count. Before,
+  // with the tour: tour only 93,993 B; API reference 94,246 B; status 96,768 B; storefront
+  // 103,074 B; checkout 119,128 B; console screens 135,699 B.
   describe('JavaScript per page', () => {
     const KB = 1_000;
     const BUDGETS: Record<string, { budget: number; pages: string[] }> = {
       none: { budget: 0, pages: [] },
-      guide: { budget: 118 * KB, pages: ['index.html', 'privacy/index.html'] },
-      api: { budget: 118 * KB, pages: ['docs/api/index.html'] },
-      status: { budget: 121 * KB, pages: ['status/index.html'] },
-      storefront: { budget: 129 * KB, pages: ['menu/index.html', 'signin/index.html'] },
-      checkout: { budget: 149 * KB, pages: ['checkout/index.html'] },
+      guide: { budget: 101 * KB, pages: ['index.html', 'privacy/index.html'] },
+      api: { budget: 101 * KB, pages: ['docs/api/index.html'] },
+      status: { budget: 104 * KB, pages: ['status/index.html'] },
+      storefront: { budget: 116 * KB, pages: ['menu/index.html', 'signin/index.html'] },
+      checkout: { budget: 136 * KB, pages: ['checkout/index.html'] },
       console: {
-        budget: 170 * KB,
+        budget: 157 * KB,
         pages: [
           'app/index.html',
           'app/dispatch/index.html',
