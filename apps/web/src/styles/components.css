@@ -1,0 +1,565 @@
+/*
+  The component layer (design brief, 2026-11-09): one class contract for every screen, so no screen
+  draws its own buttons. Colours, sizes and spaces come from tokens.css only; nothing here holds a
+  literal colour. The page policy allows no style attribute, so every state is a class or an
+  attribute selector, and a position computed at run time is set through the CSS object model.
+
+  The contract:
+    .btn with .btn-primary, .btn-secondary, .btn-quiet, .btn-danger, and .btn-sm
+    .badge[data-tone]   pending confirmed making ready out done problem (and none, neutral)
+    .card, .panel (.panel-head, .panel-actions), .toolbar, .table, .tabs, .field, .chip,
+    .segmented, .menu, .drawer, .empty, .skeleton
+  One primary button per view or card. A destructive action is .btn-danger behind a confirmation,
+  or sits in a .menu, never beside the primary at the same weight.
+*/
+
+/* Buttons. A bare <button> with no class (the tour's, until the guide replaces it) gets the
+   secondary look at the lowest specificity, so nothing is ever an unstyled browser button. */
+:where(button, .action),
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--type-14);
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+:where(button, .action):hover,
+.btn:hover {
+  background: var(--surface-sunken);
+}
+
+.btn-primary,
+.btn-primary:hover {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.btn-primary:hover {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+
+.btn-secondary {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.btn-quiet,
+.btn-quiet:hover {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text);
+}
+
+.btn-quiet:hover {
+  background: var(--surface-sunken);
+}
+
+.btn-danger {
+  border-color: var(--danger);
+  background: var(--surface-raised);
+  color: var(--danger);
+}
+
+.btn-danger:hover {
+  background: var(--danger);
+  color: var(--danger-foreground);
+}
+
+.btn-sm {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  font-size: var(--type-13);
+}
+
+/* A button that is only an icon: square, its name in aria-label. */
+.btn-icon {
+  width: 32px;
+  padding: 0;
+}
+
+.btn-icon svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+/* Disabled stops the pointer; aria-disabled (busy, keeping the keyboard's focus) looks the same. */
+:where(button, .action):disabled,
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  border-style: dashed;
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+/* A button that reads as a link, inside a sentence or a table cell. */
+button.link {
+  display: inline;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: inherit;
+  font-weight: 400;
+  text-align: left;
+  text-decoration: underline;
+  white-space: normal;
+}
+
+button.link:hover {
+  background: transparent;
+  text-decoration-thickness: 2px;
+}
+
+button.link:disabled {
+  border: 0;
+  color: var(--text-muted);
+}
+
+button.link[aria-pressed='true'] {
+  font-weight: 600;
+}
+
+/* A status: the word on its tone's tint, a solid dot beside it. Never colour alone. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-height: 22px;
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-size: var(--type-12);
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.badge::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--badge-solid, var(--text-muted));
+}
+
+.badge[data-tone='pending'] {
+  --badge-solid: var(--tone-pending-solid);
+  background: var(--tone-pending-tint);
+}
+.badge[data-tone='confirmed'] {
+  --badge-solid: var(--tone-confirmed-solid);
+  background: var(--tone-confirmed-tint);
+}
+.badge[data-tone='making'] {
+  --badge-solid: var(--tone-making-solid);
+  background: var(--tone-making-tint);
+}
+.badge[data-tone='ready'] {
+  --badge-solid: var(--tone-ready-solid);
+  background: var(--tone-ready-tint);
+}
+.badge[data-tone='out'] {
+  --badge-solid: var(--tone-out-solid);
+  background: var(--tone-out-tint);
+}
+.badge[data-tone='done'] {
+  --badge-solid: var(--tone-done-solid);
+  background: var(--tone-done-tint);
+}
+.badge[data-tone='problem'] {
+  --badge-solid: var(--tone-problem-solid);
+  background: var(--tone-problem-tint);
+}
+
+/* A kind, not a status: an outlined label with no dot. */
+.badge[data-tone='kind'] {
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+
+.badge[data-tone='kind']::before {
+  display: none;
+}
+
+/* Surfaces that sit in the flow: no shadow, one hairline. */
+.card,
+.panel {
+  box-sizing: border-box;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+}
+
+.card {
+  padding: var(--space-3) var(--space-4);
+}
+
+.panel {
+  padding: var(--space-4) var(--space-5) var(--space-5);
+}
+
+/* A panel's title row: its heading, then its actions at the far end. A component that draws its
+   own heading as the panel's first child gets the same look without the row. */
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  margin: 0 0 var(--space-3);
+}
+
+.panel-head > :is(h2, h3, h4),
+.panel > :is(h2, h3):first-child,
+.panel > section > :is(h2, h3):first-child {
+  margin: 0 0 var(--space-3);
+  font-size: var(--type-16);
+  font-weight: 600;
+  line-height: var(--leading-tight);
+}
+
+.panel-head > :is(h2, h3, h4) {
+  margin: 0;
+}
+
+.panel-actions,
+.toolbar,
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.panel :is(h4) {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--type-14);
+  font-weight: 600;
+}
+
+.panel > section {
+  margin: 0;
+}
+
+/* Tables: dense, the header sunk and sticky, numbers on the right in figures of one width. */
+.table,
+.panel table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--type-14);
+}
+
+.table th,
+.table td,
+.panel th,
+.panel td {
+  padding: var(--space-2) var(--space-3) var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.table thead th,
+.panel thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: var(--type-12);
+  font-weight: 600;
+}
+
+.table thead th:first-child,
+.panel thead th:first-child {
+  padding-left: var(--space-2);
+}
+
+.num,
+.table td.num,
+.table th.num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Tabs: a row of buttons, the selected one underlined in the accent. */
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-4);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.tabs > :is(button, a) {
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.tabs > [aria-selected='true'],
+.tabs > [aria-current='page'] {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+}
+
+/* A field: its label, the control, a hint, an error, stacked with even gaps. */
+.field {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-4);
+}
+
+.field > label,
+.field > legend {
+  margin: 0;
+  font-size: var(--type-14);
+  font-weight: 600;
+}
+
+.field > .hint,
+.field > .error {
+  margin: 0;
+}
+
+.field .error,
+.error {
+  color: var(--danger);
+  font-size: var(--type-13);
+}
+
+/* A chip: a choice among many (a slot, a filter). The input inside it is the real control. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: var(--type-14);
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.chip:has(input:checked),
+.chip[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  font-weight: 600;
+}
+
+.chip:has(input:disabled) {
+  border-style: dashed;
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.chip:has(input:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.chip input {
+  margin: 0;
+}
+
+/* A segmented control: two to five exclusive choices in one frame. */
+.segmented {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+  overflow-x: auto;
+}
+
+.segmented > button {
+  flex: 1 0 auto;
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--type-13);
+}
+
+.segmented > button[aria-pressed='true'] {
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: 0 1px 2px var(--shadow-color);
+}
+
+/* An overflow menu: a <details> whose summary is the button and whose panel floats under it. */
+details.menu {
+  position: relative;
+  display: inline-block;
+}
+
+details.menu > summary {
+  list-style: none;
+}
+
+details.menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.menu-panel {
+  position: absolute;
+  z-index: 15;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 13rem;
+  max-width: min(20rem, 80vw);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-raised);
+}
+
+.menu-panel > :first-child {
+  margin-top: 0;
+}
+
+/* A drawer: a sheet from the side for a detail, over the page. */
+.drawer {
+  position: fixed;
+  z-index: 25;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  width: min(28rem, 100%);
+  padding: var(--space-5);
+  border-left: 1px solid var(--border);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-raised);
+  overflow-y: auto;
+}
+
+/* An empty state: one sentence and, at most, one action. */
+.empty {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-card);
+  color: var(--text-muted);
+}
+
+.empty > * {
+  margin: 0;
+}
+
+/* A skeleton: the shape of what is loading. */
+.skeleton {
+  display: block;
+  min-height: 1em;
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+}
+
+/* Messages under a control: a hint is quiet, a problem has the danger rule beside it. */
+.hint,
+.note {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--type-13);
+}
+
+.problem {
+  margin: var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--danger);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  background: var(--danger-tint);
+}
+
+/* The one focus ring, on everything that takes the keyboard. */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Motion: short and eased out, for what moves because of an action or a live event. */
+@media (prefers-reduced-motion: no-preference) {
+  .btn,
+  :where(button, .action),
+  .chip {
+    transition:
+      background-color var(--motion-fast) var(--ease-out),
+      border-color var(--motion-fast) var(--ease-out);
+  }
+
+  .card {
+    animation: card-in var(--motion) var(--ease-out);
+  }
+
+  .skeleton {
+    animation: skeleton-pulse 1.2s ease-in-out infinite alternate;
+  }
+
+  @keyframes card-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+
+  @keyframes skeleton-pulse {
+    to {
+      opacity: 0.5;
+    }
+  }
+}
+
+/* With reduced motion nothing animates, whatever a rule above or a component asks. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
