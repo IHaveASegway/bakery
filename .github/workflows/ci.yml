@@ -478,13 +478,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     container:
-      # The lockfile's Playwright, 1.64.1 (docs/stack.md), by digest as well as tag.
-      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
+      # The lockfile's Playwright, 1.65.0 (docs/stack.md), by digest as well as tag.
+      image: mcr.microsoft.com/playwright:v1.65.0-noble@sha256:6e3fb709361521eb27161606e6da6d2674e5e89fa16516cb37d6fdd91372273d
       options: --ipc=host # Chromium's shared memory
     permissions:
       contents: read
     env:
-      PLAYWRIGHT_IMAGE: '1.64.1'
+      PLAYWRIGHT_IMAGE: '1.65.0'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -530,7 +530,7 @@ jobs:
     # both runs during the fifteenth page.
     timeout-minutes: 25
     container:
-      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
+      image: mcr.microsoft.com/playwright:v1.65.0-noble@sha256:6e3fb709361521eb27161606e6da6d2674e5e89fa16516cb37d6fdd91372273d
       options: --ipc=host
     permissions:
       contents: read
@@ -923,7 +923,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15 # rule 9; a first attach may wait ten minutes for both hostnames
     container:
-      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
+      image: mcr.microsoft.com/playwright:v1.65.0-noble@sha256:6e3fb709361521eb27161606e6da6d2674e5e89fa16516cb37d6fdd91372273d
       options: --ipc=host
     permissions:
       contents: read
