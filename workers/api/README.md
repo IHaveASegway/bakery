@@ -414,7 +414,7 @@ ANALYTICS_ACCOUNT_ID=0000000000000000000000000000fake
 
 ## Notes
 
-- `compatibility_date` is 2026-11-04. The date a config may carry is bounded by the workerd inside the Wrangler the lockfile resolves: 4.152.0's refused it (its newest was 2026-10-26) and 4.157.0's accepts it (docs/delivery.md, compatibility_date).
+- `compatibility_date` is 2026-11-04. The date a config may carry is bounded by the workerd inside the Wrangler the lockfile resolves: 4.152.0's refused it (its newest was 2026-10-26) and 4.157.0's accepts it (docs/delivery.md, compatibility_date). The lockfile resolves 4.158.0 as of 2026-11-09.
 - `Control`, `Account`, `Sandbox`, `Catalog`, `Order`, `Kitchen`, `Simulator`, `Billing`, `Schedule`, `CateringEvent`, `Customer`, `Crm` and `Inbox` are declared SQLite-backed in the `exports` block; CI fails if a `#[durable_object]` class is missing there.
 - `SANDBOX_SEED`, a local `.dev.vars` line, gives every new sandbox that seed instead of a random one, so two sandboxes born from it can be compared; it is honored only when `API_ORIGIN` is a loopback host (`scripts/smoke-crm.sh` sets it).
 - The Cache API works on `wrangler dev` 4.157.0 (checked on 2026-11-05: the menu's second read answers `Bakery-Cache: hit`). An entry is stored with `max-age=86400`, since no sandbox outlives the next 10:00 UTC; the response to the browser says `private, no-cache`.

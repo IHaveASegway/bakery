@@ -63,10 +63,10 @@ Pins as of 2026-11-04:
 | `cargo-deny`, `cargo-audit` | latest on PR 2's day, exact | `[workspace.metadata.tools]` | Licenses, advisories, banned crates, sources; RustSec in `scheduled` too | [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) |
 | Node.js | 26 | `.nvmrc` | The site's pin; active LTS from 2026-10-28 | [nodejs/Release](https://github.com/nodejs/Release) |
 | pnpm | 11.28.6 | `"packageManager"` in `package.json` | pnpm switches itself to the pinned version | [npm](https://www.npmjs.com/package/pnpm) |
-| Wrangler | ^4.152.0 | pnpm catalog | Worker Previews need 4.135.0 or later; CI runs `pnpm exec wrangler` | [npm](https://www.npmjs.com/package/wrangler) |
-| Astro | 7.4.5, exact | `apps/web/package.json` | The site's pin; majors wait for x.1 | [npm](https://www.npmjs.com/package/astro) |
+| Wrangler | ^4.158.0 (as of 2026-11-09) | pnpm catalog | Worker Previews need 4.135.0 or later; CI runs `pnpm exec wrangler` | [npm](https://www.npmjs.com/package/wrangler) |
+| Astro | 7.4.7, exact (as of 2026-11-09) | `apps/web/package.json` | The site's pin; majors wait for x.1 | [npm](https://www.npmjs.com/package/astro) |
 | React, `@astrojs/react` | 19.3.1, 7.x | `apps/web/package.json` | Islands only; the JavaScript budget keeps them few | [npm](https://www.npmjs.com/package/react) |
-| Vitest 5, Playwright | 5, 1.64.1 | pnpm catalog | Web unit tests (Worker logic is tested by `cargo test`); `e2e` and `prod-smoke` run in Playwright's image of the same version, from PR 11 | [npm](https://www.npmjs.com/package/@playwright/test) |
+| Vitest 5, Playwright | 5, 1.65.0 (as of 2026-11-09) | pnpm catalog | Web unit tests (Worker logic is tested by `cargo test`); `e2e` and `prod-smoke` run in Playwright's image of the same version, from PR 11 | [npm](https://www.npmjs.com/package/@playwright/test) |
 | osmium-tool, openrouteservice | 1.16.0 (the build's report, 2026-11-05); v9.10.0, commit 8ed869459de157032edb146a6fc247379c428e23 | `tools/route-data/config.mjs`, `ors/compose.yml`, `ors/build-jar.sh`; no lockfile, no npm dependency | The Salt Lake City data build in PR 9. Offline: nothing ships. The ORS image digest is not pinned yet (no Docker daemon on the build machine) | [osmium-tool](https://github.com/osmcode/osmium-tool), [openrouteservice v9.10.0](https://github.com/GIScience/openrouteservice/releases/tag/v9.10.0), as of 2026-11-05 |
 | VROOM solver folder | 1.15.0, folder `vroom-1.15.0-870d7d5e`, site commit 34b4515260bdcca350a949f130a879b472ff90e0 | `apps/web/solver.lock.json` | Fetched at build by `scripts/fetch-solver.mjs`, verified, git-ignored; the browser planner | [the site's solver folder](https://github.com/IHaveASegway/website/tree/34b4515260bdcca350a949f130a879b472ff90e0/apps/web/public/lab/routes/solver/vroom-1.15.0-870d7d5e), as of 2026-11-05 |
 
@@ -93,7 +93,7 @@ codegen-units = 1
 panic = "abort"
 ```
 
-`rust-toolchain.toml` holds `channel = "1.97"`, `components = ["rustfmt", "clippy"]` and `targets = ["wasm32-unknown-unknown"]`. `pnpm-workspace.yaml` lists `apps/*`, a `catalog` (Wrangler `^4.152.0`, Vitest 5, Playwright 1.64.1) and `allowBuilds`, the only packages whose install scripts may run.
+`rust-toolchain.toml` holds `channel = "1.97"`, `components = ["rustfmt", "clippy"]` and `targets = ["wasm32-unknown-unknown"]`. `pnpm-workspace.yaml` lists `apps/*`, a `catalog` (Wrangler `^4.158.0`, Vitest 5, Playwright 1.65.0, as of 2026-11-09) and `allowBuilds`, the only packages whose install scripts may run.
 
 ```jsonc
 // workers/api/wrangler.jsonc (a sketch; the file as built is workers/api/wrangler.jsonc, checked 2026-11-09)
