@@ -91,5 +91,5 @@ Decided on 2026-11-09 by the session, under Joseph's delegation of the same day;
 
 ## Patterns and further reading
 
-- Denial of wallet: Kelly, Glavin and Barrett, ["Denial of Wallet—Defining a Looming Threat to Serverless Computing"](https://arxiv.org/abs/2104.08031) (2021).
-- Admission control and load shedding: Google, *Site Reliability Engineering*, ["Handling Overload"](https://sre.google/sre-book/handling-overload/) (2016).
+- Denial of wallet: ["Denial of Wallet: Defining a Looming Threat to Serverless Computing"](https://arxiv.org/abs/2104.08031) (arXiv, 2021).
+- Admission control and load shedding: *Site Reliability Engineering*, ["Handling Overload"](https://sre.google/sre-book/handling-overload/) (book, 2016).

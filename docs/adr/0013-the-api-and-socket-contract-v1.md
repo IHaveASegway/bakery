@@ -84,6 +84,6 @@ Accepted by delegation on 2026-11-09 (roadmap R12), so from that date the v1 con
 
 - Problem details for HTTP APIs: [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457), as of 2026-11-05.
 - The OpenAPI Specification [3.1.0](https://spec.openapis.org/oas/v3.1.0).
-- Tolerant reader: Martin Fowler, ["TolerantReader"](https://martinfowler.com/bliki/TolerantReader.html) (2011).
+- Tolerant reader: ["TolerantReader"](https://martinfowler.com/bliki/TolerantReader.html) (bliki, 2011).
 - Idempotent requests: Stripe, [Idempotent requests](https://docs.stripe.com/api/idempotent_requests), as of 2026-11-05.
-- Contract-first and consumer-driven contracts: Ian Robinson, ["Consumer-Driven Contracts"](https://martinfowler.com/articles/consumerDrivenContracts.html) (2006).
+- Contract-first and consumer-driven contracts: ["Consumer-Driven Contracts"](https://martinfowler.com/articles/consumerDrivenContracts.html) (article, 2006).

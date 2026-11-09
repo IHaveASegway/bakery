@@ -21,7 +21,7 @@ Platform facts, as of 2026-11-04:
 - A DO handles one event at a time. A 2-second solve inside a handler would hold every other message to that object for 2 seconds, the kitchen board's included if it shared the object ([DO limits](https://developers.cloudflare.com/durable-objects/platform/limits/): a soft 1,000 requests a second per object, CPU 30 s a request by default).
 - Containers are Paid-only, start cold in 1 to 3 s, and under abuse the site priced one at about $185 per 72 hours ([the site's cost.md](https://github.com/IHaveASegway/website/blob/main/docs/cost.md), scenario E). The bakery does not use Containers.
 
-The Clarke–Wright savings heuristic (Clarke and Wright, 1964) builds routes by merging the pair of stops whose shared trip saves the most travel, under each van's capacity. For n stops it computes n(n−1)/2 savings and sorts them: 1,770 for 60 stops, a few milliseconds of CPU in Rust, even compiled to WebAssembly.
+The Clarke–Wright savings heuristic (*Operations Research*, 1964) builds routes by merging the pair of stops whose shared trip saves the most travel, under each van's capacity. For n stops it computes n(n−1)/2 savings and sorts them: 1,770 for 60 stops, a few milliseconds of CPU in Rust, even compiled to WebAssembly.
 
 ## Decision
 
@@ -87,6 +87,6 @@ Decided on 2026-11-09 by the session, under Joseph's delegation of the same day;
 
 ## Patterns and further reading
 
-- The savings heuristic: G. Clarke and J. W. Wright, ["Scheduling of Vehicles from a Central Depot to a Number of Delivery Points"](https://doi.org/10.1287/opre.12.4.568), *Operations Research* 12(4), 1964.
+- The savings heuristic: ["Scheduling of Vehicles from a Central Depot to a Number of Delivery Points"](https://doi.org/10.1287/opre.12.4.568), *Operations Research* 12(4), 1964.
 - VROOM: [VROOM project](https://github.com/VROOM-Project/vroom), BSD-2-Clause.
-- Command validation by a single writer: Martin Fowler, ["CQRS"](https://martinfowler.com/bliki/CQRS.html) (2011).
+- Command validation by a single writer: ["CQRS"](https://martinfowler.com/bliki/CQRS.html) (bliki, 2011).

@@ -492,7 +492,7 @@ Every boundary that can repeat a message has a key and a table.
 |---|---|---|---|
 | HTTP command | `Idempotency-Key` header, a ULID, required on every POST | the target object's `commands_seen`, with the stored result; creation keys in `Control`, checked at admission | the stored result again, with `Idempotent-Replayed: true`; a reused key with a different body gets 422 problem+json |
 | Socket command | the `cmd` frame's ULID `id` | the Kitchen's last 64 ids, then the Order's `commands_seen` | `ack` again, as in the site's protocol v1 |
-| Call to Stripe | Stripe's `Idempotency-Key` header, always led by the sandbox id: `<sandbox>:<ref>:<purpose>:<n>` to create an intent, and the purpose suffixed with the call for the others: `<sandbox>:<ref>:<purpose>-confirm:<n>`, `-cancel:<n>`, `-refund:<ordinal>` (`n` is the payment's attempt, `ordinal` the refund's), and for a balance invoice `<sandbox>:<catering>:balance-invoice:<n>` with `:item` and `:finalize` added for the invoice's two other calls, `balance-void:<n>` and `balance-pay:<n>`; a persona's Stripe customer is `<sandbox>:<persona>:customer`, and deleting one carries no key | Stripe | Stripe returns the first result[^brandur]; a key reused on a different body gets 400 `idempotency_error` ([Stripe](https://docs.stripe.com/api/idempotent_requests), as of 2026-11-05), which is why no two calls share one |
+| Call to Stripe | Stripe's `Idempotency-Key` header, always led by the sandbox id: `<sandbox>:<ref>:<purpose>:<n>` to create an intent, and the purpose suffixed with the call for the others: `<sandbox>:<ref>:<purpose>-confirm:<n>`, `-cancel:<n>`, `-refund:<ordinal>` (`n` is the payment's attempt, `ordinal` the refund's), and for a balance invoice `<sandbox>:<catering>:balance-invoice:<n>` with `:item` and `:finalize` added for the invoice's two other calls, `balance-void:<n>` and `balance-pay:<n>`; a persona's Stripe customer is `<sandbox>:<persona>:customer`, and deleting one carries no key | Stripe | Stripe returns the first result[^idemkeys]; a key reused on a different body gets 400 `idempotency_error` ([Stripe](https://docs.stripe.com/api/idempotent_requests), as of 2026-11-05), which is why no two calls share one |
 | Stripe webhook | the Stripe event id | Billing's `webhooks_seen`, a set the aggregate folds from its own events, so the id and the state change are one write; there is no separate table (as built, 2026-11-09) | 200, no effect |
 | Queue delivery | the envelope's `id` | each subscriber's `seen` | ack, no effect |
 | Alarm | the `timers` row id | the object's `timers` | the row is gone, so nothing runs |
@@ -642,13 +642,13 @@ Why so little: free text is where personal data arrives uninvited. A list cannot
 
 ## Patterns and further reading
 
-- Ubiquitous language and aggregates: Eric Evans, [*Domain-Driven Design Reference*](https://domainlanguage.com/wp-content/uploads/2016/05/DDD_Reference_2015-03.pdf) (2015).
-- Aggregate design (small aggregates, reference by id, eventual consistency between them): Vaughn Vernon, ["Effective Aggregate Design"](https://www.dddcommunity.org/library/vernon_2011/) (2011).
-- Event sourcing: Martin Fowler, ["Event Sourcing"](https://martinfowler.com/eaaDev/EventSourcing.html) (2005).
-- CQRS: Martin Fowler, ["CQRS"](https://martinfowler.com/bliki/CQRS.html) (2011).
-- Idempotence: Pat Helland, ["Idempotence Is Not a Medical Condition"](https://queue.acm.org/detail.cfm?id=2187821) (ACM Queue, 2012).
-- Derived data: Martin Kleppmann, [*Designing Data-Intensive Applications*](https://dataintensive.net/), Part III, "Derived Data".
+- Ubiquitous language and aggregates: [*Domain-Driven Design Reference*](https://domainlanguage.com/wp-content/uploads/2016/05/DDD_Reference_2015-03.pdf) (reference, 2015).
+- Aggregate design (small aggregates, reference by id, eventual consistency between them): ["Effective Aggregate Design"](https://www.dddcommunity.org/library/vernon_2011/) (article, 2011).
+- Event sourcing: ["Event Sourcing"](https://martinfowler.com/eaaDev/EventSourcing.html) (enterprise application architecture catalog, 2005).
+- CQRS: ["CQRS"](https://martinfowler.com/bliki/CQRS.html) (bliki, 2011).
+- Idempotence: ["Idempotence Is Not a Medical Condition"](https://queue.acm.org/detail.cfm?id=2187821) (ACM Queue, 2012).
+- Derived data: [*Designing Data-Intensive Applications*](https://dataintensive.net/) (book, 2017), Part III, "Derived Data".
 
 [^dolimits]: A row, string or blob up to 2 MB; 100 columns; 100 bound parameters: [Durable Objects limits](https://developers.cloudflare.com/durable-objects/platform/limits/). As of 2026-11-04.
 [^ulid]: [ULID specification](https://github.com/ulid/spec): 48 bits of millisecond time and 80 random bits, Crockford base32. As of 2026-11-04.
-[^brandur]: Stripe's idempotency keys: [Stripe API, idempotent requests](https://docs.stripe.com/api/idempotent_requests); the design behind them: Brandur Leach, ["Implementing Stripe-like Idempotency Keys in Postgres"](https://brandur.org/idempotency-keys). As of 2026-11-04.
+[^idemkeys]: Stripe's idempotency keys: [Stripe API, idempotent requests](https://docs.stripe.com/api/idempotent_requests); the design behind them: ["Implementing Stripe-like Idempotency Keys in Postgres"](https://brandur.org/idempotency-keys) (blog, 2017). As of 2026-11-04.

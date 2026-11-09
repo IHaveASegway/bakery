@@ -436,7 +436,7 @@ The site's calendar totals about 117 minutes a month before its lab ([site opera
 
 ## Patterns and further reading
 
-- Runbooks for use under stress, and blameless notes: Betsy Beyer et al., *Site Reliability Engineering* (2016), chapters 12 and 15.
-- Alerts that need an action: Rob Ewaschuk, "My Philosophy on Alerting" (2013). Black-box monitoring from a separate failure domain: *Site Reliability Engineering*, chapter 6.
-- Breakers, bulkheads and a last-resort kill switch: Michael Nygard, *Release It* (2018).
-- Resumable, idempotent batch work: Pat Helland, "Idempotence Is Not a Medical Condition" (2012).
+- Runbooks for use under stress, and blameless notes: *Site Reliability Engineering* (book, 2016), chapters 12 and 15.
+- Alerts that need an action: "My Philosophy on Alerting" (essay, 2013). Black-box monitoring from a separate failure domain: *Site Reliability Engineering*, chapter 6.
+- Breakers, bulkheads and a last-resort kill switch: *Release It!*, 2nd ed. (book, 2018).
+- Resumable, idempotent batch work: "Idempotence Is Not a Medical Condition" (ACM Queue, 2012).

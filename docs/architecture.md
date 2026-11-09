@@ -722,23 +722,23 @@ Two shared resources: the account's bill on Paid, which has no spend cap,[^prici
 - **[How Cloudflare built Queues](https://blog.cloudflare.com/how-we-built-cloudflare-queues/):** a queue whose storage is DOs; the outbox relays from one DO into it.
 - **[Figma's multiplayer](https://www.figma.com/blog/how-figmas-multiplayer-technology-works/):** one authority per document; the board's snapshot on join follows it.
 - **[Orleans](https://www.microsoft.com/en-us/research/publication/orleans-distributed-virtual-actors-for-programmability-and-scalability/):** actors that exist by name and activate on demand.
-- **[Brandur Leach, "Implementing Stripe-like Idempotency Keys in Postgres"](https://brandur.org/idempotency-keys) (2017):** `commands_seen` is the same idea in an object.
+- **["Implementing Stripe-like Idempotency Keys in Postgres"](https://brandur.org/idempotency-keys) (blog, 2017):** `commands_seen` is the same idea in an object.
 - **[The site's lab design](https://github.com/IHaveASegway/website/blob/main/docs/lab.md):** the DO rules, admission layers, protocol v1 and the nightly object check restated here.
 
 ## Patterns and further reading
 
-- Bulkhead: Michael Nygard, [*Release It!*, 2nd ed.](https://pragprog.com/titles/mnee2/release-it-second-edition/), ch. 5.
-- C4 model: Simon Brown, [c4model.com](https://c4model.com/).
-- Virtual actor: Bernstein et al., ["Orleans: Distributed Virtual Actors"](https://www.microsoft.com/en-us/research/publication/orleans-distributed-virtual-actors-for-programmability-and-scalability/) (2014).
-- Transactional outbox: Chris Richardson, ["Pattern: Transactional outbox"](https://microservices.io/patterns/data/transactional-outbox.html).
-- Idempotent consumer: Chris Richardson, ["Pattern: Idempotent Consumer"](https://microservices.io/patterns/communication-style/idempotent-consumer.html).
-- Saga: Hector Garcia-Molina and Kenneth Salem, ["Sagas"](https://www.cs.cornell.edu/andru/cs711/2002fa/reading/sagas.pdf) (SIGMOD 1987).
-- CQRS: Martin Fowler, ["CQRS"](https://martinfowler.com/bliki/CQRS.html) (2011).
-- Event sourcing: Martin Fowler, ["Event Sourcing"](https://martinfowler.com/eaaDev/EventSourcing.html) (2005).
-- Lease and TTL: Cary Gray and David Cheriton, ["Leases"](https://dl.acm.org/doi/10.1145/74850.74870) (SOSP 1989).
-- Admission control: Google, [*Site Reliability Engineering*, ch. 21, "Handling Overload"](https://sre.google/sre-book/handling-overload/).
-- Single writer: Martin Thompson, ["Single Writer Principle"](https://mechanical-sympathy.blogspot.com/2011/09/single-writer-principle.html) (2011).
-- Client-side composition: Cam Jackson, ["Micro Frontends"](https://martinfowler.com/articles/micro-frontends.html) (2019), "Run-time integration via JavaScript".
+- Bulkhead: [*Release It!*, 2nd ed.](https://pragprog.com/titles/mnee2/release-it-second-edition/), ch. 5.
+- C4 model: [The C4 model](https://c4model.com/) (c4model.com).
+- Virtual actor: ["Orleans: Distributed Virtual Actors"](https://www.microsoft.com/en-us/research/publication/orleans-distributed-virtual-actors-for-programmability-and-scalability/) (Microsoft Research, 2014).
+- Transactional outbox: ["Pattern: Transactional outbox"](https://microservices.io/patterns/data/transactional-outbox.html) (microservices.io).
+- Idempotent consumer: ["Pattern: Idempotent Consumer"](https://microservices.io/patterns/communication-style/idempotent-consumer.html) (microservices.io).
+- Saga: ["Sagas"](https://www.cs.cornell.edu/andru/cs711/2002fa/reading/sagas.pdf) (SIGMOD 1987).
+- CQRS: ["CQRS"](https://martinfowler.com/bliki/CQRS.html) (bliki, 2011).
+- Event sourcing: ["Event Sourcing"](https://martinfowler.com/eaaDev/EventSourcing.html) (enterprise application architecture catalog, 2005).
+- Lease and TTL: ["Leases"](https://dl.acm.org/doi/10.1145/74850.74870) (SOSP 1989).
+- Admission control: [*Site Reliability Engineering*, ch. 21, "Handling Overload"](https://sre.google/sre-book/handling-overload/).
+- Single writer: ["Single Writer Principle"](https://mechanical-sympathy.blogspot.com/2011/09/single-writer-principle.html) (Mechanical Sympathy blog, 2011).
+- Client-side composition: ["Micro Frontends"](https://martinfowler.com/articles/micro-frontends.html) (article, 2019), "Run-time integration via JavaScript".
 
 [^assets]: Free, unlimited, never invoke the Worker: [static assets billing](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/). As of 2026-11-04.
 [^pricing]: Paid: $5 a month minimum, 10M requests then $0.30 per million, 30M CPU-ms then $0.02 per million, no spend cap: [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/). As of 2026-11-04.

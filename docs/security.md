@@ -373,7 +373,7 @@ The bakery lives in the site's Cloudflare account (Q29 · Q-account), so the sit
 
 ## Patterns and further reading
 
-- Complete mediation, least privilege, fail-safe defaults (checks on every request; restricted keys; objects that refuse): Saltzer and Schroeder, ["The Protection of Information in Computer Systems"](https://web.mit.edu/Saltzer/www/publications/protection/Basic.html) (1975).
+- Complete mediation, least privilege, fail-safe defaults (checks on every request; restricted keys; objects that refuse): ["The Protection of Information in Computer Systems"](https://web.mit.edu/Saltzer/www/publications/protection/Basic.html) (Proceedings of the IEEE, 1975).
 - WebSockets: [OWASP WebSocket Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/WebSocket_Security_Cheat_Sheet.html).
 - Sessions: [OWASP Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html).
 - CSRF: [OWASP CSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html).

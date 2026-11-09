@@ -54,7 +54,7 @@ The ADR lifecycle (proposing, accepting, superseding) is itself a decision, [ADR
 - **A doc.** Edit it in a PR. Each topic has one owning doc (the table above), and other docs link to it rather than repeat it. Change the owner, not a copy.
 - **A Proposed ADR.** Edit it in a PR. Nothing is built on it yet, so rewriting it is cheap.
 - **An Accepted ADR.** Leave the decision as written. To change it, write a new ADR with the next number, explain in its Context what changed, and set the old one's status to `Superseded by NNNN`. When practice drifts without the decision changing, append a dated postscript instead. A later reader needs to see what was believed and why it changed, not only the current answer.
-- **Door and Revisit if.** Every ADR carries both fields (the format is in [adr/README.md](adr/README.md), after Michael Nygard). **Door** says whether the decision is one-way, expensive or impossible to undo (a shared URL, a public repository, a Durable Object class name), or two-way, reversed by a PR. **Revisit if** names the evidence that would show the decision was wrong. When that evidence appears, the decision is reopened, never quietly edited.
+- **Door and Revisit if.** Every ADR carries both fields (the format is in [adr/README.md](adr/README.md), after "Documenting Architecture Decisions"). **Door** says whether the decision is one-way, expensive or impossible to undo (a shared URL, a public repository, a Durable Object class name), or two-way, reversed by a PR. **Revisit if** names the evidence that would show the decision was wrong. When that evidence appears, the decision is reopened, never quietly edited.
 - **An open question.** Joseph answers with the question number and the option letter, in the review or in an issue. The answer moves to Decided in product.md, which records the option, the date and what ships. A one-way answer also gets an ADR.
 - **One PR in flight.** The roadmap's limit counts doc PRs too, so a decision change rides in the PR that needs it. It is relaxed for agent-built branches ([roadmap.md](roadmap.md#how-we-work), Q36 · Q-process).
 
@@ -75,9 +75,9 @@ The [site's docs](https://github.com/IHaveASegway/website/tree/main/docs) own th
 
 ## Patterns and further reading
 
-- Architecture decision records: Michael Nygard, "Documenting Architecture Decisions" (2011).
-- One-way and two-way doors: Jeff Bezos, 2015 letter to Amazon shareholders (Type 1 and Type 2 decisions).
-- Goals, non-goals and alternatives considered: Malte Ubl, "Design Docs at Google" (2020).
-- One owner per fact, applied to docs: Martin Kleppmann, *Designing Data-Intensive Applications*, Part III, "Systems of Record and Derived Data".
-- Ubiquitous language and bounded contexts: Eric Evans, *Domain-Driven Design* (2003), Part IV, "Strategic Design".
-- Docs next to code: Daniele Procida, ["Diátaxis"](https://diataxis.fr/), for why these docs separate explanation from reference.
+- Architecture decision records: "Documenting Architecture Decisions" (blog, 2011).
+- One-way and two-way doors: Amazon's 2015 letter to shareholders (Type 1 and Type 2 decisions).
+- Goals, non-goals and alternatives considered: "Design Docs at Google" (Industrial Empathy, 2020).
+- One owner per fact, applied to docs: *Designing Data-Intensive Applications* (book, 2017), Part III, "Systems of Record and Derived Data".
+- Ubiquitous language and bounded contexts: *Domain-Driven Design* (book, 2003), Part IV, "Strategic Design".
+- Docs next to code: ["Diátaxis"](https://diataxis.fr/) (diataxis.fr), for why these docs separate explanation from reference.

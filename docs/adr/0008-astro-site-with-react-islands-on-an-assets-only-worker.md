@@ -80,5 +80,5 @@ Decided on 2026-11-09 by the session, under Joseph's delegation of the same day;
 
 ## Patterns and further reading
 
-- Islands architecture: Jason Miller, ["Islands Architecture"](https://jasonformat.com/islands-architecture/) (2020).
+- Islands architecture: ["Islands Architecture"](https://jasonformat.com/islands-architecture/) (blog, 2020).
 - Static-first delivery and its cost arithmetic: [the site's ADR 0002](https://github.com/IHaveASegway/website/blob/main/docs/adr/0002-host-on-workers-static-assets.md) and [the site's cost.md](https://github.com/IHaveASegway/website/blob/main/docs/cost.md).

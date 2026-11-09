@@ -333,7 +333,7 @@ The site's checklist, applied in the launch pull request (PR 11) on launch day, 
 
 Written on 2026-11-06, when the breaker was built and proven only against `scripts/fake-cloudflare.mjs`. Each item is unconfirmed until the launch checklist's forced trip, or the first real run, answers it:
 
-- **Two field names.** `rowsWritten` and `duration` in `durableObjectsPeriodicGroups` come from a third-party schema dump ([johnspurlock's Cloudflare GraphQL schema docs](https://pages.johnspurlock.com/graphql-schema-docs/cloudflare.html), read 2026-11-06; not Cloudflare's own page, which documents only `cpuTime` for that dataset and points to introspection). A GraphQL validation error marks both meters unread (`breaker_meter_unread`, reason `graphql`) and the other three still count. Also whether that dataset answers for the slot just ended or lags (a Cloudflare Community thread of 2026-10-28 reports empty answers for the current day; seen in a search result, not read).
+- **Two field names.** `rowsWritten` and `duration` in `durableObjectsPeriodicGroups` come from a third-party schema dump ([a Cloudflare GraphQL schema reference](https://pages.johnspurlock.com/graphql-schema-docs/cloudflare.html), generated from introspection and hosted outside Cloudflare, read 2026-11-06; not Cloudflare's own page, which documents only `cpuTime` for that dataset and points to introspection). A GraphQL validation error marks both meters unread (`breaker_meter_unread`, reason `graphql`) and the other three still count. Also whether that dataset answers for the slot just ended or lags (a Cloudflare Community thread of 2026-10-28 reports empty answers for the current day; seen in a search result, not read).
 - **The token's permission names.** "Account Analytics Read" and "Zone WAF Edit", from the [permissions reference](https://developers.cloudflare.com/fundamentals/api/reference/permissions/) (read 2026-11-06), which lists "Zone WAF Write" in a second table; and whether the GET of the zone's custom-rules entry point needs only that permission or "Zone WAF Read" too.
 - **The rule PATCH's body.** The [update-rule page](https://developers.cloudflare.com/ruleset-engine/rulesets-api/update-rule/) (read 2026-11-06) says to include "all the rule fields" wanted in the new definition, so the breaker sends the rule's action, expression and description with `enabled: true`. Whether `enabled` alone would do is not tested.
 
@@ -363,7 +363,7 @@ The site's list holds ([site cost.md](https://github.com/IHaveASegway/website/bl
 
 ## Denial of wallet
 
-Denial of wallet is an attack on the bill rather than on availability. Kelly, Glavin and Barrett (2021) define it as "forced financial exhaustion" of a serverless account: the platform absorbs the load and sends the invoice. Cloudflare recommends capping CPU per invocation "to prevent accidental runaway bills or denial-of-wallet attacks" ([Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)). On Free it turns back into a denial of service. On Paid there is no ceiling, only the guardrails, and an attacker aims at the meters that cost most per request: sandbox creation ($14.44 an hour unguarded, scenario C), sockets held open on the standard API (1,000 for 72 h cost $412.50, the site's scenario D3; here, hibernation only and 4 per sandbox), alarms ($15.88 an hour per looping object) and Queue re-enqueueing ($11.56–$47.56 an hour per consumer, scenario D).
+Denial of wallet is an attack on the bill rather than on availability. "Denial of Wallet: Defining a Looming Threat to Serverless Computing" (arXiv, 2021) defines it as "forced financial exhaustion" of a serverless account: the platform absorbs the load and sends the invoice. Cloudflare recommends capping CPU per invocation "to prevent accidental runaway bills or denial-of-wallet attacks" ([Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)). On Free it turns back into a denial of service. On Paid there is no ceiling, only the guardrails, and an attacker aims at the meters that cost most per request: sandbox creation ($14.44 an hour unguarded, scenario C), sockets held open on the standard API (1,000 for 72 h cost $412.50, the site's scenario D3; here, hibernation only and 4 per sandbox), alarms ($15.88 an hour per looping object) and Queue re-enqueueing ($11.56–$47.56 an hour per consumer, scenario D).
 
 The author's own code is the likelier culprit. In both five-figure Cloudflare bills reported in 2026, it was the cause or the multiplier:
 
@@ -375,10 +375,10 @@ Both reports rest on the developers' own posts. The bakery holds both shapes, al
 ## Patterns and further reading
 
 - Bulkhead (pages and the API on separate meters): Microsoft Azure Architecture Center, ["Bulkhead pattern"](https://learn.microsoft.com/en-us/azure/architecture/patterns/bulkhead).
-- Admission control and load shedding (Turnstile, the cookie, `Control`): Google, *Site Reliability Engineering*, chapter 21, "Handling Overload".
-- Circuit breaker (the cron breaker, the WAF kill rule): Martin Fowler, ["CircuitBreaker"](https://martinfowler.com/bliki/CircuitBreaker.html).
-- Lease and TTL (the wipe, the 36 h backstop): Gray and Cheriton, "Leases" (SOSP 1989).
-- Fail-safe default (`Control` errors refuse a sandbox): Saltzer and Schroeder, ["The Protection of Information in Computer Systems"](https://web.mit.edu/Saltzer/www/publications/protection/Basic.html) (1975).
-- Transactional outbox and idempotent consumer: Chris Richardson, [microservices.io](https://microservices.io/patterns/data/transactional-outbox.html).
-- Fitness function (CI's checks on `limits.cpu_ms`, KV and timers): Ford, Parsons, Kua and Sadalage, *Building Evolutionary Architectures*, 2nd ed., chapter 2.
-- Denial of wallet: Kelly, Glavin and Barrett, ["Denial of Wallet—Defining a Looming Threat to Serverless Computing"](https://arxiv.org/abs/2104.08031) (2021).
+- Admission control and load shedding (Turnstile, the cookie, `Control`): *Site Reliability Engineering* (book, 2016), chapter 21, "Handling Overload".
+- Circuit breaker (the cron breaker, the WAF kill rule): ["CircuitBreaker"](https://martinfowler.com/bliki/CircuitBreaker.html) (bliki, 2014).
+- Lease and TTL (the wipe, the 36 h backstop): "Leases" (SOSP 1989).
+- Fail-safe default (`Control` errors refuse a sandbox): ["The Protection of Information in Computer Systems"](https://web.mit.edu/Saltzer/www/publications/protection/Basic.html) (Proceedings of the IEEE, 1975).
+- Transactional outbox and idempotent consumer: ["Pattern: Transactional outbox"](https://microservices.io/patterns/data/transactional-outbox.html) (microservices.io).
+- Fitness function (CI's checks on `limits.cpu_ms`, KV and timers): *Building Evolutionary Architectures*, 2nd ed. (book, 2022), chapter 2.
+- Denial of wallet: ["Denial of Wallet: Defining a Looming Threat to Serverless Computing"](https://arxiv.org/abs/2104.08031) (arXiv, 2021).

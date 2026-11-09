@@ -1,6 +1,6 @@
 # Architecture decision records
 
-One file per decision that is hard to reverse, or that a reviewer would ask about. The made-up bakery, Proof of Concept Bakery, is a running ordering, scheduling, catering, billing and CRM system, with every backend in Rust on Cloudflare Workers and its state in a Durable Object (DO) per aggregate; these records say why it is built that way. Format after Michael Nygard, "Documenting Architecture Decisions" (2011), plus two fields: **Door** (one-way or two-way, and why) and **Revisit if** (the evidence that would show the decision was wrong). This repository is public from its first push, so every record is written to be public-safe, and sensitive inputs (such as the content firewall's terms) never appear in one.
+One file per decision that is hard to reverse, or that a reviewer would ask about. The made-up bakery, Proof of Concept Bakery, is a running ordering, scheduling, catering, billing and CRM system, with every backend in Rust on Cloudflare Workers and its state in a Durable Object (DO) per aggregate; these records say why it is built that way. Format after "Documenting Architecture Decisions" (blog, 2011), plus two fields: **Door** (one-way or two-way, and why) and **Revisit if** (the evidence that would show the decision was wrong). This repository is public from its first push, so every record is written to be public-safe, and sensitive inputs (such as the content firewall's terms) never appear in one.
 
 Status: Draft for review in PR 1 · 2026-11-04; all thirteen Accepted by delegation on 2026-11-09
 
@@ -56,7 +56,7 @@ Context carries dated, sourced facts: every price, limit and version says "as of
 
 ## Patterns and further reading
 
-- Architecture decision records: Michael Nygard, ["Documenting Architecture Decisions"](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions) (2011).
-- One-way and two-way doors: Jeff Bezos, [2015 letter to Amazon shareholders](https://s2.q4cdn.com/299287126/files/doc_financials/annual/2015-Letter-to-Shareholders.PDF) (Type 1 and Type 2 decisions).
+- Architecture decision records: ["Documenting Architecture Decisions"](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions) (blog, 2011).
+- One-way and two-way doors: [Amazon's 2015 letter to shareholders](https://s2.q4cdn.com/299287126/files/doc_financials/annual/2015-Letter-to-Shareholders.PDF) (Type 1 and Type 2 decisions).
 - MADR, the main alternative format, and why it is not used here: [ADR 0001](0001-record-architecture-decisions.md).
 - The site's records, which this set follows and sometimes departs from: [the site's ADR index](https://github.com/IHaveASegway/website/blob/main/docs/adr/README.md).

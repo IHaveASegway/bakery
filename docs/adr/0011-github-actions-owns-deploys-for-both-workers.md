@@ -81,5 +81,5 @@ As built, 2026-11-09: stage 1's own check is health and CORS, and `prod-smoke` r
 
 ## Patterns and further reading
 
-- Deployment pipeline and build once: Jez Humble and David Farley, *Continuous Delivery* (2010), [continuousdelivery.com](https://continuousdelivery.com/).
-- Expand and contract for schema changes: Martin Fowler, ["Parallel Change"](https://martinfowler.com/bliki/ParallelChange.html) (2014).
+- Deployment pipeline and build once: *Continuous Delivery* (book, 2010), [continuousdelivery.com](https://continuousdelivery.com/).
+- Expand and contract for schema changes: ["Parallel Change"](https://martinfowler.com/bliki/ParallelChange.html) (bliki, 2014).

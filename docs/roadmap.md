@@ -856,15 +856,15 @@ S1, S2 and S6 ran inside PR 2, and S5 moved to launch. S3 runs before PR 5, S7 a
 
 ## Patterns and further reading
 
-- WIP limits, small batches and Little's law: Donald Reinertsen, *The Principles of Product Development Flow* (2009), chapters 3, 5 and 6.
-- The last responsible moment: Mary and Tom Poppendieck, *Lean Software Development* (2003), chapter 3.
-- The walking skeleton: Steve Freeman and Nat Pryce, *Growing Object-Oriented Software, Guided by Tests* (2009), chapter 4.
-- The planning fallacy and the outside view: Bent Flyvbjerg, "From Nobel Prize to Project Management: Getting Risks Right" (2006).
-- One-way and two-way doors: Jeff Bezos, 2015 letter to Amazon shareholders.
-- Fitness functions: Neal Ford, Rebecca Parsons and Patrick Kua, *Building Evolutionary Architectures* (2017).
-- The transactional outbox and idempotent receiver: Gregor Hohpe and Bobby Woolf, *Enterprise Integration Patterns* (2003); Chris Richardson, *Microservices Patterns* (2018), chapter 3.
-- Sagas: Hector Garcia-Molina and Kenneth Salem, "Sagas" (1987).
-- Aggregates that cannot span a transaction: Pat Helland, "Life beyond Distributed Transactions" (2007).
-- CQRS and event sourcing: Greg Young, "CQRS Documents" (2010).
-- The savings heuristic: G. Clarke and J. W. Wright, "Scheduling of Vehicles from a Central Depot to a Number of Delivery Points" (1964).
-- Bulkheads and breakers: Michael Nygard, *Release It* (2018). The site's other sources: its [reading list](https://github.com/IHaveASegway/website/blob/main/docs/reading-list.md).
+- WIP limits, small batches and Little's law: *The Principles of Product Development Flow* (book, 2009), chapters 3, 5 and 6.
+- The last responsible moment: *Lean Software Development* (book, 2003), chapter 3.
+- The walking skeleton: *Growing Object-Oriented Software, Guided by Tests* (book, 2009), chapter 4.
+- The planning fallacy and the outside view: "From Nobel Prize to Project Management: Getting Risks Right" (Project Management Journal, 2006).
+- One-way and two-way doors: Amazon's 2015 letter to shareholders.
+- Fitness functions: *Building Evolutionary Architectures* (book, 2017).
+- The transactional outbox and idempotent receiver: *Enterprise Integration Patterns* (book, 2003); *Microservices Patterns* (book, 2018), chapter 3.
+- Sagas: "Sagas" (SIGMOD 1987).
+- Aggregates that cannot span a transaction: "Life beyond Distributed Transactions" (CIDR 2007).
+- CQRS and event sourcing: "CQRS Documents" (self-published, 2010).
+- The savings heuristic: "Scheduling of Vehicles from a Central Depot to a Number of Delivery Points" (*Operations Research*, 1964).
+- Bulkheads and breakers: *Release It!*, 2nd ed. (book, 2018). The site's other sources: its [reading list](https://github.com/IHaveASegway/website/blob/main/docs/reading-list.md).

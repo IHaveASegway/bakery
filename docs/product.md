@@ -232,9 +232,9 @@ Answers move here with the date, the option, what ships, the door and the eviden
 
 ## Patterns and further reading
 
-- Design docs with goals, non-goals and alternatives: Malte Ubl, ["Design Docs at Google"](https://www.industrialempathy.com/posts/design-docs-at-google/) (2020).
-- One-way and two-way doors: Jeff Bezos, [2015 letter to Amazon shareholders](https://s2.q4cdn.com/299287126/files/doc_financials/annual/2015-Letter-to-Shareholders.PDF).
-- The last responsible moment: Mary and Tom Poppendieck, *Lean Software Development* (2003).
+- Design docs with goals, non-goals and alternatives: ["Design Docs at Google"](https://www.industrialempathy.com/posts/design-docs-at-google/) (Industrial Empathy, 2020).
+- One-way and two-way doors: [Amazon's 2015 letter to shareholders](https://s2.q4cdn.com/299287126/files/doc_financials/annual/2015-Letter-to-Shareholders.PDF).
+- The last responsible moment: *Lean Software Development* (book, 2003).
 - The mosaic effect: [OMB M-13-13](https://obamawhitehouse.archives.gov/sites/default/files/omb/memoranda/2013/m-13-13.pdf) (2013).
-- Privacy by design: Ann Cavoukian, ["Privacy by Design: The 7 Foundational Principles"](https://www.ipc.on.ca/wp-content/uploads/resources/7foundationalprinciples.pdf) (2009).
+- Privacy by design: ["Privacy by Design: The 7 Foundational Principles"](https://www.ipc.on.ca/wp-content/uploads/resources/7foundationalprinciples.pdf) (Information and Privacy Commissioner of Ontario, 2009).
 - Every pattern named across these docs: each doc's own "Patterns and further reading", and the site's [reading-list.md](https://github.com/IHaveASegway/website/blob/main/docs/reading-list.md).
