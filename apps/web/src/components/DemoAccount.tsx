@@ -137,7 +137,8 @@ function SignIn() {
   const [error, setError] = useState<Text | null>(null);
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
-  // Before hydration a press would submit the form natively, password and all, to this page.
+  // Before hydration a press would submit the form natively. The fields carry no name, so nothing
+  // would be sent, but the page would load again and what was typed would be lost.
   const mounted = useMounted();
   useKeepTyped([
     [usernameRef, setUsername],
