@@ -1012,6 +1012,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn an_order_pays_the_rate_it_was_placed_with() {
+        let (cmd, now) = (
+            {
+                let mut p = place(OrderKind::Pickup, &[("fern-loaf/whole", 2)]);
+                p.tax_bp = 850;
+                placed_cmd(p)
+            },
+            NOW,
+        );
+        let state = step(OrderState::default(), cmd, now).unwrap();
+        let text = serde_json::to_value(&state).unwrap().to_string();
+        // 2 x 950 = 1,900 cents; 8.50% of it is 161.5, rounded half-up to 162.
+        assert!(text.contains("\"subtotal_cents\":1900"), "{text}");
+        assert!(text.contains("\"tax_cents\":162"), "{text}");
+        assert!(text.contains("\"total_cents\":2062"), "{text}");
+    }
+
     fn placed_cmd(p: PlaceOrder) -> OrderCommand {
         OrderCommand::PlaceOrder(Box::new(p))
     }

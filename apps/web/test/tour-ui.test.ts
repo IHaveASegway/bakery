@@ -219,6 +219,7 @@ describe('the console tour', () => {
       'controls-traffic',
       'controls-menu',
       'controls-menu',
+      'controls-tax',
       'controls-capacity',
       ...Array<string>(5).fill('crm-catering-queue'),
       'crm-customers',

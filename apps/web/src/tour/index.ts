@@ -24,6 +24,7 @@ export const CONSOLE_ORDER = [
   'controls-traffic-stop',
   'controls-menu-edit',
   'controls-menu-publish',
+  'controls-menu-tax',
   'controls-capacity',
   'crm-quote',
   'crm-decline',

@@ -31,6 +31,7 @@ import type {
   MenuEditResponse,
   MenuItemPatch,
   MenuResponse,
+  TaxRateRequest,
   LedgerResponse,
   MessageKind,
   MessageResponse,
@@ -239,6 +240,11 @@ export const patchMenuItem = (id: string, slug: string, patch: MenuItemPatch) =>
   });
 export const publishMenu = (id: string) =>
   request<MenuEditResponse>('POST', `${sandboxPath(id)}/menu/publish`);
+/** `PATCH /v1/sandboxes/{id}/menu/tax-rate`: the rate in basis points, published at once. */
+export const setTaxRate = (id: string, taxBp: number) =>
+  request<MenuEditResponse>('PATCH', `${sandboxPath(id)}/menu/tax-rate`, {
+    body: { tax_bp: taxBp } satisfies TaxRateRequest,
+  });
 /** `GET /v1/sandboxes/{id}/menu/drafts`: the draft copy of every item waiting for Publish. */
 export const getMenuDrafts = (id: string) =>
   request<MenuDraftsResponse>('GET', `${sandboxPath(id)}/menu/drafts`);

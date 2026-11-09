@@ -6,14 +6,13 @@
 //! scanning rather than a regex crate: the patterns are four sentences long, and a regex engine
 //! would be the largest thing in a crate that is meant to stay small.
 //!
-//! The doc says characters are counted after NFC normalization. NFC needs Unicode tables this
-//! crate does not carry, so it lands in a later PR; [`normalize`] does the one rule that needs no
-//! tables, removing control characters other than a newline, and the length caps of 140 and 500
-//! characters ([`check_note`], [`check_brief`]) count Unicode scalar values after it. Until NFC
-//! arrives, a decomposed accent counts as two characters, so a note can only be refused early,
-//! never let through long. Digits written as full-width forms are treated as
-//! digits here, since NFC would not fold them and a phone number in full-width digits is still a
-//! phone number.
+//! [`normalize`] removes control characters other than a newline, then applies NFC, as the doc
+//! says, and the length caps of 140 and 500 characters ([`check_note`], [`check_brief`]) count
+//! Unicode scalar values after it. So an "e" followed by a combining acute is one character,
+//! the same as the precomposed U+00E9. The NFC tables are icu_normalizer's compiled data, which
+//! the Worker already carries for url's IDNA support. Digits written as full-width forms are
+//! treated as digits here, since NFC does not fold them and a phone number in full-width digits
+//! is still a phone number.
 //!
 //! The checker names a class and never echoes the text, so a caller can put the class in a 422
 //! problem and nothing the visitor typed reaches a log.
@@ -94,12 +93,17 @@ fn check_capped(text: &str, max: usize) -> Result<String, FreeTextError> {
     Ok(normalized)
 }
 
-/// Removes control characters other than a newline. A tab or a stray escape cannot then split
-/// the digits of a number and slip past the checker.
+/// Removes control characters other than a newline, then composes the rest to NFC. A tab or a
+/// stray escape cannot then split the digits of a number and slip past the checker, and a
+/// decomposed accent counts as the one character it reads as.
 pub fn normalize(text: &str) -> String {
-    text.chars()
+    let kept: String = text
+        .chars()
         .filter(|&c| c == '\n' || !c.is_control())
-        .collect()
+        .collect();
+    icu_normalizer::ComposingNormalizerBorrowed::new_nfc()
+        .normalize(&kept)
+        .into_owned()
 }
 
 /// `Ok` when `text` holds none of the four classes, else the first class found, checked in the
@@ -435,6 +439,51 @@ mod tests {
     fn free_text_errors_have_slugs() {
         assert_eq!(FreeTextError::TooLong { max: 140 }.slug(), "too-long");
         assert_eq!(FreeTextError::Class(FreeTextClass::Url).slug(), "url");
+    }
+
+    #[test]
+    fn normalize_composes_to_nfc() {
+        // "e" and a combining acute become the one precomposed character.
+        assert_eq!(normalize("cafe\u{301}"), "caf\u{e9}");
+        assert_eq!(normalize("e\u{301}").chars().count(), 1);
+        // A control character between the letter and its accent is removed first.
+        assert_eq!(normalize("e\u{7}\u{301}"), "\u{e9}");
+        // NFC leaves full-width digits alone, so they still read as digits.
+        assert_eq!(normalize("\u{FF15}"), "\u{FF15}");
+    }
+
+    #[test]
+    fn caps_count_after_nfc() {
+        let decomposed = "e\u{301}".repeat(NOTE_MAX_CHARS);
+        assert_eq!(decomposed.chars().count(), 2 * NOTE_MAX_CHARS);
+        assert_eq!(check_note(&decomposed), Ok("\u{e9}".repeat(NOTE_MAX_CHARS)));
+        assert_eq!(
+            check_note(&format!("{decomposed}e\u{301}")),
+            Err(FreeTextError::TooLong { max: 140 })
+        );
+        let brief = "e\u{301}".repeat(BRIEF_MAX_CHARS);
+        assert!(check_brief(&brief).is_ok());
+        assert!(check_brief(&format!("{brief}e")).is_err());
+    }
+
+    #[test]
+    fn nfc_text_still_meets_the_four_classes() {
+        assert_eq!(
+            check_note("cafe\u{301} 555 0100"),
+            Err(FreeTextError::Class(FreeTextClass::Phone))
+        );
+        assert_eq!(
+            check_note("see cafe\u{301}.com"),
+            Err(FreeTextError::Class(FreeTextClass::Url))
+        );
+        assert_eq!(
+            check_note("4242 4242 4242 4242 cre\u{300}me"),
+            Err(FreeTextError::Class(FreeTextClass::CardNumber))
+        );
+        assert_eq!(
+            check_note("Cre\u{300}me bru\u{302}le\u{301}e, please"),
+            Ok("Cr\u{e8}me br\u{fb}l\u{e9}e, please".to_owned())
+        );
     }
 
     #[test]

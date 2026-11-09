@@ -121,14 +121,14 @@ sequenceDiagram
   participant A as bakery-api
   participant G as Google
   B->>A: GET /v1/auth/google/start
-  A-->>B: 302; sets __Host-oauth (state, nonce, verifier, return path; signed; Lax; 10 min)
+  A-->>B: 302, sets __Host-oauth: state, nonce, verifier, return path (signed, Lax, 10 min)
   B->>G: scope=openid, code_challenge S256, state, nonce
   G-->>B: 302 to /v1/auth/google/callback?code&state
   B->>A: callback with __Host-oauth
   A->>G: code + verifier + client secret
   G-->>A: ID token
-  A->>A: validate; account id = HMAC(ACCOUNT_HMAC_KEY, sub)
-  A-->>B: 303 to bakery.ihaveasegway.com; sets __Host-session
+  A->>A: validate, then account id = HMAC(ACCOUNT_HMAC_KEY, sub)
+  A-->>B: 303 to bakery.ihaveasegway.com, sets __Host-session
 ```
 
 - **`__Host-oauth` is `Lax`** because Google's redirect back is a cross-site navigation, which a `Strict` cookie would miss. The `Strict` session cookie set on the way out is stored and sent from the first same-site call.
@@ -189,7 +189,7 @@ Signed-in sandboxes only (Q42 · Q-api-access, Q45 · Q-guest-scope). The consol
 - **The order of checks,** each cheap before the one that costs: (1) the request's shape: a token beside the `__Host-session` cookie is 400 `token` (reason `both`), a malformed `Authorization` header is 401 `token`, and a token on a route that takes the cookie only is 401 `token` (reason `cookie-only`); (2) the `Idempotency-Key`; (3) the signature, purpose and expiry, with no storage: 401 `token`, `purpose` or `expired`; (4) the token's `sbx` against the path's `{id}`, where a mismatch is the 404 of an id that names nothing; (5) the per-token rate limit; (6) the one `Sandbox` read, for its state (404 once gone, 410 `wiped` while the wipe runs) and its version. Every refusal's `detail` ends "The rule is <reason>." and never holds the token.
 - **Rate-limited per token** with its own Rate Limiting binding, `TOKEN_LIMIT` (namespace 1004), 60 requests a minute keyed by `tid:<tid>`, which is `COMMAND_LIMIT`'s rate; the 61st in a window is 429 `rate-limit` with `Retry-After: 60`. Every request a token makes counts, reads included, where the session's limit counts commands only: a token can leave the browser, so a leaked one is held to a request a second. The check runs before the `Sandbox` is read, so a flood never reaches the object, and a token's request spends nothing from `COMMAND_LIMIT`, so a token never slows the console's cookie (proven: the cookie kept getting 200 after the token's 61st).
 - **No `Origin` check, no CORS.** A request with a bearer token and no cookie skips the [Origin checks](#origin-checks): a browser never attaches a bearer token by itself, so CSRF does not apply, and `curl` sends no `Origin`. It also gets no CORS headers, not even when the storefront's `Origin` is sent, and `Authorization` stays out of `Access-Control-Allow-Headers`, so no web page can spend a visitor's token from a browser. A wipe made with a token sets no cookie.
-- **Where a token may not be used.** A token is refused with 401 `token` (reason `cookie-only`) on `/v1/session`, the sign-out, the kitchen socket, `issue-token` and `rotate-token`, so a token never mints its successor or rotates the owner's away. It is ignored on a public route. The Stripe webhook and the sign-in callbacks have their own checks. A guest gets 403 `guest-scope` on all three token routes. Of the 73 routes in the table, 58 accept a token (as of 2026-11-09, `apps/web/public/docs/api/openapi.json`; the menu drafts route of 2026-11-08 added one of each).
+- **Where a token may not be used.** A token is refused with 401 `token` (reason `cookie-only`) on `/v1/session`, the sign-out, the kitchen socket, `issue-token` and `rotate-token`, so a token never mints its successor or rotates the owner's away. It is ignored on a public route. The Stripe webhook and the sign-in callbacks have their own checks. A guest gets 403 `guest-scope` on all three token routes. Of the 74 routes in the table, 59 accept a token (as of 2026-11-09, `apps/web/public/docs/api/openapi.json`; the menu drafts route of 2026-11-08 and the tax rate's route of 2026-11-09 each added one of each).
 - **What is stored.** The `Sandbox` keeps the token version and, for the console, the last token's `tid`, its times and its masked form: the first 6 characters, an ellipsis and the last 4. Every token starts `eyJ2Ij`, so the masked form shows 24 bits of the MAC and nothing that can be replayed. The token itself is shown in one response and is in no row, event, log line or problem; the idempotency record keeps the claims, not the token, and a replay signs them again to the same bytes. The storefront holds the token in memory only, never in `localStorage`, `sessionStorage`, a cookie or a URL, and drops it when the panel unmounts.
 - **The log.** A log line for a token request holds the route, the status, a reason code and the `tid`, which the log accepts only as 32 lower-case hex characters, and never the token, the `Authorization` header or the query string. Proven on 2026-11-05: after `scripts/smoke-token.sh`, the Worker's log held each token's `tid` and no token and no `Bearer`.
 

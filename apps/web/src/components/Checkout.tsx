@@ -12,7 +12,8 @@ import {
   totals,
 } from '../lib/cart';
 import { type Message as Text } from '../lib/messages';
-import { dollars, DEFAULT_TAX_BP } from '../lib/money';
+import { taxBpOf } from '../lib/menu';
+import { dollars, taxPercent } from '../lib/money';
 import { describeOrderError } from '../lib/order-errors';
 import {
   HORIZON_DAYS,
@@ -72,7 +73,9 @@ export default function Checkout() {
     return () => clearInterval(timer);
   }, [offsetS]);
 
-  const sum = totals(cart.lines, menu.menu);
+  // The rate is the published menu's, so the preview matches what the Order will charge.
+  const taxBp = taxBpOf(menu.menu);
+  const sum = totals(cart.lines, menu.menu, taxBp);
   const noteChars = noteLength(cart.note);
   const lead = leadMinutesFor(cart.lines, menu.menu);
   const slots = useMemo(() => {
@@ -186,7 +189,7 @@ export default function Checkout() {
           <dl className="totals">
             <dt>Subtotal</dt>
             <dd>{dollars(sum.subtotal_cents)}</dd>
-            <dt>Tax at {(DEFAULT_TAX_BP / 100).toFixed(2)}% (the demo’s rate)</dt>
+            <dt>Tax at {taxPercent(taxBp)}% (the demo’s rate)</dt>
             <dd>{dollars(sum.tax_cents)}</dd>
             <dt>Total</dt>
             <dd>

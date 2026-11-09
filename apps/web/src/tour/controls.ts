@@ -37,6 +37,22 @@ export const CONTROLS: TourStep[] = [
     },
   },
   {
+    id: 'controls-menu-tax',
+    screen: 'console',
+    target: 'controls-tax',
+    title: 'The tax rate',
+    what: 'The tax rate is published with the menu, at once, as a version of its own; price drafts keep waiting. An order is priced at the rate of the menu version it names, so a new rate applies to the next order and never to one already placed.',
+    events: ['MenuPublished'],
+    principle: CACHE,
+    api: {
+      routeId: 'set-tax-rate',
+      method: 'PATCH',
+      path: '/v1/sandboxes/{id}/menu/tax-rate',
+      body: { tax_bp: 850 },
+      note: 'Basis points, 0 to 3,000: 850 is 8.50%. The same rate again publishes nothing.',
+    },
+  },
+  {
     id: 'controls-capacity',
     screen: 'console',
     target: 'controls-capacity',

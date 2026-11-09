@@ -74,7 +74,7 @@ Two-way. The output is files in `dist/`. Moving the app screens to server render
 
 ## Postscript 2026-11-09
 
-As built, 2026-11-09: since the tour (PR 10), every screen with a tour step carries its island and the small script that turns Sign in into Console, including `/docs/api/`, which also has a copy script (`apps/web/src/layouts/Base.astro`, `apps/web/src/policy.ts`). Seventeen pages carry no script at all: About, How it's built, its fourteen essays and the 404. Byte budgets per page type are not built: only the status island's chunk and the API page's HTML have budgets (`apps/web/test/dist.test.ts`); a budget per page class is a decision pending, listed in the roadmap's Remaining work.
+As built, 2026-11-09: since the tour (PR 10), every screen with a tour step carries its island and the small script that turns Sign in into Console, including `/docs/api/`, which also has a copy script (`apps/web/src/layouts/Base.astro`, `apps/web/src/policy.ts`). Seventeen pages carry no script at all: About, How it's built, its fourteen essays and the 404. Byte budgets per page class are now checked by `apps/web/test/dist.test.ts` (2026-11-09): the 17 script-free pages must stay at 0 B, and every other page is held to a gzipped JavaScript budget set from its measured size plus a quarter, from 118,000 B for the pages that carry only the tour to 170,000 B for the console screens. Decision 8's own figures (5,000 B for a public page, 120,000 B for an app screen) are not met: the tour and React are on every island page, and the console measures 135,699 B. The status island's chunk and the API page's HTML keep their own budgets.
 
 ## Patterns and further reading
 

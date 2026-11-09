@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { request as httpsRequest } from 'node:https';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import AxeBuilder from '@axe-core/playwright';
 import { test as base, expect, type Page } from '@playwright/test';
 
 export const STOREFRONT = 'https://bakery.ihaveasegway.com';
@@ -198,6 +199,50 @@ interface MenuItem {
   variants: { slug: string; lead_minutes: number }[];
 }
 
+// The bakery's business time (America/Denver), as the console sends it: an ISO time with its offset.
+const TZ = 'America/Denver';
+const parts = (ms: number) => {
+  const o: Record<string, string> = {};
+  const format = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    weekday: 'short',
+  });
+  for (const p of format.formatToParts(new Date(ms))) o[p.type] = p.value;
+  const field = (name: string) => o[name] ?? '';
+  return {
+    year: field('year'),
+    month: field('month'),
+    day: field('day'),
+    hour: field('hour'),
+    minute: field('minute'),
+    second: field('second'),
+    weekday: field('weekday'),
+  };
+};
+const offsetMin = (ms: number) => {
+  const p = parts(ms);
+  const local = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+  return Math.round((local - Math.floor(ms / 1000) * 1000) / 60000);
+};
+const iso = (ms: number) => {
+  const p = parts(ms);
+  const o = offsetMin(ms);
+  const a = Math.abs(o);
+  const zone = `${o < 0 ? '-' : '+'}${String(Math.floor(a / 60)).padStart(2, '0')}:${String(a % 60).padStart(2, '0')}`;
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}${zone}`;
+};
+
+/** The business time of a moment, on a whole minute, as the staff routes take a send time. */
+export const businessIso = (ms: number) =>
+  iso(Math.ceil(ms / 60_000) * 60_000).replace(/:\d\d(?=[-+]\d\d:\d\d$)/, ':00');
+
 /**
  * A pickup order the seeded menu sells, at the first slot about four hours out that the day's
  * Schedule takes: 07:00 to 14:45 on the quarter hour, closed Mondays, in America/Denver. The same
@@ -208,44 +253,6 @@ export function pickupOrder(
   clockOffsetS = 0,
   qty = 1,
 ) {
-  const TZ = 'America/Denver';
-  const parts = (ms: number) => {
-    const o: Record<string, string> = {};
-    const format = new Intl.DateTimeFormat('en-US', {
-      timeZone: TZ,
-      hourCycle: 'h23',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      weekday: 'short',
-    });
-    for (const p of format.formatToParts(new Date(ms))) o[p.type] = p.value;
-    const field = (name: string) => o[name] ?? '';
-    return {
-      year: field('year'),
-      month: field('month'),
-      day: field('day'),
-      hour: field('hour'),
-      minute: field('minute'),
-      second: field('second'),
-      weekday: field('weekday'),
-    };
-  };
-  const offsetMin = (ms: number) => {
-    const p = parts(ms);
-    const local = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
-    return Math.round((local - Math.floor(ms / 1000) * 1000) / 60000);
-  };
-  const iso = (ms: number) => {
-    const p = parts(ms);
-    const o = offsetMin(ms);
-    const a = Math.abs(o);
-    const zone = `${o < 0 ? '-' : '+'}${String(Math.floor(a / 60)).padStart(2, '0')}:${String(a % 60).padStart(2, '0')}`;
-    return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}${zone}`;
-  };
   const weekday = (ms: number) => parts(ms).weekday.toLowerCase().slice(0, 3);
   const minuteOf = (ms: number) => +parts(ms).hour * 60 + +parts(ms).minute;
   const isSlot = (ms: number) =>
@@ -315,4 +322,20 @@ export function listObjects() {
     .filter(Boolean)
     .map((l) => JSON.parse(l) as { class: string; name: string | null; has_data: boolean });
   return { exit: run.status, objects, stderr: run.stderr };
+}
+
+/**
+ * Fails the test when axe finds a violation of WCAG 2.0 A and AA, 2.1 AA or 2.2 AA on the page as
+ * it stands. Call it once the page has settled (its data loaded, its islands mounted). The failure
+ * lists each violation: rule id, impact, the first target selector and the rule's help text.
+ * `exclude` skips named rules for one page; give each a comment naming the violation and "R47".
+ */
+export async function expectNoAxeViolations(page: Page, options: { exclude?: string[] } = {}) {
+  let builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']);
+  if (options.exclude?.length) builder = builder.disableRules(options.exclude);
+  const { violations } = await builder.analyze();
+  const lines = violations.map(
+    (v) => `${v.id} (${v.impact ?? 'unrated'}) at ${String(v.nodes[0]?.target[0])}: ${v.help}`,
+  );
+  expect(lines, 'no axe violation').toEqual([]);
 }

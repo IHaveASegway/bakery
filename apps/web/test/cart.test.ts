@@ -119,6 +119,12 @@ describe('the note counter', () => {
     expect(noteLength('é')).toBe(1); // composes to one character under NFC
   });
 
+  test('drops control characters before NFC, as the Worker does', () => {
+    // "e", a bell and a combining acute: the bell goes, then the two compose to one.
+    expect(noteLength('e\u0007\u0301')).toBe(1);
+    expect(noteLength('e\u0301'.repeat(140))).toBe(140);
+  });
+
   test('drops control characters but keeps a newline', () => {
     expect(noteLength('a\u0007b')).toBe(2);
     expect(noteLength('a\nb')).toBe(3);

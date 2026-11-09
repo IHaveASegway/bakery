@@ -9,6 +9,11 @@
 //! drafts, so each changes both copies at once and publishes a version for that one item, leaving
 //! any other drafts pending.
 //!
+//! The tax rate travels with the published menu, so an order's `menu_version` also names the rate
+//! it was priced at. `SetTaxRate` is published at once like a pause: it is one `MenuPublished`
+//! carrying the new rate, and it leaves any price drafts waiting. The rate is 0 to
+//! [`MAX_TAX_BP`] basis points; a sandbox starts at [`DEFAULT_TAX_BP`].
+//!
 //! Seasons are `MM-DD` windows that come back every year, as the seed writes them. So an item out
 //! of its window shows as `scheduled`, waiting for the window, rather than `retired`; only
 //! `Retire` retires.
@@ -21,6 +26,7 @@ use thiserror::Error;
 
 use crate::aggregate::{Aggregate, DecideContext, DomainEvent};
 use crate::free_text::check_free_text;
+pub use crate::order::DEFAULT_TAX_BP;
 use crate::{BusinessTime, Cents};
 
 /// The nine major US food allergens (docs/domain.md, "The seed"). The seed's list must equal it;
@@ -46,6 +52,13 @@ pub const CAKE_CATEGORY: &str = "cakes";
 pub const CAKE_MIN_LEAD_MINUTES: u32 = 2_880;
 
 const SLICE_SUFFIX: &str = "slice";
+
+/// The highest tax rate staff may set, 3,000 bp or 30.00%. A demo rate, not a jurisdiction's.
+pub const MAX_TAX_BP: u32 = 3_000;
+
+fn default_tax_bp() -> u32 {
+    DEFAULT_TAX_BP
+}
 
 /// Names and labels are short labels, not prose.
 const MAX_NAME_CHARS: usize = 64;
@@ -300,6 +313,10 @@ pub enum CatalogCommand {
         item: String,
     },
     PublishMenu,
+    /// The tax rate in basis points, published at once as a version of its own.
+    SetTaxRate {
+        tax_bp: u32,
+    },
 }
 
 impl CatalogCommand {
@@ -312,6 +329,7 @@ impl CatalogCommand {
             CatalogCommand::Resume { .. } => "Resume",
             CatalogCommand::Retire { .. } => "Retire",
             CatalogCommand::PublishMenu => "PublishMenu",
+            CatalogCommand::SetTaxRate { .. } => "SetTaxRate",
         }
     }
 }
@@ -327,11 +345,15 @@ pub enum CatalogEvent {
     /// `items` counts the items the published menu lists, retired ones excepted. `item` is an
     /// optional field the catalog row does not yet name: present when `Pause`, `Resume` or
     /// `Retire` published that one item, absent when `PublishMenu` published every draft.
+    /// `tax_bp` is optional too: present when `SetTaxRate` published a new rate, which publishes
+    /// no draft, absent otherwise.
     MenuPublished {
         version: u32,
         items: u16,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         item: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tax_bp: Option<u32>,
     },
 }
 
@@ -387,6 +409,8 @@ pub enum CatalogError {
     NothingToPublish,
     #[error("the menu version cannot grow further")]
     VersionOverflow,
+    #[error("a tax rate of {0} bp is outside 0 to {MAX_TAX_BP} bp")]
+    TaxRateOutOfRange(u32),
 }
 
 impl CatalogError {
@@ -410,6 +434,7 @@ impl CatalogError {
             CatalogError::OutOfOrder { .. } => "out-of-order",
             CatalogError::NothingToPublish => "nothing-to-publish",
             CatalogError::VersionOverflow => "version-overflow",
+            CatalogError::TaxRateOutOfRange(_) => "tax-rate-range",
         }
     }
 }
@@ -454,18 +479,39 @@ impl Menu {
     }
 }
 
-/// The catalog's state: the categories, the draft and published copies, the version and the
-/// items with unpublished edits.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// The catalog's state: the categories, the draft and published copies, the version, the items
+/// with unpublished edits and the published tax rate. A state stored before the rate existed
+/// reads it as [`DEFAULT_TAX_BP`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CatalogState {
     categories: Vec<Category>,
     draft: Menu,
     published: Menu,
     version: u32,
     pending: BTreeSet<String>,
+    #[serde(default = "default_tax_bp")]
+    tax_bp: u32,
+}
+
+impl Default for CatalogState {
+    fn default() -> Self {
+        CatalogState {
+            categories: Vec::new(),
+            draft: Menu::default(),
+            published: Menu::default(),
+            version: 0,
+            pending: BTreeSet::new(),
+            tax_bp: DEFAULT_TAX_BP,
+        }
+    }
 }
 
 impl CatalogState {
+    /// The published tax rate in basis points.
+    pub fn tax_bp(&self) -> u32 {
+        self.tax_bp
+    }
+
     /// The published version; 0 before anything is published.
     pub fn version(&self) -> u32 {
         self.version
@@ -551,6 +597,7 @@ impl CatalogState {
             .collect();
         MenuView {
             version: self.version,
+            tax_bp: self.tax_bp,
             categories,
         }
     }
@@ -575,6 +622,10 @@ impl CatalogState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MenuView {
     pub version: u32,
+    /// The tax rate an order placed against this version pays, in basis points. A menu stored
+    /// or sent before the field existed reads as [`DEFAULT_TAX_BP`].
+    #[serde(default = "default_tax_bp")]
+    pub tax_bp: u32,
     pub categories: Vec<CategoryView>,
 }
 
@@ -777,6 +828,21 @@ impl Aggregate for Catalog {
                     version: next_version(state)?,
                     items: count(state.published_with_drafts().listed()),
                     item: None,
+                    tax_bp: None,
+                }])
+            }
+            CatalogCommand::SetTaxRate { tax_bp } => {
+                if *tax_bp > MAX_TAX_BP {
+                    return Err(CatalogError::TaxRateOutOfRange(*tax_bp));
+                }
+                if *tax_bp == state.tax_bp {
+                    return Ok(vec![]);
+                }
+                Ok(vec![CatalogEvent::MenuPublished {
+                    version: next_version(state)?,
+                    items: count(state.published.listed()),
+                    item: None,
+                    tax_bp: Some(*tax_bp),
                 }])
             }
         }
@@ -796,8 +862,15 @@ impl Aggregate for Catalog {
                     state.pending.insert(item.clone());
                 }
             }
-            CatalogEvent::MenuPublished { version, item, .. } => {
-                if item.is_none() {
+            CatalogEvent::MenuPublished {
+                version,
+                item,
+                tax_bp,
+                ..
+            } => {
+                if let Some(bp) = tax_bp {
+                    state.tax_bp = *bp;
+                } else if item.is_none() {
                     state.published = state.published_with_drafts();
                     for slug in std::mem::take(&mut state.pending) {
                         state.draft.set_status(
@@ -901,6 +974,7 @@ fn set_status(
             version: next_version(state)?,
             items: count(after.listed()),
             item: Some(slug.to_owned()),
+            tax_bp: None,
         },
     ])
 }
@@ -1245,7 +1319,8 @@ pub(crate) mod tests {
             [CatalogEvent::MenuPublished {
                 version: 2,
                 items: 4,
-                item: None
+                item: None,
+                tax_bp: None,
             }]
         );
         let view = state.menu_view();
@@ -1255,6 +1330,103 @@ pub(crate) mod tests {
             Cents(1_000)
         );
         assert_eq!(state.pending().count(), 0);
+    }
+
+    #[test]
+    fn a_sandbox_starts_at_the_default_tax_rate() {
+        let state = fixture();
+        assert_eq!(state.tax_bp(), DEFAULT_TAX_BP);
+        assert_eq!(state.menu_view().tax_bp, 1_000);
+    }
+
+    #[test]
+    fn set_tax_rate_publishes_at_once_and_leaves_drafts_waiting() {
+        let (state, _) = run(
+            fixture(),
+            CatalogCommand::SetPrice {
+                variant: "fern-loaf/whole".into(),
+                price: Cents(1_000),
+            },
+        )
+        .unwrap();
+        let (state, events) = run(state, CatalogCommand::SetTaxRate { tax_bp: 850 }).unwrap();
+        assert_eq!(
+            events,
+            [CatalogEvent::MenuPublished {
+                version: 2,
+                items: 4,
+                item: None,
+                tax_bp: Some(850),
+            }]
+        );
+        let view = state.menu_view();
+        assert_eq!((view.version, view.tax_bp), (2, 850));
+        // The price draft still waits, and the published price is the old one.
+        assert_eq!(state.pending().collect::<Vec<_>>(), ["fern-loaf"]);
+        assert_eq!(
+            view.variant("fern-loaf/whole").unwrap().1.price_cents,
+            Cents(950)
+        );
+        // A later publish keeps the rate.
+        let (state, _) = run(state, CatalogCommand::PublishMenu).unwrap();
+        assert_eq!((state.version(), state.tax_bp()), (3, 850));
+    }
+
+    #[test]
+    fn the_tax_rate_is_bounded_0_to_3000_bp() {
+        for bp in [0, 1, 999, 2_999, MAX_TAX_BP] {
+            let (state, _) = run(fixture(), CatalogCommand::SetTaxRate { tax_bp: bp }).unwrap();
+            assert_eq!(state.tax_bp(), bp);
+        }
+        for bp in [3_001, 10_000, u32::MAX] {
+            let refused = run(fixture(), CatalogCommand::SetTaxRate { tax_bp: bp }).unwrap_err();
+            assert_eq!(refused, CatalogError::TaxRateOutOfRange(bp));
+            assert_eq!(refused.rule(), "tax-rate-range");
+        }
+    }
+
+    #[test]
+    fn the_same_tax_rate_again_changes_nothing() {
+        let (state, events) = run(
+            fixture(),
+            CatalogCommand::SetTaxRate {
+                tax_bp: DEFAULT_TAX_BP,
+            },
+        )
+        .unwrap();
+        assert!(events.is_empty());
+        assert_eq!(state.version(), 1);
+    }
+
+    #[test]
+    fn a_state_and_a_menu_stored_before_the_rate_read_the_default() {
+        let mut stored = serde_json::to_value(fixture()).unwrap();
+        stored.as_object_mut().unwrap().remove("tax_bp");
+        let state: CatalogState = serde_json::from_value(stored).unwrap();
+        assert_eq!(state.tax_bp(), DEFAULT_TAX_BP);
+        let mut menu = serde_json::to_value(fixture().menu_view()).unwrap();
+        menu.as_object_mut().unwrap().remove("tax_bp");
+        let menu: MenuView = serde_json::from_value(menu).unwrap();
+        assert_eq!(menu.tax_bp, DEFAULT_TAX_BP);
+        // An event written before the field existed has no rate and publishes the drafts.
+        let old: CatalogEvent = serde_json::from_value(serde_json::json!({
+            "type": "MenuPublished",
+            "data": { "version": 2, "items": 4 }
+        }))
+        .unwrap();
+        assert_eq!(
+            old,
+            CatalogEvent::MenuPublished {
+                version: 2,
+                items: 4,
+                item: None,
+                tax_bp: None,
+            }
+        );
+        assert_eq!(
+            serde_json::to_value(&old).unwrap()["data"],
+            serde_json::json!({ "version": 2, "items": 4 })
+        );
     }
 
     /// `(slug, status, [(variant, price)])`: one draft as the console reads it.
@@ -1496,7 +1668,8 @@ pub(crate) mod tests {
             CatalogEvent::MenuPublished {
                 version: 2,
                 items: 4,
-                item: Some("fern-loaf".into())
+                item: Some("fern-loaf".into()),
+                tax_bp: None,
             }
         );
         let view = state.menu_view();
@@ -1553,7 +1726,8 @@ pub(crate) mod tests {
             CatalogEvent::MenuPublished {
                 version: 2,
                 items: 3,
-                item: Some("moss-tea".into())
+                item: Some("moss-tea".into()),
+                tax_bp: None,
             }
         );
         assert!(state.menu_view().variant("moss-tea/small").is_none());

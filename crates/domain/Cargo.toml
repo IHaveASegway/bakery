@@ -10,6 +10,7 @@ publish.workspace = true
 # No worker, wasm-bindgen or web-sys, directly or through another crate: a CI gate reads
 # `cargo metadata` and fails the build otherwise (docs/delivery.md, "Quality gates").
 [dependencies]
+icu_normalizer = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

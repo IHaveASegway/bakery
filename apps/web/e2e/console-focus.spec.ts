@@ -1,5 +1,5 @@
 // The catering queue keeps the keyboard after Send quote and after a refused Start production (audit N4); the wiped view's focus is checked in wipe.spec.ts (N7).
-import { demoAccount, expect, liveSandbox, test } from './fixtures';
+import { demoAccount, expect, expectNoAxeViolations, liveSandbox, test } from './fixtures';
 
 // The refused Start production is a 409, which Chromium logs.
 test.describe('catering queue', () => {
@@ -12,6 +12,7 @@ test.describe('catering queue', () => {
     await liveSandbox(page);
     await page.goto('/app/');
     await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+    await expectNoAxeViolations(page);
 
     const cardWithFocus = () =>
       page.evaluate(() => document.activeElement?.closest('[id^="catering-card-"]')?.id ?? null);

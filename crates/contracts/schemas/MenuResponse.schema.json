@@ -10,6 +10,13 @@
         "$ref": "#/$defs/MenuCategory"
       }
     },
+    "tax_bp": {
+      "description": "The tax rate in basis points that an order placed against this version pays; staff set\nit with `PATCH .../menu/tax-rate`. A menu cached before the field existed leaves it out,\nwhich reads as the default, 1,000.",
+      "type": "integer",
+      "format": "uint32",
+      "default": 1000,
+      "minimum": 0
+    },
     "version": {
       "type": "integer",
       "format": "uint32",

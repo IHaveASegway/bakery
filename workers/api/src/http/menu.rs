@@ -8,7 +8,7 @@
 //! once the version moves, because no key names it; the consumer deletes it on `MenuPublished`
 //! as housekeeping. `Bakery-Cache: hit|miss` says which happened.
 
-use bakery_contracts::{MenuItemPatch, SandboxState};
+use bakery_contracts::{MenuItemPatch, SandboxState, TaxRateRequest};
 use bakery_domain::Ulid;
 use worker::{Cache, Method, Request, Response};
 
@@ -16,7 +16,7 @@ use super::headers::REVALIDATE;
 use super::problem::{self, Failure, Refused};
 use super::sandboxes::{not_revoked, own_sandbox, state};
 use super::{Cx, body_hash};
-use crate::objects::catalog::{self, Patch, Publish, Version};
+use crate::objects::catalog::{self, Patch, Publish, SetTaxRate, Version};
 use crate::objects::sql::{call, call_empty};
 use crate::random;
 
@@ -197,6 +197,35 @@ pub async fn publish(cx: &Cx, id: Option<&str>) -> Answer {
         "/_publish",
         Some(&Publish {
             key: key.to_string(),
+        }),
+    )
+    .await?;
+    edited(res).await
+}
+
+/// `PATCH /v1/sandboxes/{id}/menu/tax-rate`, signed-in sessions only: `SetTaxRate`, published
+/// at once as `MenuPublished` with the new rate, so the next read misses once and an order placed
+/// after it pays that rate. Out of 0 to 3,000 bp is 422 `menu` with the rule `tax-rate-range`.
+pub async fn set_tax_rate(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answer {
+    let (claims, id) = own_sandbox(cx, id)?;
+    not_revoked(cx, &claims).await?;
+    let text = req.text().await.map_err(|_| problem::body())?;
+    let body: TaxRateRequest = serde_json::from_str(&text).map_err(|_| problem::body())?;
+    // A PATCH is idempotent by its body, so without a key each one is its own command.
+    let key = match cx.key {
+        Some(k) => k,
+        None => random::ulid(cx.now)?,
+    };
+    let res = call(
+        &cx.env,
+        catalog::BINDING,
+        &catalog::name(id),
+        Method::Post,
+        "/_tax-rate",
+        Some(&SetTaxRate {
+            key: key.to_string(),
+            body_hash: body_hash(&format!("tax-rate\n{text}")),
+            tax_bp: body.tax_bp,
         }),
     )
     .await?;

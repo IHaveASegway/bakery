@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MenuItemStatus, MenuResponse } from '../contracts';
-import { getMenu, getMenuDrafts, patchMenuItem, publishMenu } from '../lib/api';
+import { getMenu, getMenuDrafts, patchMenuItem, publishMenu, setTaxRate } from '../lib/api';
 import {
   anotherTabText,
   draftsFrom,
   priceSetsText,
   statusSaid,
+  taxBpOf,
+  taxRateSaid,
   unseenDrafts,
   waitingText,
 } from '../lib/menu';
 import { describeError, type Message as Text } from '../lib/messages';
-import { dollars, dollarsField, parseDollars } from '../lib/money';
+import { dollars, dollarsField, parseDollars, parseTaxPercent, taxPercent } from '../lib/money';
 import GuestNote from './GuestNote';
 import Message from './Message';
 
@@ -18,6 +20,14 @@ const BAD_PRICE: Text = {
   title: 'That is not a price',
   detail: 'Type dollars and cents, such as 9.50. A price is more than zero.',
 };
+
+const BAD_RATE: Text = {
+  title: 'That is not a tax rate',
+  detail: 'Type a percentage from 0 to 30 with at most two decimals, such as 8.5 or 8.50.',
+};
+
+/** The tax rate field's id, which is also its key in `fieldError`. */
+const RATE_ID = 'tax-rate';
 
 /**
  * A price is a draft until "Publish menu": it applies to every variant of an item, and one publish
@@ -35,6 +45,10 @@ const BAD_PRICE: Text = {
  * A price drafted in another tab is read in again when this window regains the focus or becomes
  * visible, and once more before Publish acts: a draft the page had not shown stops that Publish,
  * lists it, and asks for another press, so nothing goes on sale unseen. No timer asks in between.
+ *
+ * The tax rate is set in percent and sent in basis points. Like a pause it is not a draft: the
+ * Catalog publishes it at once as a version of its own, so the next order pays it and the price
+ * drafts keep waiting. The field shows the published rate until it is edited.
  */
 export default function MenuEditor({
   sandboxId,
@@ -53,6 +67,8 @@ export default function MenuEditor({
   // null until the drafts are read, and for a guest, who cannot read them.
   const [pending, setPending] = useState<string[] | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
+  // What is typed in the tax rate field; null shows the published rate.
+  const [rateField, setRateField] = useState<string | null>(null);
   // A bad price, said beside its own field as well as at the end of the list.
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -156,7 +172,21 @@ export default function MenuEditor({
       setSaid(statusSaid(name, status === 'paused', edit.version));
     });
 
+  const setRate = (bp: number) =>
+    act(async () => {
+      const before = menu?.version ?? null;
+      const edit = await setTaxRate(sandboxId, bp);
+      setPending(edit.pending);
+      setRateField(null);
+      // Published already (or unchanged): read the menu again for the version and the rate.
+      await load();
+      if (edit.version !== before) onPublished?.(edit.version);
+      setSaid(taxRateSaid(bp, before, edit.version));
+    });
+
   const waiting = pending === null ? null : pending.length;
+  const publishedRate = menu === null ? null : taxBpOf(menu);
+  const rateBad = fieldError === RATE_ID;
 
   return (
     <>
@@ -167,9 +197,58 @@ export default function MenuEditor({
         Version {menu?.version ?? '…'} is published. A new price waits as a draft until you publish;
         one publish makes a new version, and the next read of the menu misses the cache once. Pause
         and Resume take effect at once: each publishes a version of its own, and any price drafts
-        keep waiting.
+        keep waiting. So does the tax rate.
       </p>
       {isGuest && <GuestNote />}
+      <section aria-labelledby="tax-heading" data-tour="controls-tax">
+        <h4 id="tax-heading">Tax rate</h4>
+        <p>
+          <label htmlFor={RATE_ID}>Tax rate, in percent</label>
+          <input
+            id={RATE_ID}
+            type="text"
+            inputMode="decimal"
+            value={rateField ?? (publishedRate === null ? '' : taxPercent(publishedRate))}
+            disabled={isGuest}
+            aria-invalid={rateBad || undefined}
+            aria-describedby={rateBad ? `${RATE_ID}-hint ${RATE_ID}-error` : `${RATE_ID}-hint`}
+            onChange={(e) => setRateField(e.target.value)}
+          />
+          <span id={`${RATE_ID}-hint`} className="hint">
+            {publishedRate === null
+              ? 'Reading the published rate…'
+              : `Published: ${taxPercent(publishedRate)}%. 0 to 30%, published at once.`}
+          </span>
+          {rateBad && (
+            <span id={`${RATE_ID}-error`} className="problem">
+              <strong>{BAD_RATE.title}.</strong> {BAD_RATE.detail}
+            </span>
+          )}
+        </p>
+        <p className="actions">
+          <button
+            type="button"
+            disabled={isGuest}
+            aria-disabled={busy || undefined}
+            onClick={() => {
+              if (busy) return;
+              const typed =
+                rateField ?? (publishedRate === null ? null : taxPercent(publishedRate));
+              if (typed === null) return;
+              const bp = parseTaxPercent(typed);
+              if (bp === null) {
+                setSaid('');
+                setError(BAD_RATE);
+                setFieldError(RATE_ID);
+                return;
+              }
+              void setRate(bp);
+            }}
+          >
+            Set tax rate
+          </button>
+        </p>
+      </section>
       {menu?.categories.map((category) => (
         <section key={category.slug} aria-labelledby={`edit-${category.slug}`}>
           <h4 id={`edit-${category.slug}`}>{category.name}</h4>
