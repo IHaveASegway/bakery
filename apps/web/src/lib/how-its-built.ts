@@ -2,7 +2,7 @@
 // docs/domain.md, "The principle map"; Q32 · Q-links, Q33 · Q-principles). One section per
 // principle, in the order the page reads: the problem the bakery has, the technique chosen, how
 // it works here with the nuance that matters, where it runs, what a visitor can do to see it, and
-// the links. The tour's principles (src/tour/principles.ts) are read from here, so a tour step and
+// the links. The guide's principles (src/guide/principles.ts) are read from here, so an entry and
 // the page can never name a principle differently or link it somewhere else.
 import type { Principle } from './guide';
 import { adrUrl, essayOf, howUrl, labUrl, type LabOrNone } from './links';
@@ -24,12 +24,12 @@ export const RECRUITER_LINE =
 /** Which part of the page a section sits in. */
 export type Group = 'lab' | 'new' | 'demo';
 
-/** Who a principle is: what the tour reads. */
+/** Who a principle is: what the guide reads. */
 export interface Identity {
   /** The section's anchor, such as "queue": `/how-its-built/#queue`. */
   id: string;
   group: Group;
-  /** The principle's name, as the tour's card says it. */
+  /** The principle's name, as the guide's notes say it. */
   name: string;
   lab: LabOrNone;
   /** The ADR that decided it, by number. */
@@ -63,7 +63,7 @@ export const GROUPS: Record<Group, { title: string; intro: string }> = {
   new: {
     title: 'Principles with no lab page yet',
     intro:
-      'The bakery needed these too. Each is explained here and decided in an ADR, and each has a step in the tour of the screen it runs on.',
+      'The bakery needed these too. Each is explained here and decided in an ADR, and each is explained in place, under the hood, on the screen it runs on.',
   },
   demo: {
     title: 'How the demo itself is run',
@@ -73,8 +73,8 @@ export const GROUPS: Record<Group, { title: string; intro: string }> = {
 };
 
 /**
- * Each principle, as the tour needs it: its id, its name, its lab page and its ADR, in the page's
- * order. Kept apart from the prose below so the tour's bundle carries this table and not the page.
+ * Each principle, as the guide needs it: its id, its name, its lab page and its ADR, in the page's
+ * order. Kept apart from the prose below so the guide's bundle carries this table and not the page.
  */
 export const PRINCIPLE_TABLE = [
   {
@@ -261,7 +261,7 @@ const PROSE: Record<PrincipleId, Prose> = {
     how: 'Each attempt carries a new key, and its retries the same one. The object records the key and its answer in the same transaction as the command’s events, so a repeat gets the first answer back with Idempotent-Replayed: true, and the same key with a different body is refused. The key has to be stored with the write: checked in one place and written in another, a crash between the two would let the repeat through.',
     where:
       'The commands_seen table in every aggregate object; the Idempotency-Key header on every POST.',
-    see: 'Copy the tour’s curl for placing an order and run it twice: the second answer is the first, replayed.',
+    see: 'Copy the checkout’s Under the hood curl for placing an order and run it twice: the second answer is the first, replayed.',
     screen: { href: '/checkout/', label: 'The checkout' },
   },
   'payment-keys': {
@@ -360,9 +360,9 @@ const PROSE: Record<PrincipleId, Prose> = {
       'A demo you can only click proves the screens work. An engineer wants to call it from a terminal and see the same thing happen.',
     technique:
       'One contract, written in Rust, from which the route table, the TypeScript types and the API reference are generated.',
-    how: 'The console is a client of the same public API as your terminal: every one of its actions is a route in the OpenAPI document, which is generated from the contract and checked against the Worker’s route table. A signed-in sandbox can issue a bearer token that lasts 24 hours, dies with the sandbox and can be rotated, and every tour step shows its request as a curl to copy.',
+    how: 'The console is a client of the same public API as your terminal: every one of its actions is a route in the OpenAPI document, which is generated from the contract and checked against the Worker’s route table. A signed-in sandbox can issue a bearer token that lasts 24 hours, dies with the sandbox and can be rotated, and every part the guide explains shows its request as a curl to copy.',
     where: 'crates/contracts; the API Worker’s route table; the reference at /docs/api/.',
-    see: 'Issue a token in the console, copy any tour step’s curl and run it.',
+    see: 'Issue a token in the console, copy any Under the hood curl and run it.',
     screen: { href: '/docs/api/', label: 'The API reference' },
   },
   breaker: {

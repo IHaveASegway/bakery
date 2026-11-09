@@ -1,4 +1,4 @@
-// The console's in-page navigation, the skip past the board, and the menu tour's first-card
+// The console's in-page navigation, the skip past the board, and the menu guide's first-card
 // target (audit C26, P3). Static renders show the first paint; effects do not run in them, so each
 // panel draws its heading and its first-read text, which is all these checks need.
 import { createElement } from 'react';
@@ -9,7 +9,7 @@ import SandboxView from '../src/components/SandboxView';
 import { AFTER_BOARD, CONSOLE_SECTIONS } from '../src/lib/console-sections';
 import MenuList from '../src/components/MenuList';
 import { STATIC_MENU } from '../src/lib/menu';
-import { ENTRIES as TOURS } from '../src/guide';
+import { ENTRIES } from '../src/guide';
 import { CONSOLE_ORDER } from '../src/guide/index';
 
 const sandbox = (state: SandboxResponse['state']): SandboxResponse => ({
@@ -138,23 +138,23 @@ describe('the skip past the board’s cards', () => {
   });
 });
 
-describe('the console tour still reaches every target', () => {
+describe('the guide still reaches every console target', () => {
   const html = render('live');
-  test('each step’s data-tour target is drawn by the console’s first paint', () => {
+  test('each entry’s data-tour target is drawn by the console’s first paint', () => {
     const targets = new Set([...html.matchAll(/data-tour="([^"]+)"/g)].map((m) => m[1]));
     // Panels that draw only after a read answers are not in a first paint; the rest must be.
-    const drawn = TOURS.console.filter((s) => targets.has(s.target));
+    const drawn = ENTRIES.console.filter((s) => targets.has(s.target));
     expect(drawn.length).toBeGreaterThan(15);
-    expect(TOURS.console.map((s) => s.id)).toEqual(CONSOLE_ORDER);
+    expect(ENTRIES.console.map((s) => s.id)).toEqual(CONSOLE_ORDER);
   });
 });
 
-describe('the menu tour on a phone', () => {
-  test('the steps run in the page’s order: the cart, the list, where the menu came from', () => {
-    expect(TOURS.menu.map((s) => s.id)).toEqual(['menu-cart', 'menu-list', 'menu-how']);
+describe('the menu’s entries', () => {
+  test('the entries run in the page’s order: the cart, the list, where the menu came from', () => {
+    expect(ENTRIES.menu.map((s) => s.id)).toEqual(['menu-cart', 'menu-list', 'menu-how']);
   });
 
-  test('the list step rings one card, the first, and nothing taller than a screen', () => {
+  test('the list entry anchors to one card, the first, and nothing taller than a screen', () => {
     const html = renderToStaticMarkup(
       createElement(MenuList, { menu: STATIC_MENU, onAdd: () => undefined }),
     );
@@ -167,8 +167,8 @@ describe('the menu tour on a phone', () => {
     expect(html).toContain('<div class="menu">');
   });
 
-  test('the list step’s words say what is ringed', () => {
-    const step = TOURS.menu.find((s) => s.id === 'menu-list')!;
+  test('the list entry’s words say what is ringed', () => {
+    const step = ENTRIES.menu.find((s) => s.id === 'menu-list')!;
     expect(step.what).toContain('first card');
   });
 });

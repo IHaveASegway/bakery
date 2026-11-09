@@ -198,10 +198,10 @@ const SOURCES = [
 
     <h2>Try it</h2>
     <p>
-      Sign in, issue a token in <a href="/app/">the console</a>, and start the tour on{' '}
-      <a href="/checkout/">the checkout</a>. The step for placing an order shows its request as a
-      curl with an <code>Idempotency-Key</code>. Run it once and the answer is 201 with a new order;
-      run it again unchanged and the answer is 200, the same order, with
+      Sign in, issue a token in <a href="/app/">the console</a>, and open{' '}
+      <a href="/checkout/">the checkout</a>. The order form’s Under the hood note shows its request
+      as a curl with an <code>Idempotency-Key</code>. Run it once and the answer is 201 with a new
+      order; run it again unchanged and the answer is 200, the same order, with
       <code>Idempotent-Replayed: true</code>. Change a quantity and keep the key, and the answer is
       422. Then pay for an order with the test card 4242 4242 4242 4242, and find the payment once
       in <a href="/app/">the console’s</a> ledger.

@@ -1,6 +1,7 @@
-// The console's in-page navigation (audit C26) and the menu tour on a phone (audit P3): a link in
-// "On this page" puts the focus on its heading so Tab goes on from there, the board's skip link
-// passes the cards, and the menu tour's list step rings one card that sits above the tour's bar.
+// The console's in-page navigation (audit C26) and the menu's short path on a phone (audit P3): a
+// link in "On this page" puts the focus on its heading so Tab goes on from there, the board's skip
+// link passes the cards, and the guide's first step on the menu rings one card that sits above its
+// sheet.
 import { demoAccount, expect, expectNoAxeViolations, liveSandbox, test } from './fixtures';
 
 test('the “On this page” list and the board’s skip link move the focus past the cards', async ({
@@ -40,24 +41,27 @@ test.describe('on a phone', () => {
   // A visitor with no session: the page asks once and the API answers 401, which Chromium logs.
   test.use({ viewport: { width: 390, height: 844 }, allowedStatuses: [401] });
 
-  test('the menu tour opens at the cart and rings one card above the bar', async ({ page }) => {
+  test('the menu’s short path opens at the first card and keeps it above the sheet', async ({
+    page,
+  }) => {
     await page.goto('/menu/');
-    await page.getByRole('button', { name: 'Take the tour' }).click();
-    const ringed = page.locator('[data-tour-current]');
-    await expect(ringed).toHaveAttribute('data-tour', 'menu-cart');
-    // The page did not jump to its foot: the cart is the first thing it shows.
-    expect(await page.evaluate(() => window.scrollY)).toBeLessThan(1000);
-
-    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByRole('button', { name: 'Show me around' }).click();
+    const note = page.locator('#guide-path');
+    await expect(note).toContainText('Add something to the cart.');
+    const ringed = page.locator('[data-guide-anchor]');
     await expect(ringed).toHaveAttribute('data-tour', 'menu-list');
+    // The note is a sheet over the lower third, and the step's card is in view above it.
     await expect
       .poll(async () => {
         const target = await ringed.boundingBox();
-        const dock = await page.locator('#tour-dock').boundingBox();
-        return target !== null && dock !== null && target.height < 500 && target.y >= 0
-          ? Math.round(dock.y - (target.y + target.height))
+        const sheet = await note.boundingBox();
+        return target !== null && sheet !== null && target.height < 500 && target.y >= 0
+          ? Math.round(sheet.y - (target.y + target.height))
           : null;
       })
       .toBeGreaterThanOrEqual(0);
+    // A note is not a dialog and took no focus; axe holds with it open.
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expectNoAxeViolations(page);
   });
 });

@@ -5,7 +5,7 @@ import { HOW_PATH, SITE_LAB } from '../lib/links';
 
 // The launch home (docs/product.md, "Who it serves": something to click that works in a minute,
 // and a sentence to repeat). The copy is a draft for the owner to edit. The two data-tour anchors are the
-// home screen's tour (tour/simple.ts, HOME).
+// home screen's guide entries (guide/simple.ts, HOME).
 ---
 
 <Base
@@ -44,8 +44,9 @@ import { HOW_PATH, SITE_LAB } from '../lib/links';
         </li>
       </ol>
       <p>
-        Every screen has a tour that says what you are looking at and how to do the same from a
-        terminal. <a href={HOW_PATH}>How it’s built</a> explains each technique, and{' '}
+        Every screen has a guide, Under the hood, that says what just happened, why that tool, and
+        how to do the same from a terminal. <a href={HOW_PATH}>How it’s built</a> explains each
+        technique, and{' '}
         <a href={SITE_LAB} rel="noopener">
           the lab on ihaveasegway.com
         </a>{' '}

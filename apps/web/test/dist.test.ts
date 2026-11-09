@@ -10,8 +10,9 @@ import { readLock, verifyFolder } from '../../../scripts/fetch-solver.mjs';
 
 // The built pages against the policy: a page with no island carries no script at all (ADR 0008;
 // as of 2026-11-09 seventeen pages: About, How it's built, its fourteen essays and the 404), and
-// every inline script or style on a page with an island (the guided tour's, on every other
-// screen since PR 10) is covered by a hash in the page's own rule.
+// every inline script or style on a page with an island (the guide's, on every other screen,
+// since PR 10 as the tour and since 2026-11-09 as the guide) is covered by a hash in the page's
+// own rule.
 // Run after `pnpm build`.
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
@@ -83,16 +84,29 @@ describe('dist', () => {
     ['app/dispatch/index.html', 'dispatch'],
     ['docs/api/index.html', 'api'],
     ['privacy/index.html', 'privacy'],
-  ])('%s carries the tour island for the %s screen, closed', (file, screen) => {
+  ])('%s carries the guide island for the %s screen, quiet', (file, screen) => {
     expect(SCREENS).toContain(screen);
     const html = page(file);
-    expect(html).toContain('Tour.');
+    expect(html).toContain('Guide.');
     expect(html).toContain(`&quot;${screen}&quot;`);
-    expect(html).toContain('class="tour-trigger"');
+    expect(html).toContain('class="guide-bar"');
+    expect(html).toMatch(/role="switch" aria-checked="true"/);
     expect(html).toContain('aria-expanded="false"');
-    // Closed, the island draws no card and no ring, so the server HTML has none either.
-    expect(html).not.toContain('class="tour-card"');
-    expect(html).not.toContain('data-tour-current');
+    // Before anything is done the island draws no note, no mark and no ring, so the server HTML
+    // has none either, and no style attribute (the policy has no 'unsafe-inline').
+    expect(html).not.toContain('guide-note');
+    expect(html).not.toContain('guide-spot');
+    expect(html).not.toContain('data-guide-anchor');
+    expect(html).not.toMatch(/<div class="guide-layer"[^>]*style=/);
+  });
+
+  // The guide stores one thing, in the tab's sessionStorage (lib/guide.ts, SWITCH_KEY), and the
+  // privacy page says so in its table of what is kept.
+  test('the privacy page names what the guide keeps, and where', () => {
+    const html = page('privacy/index.html');
+    expect(html).toContain('That you turned “Under the hood” off');
+    expect(html).toContain('In this browser tab, until you close it');
+    expect(html).toContain('never sent anywhere');
   });
 
   // A Cloudflare _headers path: a splat matches anything, including nothing; a path without one
@@ -357,8 +371,8 @@ describe('dist', () => {
       return page(`_astro/${url}`);
     };
 
-    // The Status island and, since PR 18, the tour's: every other page carries the tour's.
-    test('is a static page with two islands, the status one and the tour’s, and no third party', () => {
+    // The Status island and, since PR 18, the guide's (the tour's until 2026-11-09).
+    test('is a static page with two islands, the status one and the guide’s, and no third party', () => {
       expect(html().split('<astro-island').length - 1).toBe(2);
       expect(html()).toContain('<h1>Status</h1>');
       expect(html()).not.toMatch(/<(link(?![^>]*rel="canonical")|script)[^>]+(href|src)="https?:/);
@@ -460,7 +474,7 @@ describe('dist', () => {
       }
     });
 
-    test('names the document, the kitchen socket, the bearer header and the tour’s targets', () => {
+    test('names the document, the kitchen socket, the bearer header and the guide’s targets', () => {
       const text = html();
       expect(text).toContain('href="/docs/api/openapi.json"');
       expect(text).toContain('id="socket"');
@@ -509,7 +523,7 @@ describe('dist', () => {
     const KB = 1_000;
     const BUDGETS: Record<string, { budget: number; pages: string[] }> = {
       none: { budget: 0, pages: [] },
-      tour: { budget: 118 * KB, pages: ['index.html', 'privacy/index.html'] },
+      guide: { budget: 118 * KB, pages: ['index.html', 'privacy/index.html'] },
       api: { budget: 118 * KB, pages: ['docs/api/index.html'] },
       status: { budget: 121 * KB, pages: ['status/index.html'] },
       storefront: { budget: 129 * KB, pages: ['menu/index.html', 'signin/index.html'] },

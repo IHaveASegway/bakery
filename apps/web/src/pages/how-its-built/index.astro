@@ -4,7 +4,7 @@ import { GROUPS, ONE_LINE, RECRUITER_LINE, principleOf, sections } from '../../l
 import { ESSAY_PAGES, SITE_LAB } from '../../lib/links';
 
 // How it's built (Q6 · Q-public, Q32 · Q-links, Q33 · Q-principles): one section per principle,
-// from the data the tour reads (lib/how-its-built.ts), so the page and the tour cannot drift. A
+// from the data the guide reads (lib/how-its-built.ts), so the page and the guide cannot drift. A
 // static page with no island and no script: the strict policy, like the 404. Every principle has
 // an essay (lib/links.ts, ESSAYS), listed once after the contents and linked from its section by
 // title. Three pairs of sections share one: the two idempotency sections, CQRS and load, and the
@@ -38,7 +38,7 @@ const groups = (['lab', 'new', 'demo'] as const).map((group) => ({
         lab page
       </a>{' '}
       that explains the principle on its own, where there is one, and the decision record (ADR) that
-      chose it. The tour on every screen links back here.
+      chose it. The guide on every screen links back here.
     </p>
 
     <nav aria-labelledby="contents-title">

@@ -1,6 +1,6 @@
 // The console's API-token panel as a state machine (docs/security.md, "The API token"): what it
 // shows after each answer. The token is in `revealed` only until the visitor hides it, and in
-// lib/token-store.ts (memory) for the tour's curl examples; this state is never persisted.
+// lib/token-store.ts (memory) for the guide's curl examples; this state is never persisted.
 import type { TokenInfoResponse, TokenResponse } from '../contracts';
 import { ApiError } from './api';
 import { describeError, type Message } from './messages';

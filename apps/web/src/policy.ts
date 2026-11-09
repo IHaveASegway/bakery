@@ -9,9 +9,9 @@
   reading the privacy page loads nothing from Cloudflare. Pages that create a sandbox or an account
   (/signin/ now, /app/ because it can create a sandbox too) are the challenge class: they add
   Turnstile's origin to script-src and frame-src, and nothing else. Pages with an island but no
-  third party (/menu/ and /inbox/, and since the tour /privacy/ and /docs/api/, and since PR 13
+  third party (/menu/ and /inbox/, and since the tour, now the guide, /privacy/ and /docs/api/, and since PR 13
   /status/) are the island class: the strict policy plus the hashes below. The start page carries
-  the tour too, but it has no rule of its own: it is the one page whose rule would have no splat
+  the guide too, but it has no rule of its own: it is the one page whose rule would have no splat
   (`/`), and on launch day, 2026-11-06, production applied both that rule's policy and `/*`'s to it,
   the detach notwithstanding, while wrangler dev applied the file as written. So the start page's
   hashes ride in the `/*` rule, which hashesByRule gives the pages no other rule claims, and no
@@ -138,8 +138,8 @@ export const SOLVER_CSP =
 
 /**
  * Pages with a hydrated island and no third party: the menu and the inbox, and since PR 10 the
- * privacy page and the API reference, which carry the guided tour (components/Tour.tsx) and nothing
- * else. The start page carries the tour as well but is not here: its rule would be `/`, the one
+ * privacy page and the API reference, which carry the guide (components/Guide.tsx; the tour until
+ * 2026-11-09) and nothing else. The start page carries the guide as well but is not here: its rule would be `/`, the one
  * path without a splat, which production applied beside `/*` instead of in its place (2026-11-06,
  * the header comment above), so its hashes go to the `/*` rule.
  */
