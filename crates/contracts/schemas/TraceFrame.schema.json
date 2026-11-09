@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TraceFrame",
+  "description": "A frame the recorder's socket sends, protocol v1, JSON text: `snapshot` once on open (the\nhops of the ring's last 50 batches, newest last), `hops` for each batch recorded after it,\nand `bye` before the server closes. A client sends only `{\"t\":\"ping\",\"v\":1}`, answered\n`{\"t\":\"pong\",\"v\":1}` by the platform without waking the object.",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "cursor": {
+          "description": "The cursor of the newest batch in the snapshot, as `GET .../trace` would give it.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "hops": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TraceHop"
+          }
+        },
+        "t": {
+          "type": "string",
+          "const": "snapshot"
+        },
+        "v": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "t",
+        "v",
+        "hops",
+        "cursor"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "cursor": {
+          "description": "This batch's cursor.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "hops": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TraceHop"
+          }
+        },
+        "t": {
+          "type": "string",
+          "const": "hops"
+        },
+        "v": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "t",
+        "v",
+        "hops",
+        "cursor"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/TraceByeReason"
+        },
+        "t": {
+          "type": "string",
+          "const": "bye"
+        },
+        "v": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "t",
+        "v",
+        "reason"
+      ]
+    }
+  ],
+  "$defs": {
+    "TraceByeReason": {
+      "description": "Why the recorder's socket says goodbye.",
+      "oneOf": [
+        {
+          "description": "The sandbox was wiped: close 1001.",
+          "type": "string",
+          "const": "wiped"
+        },
+        {
+          "description": "A limit was passed: close 1008, 1009 or 1003.",
+          "type": "string",
+          "const": "limit"
+        }
+      ]
+    },
+    "TraceDelivery": {
+      "description": "One subscriber class an event was routed to, and how its delivery went.",
+      "type": "object",
+      "properties": {
+        "outcome": {
+          "$ref": "#/$defs/TraceOutcome"
+        },
+        "to": {
+          "description": "The subscriber's class, such as `Kitchen`, `Crm` or `Schedule` (one entry a class, however\nmany of its objects got the event).",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "to",
+        "outcome"
+      ]
+    },
+    "TraceHop": {
+      "description": "One hop: one envelope through the Queue's consumer, once. It carries the envelope's\nidentifiers, type, sequence number and times, and never its `data`: no note, no name, no\namount reaches the recorder.",
+      "type": "object",
+      "properties": {
+        "at": {
+          "description": "The event's business time.",
+          "type": "string"
+        },
+        "attempt": {
+          "description": "The attempt this hop records, from 1, as the recorder counts the hops it was sent for the\nevent (lossy, like the recorder: a dropped hop is not counted).",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "cause": {
+          "description": "The command's `Idempotency-Key`, or for a reaction the id of the event that caused it;\nabsent when the event has none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "delivered_at": {
+          "description": "When the consumer had decided this attempt's deliveries, a wall time.",
+          "type": "string"
+        },
+        "deliveries": {
+          "description": "Each subscriber class the event was routed to, in the routing table's order; empty for an\nevent no class consumes.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TraceDelivery"
+          }
+        },
+        "id": {
+          "description": "The event's ULID.",
+          "type": "string"
+        },
+        "lag_ms": {
+          "description": "`delivered_at` less `recorded_at` in milliseconds, 0 when the clocks disagree.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "recorded_at": {
+          "description": "When the event was written, a wall time.",
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "stream": {
+          "description": "The producing object's name, such as `order:<sandbox>:<ulid>`.",
+          "type": "string"
+        },
+        "type": {
+          "description": "The event type, such as `OrderPlaced`.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "stream",
+        "seq",
+        "at",
+        "recorded_at",
+        "delivered_at",
+        "lag_ms",
+        "attempt",
+        "deliveries"
+      ]
+    },
+    "TraceOutcome": {
+      "description": "Where one subscriber stands after one delivery attempt of an event.",
+      "oneOf": [
+        {
+          "description": "Its delivery is done on this attempt: it answered 2xx, or it answered a 410 the consumer\ncounts as done and acks, so this outcome does not say the object applied the event. Those\n410s are a Crm or an Inbox not yet seeded (its seed carries what came before it), and a\nSchedule day, a Dispatch day or a stop's Order that is gone or was never born, which holds\nnothing the event could change. They have no outcome of their own because the message's\nfate is the same as a 2xx's: acked, never retried; the consumer logs each one\n(`subscriber_unborn`, `schedule_no_day`, `dispatch_no_day`, `stop_order_gone`).",
+          "type": "string",
+          "const": "delivered"
+        },
+        {
+          "description": "It did not get the event on this attempt, by its own failure or an earlier subscriber's,\nand the Queue sends the message again.",
+          "type": "string",
+          "const": "retried"
+        },
+        {
+          "description": "It did not get the event on the last attempt the Queue makes (the fourth, after 3\nretries): the message goes to the dead letters.",
+          "type": "string",
+          "const": "dead_lettered"
+        }
+      ]
+    }
+  }
+}

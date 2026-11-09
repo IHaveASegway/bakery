@@ -3323,6 +3323,266 @@
         "title": "TokenResponse",
         "type": "object"
       },
+      "TraceByeReason": {
+        "description": "Why the recorder's socket says goodbye.",
+        "oneOf": [
+          {
+            "const": "wiped",
+            "description": "The sandbox was wiped: close 1001.",
+            "type": "string"
+          },
+          {
+            "const": "limit",
+            "description": "A limit was passed: close 1008, 1009 or 1003.",
+            "type": "string"
+          }
+        ]
+      },
+      "TraceDelivery": {
+        "additionalProperties": false,
+        "description": "One subscriber class an event was routed to, and how its delivery went.",
+        "properties": {
+          "outcome": {
+            "$ref": "#/components/schemas/TraceOutcome"
+          },
+          "to": {
+            "description": "The subscriber's class, such as `Kitchen`, `Crm` or `Schedule` (one entry a class, however\nmany of its objects got the event).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "to",
+          "outcome"
+        ],
+        "type": "object"
+      },
+      "TraceFrame": {
+        "description": "A frame the recorder's socket sends, protocol v1, JSON text: `snapshot` once on open (the\nhops of the ring's last 50 batches, newest last), `hops` for each batch recorded after it,\nand `bye` before the server closes. A client sends only `{\"t\":\"ping\",\"v\":1}`, answered\n`{\"t\":\"pong\",\"v\":1}` by the platform without waking the object.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "description": "The cursor of the newest batch in the snapshot, as `GET .../trace` would give it.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "hops": {
+                "items": {
+                  "$ref": "#/components/schemas/TraceHop"
+                },
+                "type": "array"
+              },
+              "t": {
+                "const": "snapshot",
+                "type": "string"
+              },
+              "v": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "t",
+              "v",
+              "hops",
+              "cursor"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "description": "This batch's cursor.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "hops": {
+                "items": {
+                  "$ref": "#/components/schemas/TraceHop"
+                },
+                "type": "array"
+              },
+              "t": {
+                "const": "hops",
+                "type": "string"
+              },
+              "v": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "t",
+              "v",
+              "hops",
+              "cursor"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "reason": {
+                "$ref": "#/components/schemas/TraceByeReason"
+              },
+              "t": {
+                "const": "bye",
+                "type": "string"
+              },
+              "v": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "t",
+              "v",
+              "reason"
+            ],
+            "type": "object"
+          }
+        ],
+        "title": "TraceFrame"
+      },
+      "TraceHop": {
+        "additionalProperties": false,
+        "description": "One hop: one envelope through the Queue's consumer, once. It carries the envelope's\nidentifiers, type, sequence number and times, and never its `data`: no note, no name, no\namount reaches the recorder.",
+        "properties": {
+          "at": {
+            "description": "The event's business time.",
+            "type": "string"
+          },
+          "attempt": {
+            "description": "The attempt this hop records, from 1, as the recorder counts the hops it was sent for the\nevent (lossy, like the recorder: a dropped hop is not counted).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "cause": {
+            "description": "The command's `Idempotency-Key`, or for a reaction the id of the event that caused it;\nabsent when the event has none.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "delivered_at": {
+            "description": "When the consumer had decided this attempt's deliveries, a wall time.",
+            "type": "string"
+          },
+          "deliveries": {
+            "description": "Each subscriber class the event was routed to, in the routing table's order; empty for an\nevent no class consumes.",
+            "items": {
+              "$ref": "#/components/schemas/TraceDelivery"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "The event's ULID.",
+            "type": "string"
+          },
+          "lag_ms": {
+            "description": "`delivered_at` less `recorded_at` in milliseconds, 0 when the clocks disagree.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "recorded_at": {
+            "description": "When the event was written, a wall time.",
+            "type": "string"
+          },
+          "seq": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "stream": {
+            "description": "The producing object's name, such as `order:<sandbox>:<ulid>`.",
+            "type": "string"
+          },
+          "type": {
+            "description": "The event type, such as `OrderPlaced`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "stream",
+          "seq",
+          "at",
+          "recorded_at",
+          "delivered_at",
+          "lag_ms",
+          "attempt",
+          "deliveries"
+        ],
+        "title": "TraceHop",
+        "type": "object"
+      },
+      "TraceOutcome": {
+        "description": "Where one subscriber stands after one delivery attempt of an event.",
+        "oneOf": [
+          {
+            "const": "delivered",
+            "description": "Its delivery is done on this attempt: it answered 2xx, or it answered a 410 the consumer\ncounts as done and acks, so this outcome does not say the object applied the event. Those\n410s are a Crm or an Inbox not yet seeded (its seed carries what came before it), and a\nSchedule day, a Dispatch day or a stop's Order that is gone or was never born, which holds\nnothing the event could change. They have no outcome of their own because the message's\nfate is the same as a 2xx's: acked, never retried; the consumer logs each one\n(`subscriber_unborn`, `schedule_no_day`, `dispatch_no_day`, `stop_order_gone`).",
+            "type": "string"
+          },
+          {
+            "const": "retried",
+            "description": "It did not get the event on this attempt, by its own failure or an earlier subscriber's,\nand the Queue sends the message again.",
+            "type": "string"
+          },
+          {
+            "const": "dead_lettered",
+            "description": "It did not get the event on the last attempt the Queue makes (the fourth, after 3\nretries): the message goes to the dead letters.",
+            "type": "string"
+          }
+        ]
+      },
+      "TraceResponse": {
+        "additionalProperties": false,
+        "description": "The flight recorder's read, `GET .../trace` once its route is served: the hops recorded after\nthe cursor `after`, oldest first and newest last, at most 50 batches of them; then `cursor` for the next call. Any session of the\nsandbox reads it, a guest's included. The recorder keeps the last 200 batches the consumer\nsent it and drops older ones, so a cursor older than that misses hops, and says so.",
+        "properties": {
+          "cursor": {
+            "description": "Pass as `after` for the hops after these; the same cursor again when there are none.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "hops": {
+            "items": {
+              "$ref": "#/components/schemas/TraceHop"
+            },
+            "type": "array"
+          },
+          "missed": {
+            "description": "Batches after `after` were dropped from the ring before this read.",
+            "type": "boolean"
+          },
+          "more": {
+            "description": "More batches wait after `cursor`: ask again at once.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "hops",
+          "cursor",
+          "more",
+          "missed"
+        ],
+        "title": "TraceResponse",
+        "type": "object"
+      },
       "TrafficRequest": {
         "additionalProperties": false,
         "description": "`POST /v1/sandboxes/{id}/traffic`, signed-in sessions only: simulated orders a minute.",
