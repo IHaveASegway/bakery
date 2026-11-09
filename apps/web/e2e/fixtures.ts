@@ -1,13 +1,18 @@
 // What every spec shares: a guard that fails a test on any CSP violation or console error, a
-// stand-in for Turnstile's script, a synthetic client address per test, and helpers that make the
-// calls the storefront makes, from inside the page, so they carry its origin and its cookie.
-import { createHash, randomBytes } from 'node:crypto';
+// stand-in for Turnstile's script, a synthetic client address per test (e2e/addresses.ts: never
+// one another test of the run had), and helpers that make the calls the storefront makes, from
+// inside the page, so they carry its origin and its cookie. The rest are the bakery's calendar in
+// business time (businessIso, businessDate, nthOpenDay), orders the seeded menu sells
+// (pickupOrder, deliveryOrder), their payment at the fake Stripe (payOrder), the cron, the object
+// listing, and the axe check every screen runs once its data have loaded (expectNoAxeViolations).
+import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { request as httpsRequest } from 'node:https';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
 import { test as base, expect, type Page } from '@playwright/test';
+import { nextClientIp } from './addresses';
 
 export const STOREFRONT = 'https://bakery.ihaveasegway.com';
 export const API = 'https://api.bakery.ihaveasegway.com';
@@ -61,7 +66,7 @@ interface Options {
   allowedStatuses: number[];
 }
 interface Fixtures {
-  /** A synthetic client address (TEST-NET-1, RFC 5737) for this test's calls to the API. */
+  /** A synthetic client address (2001:db8::/32, RFC 3849) for this test's calls to the API. */
   clientIp: string;
   guard: void;
 }
@@ -72,9 +77,9 @@ export const test = base.extend<Options & Fixtures>({
   // eslint-disable-next-line no-empty-pattern
   clientIp: async ({}, use, testInfo) => {
     // A visitor per test: the API limits sandbox creation per client address (1 a minute), and
-    // on wrangler dev every request would otherwise come from 127.0.0.1.
-    const digest = createHash('sha256').update(testInfo.titlePath.join(' / ')).digest();
-    await use(`192.0.2.${1 + (digest.readUInt8(0) % 254)}`);
+    // on wrangler dev every request would otherwise come from 127.0.0.1. Never one another test
+    // of the run had (e2e/addresses.ts).
+    await use(nextClientIp(testInfo.workerIndex));
   },
   guard: [
     async ({ context, clientIp, allowedStatuses }, use) => {
@@ -194,6 +199,7 @@ export async function liveSandbox(page: Page): Promise<Sandbox> {
 
 interface MenuItem {
   status: string;
+  pickup_only?: boolean;
   days_baked: string[];
   season?: { from: string; to: string } | null;
   variants: { slug: string; lead_minutes: number }[];
@@ -279,6 +285,69 @@ export function pickupOrder(
   throw new Error('no item on the seeded menu fits a slot four hours out');
 }
 
+/** The bakery date (America/Denver) of a moment, as YYYY-MM-DD. */
+export const businessDate = (ms: number) => {
+  const p = parts(ms);
+  return `${p.year}-${p.month}-${p.day}`;
+};
+
+/** The n-th open day after a bakery date: every day but Monday, as scripts/smoke-dispatch.sh counts. */
+export function nthOpenDay(date: string, n: number): string {
+  let ms = Date.parse(`${date}T12:00:00Z`);
+  let left = n;
+  while (left > 0) {
+    ms += 86_400_000;
+    if (new Date(ms).getUTCDay() !== 1) left -= 1;
+  }
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * A delivery to zone z2 in a date's 09:00 window, qty of one item baked that weekday that is
+ * neither pickup-only nor seasonal, with a lead time inside two hours: scripts/smoke-dispatch.sh's
+ * delivery_order.
+ */
+export function deliveryOrder(
+  menu: { categories: { items: MenuItem[] }[] },
+  date: string,
+  qty: number,
+) {
+  const nine = Date.parse(`${date}T16:00:00Z`);
+  const weekday = parts(nine).weekday.toLowerCase().slice(0, 3);
+  // 09:00 in Denver is 15:00 or 16:00 UTC; iso() gives the date's own offset either way.
+  const zone = iso(nine).slice(-6);
+  for (const category of menu.categories) {
+    for (const item of category.items) {
+      if (item.status !== 'available' || item.pickup_only || item.season) continue;
+      if (!item.days_baked.includes(weekday)) continue;
+      const variant = item.variants.find((v) => v.lead_minutes <= 120);
+      if (variant) {
+        return {
+          kind: 'delivery',
+          slot: `${date}T09:00:00${zone}`,
+          zone: 'z2',
+          lines: [{ variant: variant.slug, qty }],
+        };
+      }
+    }
+  }
+  throw new Error(`no item on the seeded menu fits a delivery on ${date}`);
+}
+
+/** Pays an order as the storefront does, its id as the key, and confirms it at the fake Stripe. */
+export async function payOrder(page: Page, sandboxId: string, orderId: string) {
+  const payment = await api<{ client_secret: string }>(
+    page,
+    'POST',
+    `/v1/sandboxes/${sandboxId}/orders/${orderId}/payment`,
+    undefined,
+    orderId,
+  );
+  expect(payment.status, JSON.stringify(payment.body)).toBe(200);
+  const confirm = await confirmAtFakeStripe(payment.body.client_secret);
+  expect(confirm.body.status).toBe('succeeded');
+}
+
 /**
  * The Payment Element's confirm, made at the fake Stripe with Stripe's test payment method, as
  * scripts/smoke-payments.sh makes it. The Payment Element itself cannot mount here: Stripe.js
@@ -331,6 +400,13 @@ export function listObjects() {
  * `exclude` skips named rules for one page; give each a comment naming the violation and "R47".
  */
 export async function expectNoAxeViolations(page: Page, options: { exclude?: string[] } = {}) {
+  // A board card that just arrived fades in (global.css, card-in), and axe reads its text's
+  // contrast against the half-faded card. Let running animations finish first; none loops.
+  await page
+    .waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'), null, {
+      timeout: 5_000,
+    })
+    .catch(() => undefined);
   let builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']);
   if (options.exclude?.length) builder = builder.disableRules(options.exclude);
   const { violations } = await builder.analyze();
