@@ -39,7 +39,7 @@ sequenceDiagram
     W->>S: deliver by type
     S->>S: transaction: apply + insert into seen
     S-->>W: 2xx (or 2xx for a duplicate)
-    W-->>Q: ack, or retry; after 3, to bakery-events-dlq
+    W-->>Q: ack, or retry (after 3, to bakery-events-dlq)
 ```
 
 ## Alternatives considered
