@@ -74,6 +74,10 @@ One-way in effect once visitors have scripts against it. The cost of a rename th
 - A second client breaks on a release: the tour's requests, or a visitor's script reported in an issue.
 - A bearer token's exclusion from the account-level routes proves wrong in use, for example visitors asking for a script that rotates its own token.
 
+## Postscript 2026-11-09
+
+As built, 2026-11-09: the table has 73 routes in 65 paths, and 58 accept a bearer token (`apps/web/public/docs/api/openapi.json`). The 73rd is `GET /v1/sandboxes/{id}/menu/drafts`, numbered 19 in `x-pr`, which names the pull request that added a route; 19 is the UI audit of 2026-11-08, which has no pull request of its own. The 26 routes ahead of the Worker were closed by PR 10's Worker streams, and the tests agree today (`crates/contracts/src/routes.rs`). The TypeScript is generated from the schemas only, and the document from the table and the schemas; tour steps are checked by `apps/web/test/tour.test.ts`, in the Vitest run, not at build. The document is 425,610 B pretty-printed, 34,428 B gzipped, with 119 component schemas.
+
 ## Patterns and further reading
 
 - Problem details for HTTP APIs: [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457), as of 2026-11-05.

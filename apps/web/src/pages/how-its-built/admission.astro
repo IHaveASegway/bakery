@@ -102,8 +102,9 @@ const SOURCES = [
       Turnstile token, which <code>workers/api/src/http/outbound.rs</code> sends to Siteverify.
       Without a token it is refused <code>turnstile-missing</code>; if Siteverify cannot be reached,
       that is a refusal too, never a pass. Cloudflare’s documentation, read on {READ}, makes a token
-      valid for 300 seconds and good for one check. Until launch the page uses Cloudflare’s
-      always-pass test key, so this layer is built and does not yet turn anyone away.
+      valid for 300 seconds and good for one check. Since 2026-11-08 the deploy refuses a storefront
+      built with Cloudflare’s always-pass test key, so any storefront deployed since then carries
+      the bakery’s own site key.
     </p>
     <p>
       <strong>The ledger.</strong> Then the router asks <code>Control</code>, the one object that

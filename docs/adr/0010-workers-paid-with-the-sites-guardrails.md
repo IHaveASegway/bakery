@@ -83,6 +83,10 @@ Two-way while only SQLite-backed DOs exist, as the site's record says. Going bac
 - `Control` refuses sandboxes on a day that mattered, or its budgets trip on ordinary traffic.
 - Cloudflare adds a hard spend cap to Paid, or changes the Free caps.
 
+## Postscript 2026-11-09
+
+As built, 2026-11-09: the account moved to Workers Paid on 2026-11-06, with the budget alerts set the same hour; issue #43 records the date. The 15-minute breaker was built in PR 17 but its secrets are not set in production as of 2026-11-09, so until they are a loop is bounded by the loop guard and a budget alert a day later ([cost.md](../cost.md#d-a-loop-with-no-outside-traffic)). `Control` meters the counts and traffic minutes only; the row, DO-request and Queue budgets of [cost.md](../cost.md#guardrails) are not built.
+
 ## Patterns and further reading
 
 - Denial of wallet: Kelly, Glavin and Barrett, ["Denial of Wallet—Defining a Looming Threat to Serverless Computing"](https://arxiv.org/abs/2104.08031) (2021).

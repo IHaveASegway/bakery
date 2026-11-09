@@ -80,3 +80,7 @@ Two-way. The application sees the Queue only through the `Outbox` port in `crate
 - Any object hits the 100 re-arms a day guard in production.
 - Queue operations per sandbox session exceed twice the cost model's 150.
 - Cloudflare ships Rust support for Workflows. Then the catering saga is a candidate for a superseding record.
+
+## Postscript 2026-11-09
+
+As built, 2026-11-09: the consumer drains the dead-letter queue into the owning Sandbox's `dead_letters` and acks each message (`workers/api/src/queue.rs`), kept until a redrive or the wipe, so the queue holds nothing for 14 days; a `dlq` point is counted, and the 12:17 `bakery-objects` run opens an issue from `GET /v1/status`. The loop guard only stops arming and logs `alarm_guard` (`workers/api/src/objects/stream.rs`): nothing flags a sandbox `read-only`, and `Control` keeps no per-sandbox event count. A consumer batch is up to 10 messages (`max_batch_size` in `workers/api/wrangler.jsonc`), not 100; the relay sends up to 100 rows. The objects reach the Queue through `objects/stream.rs`, not through the `Outbox` port, which the native tests use. With the flag at `off` every message is retried, so events in flight reach the dead-letter queue after three tries; what `off` should do with them is a decision pending, listed in the roadmap's Remaining work. No screen shows its lag as a number.

@@ -72,6 +72,10 @@ Two-way. The output is files in `dist/`. Moving the app screens to server render
 - Astro's major-version cadence costs more than a day a quarter to keep up with, measured in the pull requests that do it.
 - Client rendering shows in the numbers: a first app screen slower than 2.5 s to its largest paint on a mid-range phone in the Lighthouse job.
 
+## Postscript 2026-11-09
+
+As built, 2026-11-09: since the tour (PR 10), every screen with a tour step carries its island and the small script that turns Sign in into Console, including `/docs/api/`, which also has a copy script (`apps/web/src/layouts/Base.astro`, `apps/web/src/policy.ts`). Seventeen pages carry no script at all: About, How it's built, its fourteen essays and the 404. Byte budgets per page type are not built: only the status island's chunk and the API page's HTML have budgets (`apps/web/test/dist.test.ts`); a budget per page class is a decision pending, listed in the roadmap's Remaining work.
+
 ## Patterns and further reading
 
 - Islands architecture: Jason Miller, ["Islands Architecture"](https://jasonformat.com/islands-architecture/) (2020).
