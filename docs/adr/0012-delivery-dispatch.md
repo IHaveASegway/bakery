@@ -79,6 +79,10 @@ Two-way. The solvers, the page and the fixture are code and static files. Dispat
 - The site's Route Lab replaces VROOM or its pipeline, or Geofabrik's Utah extract changes licence or format.
 - Spike S7 does not run the pipeline on the Utah extract within one focused day, or a curated place falls outside the clipped city.
 
+## Postscript 2026-11-09
+
+As built, 2026-11-09: the solver's files are not copied into `apps/web/public/app/dispatch/solver/`. `scripts/fetch-solver.mjs` fetches them at build from the site's repository at the lock's commit into a git-ignored folder and checks every byte against `apps/web/solver.lock.json`; they are never committed. Time windows are checked since 2026-11-08: vans leave at 09:00, a stop is served until two hours after its window opens, 3 minutes a door (`crates/domain/src/dispatch.rs`), and VROOM is given the same times. The 25% gap in Revisit if is now measured against windowed plans.
+
 ## Patterns and further reading
 
 - The savings heuristic: G. Clarke and J. W. Wright, ["Scheduling of Vehicles from a Central Depot to a Number of Delivery Points"](https://doi.org/10.1287/opre.12.4.568), *Operations Research* 12(4), 1964.

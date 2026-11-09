@@ -1,5 +1,5 @@
-// The Worker bakery-api (docs/delivery.md, "Toolchain pins"). Local-only until PR 11: nothing here
-// is deployed before launch, and no account id or secret is ever written in this file.
+// The Worker bakery-api (docs/delivery.md, "Toolchain pins"), deployed since the launch on
+// 2026-11-06 (PR 11); no account id or secret is ever written in this file.
 {
   "name": "bakery-api",
   "main": "build/worker/shim.mjs", // worker-build's output
