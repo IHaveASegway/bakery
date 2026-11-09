@@ -121,14 +121,14 @@ sequenceDiagram
   participant A as bakery-api
   participant G as Google
   B->>A: GET /v1/auth/google/start
-  A-->>B: 302; sets __Host-oauth (state, nonce, verifier, return path; signed; Lax; 10 min)
+  A-->>B: 302, sets __Host-oauth: state, nonce, verifier, return path (signed, Lax, 10 min)
   B->>G: scope=openid, code_challenge S256, state, nonce
   G-->>B: 302 to /v1/auth/google/callback?code&state
   B->>A: callback with __Host-oauth
   A->>G: code + verifier + client secret
   G-->>A: ID token
-  A->>A: validate; account id = HMAC(ACCOUNT_HMAC_KEY, sub)
-  A-->>B: 303 to bakery.ihaveasegway.com; sets __Host-session
+  A->>A: validate, then account id = HMAC(ACCOUNT_HMAC_KEY, sub)
+  A-->>B: 303 to bakery.ihaveasegway.com, sets __Host-session
 ```
 
 - **`__Host-oauth` is `Lax`** because Google's redirect back is a cross-site navigation, which a `Strict` cookie would miss. The `Strict` session cookie set on the way out is stored and sent from the first same-site call.

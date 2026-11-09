@@ -36,12 +36,12 @@ sequenceDiagram
     participant G as Google or GitHub
     B->>A: GET /v1/auth/google/start
     A-->>B: 302 to Google, Set-Cookie __Host-oauth (state, nonce, verifier)
-    B->>G: consent (Google: scope=openid; GitHub: no scope)
+    B->>G: consent (Google: scope=openid, GitHub: no scope)
     G-->>B: 302 to /v1/auth/google/callback?code&state
     B->>A: callback with __Host-oauth
     A->>G: code + verifier for tokens
     A->>A: Google: verify ID token, keep HMAC(key, sub). GitHub: GET /user, keep HMAC(key, github:id). Discard the rest
-    A-->>B: Set-Cookie __Host-session; 303 to the console
+    A-->>B: Set-Cookie __Host-session, then 303 to the console
 ```
 
 ## Alternatives considered
