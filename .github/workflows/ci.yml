@@ -227,6 +227,8 @@ jobs:
           exit "$bad"
       - name: No metadata in any tracked image or PDF (scripts/image-metadata.mjs)
         run: node scripts/image-metadata.mjs --tracked
+      - name: Every relative link in the docs reaches its file and heading (scripts/check-doc-links.mjs)
+        run: node scripts/check-doc-links.mjs
       - name: No Workers Cache in any wrangler.jsonc (it bills every asset request)
         run: |
           bad=0
