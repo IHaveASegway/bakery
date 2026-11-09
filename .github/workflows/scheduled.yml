@@ -1,12 +1,13 @@
 # The scheduled jobs (docs/delivery.md, "From launch"; docs/operations.md, "The nightly wipe"):
 # bakery-objects, the morning object check after the 10:00 UTC wipe (the baseline run at 04:47
-# before it; at 12:17, the comparison and the dead-letter and breaker checks), and audit, the
-# Monday audit.
+# before it; at 12:17, the comparison and the dead-letter and breaker checks), audit, the
+# Monday audit, and smokes, the Monday and Thursday run of every scripts/smoke-*.sh (since
+# 2026-11-09).
 #
 # A scheduled run does nothing unless the repository variable LAUNCHED is 'true' (Settings,
 # Secrets and variables, Actions, Variables), set on launch day, 2026-11-06. A run started by hand
-# (workflow_dispatch) runs the chosen job whatever LAUNCHED says, so either can be tried at any
-# time: audit needs no secret; bakery-objects needs CLOUDFLARE_READ_TOKEN and
+# (workflow_dispatch) runs the chosen job whatever LAUNCHED says, so any can be tried at any
+# time: audit and smokes need no secret; bakery-objects needs CLOUDFLARE_READ_TOKEN and
 # CLOUDFLARE_ACCOUNT_ID and stops with an error without them. Against an account where the API
 # was never deployed it answers "nothing listed holds data", which is also what a wiped account
 # answers: the dry run proves the token and the listing, not the wipe.
@@ -17,7 +18,7 @@
 #     Workers Scripts Read (Durable Object namespaces and their objects are listed under it;
 #     confirm the name on launch day). It has no analytics permission, by design: the 12:17 run's
 #     dead-letter step reads the public GET /v1/status, which needs no secret at all.
-# The GitHub token: issues: write for both jobs' issues, actions: read for bakery-objects to fetch
+# The GitHub token: issues: write for every job's issues, actions: read for bakery-objects to fetch
 # the baseline run's listing, pull-requests: read and security-events: read for audit's
 # Dependabot state.
 #
@@ -32,12 +33,19 @@ on:
     - cron: '47 4 * * *'
     - cron: '17 12 * * *' # bakery-objects: what still holds data after the wipe and its retries
     - cron: '17 7 * * 1' # audit: Monday
+    # smokes: Monday and Thursday 17:37, five hours after the 12:17 run and eleven before the next
+    # 04:47 one, so a run of under an hour, even one GitHub starts late, seldom holds the shared
+    # group then. Monday too because the bakery is closed that day and the seed and several rules
+    # behave differently: the first run found a Monday-only failure (smoke-dispatch.sh, 2026-11-09)
+    # that a Thursday-only job would never have caught.
+    - cron: '37 17 * * 1'
+    - cron: '37 17 * * 4'
   workflow_dispatch:
     inputs:
       job:
         description: The job to run now
         type: choice
-        options: [bakery-objects, audit]
+        options: [bakery-objects, audit, smokes]
         required: true
 
 permissions: {} # rule 1
@@ -472,3 +480,136 @@ jobs:
           fi
           echo "::error::the audit found: $(paste -sd ';' "$out/failed")"
           exit 1
+
+  smokes:
+    # The Monday and Thursday smokes (delivery.md, the `smokes` row; decided on 2026-11-09, R70):
+    # every scripts/smoke-*.sh, one after the other, on `wrangler dev` with the fakes, through
+    # scripts/smoke-all.sh, as a person runs them. Not on every pull request: the scripts alone
+    # take about 20 minutes. Mondays as well as Thursdays, since the bakery is closed on Mondays and
+    # the seed and several rules behave differently then (the cron's comment). Any failed script,
+    # or a build that failed before them, opens (or updates) one issue, "Weekly smokes failed" (the
+    # title kept from the first, Thursday-only design, so nothing has to find a renamed issue),
+    # and fails the job; it is green otherwise, and, as audit
+    # does, a green run leaves an open issue for a person to close. Holds no secret: the fakes
+    # need none, and the throwaway .dev.vars each script writes holds fake values only.
+    if: >-
+      (vars.LAUNCHED == 'true' &&
+      (github.event.schedule == '37 17 * * 1' || github.event.schedule == '37 17 * * 4')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.job == 'smokes')
+    runs-on: ubuntu-latest
+    # rule 9: the eleven scripts took 20 minutes one after the other on 2026-11-09 (1205 s on a
+    # 4-core machine, warm), 30 with half again for a slower runner; the cold toolchain, the
+    # worker-build install, pnpm install and the first API and seed builds about 15 more (verify's
+    # cold 25 minutes hold all that and the tests); and one hung script's 15 (smoke-all.sh's
+    # SMOKE_ALL_TIMEOUT_S, 900 s) on top: 30 + 15 + 15 = 60.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      issues: write # "Weekly smokes failed"
+    env:
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # rule 7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false # once a week; no cache to keep or trust
+      - name: Rust, from rust-toolchain.toml, with the WebAssembly target
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add wasm32-unknown-unknown
+          cargo --version
+      - name: The worker-build version, read from Cargo.toml's [workspace.metadata.tools]
+        id: tools
+        run: |
+          meta="$(cargo metadata --no-deps --format-version 1 --locked)"
+          version="$(jq -r '.metadata.tools["worker-build"] // empty' <<<"$meta")"
+          if ! printf '%s' "$version" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "::error::cannot read an exact version for worker-build from [workspace.metadata.tools]"
+            exit 1
+          fi
+          echo "worker-build=$version" >> "$GITHUB_OUTPUT"
+      - name: Install worker-build (rule 12, --locked and pinned)
+        env:
+          WORKER_BUILD: ${{ steps.tools.outputs.worker-build }}
+        run: cargo install worker-build --locked --version "$WORKER_BUILD"
+      - run: pnpm install --frozen-lockfile
+      - name: Build once what the scripts build, so each script's own build finds it done
+        # Each script's `wrangler dev` runs the API's build command (worker-build --release), and
+        # smoke-crm.sh and smoke-dispatch.sh build the seed generator; built here, those are no-ops.
+        run: |
+          (cd workers/api && worker-build --release)
+          cargo build -q --locked -p bakery-seed
+      - name: Run every smoke script (scripts/smoke-all.sh)
+        id: run
+        run: |
+          set +e
+          scripts/smoke-all.sh --logs "$RUNNER_TEMP/smokes" --markdown "$RUNNER_TEMP/smokes.md"
+          code=$?
+          set -e
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if [ -s "$RUNNER_TEMP/smokes.md" ]; then
+            cat "$RUNNER_TEMP/smokes.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+      - name: Open or update the issue when a script failed
+        if: ${{ !cancelled() && (failure() || steps.run.outputs.code != '0') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          CODE: ${{ steps.run.outputs.code }}
+        run: |
+          results="$RUNNER_TEMP/smokes/results.tsv"
+          title="Weekly smokes failed"
+          {
+            echo "$(date -u +%F) ($RUN):"
+            echo
+            if [ -z "$CODE" ]; then
+              echo "The smokes did not run: a step before them failed (the toolchain, the install or the build). Its log is in the run."
+            elif [ ! -s "$results" ]; then
+              echo "scripts/smoke-all.sh stopped before any script (exit $CODE). Its output is in the run."
+            else
+              echo "Failed:"
+              echo
+              awk -F '\t' 'NR > 1 && $5 != "pass" { printf "- `%s`: %s, %s (%s s)\n", $1, $5, $6, $4 }' "$results"
+              for log in "$RUNNER_TEMP"/smokes/*.log; do
+                case "$log" in *.worker.log) continue ;; esac
+                if grep -q '^FAIL  ' "$log"; then
+                  echo
+                  echo "<details><summary>smoke-$(basename "$log" .log).sh, its FAIL lines</summary>"
+                  echo
+                  echo '```text'
+                  grep '^FAIL  ' "$log" | head -n 20 | cut -c1-400
+                  echo '```'
+                  echo "</details>"
+                fi
+              done
+            fi
+            echo
+            echo "The logs are the run's \`smoke-logs\` artifact (kept 7 days). Runbook: docs/operations.md, \"Weekly smokes failed\"."
+          } > "$RUNNER_TEMP/body.md"
+          number="$(gh issue list --repo "$REPO" --state open --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title == \"$title\")) | first | .number // empty")"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$REPO" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh issue create --repo "$REPO" --title "$title" --body-file "$RUNNER_TEMP/body.md"
+          fi
+          if [ -s "$results" ]; then
+            echo "::error::smoke scripts failed: $(awk -F '\t' 'NR > 1 && $5 != "pass" { print $1 }' "$results" | paste -sd ' ')"
+          else
+            echo "::error::the smokes did not run"
+          fi
+          exit 1
+      - name: Keep the scripts' logs (fakes only, no secret)
+        if: ${{ !cancelled() }} # after the issue step too, which fails the job on a failure
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: smoke-logs
+          path: ${{ runner.temp }}/smokes
+          if-no-files-found: ignore
+          retention-days: 7 # past the next run
