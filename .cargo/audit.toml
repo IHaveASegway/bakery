@@ -1,0 +1,10 @@
+# cargo-audit 0.22.2 reads this file from the workspace root: verify's cargo audit step and the
+# Monday audit (scheduled.yml) honour the same list. Keep it the same as deny.toml's ignore list,
+# with the same reason.
+[advisories]
+ignore = [
+  # Marvin, in rsa: a timing side channel in private-key operations. rsa is used for public-key
+  # signature verification only (Google's RS256 signatures); Marvin concerns private-key
+  # operations (deny.toml, [advisories]; docs/security.md, "Google, with the openid scope alone").
+  "RUSTSEC-2023-0071",
+]

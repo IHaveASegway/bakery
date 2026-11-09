@@ -11,7 +11,7 @@
 //
 // The account API names objects by id only, and says whether each has stored data; it says
 // nothing of when one was made. So an object holding data at 12:17 UTC may be a visitor's sandbox
-// made after the 10:00 wipe. --before takes the listing the 09:47 UTC run wrote: an object that
+// made after the 10:00 wipe. --before takes the listing the baseline run (04:47 UTC) wrote: an object that
 // held data before the wipe and still does after it survived the wipe. Without --before, every
 // object holding data is reported, and none can be told apart.
 //
