@@ -15,6 +15,9 @@
 //                       socket's first frame can wake a hibernated Kitchen
 //   --raw TEXT          a frame sent as is after the snapshot (and after any --cmd)
 //   --flood N           N copies of a `cmd` frame with no id, sent at once after the snapshot
+//   --at-second-start   send the flood only when the wall clock's milliseconds are 50 to 200,
+//                       just after a second begins: the Kitchen counts frames by calendar
+//                       second, so a flood sent near a second's end can be split in two
 //   --wait-evt TYPE[:N] exit 0 once N `evt` frames of TYPE arrived (N defaults to 1)
 //   --evt-order ORDER   count only `evt` frames whose stream is that order's (`order:<s>:ORDER`)
 //   --until KIND        exit 0 once a frame of this `t` arrived (snapshot, ack, nack, ...)
@@ -37,6 +40,7 @@ const opts = {
   cmds: [],
   raws: [],
   flood: 0,
+  atSecondStart: false,
   delay: 0,
   timeout: 10,
   hold: null,
@@ -72,6 +76,9 @@ for (let i = 0; i < args.length; i++) {
       break;
     case '--flood':
       opts.flood = Number(next());
+      break;
+    case '--at-second-start':
+      opts.atSecondStart = true;
       break;
     case '--wait-evt': {
       const [type, n] = next().split(':');
@@ -174,6 +181,17 @@ function finish(code) {
   setTimeout(() => process.exit(code), 100);
 }
 
+// Runs fn once the wall clock's milliseconds are between 50 and 200, checking again after each
+// wait, since a timer can fire late.
+function atSecondStart(fn) {
+  const ms = Date.now() % 1000;
+  if (ms >= 50 && ms <= 200) {
+    fn();
+    return;
+  }
+  setTimeout(() => atSecondStart(fn), ms < 50 ? 50 - ms : 1050 - ms);
+}
+
 function sendNextCmd() {
   const cmd = pending.shift();
   if (!cmd) {
@@ -181,7 +199,11 @@ function sendNextCmd() {
     for (const raw of opts.raws) ws.send(raw);
     if (opts.flood > 0) {
       const frame = JSON.stringify({ t: 'cmd', v: 1, id: '', order: '', action: 'mark_ready' });
-      for (let n = 0; n < opts.flood; n++) ws.send(frame);
+      const flood = () => {
+        for (let n = 0; n < opts.flood; n++) ws.send(frame);
+      };
+      if (opts.atSecondStart) atSecondStart(flood);
+      else flood();
     }
     return;
   }
