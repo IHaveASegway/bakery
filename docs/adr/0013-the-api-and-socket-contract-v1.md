@@ -1,6 +1,6 @@
 # ADR 0013: The API and socket contract v1: one route table in Rust, an OpenAPI 3.1 document generated from it, and additive-only changes after acceptance
 
-Status: Proposed · 2026-11-05 · Deciders: Joseph Peterson
+Status: Accepted · 2026-11-09, by delegation; as amended by the postscript below · Proposed 2026-11-05 · Deciders: Joseph Peterson
 
 ## Context
 
@@ -78,10 +78,12 @@ One-way in effect once visitors have scripts against it. The cost of a rename th
 
 As built, 2026-11-09: the table has 73 routes in 65 paths, and 58 accept a bearer token (`apps/web/public/docs/api/openapi.json`). The 73rd is `GET /v1/sandboxes/{id}/menu/drafts`, numbered 19 in `x-pr`, which names the pull request that added a route; 19 is the UI audit of 2026-11-08, which has no pull request of its own. The 26 routes ahead of the Worker were closed by PR 10's Worker streams, and the tests agree today (`crates/contracts/src/routes.rs`). The TypeScript is generated from the schemas only, and the document from the table and the schemas; tour steps are checked by `apps/web/test/tour.test.ts`, in the Vitest run, not at build. The document is 425,610 B pretty-printed, 34,428 B gzipped, with 119 component schemas. Later on 2026-11-09 the tax rate's route, `PATCH /v1/sandboxes/{id}/menu/tax-rate`, numbered 20 in `x-pr`, made it 74 routes in 66 paths, 59 accepting a token, and the document 431,401 B pretty-printed, 34,872 B gzipped (`gzip -c`), with 120 component schemas.
 
+Accepted by delegation on 2026-11-09 (roadmap R12), so from that date the v1 contract changes only by addition, as decision and Door say.
+
 ## Patterns and further reading
 
 - Problem details for HTTP APIs: [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457), as of 2026-11-05.
 - The OpenAPI Specification [3.1.0](https://spec.openapis.org/oas/v3.1.0).
-- Tolerant reader: Martin Fowler, ["TolerantReader"](https://martinfowler.com/bliki/TolerantReader.html) (2011).
+- Tolerant reader: ["TolerantReader"](https://martinfowler.com/bliki/TolerantReader.html) (bliki, 2011).
 - Idempotent requests: Stripe, [Idempotent requests](https://docs.stripe.com/api/idempotent_requests), as of 2026-11-05.
-- Contract-first and consumer-driven contracts: Ian Robinson, ["Consumer-Driven Contracts"](https://martinfowler.com/articles/consumerDrivenContracts.html) (2006).
+- Contract-first and consumer-driven contracts: ["Consumer-Driven Contracts"](https://martinfowler.com/articles/consumerDrivenContracts.html) (article, 2006).

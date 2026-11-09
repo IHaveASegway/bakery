@@ -1,6 +1,6 @@
 # ADR 0007: Stripe's sandbox for payments and billing, through a Payment Element that collects no billing details
 
-Status: Proposed · 2026-11-04 · Deciders: Joseph Peterson
+Status: Accepted · 2026-11-09, by delegation; as amended by the postscript below · Proposed 2026-11-04 · Deciders: Joseph Peterson
 
 ## Context
 
@@ -77,6 +77,6 @@ As built, 2026-11-09: the Stripe adapter is `workers/api/src/stripe.rs`, and the
 
 ## Patterns and further reading
 
-- Idempotent receiver: Gregor Hohpe and Bobby Woolf, *Enterprise Integration Patterns* (2003), ["Idempotent Receiver"](https://www.enterpriseintegrationpatterns.com/patterns/messaging/IdempotentReceiver.html).
-- Ports and adapters: Alistair Cockburn, ["Hexagonal architecture"](https://alistair.cockburn.us/hexagonal-architecture/) (2005).
+- Idempotent receiver: *Enterprise Integration Patterns* (book, 2003), ["Idempotent Receiver"](https://www.enterpriseintegrationpatterns.com/patterns/messaging/IdempotentReceiver.html).
+- Ports and adapters: ["Hexagonal architecture"](https://alistair.cockburn.us/hexagonal-architecture/) (essay, 2005).
 - Idempotency keys on payment APIs: Stripe, [Idempotent requests](https://docs.stripe.com/api/idempotent_requests).

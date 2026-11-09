@@ -226,7 +226,7 @@ Alerts go by email to Joseph's personal inbox, outside `ihaveasegway.com` on pur
 | Either hostname down, from launch | An uptime monitor on `https://bakery.ihaveasegway.com/` and `https://api.bakery.ihaveasegway.com/v1/health` | [Incident](#incident-the-bakery-down) |
 | Firewall exit 1 or 2; a vulnerable dependency | `firewall`; Dependabot | [Leak response](#leak-response); [Dependency update](#dependency-update) |
 
-**The email on a trip is not built.** The design in [cost.md](cost.md#guardrails) had the breaker email Joseph's verified address. That needs the Email Service binding and the verified address as a secret, and it is Joseph's decision, put to him on 2026-11-06 and not made. Until then the two signals are the status page's Breaker line and the morning issue, which `scheduled.yml` opens or updates at 12:17 UTC when `GET /v1/status` says `read-only` or `off`. A trip at 13:00 UTC is therefore found by a person up to about 23 hours later, unless the page is open; the breaker has already acted by then.
+**A trip opens an issue, not an email.** The design in [cost.md](cost.md#guardrails) had the breaker email Joseph's verified address. Email Service was struck on 2026-11-09 by the session, under Joseph's delegation of the same day; revisable (roadmap R23): the bakery holds no address for anyone and sends no real email. The two signals are the status page's Breaker line and the morning issue, which `scheduled.yml` opens or updates at 12:17 UTC when `GET /v1/status` says `read-only` or `off`. A trip at 13:00 UTC is therefore found by a person up to about 23 hours later, unless the page is open; the breaker has already acted by then.
 
 The monitor is the site's choice, Better Stack's free tier ([pricing](https://betterstack.com/pricing), as of 2026-11-04; the free interval is not stated there). `/v1/health` runs no DO, so a check every 3 minutes (an assumption) is about 480 Worker requests a day, 0.14% of the 10M a month Paid includes. Not recorded as set up (2026-11-09).
 
@@ -301,7 +301,7 @@ A message that failed its three retries is in `bakery-events-dlq`, and the dead-
 
 A signed-in session (a guest gets 403) starts it from the console's "Rebuild projections" button or with `POST /v1/sandboxes/{id}/rebuild` (202; a second start while one runs is 409 `rebuild`). It is safe to run at any time: the log is never touched, and a delivery that arrives meanwhile is appended to the log and replayed too. Watch `GET /v1/sandboxes/{id}/rebuild`: `state` is `rebuilding` with `applied` climbing to `total` at 200 log entries per alarm, then `finished` with `ms` (and `idle` before the first run in a sandbox). Reads in the meantime answer the partial projection with `Projection-State: rebuilding`, and a campaign that falls due waits (`sends_deferred`). When it ends, `rebuild_finished` is logged with `identical`. `true` means the replay gave back, byte for byte, the projection it replaced. `false` means the stored projection had drifted from its log, which is a defect to report; the replayed projection is the one kept, because the log is the truth. On 2026-11-05 `scripts/smoke-crm.sh` ran this on a log of 1,033 entries and read `identical: true`. Nothing here rebuilds the Inbox or the Customers, which hold their own state and have no log to replay from.
 
-**Real sends (Q22) are off and unbuilt.** No `Mailbox` adapter exists, so nothing in the Worker can send mail; every campaign message is a row in the Inbox. When the adapter is built for Joseph's own verified address it will be off by default, and its switch and its sender setup will be written here then ([security.md](security.md#privacy-and-data-inventory) says why the port can name no one else).
+**Real sends (Q22) are off and unbuilt.** No `Mailbox` adapter exists, so nothing in the Worker can send mail; every campaign message is a row in the Inbox. Real sends to Joseph's own verified address were struck on 2026-11-09 (roadmap R23), so no switch or sender setup belongs here ([security.md](security.md#privacy-and-data-inventory) says why the port can name no one else).
 
 ### Wipe now
 
@@ -447,7 +447,7 @@ The site's calendar totals about 117 minutes a month before its lab ([site opera
 
 ## Patterns and further reading
 
-- Runbooks for use under stress, and blameless notes: Betsy Beyer et al., *Site Reliability Engineering* (2016), chapters 12 and 15.
-- Alerts that need an action: Rob Ewaschuk, "My Philosophy on Alerting" (2013). Black-box monitoring from a separate failure domain: *Site Reliability Engineering*, chapter 6.
-- Breakers, bulkheads and a last-resort kill switch: Michael Nygard, *Release It* (2018).
-- Resumable, idempotent batch work: Pat Helland, "Idempotence Is Not a Medical Condition" (2012).
+- Runbooks for use under stress, and blameless notes: *Site Reliability Engineering* (book, 2016), chapters 12 and 15.
+- Alerts that need an action: "My Philosophy on Alerting" (essay, 2013). Black-box monitoring from a separate failure domain: *Site Reliability Engineering*, chapter 6.
+- Breakers, bulkheads and a last-resort kill switch: *Release It!*, 2nd ed. (book, 2018).
+- Resumable, idempotent batch work: "Idempotence Is Not a Medical Condition" (ACM Queue, 2012).
