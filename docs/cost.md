@@ -2,7 +2,7 @@
 
 What the system of the made-up bakery, Proof of Concept Bakery (Q2 · Q-name), costs to run, what breaks first on each Cloudflare plan under a launch, a bot or a bug, and the guardrails that keep both the bill and the breakage bounded. This doc owns the price sheet, the formulas, the per-sandbox meter, scenarios A–F, the guardrails, the launch checklist, the annual totals and denial of wallet. [ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md) owns the plan decision ([ADR index](adr/README.md)); [architecture.md](architecture.md) owns how the objects and the Queue fit together; [operations.md](operations.md) owns the runbooks that act on these numbers.
 
-Status: Updated in PR 17 · 2026-11-06
+Status: Updated in PR 17 · 2026-11-06; updated 2026-11-09: deployed since 2026-11-06, on Workers Paid since that day (issue #43)
 
 Prices and limits are as of 2026-11-04, with a source for every line.
 
@@ -20,7 +20,7 @@ The storefront's pages stay static and unaffected on either plan. `bakery-web` i
 
 ## The headline
 
-Workers Paid for the account from launch day, the zone on its Free plan, and the site's guardrails applied in the launch pull request (PR 11), under an account ceiling of $100 a month ([ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md); Q27 · Q-plan and Q28 · Q-budget, answered 2026-11-04). Until then nothing is deployed and the bill is $0 ([the plan decision](#the-plan-decision)). Usage stays inside the included amounts at every realistic scenario below.
+Workers Paid for the account from launch day, the zone on its Free plan, and the site's guardrails applied in the launch pull request (PR 11), under an account ceiling of $100 a month ([ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md); Q27 · Q-plan and Q28 · Q-budget, answered 2026-11-04). Before it nothing was deployed and the bill was $0; the account has been on Paid since 2026-11-06, and the $5 fee started that day (issue #43; [the plan decision](#the-plan-decision)). Usage stays inside the included amounts at every realistic scenario below.
 
 | Recommended configuration | Value | Arithmetic |
 |---|---|---|
@@ -51,7 +51,7 @@ As of 2026-11-04. The WAF row belongs to the zone plan, which stays Free either 
 | DO stored data | 5 GB in total, no reset; 1 GB per object (FAQ) | 5 GB-month, then $0.20/GB-month; 10 GB per object | [DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/), [DO limits](https://developers.cloudflare.com/durable-objects/platform/limits/) |
 | Queues | 10,000 operations/day | 1M/month, then $0.40/M; one operation per 64 KB written, read or deleted (about 3 per message); a retry adds a read; batches up to 100 | [Queues pricing](https://developers.cloudflare.com/queues/platform/pricing/) |
 | Email Service | Sends only to verified addresses in the account, free | Beta: 3,000/month, then $0.35 per 1,000; verified-address sends free and uncounted | [Email pricing](https://developers.cloudflare.com/email-service/platform/pricing/) |
-| Analytics Engine | 100,000 points and 10,000 queries/day | 10M points, then $0.25/M; 1M queries, then $1.00/M; "Currently, you will not be billed" | [AE pricing](https://developers.cloudflare.com/analytics/analytics-engine/pricing/). As built on 2026-11-06 (PR 13) the status page's refresh reads 192 SQL queries a day (2 queries, `counts_24h` and `last_wipe`, every 15 minutes, 96 times; `crates/app/src/analytics.rs`), 1.9% of the free 10,000 a day and about 5,800 a 30-day month against Paid's 1M. A page view runs none. The breaker's reads are not in this count and use no Analytics Engine query: as built on 2026-11-06 (PR 17) it sends 4 requests per run to the GraphQL Analytics API, 96 runs a day, **384 requests a day**. That API's own limits were not read on 2026-11-06 (confirm on the first run) |
+| Analytics Engine | 100,000 points and 10,000 queries/day | 10M points, then $0.25/M; 1M queries, then $1.00/M; "Currently, you will not be billed" | [AE pricing](https://developers.cloudflare.com/analytics/analytics-engine/pricing/). As built on 2026-11-06 (PR 13) the status page's refresh reads 192 SQL queries a day (2 queries, `counts_24h` and `last_wipe`, every 15 minutes, 96 times; `crates/app/src/analytics.rs`), 1.9% of the free 10,000 a day and about 5,800 a 30-day month against Paid's 1M. A page view runs none. The breaker's reads are not in this count and use no Analytics Engine query: as built on 2026-11-06 (PR 17) it sends 4 requests per run to the GraphQL Analytics API, 96 runs a day, **384 requests a day**. In production on 2026-11-09 neither the refresh's queries nor the breaker's requests run, their secrets being unset (`GET /v1/status`: counters `unavailable`, breaker `unconfigured`). That API's own limits were not read on 2026-11-06 (confirm on the first run) |
 | Workers Logs, to 2026-11-30 | 200,000 events/day, 3-day retention | 20M events/month, then $0.60/M; 7-day retention | [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) |
 | Observability, from 2026-12-01 | 0.5 GB/day ingestion, 7 days | 50 GB ingestion and 10 GB-month per cycle, then $0.25/GB and $0.10/GB-month | [Observability pricing](https://developers.cloudflare.com/observability/pricing/) |
 | Cron triggers | 5 per account, 15 min wall time | 250 per account | [limits](https://developers.cloudflare.com/workers/platform/limits/) |
@@ -238,6 +238,8 @@ The cap turns a denial of wallet back into a denial of service ([security.md](se
 
 An alarm that re-arms itself for now, or a consumer that re-enqueues its own events, runs until the 15-minute breaker acts. As built on 2026-11-06 (PR 17) the breaker reads the last complete slot, so a loop runs at most 30 minutes before the first run that sees it (the slot it starts in, which is read when that slot ends, and one more if the analytics for that slot are late), plus the analytics delay (a few minutes; Cloudflare gives no number, [Workers metrics](https://developers.cloudflare.com/workers/observability/metrics-and-analytics/), read 2026-11-06). The smallest looping row below, $4.65 an hour, is $1.1625 in a full 15-minute window, over the breaker's `off` line of $0.1389 (the arithmetic is in [the guardrails](#guardrails)), so a loop that fills 2 minutes of a window already reads as `off` at once. A loop that began in the last two minutes of a slot reads as `armed` or `read-only` first (read-only does not stop an alarm), and as `off` one window later. No visitor is involved; the WAF sees nothing, and no email is sent (not built). Two hours of the worst row below is $95.12; 30 minutes of it is $23.78 and 45 minutes $35.67, before the analytics delay.
 
+Not in force as of 2026-11-09: until the breaker's secrets are set, a loop is bounded only by the loop guard (100 re-arms a day, `workers/api/src/objects/stream.rs`) and a budget alert a day later.
+
 | Loop, one object or consumer, Paid | Arithmetic per hour | $ per hour |
 |---|---|---|
 | Alarm at 600 runs a second (the [reported](https://aiidelist.com/blog/cloudflare-10811-bill-codex-durable-objects-alarm-loop) rate), alarm and state rows only | 2.16M DO requests ($0.32) + 4.32M rows ($4.32) + 460.8 GB-s ($0.006) | $4.65 |
@@ -247,7 +249,7 @@ An alarm that re-arms itself for now, or a consumer that re-enqueues its own eve
 
 Two hours of the worst row would cost $95.12 (0.5 hours: $23.78, 0.75 hours: $35.67). A bug in a class every sandbox holds loops in every live sandbox at once: two hours at $15.88 cost $318 on a quiet day (10 live) and $63,520 on a launch day (2,000). On Free the same loop spends the day's rows in 1.4 minutes (100,000 ÷ 1,200 a second) and darkens every DO on the account, at $0.
 
-What stops it: the loop guard bounds each object to 100 re-arms a day, about 400 rows; 2,000 sandboxes × 36 children at that bound is 28.8M rows (36 as built on 2026-11-06, `workers/api/src/objects/sandbox.rs`; 35 before PR 9), inside the 50M. The consumer holds no producer for `bakery-events`, by type ([architecture.md](architecture.md)). For an internal loop the breaker sets `Control` to `off` and enables the WAF rule; the consumer reads the flag (cached 60 s) and stops routing, so messages drain to `bakery-events-dlq` after 3 retries. Alarms need the guard or a deploy: neither the flag nor the WAF rule reaches them ([operations.md](operations.md#breaker-tripped)).
+What stops it: the loop guard bounds each object to 100 re-arms a day, about 400 rows; 2,000 sandboxes × 36 children at that bound is 28.8M rows (36 as built on 2026-11-06, `workers/api/src/objects/sandbox.rs`; 35 before PR 9), inside the 50M. The consumer holds no producer for `bakery-events`, by type ([architecture.md](architecture.md)). For an internal loop the breaker sets `Control` to `off` and enables the WAF rule; the consumer reads the flag (cached 60 s, `workers/api/src/queue.rs`) and stops routing, so messages drain to `bakery-events-dlq` after 3 retries, and the DLQ writer stores them as the Sandbox's `dead_letters`, counted as `dlq` points that the 12:17 run turns into an issue. Nothing warns the operator that a trip makes dead letters; what `off` should do to messages in flight is a decision pending, listed in the roadmap's Remaining work (2026-11-09). Alarms need the guard or a deploy: neither the flag nor the WAF rule reaches them ([operations.md](operations.md#breaker-tripped)).
 
 ### E. The nightly wipe
 
@@ -271,7 +273,7 @@ On Free at 20 a day the wipe writes 50,000 rows at 10:00 UTC, half the new day's
 
 Workers Paid for the account, from launch day, with the guardrails below; the rationale, alternatives and Revisit if are in [ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md) (Q27 · Q-plan). The account is the site's (Q29 · Q-account), so the move fires the Revisit if of the site's [ADR 0008](https://github.com/IHaveASegway/website/blob/main/docs/adr/0008-workers-free-with-guardrails.md), and the site records a superseding ADR in its own repository.
 
-**Nothing is deployed until the launch pull request (PR 11)** (Q44 · Q-posture, speed first until launch). Until then the account stays on Free, as the site is today, and the bakery bills $0. Local development on `wrangler dev` runs the Worker, its DOs and its Queue locally ([local development](https://developers.cloudflare.com/workers/development-testing/), as of 2026-11-04) and has no Cloudflare cost. The upgrade, the $5 fee and every guardrail below that needs a deployed Worker or the zone arrive in that pull request.
+**Nothing was deployed until the launch pull request (PR 11)** (Q44 · Q-posture, speed first until launch). Until then the account stayed on Free, as the site is, and the bakery billed $0. Since 2026-11-06 the account is on Paid (issue #43). Local development on `wrangler dev` runs the Worker, its DOs and its Queue locally ([local development](https://developers.cloudflare.com/workers/development-testing/), as of 2026-11-04) and has no Cloudflare cost. The upgrade, the $5 fee and every guardrail below that needs a deployed Worker or the zone arrive in that pull request.
 
 Free stays the fallback if the decision is ever reversed. What it allows:
 
@@ -285,19 +287,19 @@ On Free the bakery serves 14 people a day; on Paid, 300, for $60 a year.
 
 ## Guardrails
 
-Each control arrives with the work that needs it, in Q37 · Q-order-of-work's phases ([roadmap.md](roadmap.md)); a control that needs a deployed Worker or the zone arrives in the launch pull request (PR 11), since nothing runs in Cloudflare before it. Limits as of 2026-11-04.
+Each control arrives with the work that needs it, in Q37 · Q-order-of-work's phases ([roadmap.md](roadmap.md)); a control that needs a deployed Worker or the zone arrives in the launch pull request (PR 11), since nothing ran in Cloudflare before it. Limits as of 2026-11-04. Where a row below is not built or not in force, it says so with the date 2026-11-09.
 
 | When | Control | Setting | Protects |
 |---|---|---|---|
 | Launch (PR 11) | Budget alerts | $10, $25, $50 and $100 of usage, the last the account's ceiling (Q28 · Q-budget); the fee is excluded, so any alert means a guardrail failed | Notice within a day |
 | Foundation | `limits.cpu_ms` on `bakery-api` | 300 ms, twice an estimated 150 ms argon2id hash, raised only from a spike S1 measurement; `bakery-web` runs no code, so it has nothing to bound | CPU runaway |
-| Launch (PR 11) | The zone's rate-limiting rule on `api.bakery.ihaveasegway.com` | IP, 10 s period, 10 s block; for example 50 per period | Dollars per flooding IP |
-| Launch (PR 11) | A disabled WAF custom rule blocking the API hostname (kill switch L3) | 1 of 5 Free custom rules | Outside traffic, if WAF runs first (the site's spike S2, pending) |
+| Launch (PR 11) | The zone's rate-limiting rule on `api.bakery.ihaveasegway.com` | IP, 10 s period, 10 s block; for example 50 per period. The rule's real expression and threshold are not recorded here as of 2026-11-09 | Dollars per flooding IP |
+| Launch (PR 11) | A disabled WAF custom rule blocking the API hostname (kill switch L3) | 1 of 5 Free custom rules; its id is not recorded as of 2026-11-09 | Outside traffic, if WAF runs first (the site's spike S2, pending) |
 | Launch (PR 11), built in PR 17 | The 15-minute cron breaker in `bakery-api` (`workers/api/src/breaker.rs`, rules in `crates/app/src/breaker.rs`; as built 2026-11-06, proven against a fake and not yet against Cloudflare): every `*/15` run reads the last complete 15-minute window from the GraphQL Analytics API, five meters in four requests, with its own token ([security.md](security.md#secrets-inventory)); `Control` keeps the state and decides. **Read-only** (`Control`'s flag) when a meter is over its line or the window is priced past the dollar line; **off** when the window is priced past 4 times the dollar line, or when the state is already tripped and the window is still over a line; it never relaxes by itself. On `off` it also enables the pre-built WAF kill rule through the Rulesets API. It does **not** email: that needs the Email Service binding and Joseph's verified address as a secret, a decision put to Joseph on 2026-11-06 and not made. Detaching the custom domain (L4) follows by hand ([operations.md](operations.md#breaker-tripped)) | The dollar line is the ceiling divided by the month's 15-minute windows: $100 ÷ 2,880 = **$0.0347** (the rate that would spend the ceiling in a month); `off` at 4 times it, **$0.1389**, the ceiling in a week. A meter's line is 4 times its 15-minute share of the daily budget, which is `Control`'s cap times the [per-sandbox meter](#the-per-sandbox-meter) (as of 2026-11-04). At the cap of 300 sandboxes: 150 × 300 ÷ 96 × 4 = **1,875 Worker requests**; 155 × 300 ÷ 96 × 4 = **1,937.5 DO requests**; 5,000 × 300 ÷ 96 × 4 = **62,500 rows written**; 2.78 × 300 ÷ 96 × 4 = **34.75 GB-s**; 150 × 300 ÷ 96 × 4 = **1,875 Queue operations**. Priced at the sheet's overage rates ($0.30, $0.15, $1.00, $12.50 and $0.40 per million, every count as if past the included amounts, which is deliberately cautious), a window at all five lines is about $0.0645, so the rows line alone ($0.0625) is nearly the dollar line | The alerts' day of lag; loops |
-| Foundation | No KV: counters and flags in `Control`'s SQLite or memory | CI fails on a `kv_namespaces` binding | The costliest write on the sheet |
+| Foundation | No KV: counters and flags in `Control`'s SQLite or memory | No CI check yet: `wrangler.jsonc` has no KV binding, and nothing fails if one is added (2026-11-09) | The costliest write on the sheet |
 | Foundation | Batch writes: events and outbox in one transaction per command; the relay sends batches | — | The 12-writes-per-message multiplier |
-| Auth, sandbox and wipe | `Control`'s daily caps and budgets, charged at the meter's ceiling on admission; if `Control` errors, no sandbox | Sandboxes 300, of which guests 100 (Q45 · Q-guest-scope); demo accounts 100; rows 1.6M; DO requests 50,000; Queue operations 50,000. On Free, 70% of each cap, the wipe's rows reserved first | $5.29 a month at most |
-| Auth, sandbox and wipe | Turnstile before a sandbox or demo account | Single-use token, verified server-side | The costliest request |
+| Auth, sandbox and wipe | `Control`'s daily caps and budgets, charged at the meter's ceiling on admission; if `Control` errors, no sandbox | Sandboxes 300, of which guests 100 (Q45 · Q-guest-scope); demo accounts 100; rows 1.6M; DO requests 50,000; Queue operations 50,000. On Free, 70% of each cap, the wipe's rows reserved first. As built (2026-11-09): the counts 300, 100, 100 and 3 a signed-in account, and traffic minutes (`crates/app/src/admission.rs`, `workers/api/wrangler.jsonc`). Not built: the rows, DO-request and Queue budgets and the Free plan's 70%; building them or striking them is a decision pending, listed in the roadmap's Remaining work | $5.29 a month at most |
+| Auth, sandbox and wipe | Turnstile before a sandbox or demo account | Single-use token, verified server-side. Built; in production on Turnstile's test site key from 2026-11-06 until the repository variable is set (2026-11-09) | The costliest request |
 | Auth, sandbox and wipe | Rate Limiting binding per session and per IP hash | Sandbox creation 1 per 60 s per IP hash; commands 60 per 60 s per session or per API token; upgrades 6 per 60 s | One sender's churn; never a budget |
 | Auth, sandbox and wipe | The session cookie or the API token: no object is addressed without one | 24 h ([security.md](security.md#sign-in-and-sessions)) | Objects created by strangers |
 | Auth, sandbox and wipe | An object its `Sandbox` has not initialized refuses every request and writes nothing | — | Objects summoned after the wipe or by a guessed name |
@@ -316,15 +318,16 @@ At `Control`'s caps the worst designed month is $5.29, 5.3% of the $100 ceiling,
 
 The site's checklist, applied in the launch pull request (PR 11) on launch day, before `bakery-api` serves its first sandbox, in order:
 
-1. The Launch gate passed: PRs 2 to 10 merged, spike S1 passed, Joseph's end-to-end read on `wrangler dev`, the name's registry check done. Q27 · Q-plan and Q28 · Q-budget were answered on 2026-11-04; [ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md) Accepted; the site's superseding ADR merged.
-2. Upgrade the account; record the date in [ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md).
+1. The Launch gate passed: PRs 2 to 10 merged, spike S1 passed, Joseph's end-to-end read on `wrangler dev`, the name's registry check done. Q27 · Q-plan and Q28 · Q-budget were answered on 2026-11-04; [ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md) Accepted; the site's superseding ADR merged. As of 2026-11-09 ADR 0010 is still Proposed.
+2. Upgrade the account; record the date in [ADR 0010](adr/0010-workers-paid-with-the-sites-guardrails.md). Upgraded on 2026-11-06; the date is in issue #43 and, since 2026-11-09, in ADR 0010's postscript.
 3. Budget alerts at $10, $25, $50 and $100.
 4. Deploy `bakery-api` with `limits.cpu_ms`, and see it in the dashboard.
 5. The rate-limiting rule on the API hostname and the disabled WAF kill rule, tested first on a throwaway path (the site's spike S2).
 6. The cron breaker with its own token ([security.md](security.md#secrets-inventory)), built in PR 17, its dollar line derived from the $100 ceiling (`BREAKER_CEILING_USD`, $0.0347 a window). Force one trip by setting `BREAKER_CEILING_USD` to "0", read `breaker_tripped` in the log and the status page's Breaker line, reset it ([operations.md](operations.md#breaker-tripped)), restore "100", and watch two windows read `armed`. Record the date and what the first real run confirmed ([below](#open-on-the-first-real-run-of-the-breaker)).
-7. `Control`'s budgets to their Paid values; until now they keep the Free sizes.
+   Not done as of 2026-11-09: the breaker is `unconfigured`.
+7. `Control`'s budgets to their Paid values; until now they keep the Free sizes. As built (2026-11-09) only the counts exist, at their Paid values; there are no row, DO-request or Queue budgets to resize ([guardrails](#guardrails)).
 8. The site's own Paid guardrails on its lab Worker, which its docs own.
-9. Next day, the billable-usage dashboard shows only the $5 plan; any line that scenario A does not explain is a guardrail failure.
+9. Next day, the billable-usage dashboard shows only the $5 plan; any line that scenario A does not explain is a guardrail failure. No reading of the dashboard for 2026-11-07 is recorded (2026-11-09).
 
 ## Open on the first real run of the breaker
 
@@ -336,7 +339,7 @@ Written on 2026-11-06, when the breaker was built and proven only against `scrip
 
 ## Annual totals
 
-Year 1 runs from launch day, the launch pull request (PR 11). Until then the account stays on Free and the bakery bills $0.
+Year 1 runs from launch day, the launch pull request (PR 11), 2026-11-06. Before it the account stayed on Free and the bakery billed $0.
 
 | Item | Paid path | Free path |
 |---|---|---|

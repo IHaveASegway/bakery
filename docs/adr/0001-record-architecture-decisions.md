@@ -77,3 +77,7 @@ Two-way. The records are Markdown files in one folder, so changing the template 
 - A second regular contributor joins. MADR's decision-makers, consulted and informed fields start to earn their place, and acceptance should not rest on one person.
 - The site's format changes by a superseding record of its own. Follow it here, or record why not.
 - After a year of rendered records, no visitor or reviewer has mentioned one. Keep writing them for maintenance, and stop treating them as portfolio pieces.
+
+## Postscript 2026-11-09
+
+As built, 2026-11-09: no record has been Accepted, though pull requests 2 to 18 built on all thirteen, so the rule that acceptance happens at the latest in the first pull request that builds on a decision was not kept. Each record that the build contradicts now carries a dated postscript like this one; accepting or revising them is Joseph's decision, listed in the roadmap's Remaining work. Q3 · Q-city was answered on 2026-11-04: the made-up bakery's city is Salt Lake City ([product.md](../product.md#decided)), and Seattle stays the Route Lab's map only.
