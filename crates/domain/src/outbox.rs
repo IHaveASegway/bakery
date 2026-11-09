@@ -282,11 +282,13 @@ mod tests {
                 version: 2,
                 items: 24,
                 item: None,
+                tax_bp: None,
             },
             CatalogEvent::MenuPublished {
                 version: 3,
                 items: 23,
                 item: Some("fern-loaf".into()),
+                tax_bp: None,
             },
         ]);
     }

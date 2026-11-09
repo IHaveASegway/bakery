@@ -14,6 +14,12 @@ export type MenuItemState = 'draft' | 'available' | 'paused' | 'retired';
  */
 export interface MenuResponse {
   categories: MenuCategory[];
+  /**
+   * The tax rate in basis points that an order placed against this version pays; staff set
+   * it with `PATCH .../menu/tax-rate`. A menu cached before the field existed leaves it out,
+   * which reads as the default, 1,000.
+   */
+  tax_bp?: number;
   version: number;
 }
 export interface MenuCategory {

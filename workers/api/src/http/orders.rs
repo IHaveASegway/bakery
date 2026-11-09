@@ -15,8 +15,8 @@
 use bakery_contracts::OrderRequest;
 use bakery_domain::catalog::MenuView;
 use bakery_domain::order::{
-    DEFAULT_TAX_BP, EXPIRY_MINUTES, LineInput, Order as OrderAggregate, OrderCommand, OrderError,
-    OrderKind, OrderState, PlaceOrder,
+    EXPIRY_MINUTES, LineInput, Order as OrderAggregate, OrderCommand, OrderError, OrderKind,
+    OrderState, PlaceOrder,
 };
 use bakery_domain::{Aggregate, BakeryDate, BusinessTime, DecideContext, Ulid};
 use worker::{Method, Request, Response};
@@ -198,8 +198,9 @@ pub async fn place(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answer {
             })
             .collect(),
         note: body.note,
+        // The rate published with the menu this order is priced against.
+        tax_bp: menu.tax_bp,
         menu,
-        tax_bp: DEFAULT_TAX_BP,
         cause: None,
         at: Some(at),
     };

@@ -81,6 +81,7 @@ export type { SegmentListResponse } from './SegmentListResponse';
 export type { Segment, SegmentResponse } from './SegmentResponse';
 export type { SessionKind, SessionResponse } from './SessionResponse';
 export type { StatusResponse } from './StatusResponse';
+export type { TaxRateRequest } from './TaxRateRequest';
 export type { TimelineEntry, TimelineResponse } from './TimelineResponse';
 export type { TokenInfoResponse } from './TokenInfoResponse';
 export type { TokenResponse } from './TokenResponse';

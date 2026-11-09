@@ -180,7 +180,8 @@ const S: &str = "/v1/sandboxes/{id}";
 /// dispatch and PR 10's token, each held to the Worker as built and its README by the tests
 /// below. A route added later sits beside its neighbours: the menu's drafts (2026-11-08) after
 /// the publish. Its number, 19, is the audit day of 2026-11-08 in docs/roadmap.md ("UI audit of
-/// 2026-11-08"), which has no pull request number of its own.
+/// 2026-11-08"), which has no pull request number of its own. The tax rate (2026-11-09) sits
+/// after the drafts with the number 20, the roadmap's next work package.
 pub const ROUTES: &[RouteSpec] = &[
     r(
         2,
@@ -470,6 +471,23 @@ pub const ROUTES: &[RouteSpec] = &[
             200,
             "`{version, pending}`: the published version and each pending item's draft, in slug order",
         )],
+    ),
+    r(
+        20,
+        "set-tax-rate",
+        "PATCH",
+        "/v1/sandboxes/{id}/menu/tax-rate",
+        SignedIn,
+        "The tax rate in basis points, published at once as a version of its own",
+        Some("TaxRateRequest"),
+        Some("MenuEditResponse"),
+        &[
+            ok(
+                200,
+                "`{version, pending}`; the same rate again publishes nothing",
+            ),
+            no(422, "menu", "`tax-rate-range` outside 0 to 3,000 bp"),
+        ],
     ),
     r(
         4,
@@ -1675,6 +1693,20 @@ mod tests {
             menu.iter()
                 .any(|a| a.status == 429 && a.problem == Some("rate-limit"))
         );
+        let rate = find("PATCH", "/v1/sandboxes/{id}/menu/tax-rate").unwrap();
+        assert_eq!(
+            (rate.id, rate.pr, rate.session, rate.bearer, rate.idempotent),
+            ("set-tax-rate", 20, SignedIn, true, false)
+        );
+        assert_eq!(
+            (rate.request, rate.response),
+            (Some("TaxRateRequest"), Some("MenuEditResponse"))
+        );
+        let rate = answers(rate);
+        assert!(rate.iter().any(|a| a.status == 422
+            && a.problem == Some("menu")
+            && a.note.contains("`tax-rate-range`")));
+        assert!(rate.iter().any(|a| a.problem == Some("guest-scope")));
         let sandboxes = answers(find("POST", "/v1/sandboxes").unwrap());
         assert!(
             !sandboxes.iter().any(|a| a.problem == Some("token")),

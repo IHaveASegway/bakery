@@ -63,6 +63,7 @@ const CALLS: Record<string, () => Promise<unknown>> = {
   patchMenuItem: () => api.patchMenuItem(X, X, B),
   publishMenu: () => api.publishMenu(X),
   getMenuDrafts: () => api.getMenuDrafts(X),
+  setTaxRate: () => api.setTaxRate(X, 850),
   getDeadLetters: () => api.getDeadLetters(X),
   redrive: () => api.redrive(X, X),
   advanceClock: () => api.advanceClock(X, 5),

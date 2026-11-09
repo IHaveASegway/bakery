@@ -13,6 +13,8 @@
 //!   404 `{error: "unknown-item"}`; 422 `{error: "menu", rule}`; 422 `{error: "key-reused"}`;
 //!   a replay answers the first result with `Idempotent-Replayed: true`.
 //! - `POST /_publish {key}` → the same answers; `rule: "nothing-to-publish"` with no drafts.
+//! - `POST /_tax-rate {key, body_hash, tax_bp}` → the same answers; `rule: "tax-rate-range"`
+//!   outside 0 to 3,000 bp. The rate is published at once with a version of its own.
 //! - `POST /_wipe`, `POST /_clock`: the child protocol (child.rs).
 //!
 //! Its alarm serves the `outbox` timer and the 36 h backstop.
@@ -77,6 +79,13 @@ pub struct Publish {
     pub key: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetTaxRate {
+    pub key: String,
+    pub body_hash: String,
+    pub tax_bp: u32,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Version {
     pub version: u32,
@@ -134,6 +143,14 @@ impl DurableObject for Catalog {
                         let body: Publish = sql::body(&mut req).await?;
                         let hash = String::new();
                         self.command(&meta, &body.key, &hash, &[CatalogCommand::PublishMenu], now)
+                            .await
+                    }
+                    (Method::Post, "/_tax-rate") => {
+                        let body: SetTaxRate = sql::body(&mut req).await?;
+                        let cmd = CatalogCommand::SetTaxRate {
+                            tax_bp: body.tax_bp,
+                        };
+                        self.command(&meta, &body.key, &body.body_hash, &[cmd], now)
                             .await
                     }
                     (Method::Post, "/_clock") => {

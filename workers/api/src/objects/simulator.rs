@@ -41,7 +41,7 @@ use bakery_contracts::{OrderResponse, TrafficResponse};
 use bakery_domain::Cents;
 use bakery_domain::billing::Purpose;
 use bakery_domain::catalog::{ItemStatus, MenuView};
-use bakery_domain::order::{DEFAULT_TAX_BP, EXPIRY_MINUTES, LineInput, OrderKind};
+use bakery_domain::order::{EXPIRY_MINUTES, LineInput, OrderKind};
 use bakery_domain::{BakeryDate, BusinessTime, Envelope, Ulid, WallTime};
 use bakery_seed::{BirthDate, Generator, Seed};
 use rand_core::Rng;
@@ -1003,7 +1003,7 @@ impl Simulator {
                 lines: d.lines.clone(),
                 note: None,
                 menu: menu.clone(),
-                tax_bp: DEFAULT_TAX_BP,
+                tax_bp: menu.tax_bp,
                 cause: Some(d.key.clone()),
                 at,
             }),
