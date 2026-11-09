@@ -49,6 +49,37 @@ deny = [
   { crate = "tokio", wrappers = ["worker"] },
 ]
 
+[bans.build]
+# The crates whose build scripts the tree runs today, each accepted for a named reason
+# (docs/security.md, "Supply chain"). A new crate with a build.rs fails CI until it is added
+# here with its reason. Listed from cargo-deny's own report on 2026-11-09, both targets in [graph].
+# cargo-deny allow-lists build scripts only; proc-macros are not covered by this list.
+# executables stays "deny": a build script or proc-macro crate that ships a native binary fails.
+executables = "deny"
+allow-build-scripts = [
+  "generic-array",       # brought by digest, under rsa and the hashes in bakery-app
+  "getrandom",           # brought by rand, under proptest: tests only
+  "icu_normalizer_data", # brought by url's IDNA support, under worker
+  "icu_properties_data", # brought by url's IDNA support, under worker
+  "libc",                # brought by rustix and tempfile, under proptest: tests only
+  "libm",                # brought by num-bigint-dig, under rsa
+  "num-bigint-dig",      # brought by rsa, in bakery-app, for RS256 verification
+  "num-traits",          # brought by chrono, under worker, and num-bigint-dig, under rsa
+  "proc-macro2",         # brought by every derive macro in the tree
+  "quote",               # brought by every derive macro in the tree
+  "ref-cast",            # brought by schemars, in bakery-contracts
+  "rustix",              # brought by tempfile, under proptest: tests only
+  "rustversion",         # brought by wasm-bindgen's own build script
+  "serde",               # brought by the API, the app and the contracts
+  "serde_core",          # brought by serde
+  "serde_json",          # brought by the API, the app and the contracts
+  "thiserror",           # brought by bakery-app and the crates under it
+  "wasm-bindgen",        # brought by worker and the API: the JavaScript boundary
+  "wasm-bindgen-shared", # brought by wasm-bindgen
+  "zerocopy",            # brought by ppv-lite86, under rand_chacha: tests only
+  "zmij",                # brought by serde_json
+]
+
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
