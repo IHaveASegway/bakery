@@ -78,6 +78,7 @@ dependencies = [
 name = "bakery-domain"
 version = "0.1.0"
 dependencies = [
+ "icu_normalizer",
  "proptest",
  "serde",
  "serde_json",
