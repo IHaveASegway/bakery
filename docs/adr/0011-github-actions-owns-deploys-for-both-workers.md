@@ -1,6 +1,6 @@
 # ADR 0011: GitHub Actions owns build, gates and deploys, for both Workers
 
-Status: Proposed · 2026-11-04 · Deciders: Joseph Peterson
+Status: Accepted · 2026-11-09, by delegation; as amended by the postscript below · Proposed 2026-11-04 · Deciders: Joseph Peterson
 
 ## Context
 

@@ -1,6 +1,6 @@
 # ADR 0010: Workers Paid for the account, with the site's guardrails from launch day
 
-Status: Proposed · 2026-11-04 · Deciders: Joseph Peterson
+Status: Accepted · 2026-11-09, by delegation; as amended by the postscript below · Proposed 2026-11-04 · Deciders: Joseph Peterson
 
 ## Context
 
@@ -86,6 +86,8 @@ Two-way while only SQLite-backed DOs exist, as the site's record says. Going bac
 ## Postscript 2026-11-09
 
 As built, 2026-11-09: the account moved to Workers Paid on 2026-11-06, with the budget alerts set the same hour; issue #43 records the date. The 15-minute breaker was built in PR 17 but its secrets are not set in production as of 2026-11-09, so until they are a loop is bounded by the loop guard and a budget alert a day later ([cost.md](../cost.md#d-a-loop-with-no-outside-traffic)). `Control` meters the counts and traffic minutes only; the row, DO-request and Queue budgets of [cost.md](../cost.md#guardrails) are not built.
+
+Decided on 2026-11-09 by the session, under Joseph's delegation of the same day; revisable: the row, DO-request and Queue budgets of `Control` are struck from [cost.md](../cost.md#guardrails): they were never built, and the breaker's five meters are the guardrail (roadmap R27). As built that is close to alternative C above, Paid without `Control`'s budgets, which this record rejected because the breaker acts after the money is spent; what narrows the gap is `Control`'s counts, the Simulator's caps and the 15-minute breaker, and the breaker is `unconfigured` until its secrets are set (roadmap R4). If the breaker is not configured soon, this amendment is the one to revisit. The Workers Paid date, 2026-11-06 above, stays Joseph's to confirm (roadmap R12).
 
 ## Patterns and further reading
 

@@ -1,6 +1,6 @@
 # ADR 0007: Stripe's sandbox for payments and billing, through a Payment Element that collects no billing details
 
-Status: Proposed · 2026-11-04 · Deciders: Joseph Peterson
+Status: Accepted · 2026-11-09, by delegation; as amended by the postscript below · Proposed 2026-11-04 · Deciders: Joseph Peterson
 
 ## Context
 

@@ -2,25 +2,25 @@
 
 One file per decision that is hard to reverse, or that a reviewer would ask about. The made-up bakery, Proof of Concept Bakery, is a running ordering, scheduling, catering, billing and CRM system, with every backend in Rust on Cloudflare Workers and its state in a Durable Object (DO) per aggregate; these records say why it is built that way. Format after Michael Nygard, "Documenting Architecture Decisions" (2011), plus two fields: **Door** (one-way or two-way, and why) and **Revisit if** (the evidence that would show the decision was wrong). This repository is public from its first push, so every record is written to be public-safe, and sensitive inputs (such as the content firewall's terms) never appear in one.
 
-Status: Draft for review in PR 1 · 2026-11-04
+Status: Draft for review in PR 1 · 2026-11-04; all thirteen Accepted by delegation on 2026-11-09
 
 | # | Decision | Status |
 |---|---|---|
-| [0001](0001-record-architecture-decisions.md) | Record architecture decisions | Proposed |
-| [0002](0002-rust-for-every-backend.md) | Rust for every backend, as WebAssembly on Workers, with the domain in native-testable crates | Proposed |
-| [0003](0003-durable-objects-as-the-system-of-record.md) | SQLite-backed Durable Objects as the system of record: one object per aggregate, an event log and a transactional outbox | Proposed |
-| [0004](0004-queues-between-objects-and-alarms-for-time.md) | Cloudflare Queues between objects, idempotent consumers, and alarms for everything timed | Proposed |
-| [0005](0005-a-private-sandbox-per-visitor-wiped-nightly.md) | A private, seeded sandbox per visitor, wiped every night, holding no personal data by construction | Proposed |
-| [0006](0006-sign-in-that-learns-nothing.md) | Sign-in that learns nothing: Google with the openid scope alone, GitHub with its numeric id alone, and demo accounts without email | Proposed |
-| [0007](0007-stripe-sandbox-and-a-payment-element-that-collects-nothing.md) | Stripe's sandbox for payments and billing, through a Payment Element that collects no billing details | Proposed |
-| [0008](0008-astro-site-with-react-islands-on-an-assets-only-worker.md) | The storefront is an Astro site with React islands on an assets-only Worker at bakery.ihaveasegway.com | Proposed |
-| [0009](0009-the-api-on-its-own-hostname.md) | The API on its own hostname, api.bakery.ihaveasegway.com, behind CORS and a host-only cookie | Proposed |
-| [0010](0010-workers-paid-with-the-sites-guardrails.md) | Workers Paid for the account, with the site's guardrails from launch day | Proposed |
-| [0011](0011-github-actions-owns-deploys-for-both-workers.md) | GitHub Actions owns build, gates and deploys, for both Workers | Proposed |
-| [0012](0012-delivery-dispatch.md) | Delivery dispatch: VROOM in the browser to plan, a savings heuristic in Rust to propose, the object to decide | Proposed |
-| [0013](0013-the-api-and-socket-contract-v1.md) | The API and socket contract v1: one route table in Rust, an OpenAPI 3.1 document generated from it, and additive-only changes after acceptance | Proposed |
+| [0001](0001-record-architecture-decisions.md) | Record architecture decisions | Accepted 2026-11-09, by delegation, as amended |
+| [0002](0002-rust-for-every-backend.md) | Rust for every backend, as WebAssembly on Workers, with the domain in native-testable crates | Accepted 2026-11-09, by delegation, as amended |
+| [0003](0003-durable-objects-as-the-system-of-record.md) | SQLite-backed Durable Objects as the system of record: one object per aggregate, an event log and a transactional outbox | Accepted 2026-11-09, by delegation, as amended |
+| [0004](0004-queues-between-objects-and-alarms-for-time.md) | Cloudflare Queues between objects, idempotent consumers, and alarms for everything timed | Accepted 2026-11-09, by delegation, as amended |
+| [0005](0005-a-private-sandbox-per-visitor-wiped-nightly.md) | A private, seeded sandbox per visitor, wiped every night, holding no personal data by construction | Accepted 2026-11-09, by delegation, as amended |
+| [0006](0006-sign-in-that-learns-nothing.md) | Sign-in that learns nothing: Google with the openid scope alone, GitHub with its numeric id alone, and demo accounts without email | Accepted 2026-11-09, by delegation, as amended |
+| [0007](0007-stripe-sandbox-and-a-payment-element-that-collects-nothing.md) | Stripe's sandbox for payments and billing, through a Payment Element that collects no billing details | Accepted 2026-11-09, by delegation, as amended |
+| [0008](0008-astro-site-with-react-islands-on-an-assets-only-worker.md) | The storefront is an Astro site with React islands on an assets-only Worker at bakery.ihaveasegway.com | Accepted 2026-11-09, by delegation, as amended |
+| [0009](0009-the-api-on-its-own-hostname.md) | The API on its own hostname, api.bakery.ihaveasegway.com, behind CORS and a host-only cookie | Accepted 2026-11-09, by delegation, as amended |
+| [0010](0010-workers-paid-with-the-sites-guardrails.md) | Workers Paid for the account, with the site's guardrails from launch day | Accepted 2026-11-09, by delegation, as amended |
+| [0011](0011-github-actions-owns-deploys-for-both-workers.md) | GitHub Actions owns build, gates and deploys, for both Workers | Accepted 2026-11-09, by delegation, as amended |
+| [0012](0012-delivery-dispatch.md) | Delivery dispatch: VROOM in the browser to plan, a savings heuristic in Rust to propose, the object to decide | Accepted 2026-11-09, by delegation, as amended |
+| [0013](0013-the-api-and-socket-contract-v1.md) | The API and socket contract v1: one route table in Rust, an OpenAPI 3.1 document generated from it, and additive-only changes after acceptance | Accepted 2026-11-09, by delegation, as amended |
 
-As of 2026-11-09 all thirteen are still Proposed, though each has been built on. Each now ends with a dated `## Postscript 2026-11-09` that says where the build differs from the record, with file paths. Accepting them is Joseph's decision, listed in the roadmap's Remaining work.
+All thirteen were Proposed until 2026-11-09, though each had been built on. Each ends with a dated `## Postscript 2026-11-09` that says where the build differs from the record, with file paths, and records any decision of that day. On 2026-11-09 all thirteen were Accepted by delegation: Joseph asked the session that day to make the open decisions for now, and each record is Accepted as amended by its postscript; revisable ([roadmap.md](../roadmap.md#remaining-work), R12).
 
 Open decisions that have not reached an ADR yet are the numbered questions in [product.md](../product.md), cited across these records by number and short name (for example Q23 · Q-auth). Several records here state an assumption that holds until a question is answered, and say which.
 
@@ -29,7 +29,7 @@ Open decisions that have not reached an ADR yet are the numbered questions in [p
 How an ADR is proposed, accepted, superseded and amended is itself a decision: [ADR 0001](0001-record-architecture-decisions.md). In short:
 
 - An ADR starts as **Proposed**, in the pull request that needs it. Merging that pull request does not accept it.
-- Joseph accepts it in a pull request review by changing its status line to **Accepted** with the date, at the latest in the pull request that first builds on it.
+- Joseph accepts it in a pull request review by changing its status line to **Accepted** with the date, at the latest in the pull request that first builds on it; or, when he delegates the decision, the delegate does, and the status line says "by delegation" (as on 2026-11-09 for 0001 to 0013).
 - An Accepted ADR is not rewritten. A changed decision gets a new ADR, and the old one's status becomes **Superseded by NNNN**. A dated `## Postscript YYYY-MM-DD` records practice that differs without changing the decision.
 - This index changes in the same pull request as the ADR.
 

@@ -1,6 +1,6 @@
 # ADR 0001: Record architecture decisions
 
-Status: Proposed · 2026-11-04 · Deciders: Joseph Peterson
+Status: Accepted · 2026-11-09, by delegation; as amended by the postscript below · Proposed 2026-11-04 · Deciders: Joseph Peterson
 
 ## Context
 
@@ -28,7 +28,7 @@ PR 1 proposes twelve records. Several are two-way doors. They are written becaus
 - **Files and numbers.** One decision per file, `docs/adr/NNNN-short-title.md`, numbered in order. A number is never reused. A reserved number (0013, for the API and socket contract v1) is held in the index until its record is written. A file is never renamed after it merges, because the site may link it (below).
 - **Lifecycle.**
   - An ADR starts as **Proposed**, usually in the pull request that needs it. Merging a pull request does not accept the ADRs in it.
-  - Joseph accepts an ADR in a pull request review by changing its status line to **Accepted** with the date. At the latest, that happens in the pull request that first builds on the decision. Until then a Proposed ADR can be edited or rewritten freely, including to record a different choice from the one first proposed.
+  - Joseph accepts an ADR in a pull request review by changing its status line to **Accepted** with the date, or delegates the acceptance, and the status line then says "by delegation" (see the postscript). At the latest, that happens in the pull request that first builds on the decision. Until then a Proposed ADR can be edited or rewritten freely, including to record a different choice from the one first proposed.
   - An Accepted ADR is not rewritten. A changed decision gets a new ADR that supersedes it, and the old one's status becomes **Superseded by NNNN**. Besides that change, an Accepted ADR gets only typo fixes and postscripts.
   - When practice differs from an Accepted decision without changing it (a measured limit, a step done another way, a spike's result), a dated `## Postscript YYYY-MM-DD` goes after Revisit if. It says what differs, why, and whether any Revisit if condition was met.
   - The index in [README.md](README.md) changes in the same pull request as the ADR.
@@ -80,4 +80,6 @@ Two-way. The records are Markdown files in one folder, so changing the template 
 
 ## Postscript 2026-11-09
 
-As built, 2026-11-09: no record has been Accepted, though pull requests 2 to 18 built on all thirteen, so the rule that acceptance happens at the latest in the first pull request that builds on a decision was not kept. Each record that the build contradicts now carries a dated postscript like this one; accepting or revising them is Joseph's decision, listed in the roadmap's Remaining work. Q3 · Q-city was answered on 2026-11-04: the made-up bakery's city is Salt Lake City ([product.md](../product.md#decided)), and Seattle stays the Route Lab's map only.
+As built, 2026-11-09: no record has been Accepted, though pull requests 2 to 18 built on all thirteen, so the rule that acceptance happens at the latest in the first pull request that builds on a decision was not kept. Each record that the build contradicts now carries a dated postscript like this one; they were Accepted by delegation on 2026-11-09, as the paragraph below says. Q3 · Q-city was answered on 2026-11-04: the made-up bakery's city is Salt Lake City ([product.md](../product.md#decided)), and Seattle stays the Route Lab's map only.
+
+Accepted on 2026-11-09 by delegation, with the other twelve: Joseph asked the session that day to make the open decisions for now and to circle back if one needs to change. Each record is Accepted as amended by its postscript, so where a postscript says the build differs, or records a decision of 2026-11-09, the postscript is the accepted reading. A later change still gets a new ADR that supersedes the old one, or, for practice that differs, a dated postscript. ADR 0010's Workers Paid date stays Joseph's to confirm (roadmap R12).

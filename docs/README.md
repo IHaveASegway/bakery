@@ -4,7 +4,7 @@ This folder is the plan and the decision record for Proof of Concept Bakery, a m
 
 Status: Updated 2026-11-09
 
-PR 1 wrote these docs before any code, and Joseph answered the blocking questions on 2026-11-04; the docs below carry his answers. They have been revised as each pull request built its part, the bakery has been live since 2026-11-06, and on 2026-11-09 every doc was reconciled with the code; [stack.md](stack.md#techniques-as-built) lists the techniques as built. An Accepted ADR is a commitment and a Proposed one is still open to argument, and the [ADR index](adr/README.md) is the one place that says which is which. As of 2026-11-09 every ADR is still Proposed, each with a dated "As built" postscript where the build differs; accepting them is Joseph's decision, listed in the roadmap's Remaining work. Everything else here changes by pull request, in the doc that owns the topic.
+PR 1 wrote these docs before any code, and Joseph answered the blocking questions on 2026-11-04; the docs below carry his answers. They have been revised as each pull request built its part, the bakery has been live since 2026-11-06, and on 2026-11-09 every doc was reconciled with the code; [stack.md](stack.md#techniques-as-built) lists the techniques as built. An Accepted ADR is a commitment and a Proposed one is still open to argument, and the [ADR index](adr/README.md) is the one place that says which is which. Every ADR was Proposed until 2026-11-09, when all thirteen were Accepted by delegation, each as amended by its dated postscript (roadmap R12). Everything else here changes by pull request, in the doc that owns the topic.
 
 ## Start here in 10 minutes
 

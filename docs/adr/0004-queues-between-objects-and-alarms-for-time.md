@@ -1,6 +1,6 @@
 # ADR 0004: Cloudflare Queues between objects, idempotent consumers, and alarms for everything timed
 
-Status: Proposed · 2026-11-04 · Deciders: Joseph Peterson
+Status: Accepted · 2026-11-09, by delegation; as amended by the postscript below · Proposed 2026-11-04 · Deciders: Joseph Peterson
 
 ## Context
 
@@ -83,4 +83,6 @@ Two-way. The application sees the Queue only through the `Outbox` port in `crate
 
 ## Postscript 2026-11-09
 
-As built, 2026-11-09: the consumer drains the dead-letter queue into the owning Sandbox's `dead_letters` and acks each message (`workers/api/src/queue.rs`), kept until a redrive or the wipe, so the queue holds nothing for 14 days; a `dlq` point is counted, and the 12:17 `bakery-objects` run opens an issue from `GET /v1/status`. The loop guard only stops arming and logs `alarm_guard` (`workers/api/src/objects/stream.rs`): nothing flags a sandbox `read-only`, and `Control` keeps no per-sandbox event count. A consumer batch is up to 10 messages (`max_batch_size` in `workers/api/wrangler.jsonc`), not 100; the relay sends up to 100 rows. The objects reach the Queue through `objects/stream.rs`, not through the `Outbox` port, which the native tests use. With the flag at `off` every message is retried, so events in flight reach the dead-letter queue after three tries; what `off` should do with them is a decision pending, listed in the roadmap's Remaining work. No screen shows its lag as a number.
+As built, 2026-11-09: the consumer drains the dead-letter queue into the owning Sandbox's `dead_letters` and acks each message (`workers/api/src/queue.rs`), kept until a redrive or the wipe, so the queue holds nothing for 14 days; a `dlq` point is counted, and the 12:17 `bakery-objects` run opens an issue from `GET /v1/status`. The loop guard only stops arming and logs `alarm_guard` (`workers/api/src/objects/stream.rs`): nothing flags a sandbox `read-only`, and `Control` keeps no per-sandbox event count. A consumer batch is up to 10 messages (`max_batch_size` in `workers/api/wrangler.jsonc`), not 100; the relay sends up to 100 rows. The objects reach the Queue through `objects/stream.rs`, not through the `Outbox` port, which the native tests use. With the flag at `off` every message is retried, so events in flight reach the dead-letter queue after three tries; what `off` does with them was decided on 2026-11-09, below. No screen shows its lag as a number.
+
+Decided on 2026-11-09 by the session, under Joseph's delegation of the same day; revisable: a message that dies while the bakery is `off` is kept as a dead letter and not counted as a `dlq` point, so the morning check opens no issue for the switch doing its job (roadmap R21; the code is R67, and until it lands such dead letters are counted).

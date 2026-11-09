@@ -38,7 +38,7 @@ flowchart TB
     api["bakery-api<br/>Rust, every DO class"]
     queues["Queues<br/>bakery-events, bakery-events-dlq"]
     ae["Analytics Engine"]
-    email["Email Service<br/>verified address only"]
+    email["Email Service<br/>not used; Q43 later"]
   end
 
   subgraph github ["GitHub"]
@@ -57,7 +57,7 @@ flowchart TB
   web -.->|"Read how it works"| lab
   api <--> queues
   api -.-> ae
-  api -.->|"optional, to Joseph"| email
+  api -.->|"later, sign-in links only"| email
   api -->|"REST, sandbox key"| stripe
   stripe -->|"signed webhooks"| api
   visitors -->|"Payment Element"| stripe
@@ -72,7 +72,7 @@ flowchart TB
 
 - The site and the bakery link each other and nothing more (Q32 · Q-links).
 - Stripe, Google and GitHub's sign-in are the only third parties in the request path, and none receives a real name, email address or card from the bakery ([security.md](security.md)).
-- Email Service appears only for sends to Joseph's own verified address, free on any plan.[^email] Visitors never get email (Q22 · Q-email). Email sign-in is designed and shipped later (Q43 · Q-email-signin): one link per sign-in through Email Service, to an address used once and never stored ([security.md](security.md#email-sign-in-later)).
+- Email Service is not used. Sends to Joseph's own verified address, free on any plan,[^email] were struck on 2026-11-09 by the session, under Joseph's delegation of the same day; revisable: the bakery holds no address for anyone, and the Inbox object is the mailbox by design (Q22 · Q-email, roadmap R23). Visitors never get email. Email sign-in is designed and shipped later (Q43 · Q-email-signin): one link per sign-in through Email Service, to an address used once and never stored ([security.md](security.md#email-sign-in-later)).
 
 ## Container diagram
 
@@ -295,7 +295,7 @@ Every datum the bakery touches, left to right: where it lives, who changes it, w
 | Projections and campaigns | `Crm` | CRM | consumer; rebuild; staff | console; Inbox | derived from Crm's copy of the log | eventual; rebuildable |
 | Inbox | `Inbox` | CRM | events | inbox screen | HTTPS | one hop |
 | Simulated traffic | `Simulator`: rate, running flag, minute ledger | Platform | the visitor; its alarm | console; `Control`, for the day's minutes | commands, as a visitor's | strong in the object |
-| Flags, ledger, IP salt, the breaker's state (`breaker_state`, one row) | `Control` | Platform | router; cron, including the breaker; Joseph | as built (2026-11-09): the router at admission (sandbox and demo-account creation), uncached; the Queue consumer, through a 60 s isolate cache (`workers/api/src/queue.rs`); the 30 s isolate cache is the IP salt's | command | admission sees a change at once, the consumer within 60 s; `read-only` refuses creation only, and `off` makes the consumer retry every message, so events in flight reach the dead-letter queue after three tries. Whether `read-only` should refuse more, and what `off` should do to messages in flight, is a decision pending, listed in the roadmap's Remaining work (2026-11-09) |
+| Flags, ledger, IP salt, the breaker's state (`breaker_state`, one row) | `Control` | Platform | router; cron, including the breaker; Joseph | as built (2026-11-09): the router at admission (sandbox and demo-account creation), uncached; the Queue consumer, through a 60 s isolate cache (`workers/api/src/queue.rs`); the 30 s isolate cache is the IP salt's | command | admission sees a change at once, the consumer within 60 s; `read-only` refuses new sandboxes and new demo accounts only, and commands inside existing sandboxes continue, bounded by the per-sandbox limits and the nightly wipe (decided as built on 2026-11-09, roadmap R20); `off` makes the consumer retry every message, so events in flight reach the dead-letter queue after three tries, and such a dead letter is to be kept but not counted as a `dlq` point (decided on 2026-11-09, roadmap R21, built as R67) |
 | Logs | Workers Logs | Platform | the Worker: JSON lines; `HMAC(daily salt, IP)`, country, continent | Joseph | ingestion; invocation logs off | best effort; 7 days on Paid[^logs] |
 | Metrics | Analytics Engine | Platform | Worker and objects (seven points, fire-and-forget; as built 2026-11-06) | Joseph; the breaker (built in PR 17, 2026-11-06; it reads the GraphQL Analytics API, not this dataset, and writes one `breaker` point when it trips); the status page, from a snapshot that the `*/15` cron refreshes through the SQL API and `Control` stores, not from a query per view | data points; the snapshot over `GET /v1/status` | eventual; the page's counters are up to about 15 minutes old, `stale` after 20 or a failed refresh |
 | Secrets | Worker secrets on `bakery-api` | Platform; Billing | Joseph, by Wrangler | the Worker | injection | one reader each ([security.md](security.md#secrets-inventory)) |
@@ -640,7 +640,7 @@ sequenceDiagram
 - **One object per sandbox,** `simulator:<sandbox>`, registered with the Sandbox on the first "Start traffic" like any other child. It holds the rate, the running flag, the minute ledger and its alarm. It starts stopped.
 - **Alarm-driven.** Each run is a `Tick`: it draws the minute's commands from the seed's PRNG and the business clock (orders at the preset rate; in PR 4 orders only; PR 7 did not add the catering inquiry, which is still to do, and the pickup is PR 6's), issues them, records the minute and re-arms one wall-time minute later. Thirty ticks a day sit far under the loop guard's 100 re-arms.
 - **Ordinary commands, the same path.** A synthetic customer is one of the 60 personas. Each command passes the checks the router applies after admission (validation, an idempotency key of `sim:<ulid>`, the object names, the free-text rules) and goes to the same objects; every event it causes carries `cause: sim:<ulid>`, so the activity screen and the tour can tell the visitor's actions from the simulator's. Simulated orders pay with Stripe's test payment method, confirmed by the API, so the webhook path runs as for the visitor's own order.[^testing] Since PR 6 each order's place is asked of the day's `Schedule` like a visitor's: the slots spread over 16 quarter hours from about 4 h out, and each moves to the next start the day takes (a window for a delivery, and never a closed day); a refusal is logged `sim_slot_full` with its rule and the order is not placed (without this, every simulated order was refused). PR 4 had no Billing, so its simulated orders stayed unpaid and expired after 15 minutes of business time; since PR 5 they are paid, one in six with a declining card (6 placed, 4 confirmed and 2 declined in `scripts/smoke-payments.sh`, 2026-11-05).
-- **Bounded.** It runs only while the console is open: each `Tick` asks the Kitchen whether a console socket is open, a console without a socket sends a heartbeat `POST` every 30 s instead, and with neither for 90 s the `Tick` stops with reason `console_closed`. The start itself counts as a console sighting, so a new run has its first 90 s before it needs a socket or a heartbeat. At most 6 orders a minute and 30 minutes a sandbox a UTC day, reserved in `Control`'s `traffic(day, sandbox, minutes)` ledger. In PR 4 that ledger is the only budget charged: the DO-request and Queue budgets are not metered by `Control` yet, and PR 11's breaker reads the account's analytics instead ([cost.md](cost.md#guardrails)). The wipe stops it with everything else.
+- **Bounded.** It runs only while the console is open: each `Tick` asks the Kitchen whether a console socket is open, a console without a socket sends a heartbeat `POST` every 30 s instead, and with neither for 90 s the `Tick` stops with reason `console_closed`. The start itself counts as a console sighting, so a new run has its first 90 s before it needs a socket or a heartbeat. At most 6 orders a minute and 30 minutes a sandbox a UTC day, reserved in `Control`'s `traffic(day, sandbox, minutes)` ledger. In PR 4 that ledger is the only budget charged; the DO-request and Queue budgets were never metered by `Control` and were struck on 2026-11-09, and PR 17's breaker reads the account's analytics instead ([cost.md](cost.md#guardrails)). The wipe stops it with everything else.
 
 ### The tour
 
@@ -692,7 +692,7 @@ Two shared resources: the account's bill on Paid, which has no spend cap,[^prici
 
 **The breaker, as built in PR 17 (2026-11-06).** The `*/15` cron calls `breaker::run` after the sweep and the status refresh, in the Worker and never inside an object. It reads the last complete 15-minute window from Cloudflare's GraphQL Analytics API (five meters, four requests), sends the reads to `Control`, which runs the pure rules in `crates/app/src/breaker.rs` against its stored `breaker_state` and answers the verdict. A rise sets the flag (`read-only`, then `off`; never lower) and, on `off`, the Worker enables the pre-built WAF rule through the Rulesets API. The state is public as `breaker` in `GET /v1/status`. A person resets it ([operations.md](operations.md#breaker-tripped)). The levels and arithmetic are in [cost.md](cost.md#guardrails).
 
-**Kill switch**, the site's levels adapted: L0 `Control`'s budgets and the cron breaker (automatic: the budgets refuse admissions, the breaker raises the flag and, at `off`, enables L3; it never relaxes by itself), L1 flags, L2 redeploy (not built as a dispatch: use L1 `off`, or ship a change under `workers/api/` through the pipeline, which restarts every object; `ci.yml` at d778ff7, 2026-11-06), L3 the prebuilt WAF rule, L4 detach the API's Custom Domain, the switch the own hostname buys (Q8 · Q-api-host). [operations.md](operations.md) owns the runbook.
+**Kill switch**, the site's levels adapted: L0 `Control`'s caps and the cron breaker (automatic: the caps refuse admissions past their counts, the breaker raises the flag and, at `off`, enables L3; it never relaxes by itself; the row, request and Queue budgets were struck on 2026-11-09, [cost.md](cost.md#guardrails)), L1 flags, L2 redeploy (not built as a dispatch: use L1 `off`, or ship a change under `workers/api/` through the pipeline, which restarts every object; `ci.yml` at d778ff7, 2026-11-06), L3 the prebuilt WAF rule, L4 detach the API's Custom Domain, the switch the own hostname buys (Q8 · Q-api-host). [operations.md](operations.md) owns the runbook.
 
 ## Cross-cutting concerns
 
