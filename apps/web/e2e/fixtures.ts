@@ -1,6 +1,10 @@
 // What every spec shares: a guard that fails a test on any CSP violation or console error, a
-// stand-in for Turnstile's script, a synthetic client address per test, and helpers that make the
-// calls the storefront makes, from inside the page, so they carry its origin and its cookie.
+// stand-in for Turnstile's script, a synthetic client address per test (e2e/addresses.ts: never
+// one another test of the run had), and helpers that make the calls the storefront makes, from
+// inside the page, so they carry its origin and its cookie. The rest are the bakery's calendar in
+// business time (businessIso, businessDate, nthOpenDay), orders the seeded menu sells
+// (pickupOrder, deliveryOrder), their payment at the fake Stripe (payOrder), the cron, the object
+// listing, and the axe check every screen runs once its data have loaded (expectNoAxeViolations).
 import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { request as httpsRequest } from 'node:https';
