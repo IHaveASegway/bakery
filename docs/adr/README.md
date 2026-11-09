@@ -19,6 +19,7 @@ Status: Draft for review in PR 1 · 2026-11-04; all thirteen Accepted by delegat
 | [0011](0011-github-actions-owns-deploys-for-both-workers.md) | GitHub Actions owns build, gates and deploys, for both Workers | Accepted 2026-11-09, by delegation, as amended |
 | [0012](0012-delivery-dispatch.md) | Delivery dispatch: VROOM in the browser to plan, a savings heuristic in Rust to propose, the object to decide | Accepted 2026-11-09, by delegation, as amended |
 | [0013](0013-the-api-and-socket-contract-v1.md) | The API and socket contract v1: one route table in Rust, an OpenAPI 3.1 document generated from it, and additive-only changes after acceptance | Accepted 2026-11-09, by delegation, as amended |
+| [0014](0014-a-live-guide-in-place-of-the-tour.md) | A live guide in place of the tour: notes beside what the visitor just did, hotspots for the rest, and a recorder, from one set of entries | Proposed 2026-11-09 |
 
 All thirteen were Proposed until 2026-11-09, though each had been built on. Each ends with a dated `## Postscript 2026-11-09` that says where the build differs from the record, with file paths, and records any decision of that day. On 2026-11-09 all thirteen were Accepted by delegation: Joseph asked the session that day to make the open decisions for now, and each record is Accepted as amended by its postscript; revisable ([roadmap.md](../roadmap.md#remaining-work), R12).
 
