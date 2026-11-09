@@ -304,7 +304,7 @@ describe('dist', () => {
         'https://developers.cloudflare.com/durable-objects/concepts/what-are-durable-objects/',
         'https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/',
         'https://developers.cloudflare.com/durable-objects/platform/limits/',
-        'https://www.usenix.org/conference/atc14/technical-sessions/presentation/ongaro',
+        'https://raft.github.io/raft.pdf',
         'https://ihaveasegway.com/lab/raft/',
       ]) {
         expect(html()).toContain(`href="${href}"`);
