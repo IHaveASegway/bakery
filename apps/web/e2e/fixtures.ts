@@ -1,13 +1,14 @@
 // What every spec shares: a guard that fails a test on any CSP violation or console error, a
 // stand-in for Turnstile's script, a synthetic client address per test, and helpers that make the
 // calls the storefront makes, from inside the page, so they carry its origin and its cookie.
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { request as httpsRequest } from 'node:https';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
 import { test as base, expect, type Page } from '@playwright/test';
+import { nextClientIp } from './addresses';
 
 export const STOREFRONT = 'https://bakery.ihaveasegway.com';
 export const API = 'https://api.bakery.ihaveasegway.com';
@@ -61,7 +62,7 @@ interface Options {
   allowedStatuses: number[];
 }
 interface Fixtures {
-  /** A synthetic client address (TEST-NET-1, RFC 5737) for this test's calls to the API. */
+  /** A synthetic client address (2001:db8::/32, RFC 3849) for this test's calls to the API. */
   clientIp: string;
   guard: void;
 }
@@ -72,9 +73,9 @@ export const test = base.extend<Options & Fixtures>({
   // eslint-disable-next-line no-empty-pattern
   clientIp: async ({}, use, testInfo) => {
     // A visitor per test: the API limits sandbox creation per client address (1 a minute), and
-    // on wrangler dev every request would otherwise come from 127.0.0.1.
-    const digest = createHash('sha256').update(testInfo.titlePath.join(' / ')).digest();
-    await use(`192.0.2.${1 + (digest.readUInt8(0) % 254)}`);
+    // on wrangler dev every request would otherwise come from 127.0.0.1. Never one another test
+    // of the run had (e2e/addresses.ts).
+    await use(nextClientIp(testInfo.workerIndex));
   },
   guard: [
     async ({ context, clientIp, allowedStatuses }, use) => {
