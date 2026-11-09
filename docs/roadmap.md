@@ -2,7 +2,7 @@
 
 What gets built, in which pull request and in what order; when each pull request counts as done; which platform questions are tested before code depends on them; and where Joseph decides before work continues. It is the plan for Proof of Concept Bakery, the made-up bakery (named on 2026-11-04, Q2 · Q-name; "Proof of Concept" from here on): its ordering, scheduling, catering, billing and CRM system, every backend in Rust on Cloudflare Workers with state in Durable Objects (DOs), modelled on the site's [roadmap](https://github.com/IHaveASegway/website/blob/main/docs/roadmap.md). Scope details live in the docs that own each topic. [product.md](product.md) holds the full table of open decisions (Q1 to Q45); this file says which of them each pull request proceeds on. Joseph answered the blocking ones on 2026-11-04.
 
-Status: Updated on 2026-11-09, reconciled with the code at `main` c80b97f. All 18 planned pull requests are merged (PR 17, the cron breaker, as #51, and PR 18, the breaker's essay, as #53, both on 2026-11-06), and the bakery has been deployed since 2026-11-06. The audit day of 2026-11-08 shipped as GitHub pull requests #54 to #75; it is numbered PR 19 in the route table and listed under [UI audit of 2026-11-08](#ui-audit-of-2026-11-08). Production ran #72's tree (28aa7b3) until 17:57 UTC on 2026-11-09, every deploy from #73 having stopped at the Turnstile guard (`ci.yml` runs 209, 213 and 216); since the site key reached the build ([R1](#remaining-work)) every merge deploys, and the session-owned part of the list shipped the same day as [PR 20](#pr-20-the-remaining-work-of-2026-11-09) (#80 to #91). What the code does that no scope named is under [Built beyond the plan](#built-beyond-the-plan), and what is left is under [Remaining work](#remaining-work).
+Status: Updated on 2026-11-09, reconciled with the code at `main` c80b97f. All 18 planned pull requests are merged (PR 17, the cron breaker, as #51, and PR 18, the breaker's essay, as #53, both on 2026-11-06), and the bakery has been deployed since 2026-11-06. The audit day of 2026-11-08 shipped as GitHub pull requests #54 to #75; it is numbered PR 19 in the route table and listed under [UI audit of 2026-11-08](#ui-audit-of-2026-11-08). Production ran #72's tree (28aa7b3) until 17:57 UTC on 2026-11-09, every deploy from #73 having stopped at the Turnstile guard (`ci.yml` runs 209, 213 and 216); since the site key reached the build ([R1](#remaining-work)) every merge deploys, and the session-owned part of the list shipped the same day as [PR 20](#pr-20-the-remaining-work-of-2026-11-09) (#80 to #91). What the code does that no scope named is under [Built beyond the plan](#built-beyond-the-plan), and what is left is under [Remaining work](#remaining-work). The next pull request, planned on 2026-11-09, is [PR 21](#pr-21-the-interface-and-the-live-guide): a design system, the console as workspaces and a live guide, "Under the hood", in place of the tour.
 
 Prices, limits and versions are as of 2026-11-04, with sources. Estimates are estimates until the outside view corrects them.
 
@@ -69,6 +69,7 @@ At 20 hours the last pull request lands about two years out. The plan answers wi
 | 9 | [PR 18 The breaker essay](#pr-18-the-breaker-essay) | One essay for the breaker, a seventeenth principle id on How it’s built, and a one-step tour on the status page | 1 | 1 (2026-11-06, with agents) | PR 17 |
 | 10 | [PR 19 The audit day](#ui-audit-of-2026-11-08) | Public pages, the tour, the console screens, the catering and schedule rules, dispatch windows and the seed, the wipe race, late-ready deliveries and catering in the CRM, the menu's drafts, console navigation, the catering smoke's pacing, the deploy's Turnstile guard, console polish, a stop out for delivery, seeded refunds | — | 1 (2026-11-08, with agents) | PR 18 |
 | 10 | [PR 20 The remaining work](#pr-20-the-remaining-work-of-2026-11-09) | The session-owned items of the Remaining work list: the Turnstile deploy, the CI checks the docs claimed, the docs link check, the morning baseline, the smoke gaps, axe and the page budgets, two e2e specs, NFC, the tax rate, the dispatch gap | — | 1 (2026-11-09, with agents) | PR 19 |
+| 11 | [PR 21 The interface and the live guide](#pr-21-the-interface-and-the-live-guide) | Planned on 2026-11-09: a design system and three page shells, the console as seven workspaces, the live guide "Under the hood" in place of the tour, a per-sandbox flight recorder, the shop's pages, the measurements re-taken | — | — | PR 20; ADR 0014, to come |
 
 No pull request is blocked by an open decision any more. PR 3 merged on 2026-11-05 with the OAuth gate's real-provider half still open, and PR 11 launched on 2026-11-06 ([decision gates](#decision-gates)). Q45 · Q-guest-scope, Q40 · Q-traffic, Q41 · Q-tour and Q42 · Q-api-access were built as recommended and are still open in [product.md](product.md#open-decisions) as of 2026-11-09, waiting for Joseph to confirm or change them ([R13](#remaining-work)). The Actual column counts agent sessions, one per pull request, not focused days (2026-11-09). Q39 · Q-template was skipped on 2026-11-04 at Joseph's request, and Q43 · Q-email-signin is explicitly later.
 
@@ -87,6 +88,7 @@ flowchart TB
   P11 --> P17["PR 17: the cron breaker"] --> P18["PR 18: the breaker essay"]
   P18 --> P19["PR 19: the audit day"]
   P19 --> P20["PR 20: the remaining work"]
+  P20 --> P21["PR 21: the interface and the live guide"]
 ```
 
 The order is Q37 · Q-order-of-work, as renumbered on 2026-11-04: build locally, deploy when it is good. The wipe and sign-in come before any feature, because every feature stores data in a sandbox, and a sandbox that cannot be wiped must not exist. Payments come before catering, because deposits and invoices are payments. Dispatch reads confirmed orders and catering, so it comes late and is cut third. The tour comes after the screens it describes, and launch after the tour, so that the first public day shows a bakery a visitor can be shown around. The order is a two-way door; it was wrong if a pull request sits blocked on a later one's code.
@@ -622,6 +624,17 @@ In the route table's numbering the work that starts from [Remaining work](#remai
 - [x] Four more e2e screens, a client address per test, a browser path for the suite (2026-11-09, the e2e suite 14 specs and 50 tests, `pnpm --filter web test` 1,375, #91 merged): R46 widened, R56, R60.
 
 Production: deployed again from 17:57 UTC on 2026-11-09, when the Turnstile site key reached the build (R1), and on every merge since. On `main` after #88, `scripts/smoke-orders.sh` runs 252 checks and `scripts/smoke-crm.sh` 189, all passing (measured 2026-11-09).
+
+### PR 21: The interface and the live guide
+
+Status: planned on 2026-11-09. Joseph's direction of that day: the interface was hard to use and the tour was a drawer, so the product should be an elegant example of the tools and principles working together, with a guide that appears around what is being done and says what is implemented under the hood, why that tool, and when not to use it. The guide replaces the tour of PR 10 (Q41 · Q-tour) and gets ADR 0014 for its design, to come. The delivery zone's change at checkout ([R69](#remaining-work)) is built with this pull request's checkout.
+
+- [ ] A design system and three page shells: prose, shop and app.
+- [ ] The console as seven workspaces in an app shell, with the kitchen board as a real board.
+- [ ] The guide, "Under the hood", replacing the tour: live notes anchored to what was just done, hotspots and a recorder panel, with one content model that also feeds a why and when-not table on How it's built.
+- [ ] A per-sandbox flight recorder fed by the Queue's consumer, lossy by design and never in a command's path.
+- [ ] The shop's landing page, menu, checkout and order status.
+- [ ] The measurements re-taken: JavaScript budgets per page class, Lighthouse and axe.
 
 ## Built beyond the plan
 
