@@ -10,16 +10,17 @@
   (/signin/ now, /app/ because it can create a sandbox too) are the challenge class: they add
   Turnstile's origin to script-src and frame-src, and nothing else. Pages with an island but no
   third party (/menu/ and /inbox/, and since the tour /privacy/ and /docs/api/, and since PR 13
-  /status/) are the island class: the strict policy plus the hashes below. The start page carries
-  the tour too, but it has no rule of its own: it is the one page whose rule would have no splat
-  (`/`), and on launch day, 2026-11-06, production applied both that rule's policy and `/*`'s to it,
-  the detach notwithstanding, while wrangler dev applied the file as written. So the start page's
-  hashes ride in the `/*` rule, which hashesByRule gives the pages no other rule claims, and no
-  rule in the file is without a splat (test/headers.test.ts). The checkout
-  (/checkout/) and the catering page (/catering/) are the payment class, the island class plus the
-  three Stripe origins the Payment Element needs: its script, its frames (3-D Secure included) and
-  its API. No other page names a Stripe origin, and these two load Stripe.js only once an order has
-  been placed or a quote accepted, for the deposit (docs/security.md, "The storefront's policy";
+  /status/, and since 2026-11-09 the order's status page, /order/) are the island class: the strict
+  policy plus the hashes below. The start page carries the tour too, but it has no rule of its own:
+  it is the one page whose rule would have no splat (`/`), and on launch day, 2026-11-06, production
+  applied both that rule's policy and `/*`'s to it, the detach notwithstanding, while wrangler dev
+  applied the file as written. So the start page's hashes ride in the `/*` rule, which hashesByRule
+  gives the pages no other rule claims, and no rule in the file is without a splat
+  (test/headers.test.ts). The checkout (/checkout/) and the catering page (/catering/) are the
+  payment class, the island class plus the three Stripe origins the Payment Element needs: its
+  script, its frames (3-D Secure included) and its API. No other page names a Stripe origin, and
+  these two load Stripe.js only once an order has been placed or a quote accepted, for the deposit
+  (docs/security.md, "The storefront's policy";
   https://docs.stripe.com/security/guide#content-security-policy).
 
   No page of ours holds inline code of its own, but Astro writes two small inline pieces into a
@@ -141,9 +142,18 @@ export const SOLVER_CSP =
  * privacy page and the API reference, which carry the guided tour (components/Tour.tsx) and nothing
  * else. The start page carries the tour as well but is not here: its rule would be `/`, the one
  * path without a splat, which production applied beside `/*` instead of in its place (2026-11-06,
- * the header comment above), so its hashes go to the `/*` rule.
+ * the header comment above), so its hashes go to the `/*` rule. An order's status page (/order/,
+ * since 2026-11-09) is here too: it reads the order and the kitchen socket, both on the API's
+ * origins, and loads no third party.
  */
-export const ISLAND_PATHS = ['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/status/*'];
+export const ISLAND_PATHS = [
+  '/menu/*',
+  '/inbox/*',
+  '/privacy/*',
+  '/docs/api/*',
+  '/status/*',
+  '/order/*',
+];
 
 /** Pages that load Stripe: the checkout's payment step and the catering page's deposit step. */
 export const PAYMENT_PATHS = ['/checkout/*', '/catering/*'];

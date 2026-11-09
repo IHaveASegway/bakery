@@ -1,0 +1,713 @@
+/*
+  The checkout and the order's status page (shop stream 2, 2026-11-09). Checkout is three steps
+  (how, when, pay) with the summary beside them on a wide screen and above the pay step on a
+  phone. The status page is a tracker of the order's steps beside its receipt. Colours, sizes and
+  spaces come from tokens.css; the status tones are the kitchen board's.
+*/
+
+/* ---- Checkout: the grid ---- */
+.checkout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  grid-template-rows: auto auto auto 1fr;
+  grid-template-areas:
+    'status summary'
+    'steps summary'
+    'pay summary'
+    'how summary';
+  gap: var(--space-3) var(--space-6);
+  align-items: start;
+}
+
+.checkout-status {
+  grid-area: status;
+}
+
+.checkout-status > p {
+  margin: 0;
+}
+
+.checkout-steps {
+  display: grid;
+  grid-area: steps;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.checkout-summary {
+  position: sticky;
+  top: var(--space-4);
+  grid-area: summary;
+}
+
+.checkout-pay {
+  grid-area: pay;
+}
+
+.checkout-how {
+  grid-area: how;
+}
+
+.checkout-how > p {
+  margin: var(--space-2) 0 0;
+}
+
+@media (max-width: 60rem) {
+  .checkout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-template-areas:
+      'status'
+      'steps'
+      'summary'
+      'pay'
+      'how';
+  }
+
+  .checkout-summary {
+    position: static;
+  }
+}
+
+/* ---- A step: number, title, then its body, or one line of what was chosen ---- */
+.step {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+}
+
+.step[data-state='open'] {
+  padding-bottom: var(--space-5);
+  border-color: var(--border-strong);
+}
+
+.step[data-state='todo'] {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.step-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.step-head h2 {
+  margin: 0;
+  font-size: var(--type-18);
+}
+
+.step-n {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: var(--type-14);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.step[data-state='open'] .step-n {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.step[data-state='done'] .step-n {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+.step-n svg,
+.tracker-dot svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.step-summary {
+  flex: 1 1 12rem;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--type-14);
+}
+
+.step[data-state='done'] .step-head h2 {
+  font-size: var(--type-16);
+}
+
+.step-change {
+  margin-left: auto;
+}
+
+.step-body {
+  margin-top: var(--space-4);
+  padding-left: 40px;
+}
+
+.step-actions {
+  margin: var(--space-4) 0 0;
+}
+
+.step-body .reasons {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+}
+
+@media (max-width: 40rem) {
+  .step {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .step-body {
+    padding-left: 0;
+  }
+}
+
+/* The real control inside a chip or an option is a radio, kept for the keyboard, the screen
+   reader and the pointer: it covers the chip, unseen, and the chip draws its state. */
+.checkout .chip,
+.how-option {
+  position: relative;
+}
+
+.checkout .chip input,
+.checkout .how-option input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+/* ---- Step 1: pickup or delivery, two options side by side ---- */
+.how-choice {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+  max-width: 32rem;
+  margin: 0;
+}
+
+.how-option {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+  cursor: pointer;
+}
+
+.how-option:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.how-option:has(input:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.how-label {
+  font-weight: 600;
+}
+
+.how-hint {
+  color: var(--text-muted);
+  font-size: var(--type-13);
+}
+
+.zone-field {
+  max-width: 16rem;
+  margin: var(--space-4) 0 0;
+}
+
+/* ---- Step 2: days, then times ---- */
+.checkout .day-chips .choices {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.checkout .day-chip {
+  display: grid;
+  justify-items: center;
+  gap: 0;
+  width: 100%;
+  min-height: 52px;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-control);
+  line-height: 1.25;
+}
+
+.day-weekday {
+  font-size: var(--type-13);
+  font-weight: 600;
+}
+
+.day-date {
+  font-size: var(--type-14);
+  white-space: nowrap;
+}
+
+.day-chip[data-quiet='true'] {
+  border-style: dashed;
+  color: var(--text-muted);
+}
+
+.checkout .day-chip:has(input:checked) {
+  color: var(--text);
+}
+
+.checkout .choices:has(> li > .slot-chip) {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
+  gap: var(--space-2);
+}
+
+.checkout .choices[data-kind='delivery']:has(> li > .slot-chip) {
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+}
+
+.checkout .slot-chip {
+  justify-content: flex-start;
+  gap: 0;
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-control);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.slot-sep,
+.slot-left {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.slot-sep {
+  white-space: pre;
+}
+
+.slot-chips > .hint:first-of-type {
+  margin: 0 0 var(--space-2);
+}
+
+.note-field {
+  max-width: 36rem;
+  margin: var(--space-2) 0 0;
+}
+
+@media (max-width: 40rem) {
+  .checkout .day-chips .choices {
+    grid-template-columns: none;
+    grid-auto-columns: 4.5rem;
+    grid-auto-flow: column;
+    padding-bottom: var(--space-1);
+    overflow-x: auto;
+  }
+
+  .checkout .choices:has(> li > .slot-chip) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .checkout .choices[data-kind='delivery']:has(> li > .slot-chip) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .how-choice {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---- The summary panel and the receipt: lines, then totals ---- */
+.checkout-summary h2,
+.receipt h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--type-18);
+}
+
+.checkout-summary > .hint:last-child {
+  margin-top: var(--space-3);
+}
+
+.receipt-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.receipt-lines li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--type-14);
+}
+
+.summary-totals {
+  grid-template-columns: 1fr auto;
+  gap: var(--space-1) 0;
+  margin: var(--space-3) 0 0;
+  font-size: var(--type-14);
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-totals dd {
+  padding-left: var(--space-4);
+  text-align: right;
+}
+
+.summary-totals .total {
+  margin-top: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-size: var(--type-16);
+  font-weight: 600;
+}
+
+/* ---- Step 3: the hold, the test card, the Element ---- */
+.hold-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+}
+
+.test-card-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin: 0;
+}
+
+.test-card-line .hint {
+  margin: 0;
+}
+
+.test-card-label {
+  font-size: var(--type-14);
+  font-weight: 600;
+}
+
+.test-card-line code {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+  font-size: var(--type-16);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.test-card > .hint {
+  margin: var(--space-2) 0 var(--space-4);
+}
+
+.pay-step .messages p {
+  margin: var(--space-3) 0 0;
+}
+
+/* ---- The order's status page ---- */
+.order-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  gap: var(--space-5) var(--space-6);
+  align-items: start;
+}
+
+.order-layout > .receipt {
+  position: sticky;
+  top: var(--space-4);
+}
+
+@media (max-width: 60rem) {
+  .order-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .order-layout > .receipt {
+    position: static;
+  }
+}
+
+.order-track .panel-head h2 {
+  margin: 0;
+  font-size: var(--type-22);
+}
+
+.order-track .panel-head .badge {
+  font-size: var(--type-13);
+}
+
+.order-when {
+  margin: 0 0 var(--space-6);
+  color: var(--text-muted);
+}
+
+.order-skeleton {
+  height: 12rem;
+}
+
+/* The tracker: the kind's steps left to right, each a dot on one line, in the board's tones. */
+.tracker {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  margin: 0 0 var(--space-6);
+  padding: 0;
+  list-style: none;
+}
+
+.tracker-step {
+  --step-solid: var(--tone-done-solid);
+  --step-tint: var(--tone-done-tint);
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: var(--space-1);
+  text-align: center;
+}
+
+.tracker-step[data-tone='pending'] {
+  --step-solid: var(--tone-pending-solid);
+  --step-tint: var(--tone-pending-tint);
+}
+.tracker-step[data-tone='confirmed'] {
+  --step-solid: var(--tone-confirmed-solid);
+  --step-tint: var(--tone-confirmed-tint);
+}
+.tracker-step[data-tone='making'] {
+  --step-solid: var(--tone-making-solid);
+  --step-tint: var(--tone-making-tint);
+}
+.tracker-step[data-tone='ready'] {
+  --step-solid: var(--tone-ready-solid);
+  --step-tint: var(--tone-ready-tint);
+}
+.tracker-step[data-tone='out'] {
+  --step-solid: var(--tone-out-solid);
+  --step-tint: var(--tone-out-tint);
+}
+
+/* The line from the step before to this one: grey until this step is reached. */
+.tracker-step + .tracker-step::before {
+  content: '';
+  position: absolute;
+  top: 13px;
+  right: calc(50% + 18px);
+  left: calc(-50% + 18px);
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+.tracker-step:is([data-state='done'], [data-state='current'])
+  + .tracker-step:is([data-state='done'], [data-state='current'])::before {
+  background: var(--step-solid);
+}
+
+.tracker-dot {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  box-sizing: border-box;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-bottom: var(--space-1);
+  border: 2px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface-raised);
+  color: var(--surface-raised);
+}
+
+.tracker-step:is([data-state='done'], [data-state='current']) .tracker-dot {
+  border-color: var(--step-solid);
+  background: var(--step-solid);
+}
+
+.tracker-step[data-state='current'] .tracker-dot {
+  box-shadow: 0 0 0 5px var(--step-tint);
+}
+
+.tracker-label {
+  font-size: var(--type-14);
+}
+
+.tracker-step[data-state='current'] .tracker-label {
+  font-weight: 600;
+}
+
+.tracker-step[data-state='todo'] .tracker-label {
+  color: var(--text-muted);
+}
+
+.tracker-time {
+  min-height: 1.2em;
+  color: var(--text-muted);
+  font-size: var(--type-13);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 40rem) {
+  .tracker {
+    grid-auto-flow: row;
+    gap: var(--space-4);
+  }
+
+  .tracker-step {
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+    align-items: center;
+    justify-items: start;
+    column-gap: var(--space-3);
+    text-align: left;
+  }
+
+  .tracker-dot {
+    margin: 0;
+  }
+
+  .tracker-step + .tracker-step::before {
+    top: auto;
+    right: auto;
+    bottom: 100%;
+    left: 13.5px;
+    width: 3px;
+    height: var(--space-4);
+  }
+}
+
+/* What moved: the new step's dot grows into place and its line fills, once, when it moves. */
+@media (prefers-reduced-motion: no-preference) {
+  .tracker-step[data-state='current'] .tracker-dot {
+    animation: step-reached var(--motion) var(--ease-out);
+  }
+
+  .tracker-step::before,
+  .tracker-dot {
+    transition:
+      background-color var(--motion) var(--ease-out),
+      border-color var(--motion) var(--ease-out);
+  }
+
+  @keyframes step-reached {
+    from {
+      box-shadow: 0 0 0 0 var(--step-tint);
+      transform: scale(0.7);
+    }
+  }
+}
+
+.order-pay {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-card);
+  background: var(--tone-pending-tint);
+}
+
+.order-pay p {
+  margin: 0;
+}
+
+.order-off {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-5);
+}
+
+.order-off p {
+  margin: 0;
+}
+
+.order-source {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--type-14);
+}
+
+.live-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+.order-source[data-source='live'] .live-dot {
+  background: var(--tone-ready-solid);
+}
+
+.order-source[data-source='polling'] .live-dot {
+  background: var(--tone-pending-solid);
+}
+
+.order-source[data-source='done'] .live-dot {
+  background: var(--tone-done-solid);
+}
+
+.order-heard {
+  margin: var(--space-1) 0 0;
+}
+
+.order-links {
+  margin: var(--space-5) 0 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.receipt-facts {
+  gap: var(--space-1) var(--space-3);
+  margin: 0 0 var(--space-3);
+  font-size: var(--type-14);
+}
+
+.receipt-facts code {
+  font-size: var(--type-12);
+  overflow-wrap: anywhere;
+}
+
+/* The order's whole id under its label, on one line: it is what the API calls take. */
+.receipt-facts dt:first-child {
+  grid-column: 1 / -1;
+}
+
+.receipt-facts .receipt-id {
+  grid-column: 1 / -1;
+  margin-bottom: var(--space-2);
+}
+
+.receipt > .hint:last-child {
+  margin-top: var(--space-3);
+}
+
+.order-missing h2 {
+  font-size: var(--type-18);
+}

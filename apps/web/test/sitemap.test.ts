@@ -20,6 +20,17 @@ describe('the sitemap generator', () => {
     expect(pagePaths(dir)).toEqual(['/', '/docs/api/', '/menu/']);
   });
 
+  test('leaves out a page marked noindex', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sitemap-'));
+    mkdirSync(join(dir, 'order'), { recursive: true });
+    writeFileSync(join(dir, 'index.html'), '<head></head>');
+    writeFileSync(
+      join(dir, 'order/index.html'),
+      '<head><meta name="robots" content="noindex"></head>',
+    );
+    expect(pagePaths(dir)).toEqual(['/']);
+  });
+
   test('writes one url per path and escapes the text', () => {
     const xml = sitemapXml(`${SITE}/`, ['/', '/a&b/']);
     expect(xml).toContain('<loc>https://bakery.ihaveasegway.com/</loc>');
@@ -47,6 +58,13 @@ describe('the built site', () => {
     expect(html).toContain(`<meta property="og:description" content="${description}">`);
     expect(html).toContain('<meta property="og:type" content="website">');
     expect(html).toContain(`<meta property="og:url" content="${SITE}/menu/">`);
+  });
+
+  test('the order’s status page is noindex, has no canonical link and is not in the sitemap', () => {
+    const html = page('order/index.html');
+    expect(html).toContain('<meta name="robots" content="noindex">');
+    expect(html).not.toContain('rel="canonical"');
+    expect(page('sitemap.xml')).not.toContain('/order/');
   });
 
   test('the start page is canonical at the root, and the 404 points at nothing', () => {

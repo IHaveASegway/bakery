@@ -187,7 +187,7 @@ describe('the receipt', () => {
     const text = html(true);
     expect(text).toContain('01JTESTORDER000000000000AA');
     expect(text).toContain('$19.80');
-    expect(text).toContain('× 2');
+    expect(text).toContain('2 ×');
     expect(text).toContain('Paid in Stripe’s sandbox');
   });
 
