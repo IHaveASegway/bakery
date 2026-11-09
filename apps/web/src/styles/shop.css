@@ -26,3 +26,90 @@
   color: var(--text-muted);
   font-size: var(--type-18);
 }
+
+/* ---------- Sign-in: three ways in, the quickest first ---------- */
+
+.ways-in {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--space-4);
+}
+
+.ways-in > astro-island {
+  display: contents;
+}
+
+.way-in {
+  margin: 0;
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+}
+
+.way-in-first {
+  border: 2px solid var(--accent);
+}
+
+.way-in-tag {
+  display: inline-block;
+  margin: 0 0 var(--space-2);
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  background: var(--accent-tint);
+  color: var(--text);
+  font-size: var(--type-12);
+  font-weight: 600;
+}
+
+.way-in h2 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--type-22);
+}
+
+.way-in > p {
+  margin: 0 0 var(--space-4);
+}
+
+.way-in h3 {
+  margin: var(--space-4) 0 var(--space-1);
+  font-size: var(--type-16);
+}
+
+.way-in form {
+  margin: 0;
+}
+
+.way-in .field {
+  margin: var(--space-3) 0;
+}
+
+.way-in .field input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.way-in .challenge:not(:empty) {
+  margin: var(--space-3) 0;
+}
+
+.way-in .demo-signin {
+  margin-top: var(--space-5);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.way-in .choices {
+  flex-direction: column;
+}
+
+.way-in .btn {
+  width: 100%;
+}
+
+@media (max-width: 60rem) {
+  .ways-in {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { demoSignin, demoSignup } from '../lib/api';
 import { describeError, type Message as Text } from '../lib/messages';
+import { NEXT_PATHS, nextFrom } from '../lib/next';
+import { hydrating, useMounted } from '../lib/use-mounted';
 import Message from './Message';
 import Turnstile from './Turnstile';
 
@@ -58,9 +60,11 @@ function CreateAccount() {
   }
 
   if (username !== null) {
+    // Only after the visitor's own action, so reading the address here cannot split the render.
+    const next = nextFrom(window.location.search);
     return (
       <section aria-labelledby={`${id}-done`}>
-        <h2 id={`${id}-done`}>Your demo account</h2>
+        <h3 id={`${id}-done`}>Your demo account</h3>
         <p>
           Your username is <code className="username">{username}</code>. It is shown once and nobody
           can look it up later, so write it down now, with the password you chose.
@@ -75,8 +79,8 @@ function CreateAccount() {
           {copied === 'no' && <p>Copying failed. Select the username above and copy it by hand.</p>}
         </Message>
         <p>
-          <a className="btn btn-primary" href="/app/">
-            Continue to the console
+          <a className="btn btn-primary" href={next}>
+            Continue to {NEXT_PATHS[next]}
           </a>
         </p>
       </section>
@@ -85,13 +89,12 @@ function CreateAccount() {
 
   return (
     <form onSubmit={submit} aria-labelledby={`${id}-heading`} data-tour="signin-demo">
-      <h2 id={`${id}-heading`}>Create a demo account</h2>
-      <p>
-        The bakery makes up a username for you and keeps a hash of your password. It never asks for
-        an email, so there is <strong>no password reset</strong>: if you forget the password, make a
-        new account. An account you do not sign in to for 30 days deletes itself.
+      <h3 id={`${id}-heading`}>Create a demo account</h3>
+      <p className="hint">
+        The bakery makes up your username. There is <strong>no password reset</strong>, and an
+        account unused for 30 days deletes itself.
       </p>
-      <p>
+      <p className="field">
         <label htmlFor={`${id}-password`}>Password</label>
         <input
           ref={passwordRef}
@@ -134,6 +137,8 @@ function SignIn() {
   const [error, setError] = useState<Text | null>(null);
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
+  // Before hydration a press would submit the form natively, password and all, to this page.
+  const mounted = useMounted();
   useKeepTyped([
     [usernameRef, setUsername],
     [passwordRef, setPassword],
@@ -145,7 +150,7 @@ function SignIn() {
     setError(null);
     try {
       await demoSignin({ username: username.trim(), password });
-      window.location.assign('/app/');
+      window.location.assign(nextFrom(window.location.search));
     } catch (e) {
       setError(describeError(e));
       setBusy(false);
@@ -153,9 +158,9 @@ function SignIn() {
   }
 
   return (
-    <form onSubmit={submit} aria-labelledby={`${id}-heading`}>
-      <h2 id={`${id}-heading`}>Sign in to a demo account</h2>
-      <p>
+    <form onSubmit={submit} aria-labelledby={`${id}-heading`} className="demo-signin">
+      <h3 id={`${id}-heading`}>Sign in to a demo account</h3>
+      <p className="field">
         <label htmlFor={`${id}-username`}>Username</label>
         <input
           ref={usernameRef}
@@ -169,7 +174,7 @@ function SignIn() {
           onChange={(e) => setUsername(e.target.value)}
         />
       </p>
-      <p>
+      <p className="field">
         <label htmlFor={`${id}-password`}>Password</label>
         <input
           ref={passwordRef}
@@ -182,7 +187,12 @@ function SignIn() {
           onChange={(e) => setPassword(e.target.value)}
         />
       </p>
-      <button type="submit" className="btn btn-primary" disabled={busy}>
+      <button
+        type="submit"
+        className="btn btn-secondary"
+        disabled={busy || !mounted}
+        {...hydrating(mounted)}
+      >
         {busy ? 'Signing in…' : 'Sign in'}
       </button>
       <Message error={error} />
@@ -190,12 +200,14 @@ function SignIn() {
   );
 }
 
-/** The two demo-account forms. */
+/** The demo account, the sign-in page's second choice: make one, or sign in to the one you made. */
 export default function DemoAccount() {
   return (
-    <>
+    <section aria-labelledby="demo-heading" className="way-in">
+      <h2 id="demo-heading">Use a demo account</h2>
+      <p>Everything, the console’s controls and the API token included, with no email.</p>
       <CreateAccount />
       <SignIn />
-    </>
+    </section>
   );
 }
