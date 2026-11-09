@@ -27,6 +27,268 @@
   font-size: var(--type-18);
 }
 
+/* ---------- The landing page ---------- */
+
+.home .hero {
+  padding: var(--space-6) 0 var(--space-7);
+}
+
+.eyebrow {
+  margin: 0 0 var(--space-3);
+  color: var(--accent);
+  font-size: var(--type-14);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.home .hero h1 {
+  max-width: 26ch;
+  margin: 0 0 var(--space-4);
+  font-size: var(--type-36);
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.hero-stack {
+  max-width: none;
+  margin: 0 0 var(--space-6);
+  color: var(--text-muted);
+  font-size: var(--type-18);
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.hero-actions .btn {
+  min-height: 48px;
+  padding-inline: var(--space-5);
+  font-size: var(--type-16);
+}
+
+.home .path {
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--border);
+}
+
+.home .path h2 {
+  margin: 0;
+}
+
+.path-lead {
+  margin: var(--space-1) 0 var(--space-5);
+  color: var(--text-muted);
+}
+
+/* The request path, drawn. The row on a wide screen, the chain on a narrow one. */
+.request-path {
+  margin: 0;
+}
+
+.rp {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  font-family: var(--font-sans);
+}
+
+.rp-narrow {
+  display: none;
+  max-width: 26rem;
+  margin: 0 auto;
+}
+
+.rp-card {
+  fill: var(--surface-raised);
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.rp-tech {
+  fill: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.rp-title {
+  fill: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.rp-text {
+  fill: var(--text-muted);
+  font-size: 13px;
+}
+
+.rp-rule {
+  stroke: var(--border);
+}
+
+.rp-why {
+  fill: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rp-arrow {
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+}
+
+.rp-head {
+  fill: var(--text-muted);
+}
+
+.rp-return {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+
+.rp-head-live {
+  fill: var(--accent);
+}
+
+.rp-return-bg {
+  fill: var(--surface);
+}
+
+.rp-return-label {
+  fill: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.rp-link:hover .rp-card,
+.rp-link:focus-visible .rp-card {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.rp-link:hover .rp-why {
+  text-decoration: underline;
+}
+
+.rp-link:focus-visible {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rp-card {
+    transition: stroke var(--motion-fast, 150ms) ease-out;
+  }
+}
+
+/* Three ways to look, under the drawing. */
+.roles {
+  margin-top: var(--space-7);
+}
+
+.role-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.role {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+}
+
+.role h3 {
+  margin: var(--space-3) 0 var(--space-2);
+  font-size: var(--type-18);
+}
+
+.role p {
+  flex: 1;
+  margin: 0 0 var(--space-4);
+  color: var(--text-muted);
+}
+
+.role code {
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.role-mark {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+:where(li) a.role-link {
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* The whole card is the link's target; the link keeps its own words and focus ring. */
+.role-link::after {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-card);
+  content: '';
+}
+
+.role:hover {
+  border-color: var(--accent);
+}
+
+.home .draft {
+  margin-top: var(--space-6);
+  color: var(--text-muted);
+}
+
+@media (max-width: 60rem) {
+  .rp-wide {
+    display: none;
+  }
+
+  .rp-narrow {
+    display: block;
+  }
+
+  .role-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 48rem) {
+  .home .hero {
+    padding: var(--space-3) 0 var(--space-6);
+  }
+
+  .home .hero h1 {
+    font-size: var(--type-28);
+  }
+
+  .hero-stack {
+    font-size: var(--type-16);
+  }
+
+  .hero-actions .btn {
+    flex: 1 1 100%;
+  }
+}
+
 /* ---------- Sign-in: three ways in, the quickest first ---------- */
 
 .ways-in {

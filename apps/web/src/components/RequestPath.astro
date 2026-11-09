@@ -1,0 +1,251 @@
+---
+// The path one click takes, drawn (the landing page; design brief, 2026-11-09). Inline SVG with no
+// script and no style attribute: every colour is a token through a class in styles/shop.css, so
+// it follows both colour schemes. Two drawings of one table: a row on a wide screen, a vertical
+// chain on a narrow one (CSS shows one), never a shrunken picture. Each part links to its essay.
+import { ESSAYS, type EssayId } from '../lib/links';
+
+interface Part {
+  /** The part's name, as the drawing says it. */
+  title: string;
+  /** The concrete thing it holds or sends, in the monospace face. */
+  tech: string;
+  /** What it does, in three short lines for the row and two longer ones for the chain. */
+  wide: [string, string, string];
+  narrow: [string, string];
+  /** The principle it shows, and the essay that explains it. */
+  principle: string;
+  essay: EssayId;
+}
+
+const PARTS: Part[] = [
+  {
+    title: 'Your browser',
+    tech: 'Idempotency-Key',
+    wide: ['Sends the command;', 'a retry carries the', 'same key, never twice.'],
+    narrow: ['Sends the command; a retry carries the', 'same key, so it never orders twice.'],
+    principle: 'Idempotency keys',
+    essay: 'idempotency-keys',
+  },
+  {
+    title: 'API Worker',
+    tech: 'idFromName(sandbox)',
+    wide: ['Checks your session,', 'then routes by name', 'to your own object.'],
+    narrow: ['Checks your session, then routes by', 'name to your sandbox’s own object.'],
+    principle: 'Sandbox per visitor',
+    essay: 'sandbox',
+  },
+  {
+    title: 'Order object',
+    tech: 'Durable Object',
+    wide: ['Decides, then writes', 'events and outbox', 'in one transaction.'],
+    narrow: ['Decides, then writes its events and', 'its outbox in one transaction.'],
+    principle: 'Single writer',
+    essay: 'raft',
+  },
+  {
+    title: 'Queue',
+    tech: 'Cloudflare Queues',
+    wide: ['Carries each event', 'to its consumers,', 'at least once.'],
+    narrow: ['Carries each event to its consumers,', 'at least once; each takes it once.'],
+    principle: 'Outbox',
+    essay: 'queue',
+  },
+  {
+    title: 'Kitchen object',
+    tech: 'hibernating socket',
+    wide: ['Pushes a frame to', 'every open board;', 'the card appears.'],
+    narrow: ['Pushes a frame to every open board,', 'and the card appears.'],
+    principle: 'Pushed projection',
+    essay: 'cqrs',
+  },
+];
+
+const SENTENCE =
+  'One click, end to end: your browser sends the command with an Idempotency-Key; the API Worker checks your session and routes it by name to your sandbox’s Order object; the Order object decides and writes its events and its outbox in one transaction; the Queue carries each event to its consumers; and the Kitchen object pushes a frame down a hibernating socket, so the card appears on the kitchen board.';
+const RETURN_A = 'a frame down the socket:';
+const RETURN_B = 'the card appears on your board';
+const RETURN = `${RETURN_A} ${RETURN_B}`;
+
+const label = (p: Part) => `${p.title}: ${p.narrow.join(' ')} Essay: ${ESSAYS[p.essay].title}`;
+
+// The row: five cards of 184 by 168 with 38 between, the return path underneath.
+const W = { w: 184, h: 168, gap: 38, top: 8 };
+const wx = (i: number) => 4 + i * (W.w + W.gap);
+const wideWidth = wx(4) + W.w + 4;
+const midY = W.top + 92;
+const lastMid = wx(4) + W.w / 2;
+const firstMid = wx(0) + W.w / 2;
+const returnY = W.top + W.h + 34;
+
+// The chain: five cards of 326 by 124 with 30 between, the return path in the left gutter.
+const N = { x: 30, w: 326, h: 124, gap: 30, top: 8 };
+const ny = (i: number) => N.top + i * (N.h + N.gap);
+const narrowHeight = ny(4) + N.h + 56;
+---
+
+<figure class="request-path" aria-labelledby="path-title" aria-describedby="path-sentence">
+  <p id="path-sentence" class="sr-only">
+    {SENTENCE}
+  </p>
+
+  <svg
+    class="rp rp-wide"
+    viewBox={`0 0 ${wideWidth} ${returnY + 24}`}
+    role="group"
+    aria-label="The request path, left to right"
+  >
+    <defs>
+      <marker
+        id="rp-head"
+        viewBox="0 0 10 10"
+        refX="9"
+        refY="5"
+        markerWidth="8"
+        markerHeight="8"
+        orient="auto-start-reverse"
+      >
+        <path class="rp-head" d="M0 0 L10 5 L0 10 z"></path>
+      </marker>
+      <marker
+        id="rp-head-live"
+        viewBox="0 0 10 10"
+        refX="9"
+        refY="5"
+        markerWidth="8"
+        markerHeight="8"
+        orient="auto-start-reverse"
+      >
+        <path class="rp-head-live" d="M0 0 L10 5 L0 10 z"></path>
+      </marker>
+    </defs>
+    <g aria-hidden="true">
+      {PARTS.slice(1).map((_, i) => (
+        <line
+          class="rp-arrow"
+          x1={wx(i) + W.w + 4}
+          y1={midY}
+          x2={wx(i + 1) - 4}
+          y2={midY}
+          marker-end="url(#rp-head)"
+        ></line>
+      ))}
+      <path
+        class="rp-return"
+        d={`M${lastMid} ${W.top + W.h + 4} V${returnY} H${firstMid} V${W.top + W.h + 6}`}
+        marker-end="url(#rp-head-live)"
+      ></path>
+      <rect
+        class="rp-return-bg"
+        x={wideWidth / 2 - 216}
+        y={returnY - 11}
+        width="432"
+        height="22"
+        rx="11"
+      ></rect>
+      <text class="rp-return-label" x={wideWidth / 2} y={returnY + 4} text-anchor="middle">
+        {RETURN}
+      </text>
+    </g>
+    {PARTS.map((p, i) => (
+      <a class="rp-link" href={ESSAYS[p.essay].path} aria-label={label(p)}>
+        <rect class="rp-card" x={wx(i)} y={W.top} width={W.w} height={W.h} rx="10"></rect>
+        <text class="rp-tech" x={wx(i) + 16} y={W.top + 28}>
+          {p.tech}
+        </text>
+        <text class="rp-title" x={wx(i) + 16} y={W.top + 52}>
+          {p.title}
+        </text>
+        {p.wide.map((line, j) => (
+          <text class="rp-text" x={wx(i) + 16} y={W.top + 78 + j * 18}>
+            {line}
+          </text>
+        ))}
+        <line
+          class="rp-rule"
+          x1={wx(i) + 16}
+          y1={W.top + 132}
+          x2={wx(i) + W.w - 16}
+          y2={W.top + 132}
+        ></line>
+        <text class="rp-why" x={wx(i) + 16} y={W.top + 154}>
+          {p.principle}
+        </text>
+      </a>
+    ))}
+  </svg>
+
+  <svg
+    class="rp rp-narrow"
+    viewBox={`0 0 ${N.x + N.w + 2} ${narrowHeight}`}
+    role="group"
+    aria-label="The request path, top to bottom"
+  >
+    <defs>
+      <marker
+        id="rp-head-n"
+        viewBox="0 0 10 10"
+        refX="9"
+        refY="5"
+        markerWidth="8"
+        markerHeight="8"
+        orient="auto-start-reverse"
+      >
+        <path class="rp-head" d="M0 0 L10 5 L0 10 z"></path>
+      </marker>
+      <marker
+        id="rp-head-live-n"
+        viewBox="0 0 10 10"
+        refX="9"
+        refY="5"
+        markerWidth="8"
+        markerHeight="8"
+        orient="auto-start-reverse"
+      >
+        <path class="rp-head-live" d="M0 0 L10 5 L0 10 z"></path>
+      </marker>
+    </defs>
+    <g aria-hidden="true">
+      {PARTS.slice(1).map((_, i) => (
+        <line
+          class="rp-arrow"
+          x1={N.x + N.w / 2}
+          y1={ny(i) + N.h + 4}
+          x2={N.x + N.w / 2}
+          y2={ny(i + 1) - 4}
+          marker-end="url(#rp-head-n)"
+        ></line>
+      ))}
+      <path
+        class="rp-return"
+        d={`M${N.x - 4} ${ny(4) + N.h / 2} H10 V${ny(0) + N.h / 2} H${N.x - 6}`}
+        marker-end="url(#rp-head-live-n)"
+      ></path>
+      <text class="rp-return-label" x={N.x + N.w / 2} y={ny(4) + N.h + 26} text-anchor="middle">
+        {RETURN_A}
+      </text>
+      <text class="rp-return-label" x={N.x + N.w / 2} y={ny(4) + N.h + 44} text-anchor="middle">
+        {RETURN_B}
+      </text>
+    </g>
+    {PARTS.map((p, i) => (
+      <a class="rp-link" href={ESSAYS[p.essay].path} aria-label={label(p)}>
+        <rect class="rp-card" x={N.x} y={ny(i)} width={N.w} height={N.h} rx="10"></rect>
+        <text class="rp-title" x={N.x + 16} y={ny(i) + 28}>
+          {p.title}
+        </text>
+        <text class="rp-tech" x={N.x + N.w - 16} y={ny(i) + 28} text-anchor="end">
+          {p.tech}
+        </text>
+        {p.narrow.map((line, j) => (
+          <text class="rp-text" x={N.x + 16} y={ny(i) + 54 + j * 18}>
+            {line}
+          </text>
+        ))}
+        <text class="rp-why" x={N.x + 16} y={ny(i) + 106}>
+          {p.principle}
+        </text>
+      </a>
+    ))}
+  </svg>
+</figure>
