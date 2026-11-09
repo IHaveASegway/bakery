@@ -75,6 +75,10 @@ Two-way. Moving either Worker to Workers Builds is a dashboard connection and a 
 - Spike S4 shows API previews cannot isolate their queue, which keeps the API without previews for good.
 - Two regressions reach `main` before PR 11 that `e2e` or a preview would have caught, or Joseph starts sharing the bakery with others before launch. Then the missing jobs move earlier.
 
+## Postscript 2026-11-09
+
+As built, 2026-11-09: stage 1's own check is health and CORS, and `prod-smoke` runs once after both stages (`.github/workflows/ci.yml`). Before either stage `deploy` refuses a storefront bundle with Turnstile's test site key, so every merge since #73 has stopped there until the repository variable is set ([delivery.md](../delivery.md#the-jobs-as-written)). No rollback of either Worker has been rehearsed, and no ruleset protects `main` (read through the GitHub API on 2026-11-09).
+
 ## Patterns and further reading
 
 - Deployment pipeline and build once: Jez Humble and David Farley, *Continuous Delivery* (2010), [continuousdelivery.com](https://continuousdelivery.com/).

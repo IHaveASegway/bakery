@@ -71,6 +71,10 @@ Two-way behind the port. Swapping PaymentIntents for Checkout Sessions, or Strip
 - A webhook replay reaches the ledger twice: a test, a reconciliation or a visitor shows one Stripe event counted as two payments or two refunds.
 - Spike S3 shows `fields.billingDetails: 'never'` cannot complete a payment, or a 3-D Secure test card, without a field Stripe collects from the visitor.
 
+## Postscript 2026-11-09
+
+As built, 2026-11-09: the Stripe adapter is `workers/api/src/stripe.rs`, and the request builders are in `crates/app/src/stripe/`, not `workers/api/src/stripe/`. Besides the Worker's key guard and CI's, the storefront's build refuses a publishable key that does not start `pk_test_` (`checkPublishableKey`, `apps/web/astro.config.mjs`).
+
 ## Patterns and further reading
 
 - Idempotent receiver: Gregor Hohpe and Bobby Woolf, *Enterprise Integration Patterns* (2003), ["Idempotent Receiver"](https://www.enterpriseintegrationpatterns.com/patterns/messaging/IdempotentReceiver.html).

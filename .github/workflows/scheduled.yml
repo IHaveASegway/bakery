@@ -2,10 +2,10 @@
 # bakery-objects, the morning object check after the 10:00 UTC wipe (and, at 12:17, the dead-letter
 # and breaker checks), and audit, the Monday audit.
 #
-# DORMANT UNTIL LAUNCH DAY. A scheduled run does nothing unless the repository variable LAUNCHED
-# is 'true' (Settings, Secrets and variables, Actions, Variables); it does not exist yet. A run
-# started by hand (workflow_dispatch) runs the chosen job whatever LAUNCHED says, so either can be
-# tried before launch: audit needs no secret; bakery-objects needs CLOUDFLARE_READ_TOKEN and
+# A scheduled run does nothing unless the repository variable LAUNCHED is 'true' (Settings,
+# Secrets and variables, Actions, Variables), set on launch day, 2026-11-06. A run started by hand
+# (workflow_dispatch) runs the chosen job whatever LAUNCHED says, so either can be tried at any
+# time: audit needs no secret; bakery-objects needs CLOUDFLARE_READ_TOKEN and
 # CLOUDFLARE_ACCOUNT_ID and stops with an error without them. Against an account where the API
 # was never deployed it answers "nothing listed holds data", which is also what a wiped account
 # answers: the dry run proves the token and the listing, not the wipe.

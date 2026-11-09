@@ -2,9 +2,9 @@
 
 This folder is the plan and the decision record for Proof of Concept Bakery, a made-up bakery run as a real business system: ordering, pickup and delivery scheduling, catering, billing through Stripe's sandbox, and a CRM with campaigns. Every backend is Rust on Cloudflare Workers, and state lives in SQLite-backed Durable Objects (DOs). The docs say what the demo is for, how it is built, shipped, secured, paid for and run, and why each choice beat its alternatives. They are also a study guide: every decision names its pattern, the quality attributes it trades, whether it is a one-way or a two-way door, and a source to read next.
 
-Status: Updated in PR 1 · 2026-11-04
+Status: Updated 2026-11-09
 
-PR 1 wrote these docs before any code, and Joseph answered the blocking questions on 2026-11-04; the docs below carry his answers. An Accepted ADR is a commitment and a Proposed one is still open to argument, and the [ADR index](adr/README.md) is the one place that says which is which. At the time of writing every ADR is Proposed. Everything else here changes by pull request, in the doc that owns the topic.
+PR 1 wrote these docs before any code, and Joseph answered the blocking questions on 2026-11-04; the docs below carry his answers. They have been revised as each pull request built its part, the bakery has been live since 2026-11-06, and on 2026-11-09 every doc was reconciled with the code; [stack.md](stack.md#techniques-as-built) lists the techniques as built. An Accepted ADR is a commitment and a Proposed one is still open to argument, and the [ADR index](adr/README.md) is the one place that says which is which. As of 2026-11-09 every ADR is still Proposed, each with a dated "As built" postscript where the build differs; accepting them is Joseph's decision, listed in the roadmap's Remaining work. Everything else here changes by pull request, in the doc that owns the topic.
 
 ## Start here in 10 minutes
 
@@ -27,12 +27,12 @@ Purpose first, then the language of the business, then the shape, then the parts
 | 1 | [product.md](product.md) | Why build it, for whom, and what is still undecided? Principles, the content firewall policy, open decisions Q1–Q45, what is decided, non-goals, how we will know it works |
 | 2 | [domain.md](domain.md) | What does the business mean by its words? The ubiquitous language, aggregates, commands, the event catalog, state machines, invariants, the seed, and which lab principle runs where |
 | 3 | [architecture.md](architecture.md) | What is the shape? Context and container diagrams, bounded contexts, DO topology, who owns each piece of data, request flows, bulkheads and failure modes, weaker designs |
-| 4 | [stack.md](stack.md) | Which technologies, pinned how, and why? What each owns, what came second, what was rejected, the upgrade policy |
+| 4 | [stack.md](stack.md) | Which technologies, pinned how, and why? What each owns, what came second, what was rejected, the upgrade policy, and the techniques as built |
 | 5 | [security.md](security.md) | What could go wrong, and what stops it? Threat model, headers, CSP and CORS, sign-in, privacy and the data inventory, the nightly wipe, secrets, Stripe safety, the content firewall, supply chain |
 | 6 | [cost.md](cost.md) | What does it cost, and what keeps it there? Price sheet, formulas, the per-sandbox meter, scenarios, the plan decision, guardrails, denial of wallet |
 | 7 | [delivery.md](delivery.md) | How does a change reach production? Repository layout, toolchain pins, the pipeline, environments, deploy and rollback for each Worker, quality gates, dependency policy |
 | 8 | [operations.md](operations.md) | How is it run alone? Access setup, observability, alerting, runbooks (deploy, rollback, wipe, kill switch, secret rotation, leak response), the maintenance calendar |
-| 9 | [roadmap.md](roadmap.md) | In what order? How we work, the definition of done, pull requests 1 to 17 with scope and estimates, spikes S1 to S7, decision gates, risks, what is explicitly later |
+| 9 | [roadmap.md](roadmap.md) | In what order? How we work, the definition of done, pull requests 1 to 18 and the UI audit of 2026-11-08 (numbered PR 19) with scope and estimates, spikes S1 to S7, decision gates, risks, what is explicitly later |
 | 10 | [adr/README.md](adr/README.md) | Which decisions are hard to reverse? The ADR format, the template, and the index of every ADR with its status |
 
 This table lists docs, not ADRs. The ADR index is the one owner of ADR titles and statuses. Copying it here would give the same facts two owners, the drift this plan avoids everywhere else.
