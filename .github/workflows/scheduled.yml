@@ -1,7 +1,8 @@
 # The scheduled jobs (docs/delivery.md, "From launch"; docs/operations.md, "The nightly wipe"):
 # bakery-objects, the morning object check after the 10:00 UTC wipe (the baseline run at 04:47
 # before it; at 12:17, the comparison and the dead-letter and breaker checks), audit, the
-# Monday audit, and smokes, the Thursday run of every scripts/smoke-*.sh (since 2026-11-09).
+# Monday audit, and smokes, the Monday and Thursday run of every scripts/smoke-*.sh (since
+# 2026-11-09).
 #
 # A scheduled run does nothing unless the repository variable LAUNCHED is 'true' (Settings,
 # Secrets and variables, Actions, Variables), set on launch day, 2026-11-06. A run started by hand
@@ -32,8 +33,12 @@ on:
     - cron: '47 4 * * *'
     - cron: '17 12 * * *' # bakery-objects: what still holds data after the wipe and its retries
     - cron: '17 7 * * 1' # audit: Monday
-    # smokes: Thursday 17:37, five hours after the 12:17 run and eleven before the next 04:47 one,
-    # so a run of under an hour, even one GitHub starts late, seldom holds the shared group then.
+    # smokes: Monday and Thursday 17:37, five hours after the 12:17 run and eleven before the next
+    # 04:47 one, so a run of under an hour, even one GitHub starts late, seldom holds the shared
+    # group then. Monday too because the bakery is closed that day and the seed and several rules
+    # behave differently: the first run found a Monday-only failure (smoke-dispatch.sh, 2026-11-09)
+    # that a Thursday-only job would never have caught.
+    - cron: '37 17 * * 1'
     - cron: '37 17 * * 4'
   workflow_dispatch:
     inputs:
@@ -477,15 +482,19 @@ jobs:
           exit 1
 
   smokes:
-    # The Thursday smokes (delivery.md, the `scheduled` row; decided on 2026-11-09, roadmap R70):
+    # The Monday and Thursday smokes (delivery.md, the `smokes` row; decided on 2026-11-09, R70):
     # every scripts/smoke-*.sh, one after the other, on `wrangler dev` with the fakes, through
     # scripts/smoke-all.sh, as a person runs them. Not on every pull request: the scripts alone
-    # take about 20 minutes. Any failed script, or a build that failed before them, opens (or updates)
-    # one issue, "Weekly smokes failed", and fails the job; it is green otherwise, and, as audit
+    # take about 20 minutes. Mondays as well as Thursdays, since the bakery is closed on Mondays and
+    # the seed and several rules behave differently then (the cron's comment). Any failed script,
+    # or a build that failed before them, opens (or updates) one issue, "Weekly smokes failed" (the
+    # title kept from the first, Thursday-only design, so nothing has to find a renamed issue),
+    # and fails the job; it is green otherwise, and, as audit
     # does, a green run leaves an open issue for a person to close. Holds no secret: the fakes
     # need none, and the throwaway .dev.vars each script writes holds fake values only.
     if: >-
-      (vars.LAUNCHED == 'true' && github.event.schedule == '37 17 * * 4') ||
+      (vars.LAUNCHED == 'true' &&
+      (github.event.schedule == '37 17 * * 1' || github.event.schedule == '37 17 * * 4')) ||
       (github.event_name == 'workflow_dispatch' && inputs.job == 'smokes')
     runs-on: ubuntu-latest
     # rule 9: the eleven scripts took 20 minutes one after the other on 2026-11-09 (1205 s on a
@@ -603,4 +612,4 @@ jobs:
           name: smoke-logs
           path: ${{ runner.temp }}/smokes
           if-no-files-found: ignore
-          retention-days: 7 # until the next Thursday
+          retention-days: 7 # past the next run
