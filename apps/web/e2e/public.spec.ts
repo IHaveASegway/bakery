@@ -1,7 +1,7 @@
 // The public pages, as a visitor with no session meets them: each loads with the storefront's
 // headers (docs/security.md, "The storefront's policy"), and none reports a CSP violation or a
 // console error (the guard in fixtures.ts).
-import { expect, test } from './fixtures';
+import { expect, expectNoAxeViolations, test } from './fixtures';
 
 const PAGES = [
   '/',
@@ -59,6 +59,7 @@ for (const pathname of PAGES) {
     await expect(page.locator('h1')).toBeVisible();
     // Every island's first calls have answered, so the guard has seen what they logged.
     await page.waitForLoadState('networkidle');
+    await expectNoAxeViolations(page);
   });
 }
 
@@ -72,6 +73,7 @@ test.describe('an unknown path', () => {
     await expect(page.locator('h1')).toBeVisible();
     // Every island's first calls have answered, so the guard has seen what they logged.
     await page.waitForLoadState('networkidle');
+    await expectNoAxeViolations(page);
   });
 });
 

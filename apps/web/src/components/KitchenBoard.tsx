@@ -270,20 +270,22 @@ export default function KitchenBoard({
       {kitchen.feed.length === 0 ? (
         <p className="hint">No events yet since this page connected.</p>
       ) : (
-        <ol className="feed" role="log" aria-labelledby="feed-heading">
-          {kitchen.feed.map((e) => (
-            <li key={e.id}>
-              <strong>{e.type}</strong> <code>{e.stream}</code> seq {e.seq}
-              {e.cause && (
-                <>
-                  , cause <code>{e.cause}</code>
-                  {isSimulated(e.cause) && ' (simulated)'}
-                </>
-              )}
-              , <time dateTime={e.time}>{whenText(e.time, { seconds: true })}</time>
-            </li>
-          ))}
-        </ol>
+        <div role="log" aria-labelledby="feed-heading">
+          <ol className="feed">
+            {kitchen.feed.map((e) => (
+              <li key={e.id}>
+                <strong>{e.type}</strong> <code>{e.stream}</code> seq {e.seq}
+                {e.cause && (
+                  <>
+                    , cause <code>{e.cause}</code>
+                    {isSimulated(e.cause) && ' (simulated)'}
+                  </>
+                )}
+                , <time dateTime={e.time}>{whenText(e.time, { seconds: true })}</time>
+              </li>
+            ))}
+          </ol>
+        </div>
       )}
     </>
   );

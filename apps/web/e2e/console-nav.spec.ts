@@ -1,7 +1,7 @@
 // The console's in-page navigation (audit C26) and the menu tour on a phone (audit P3): a link in
 // "On this page" puts the focus on its heading so Tab goes on from there, the board's skip link
 // passes the cards, and the menu tour's list step rings one card that sits above the tour's bar.
-import { demoAccount, expect, liveSandbox, test } from './fixtures';
+import { demoAccount, expect, expectNoAxeViolations, liveSandbox, test } from './fixtures';
 
 test('the “On this page” list and the board’s skip link move the focus past the cards', async ({
   page,
@@ -10,6 +10,7 @@ test('the “On this page” list and the board’s skip link move the focus pas
   await liveSandbox(page);
   await page.goto('/app/');
   await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+  await expectNoAxeViolations(page);
 
   const nav = page.getByRole('navigation', { name: 'On this page' });
   await expect(nav.getByRole('link')).toHaveCount(20);
