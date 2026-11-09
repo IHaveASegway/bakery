@@ -207,11 +207,21 @@ export default function Campaigns({
         </div>
         <p className="actions">
           {/* Busy is aria-disabled, not disabled, so the keyboard's focus stays on the button. */}
-          <button type="submit" disabled={isGuest} aria-disabled={busy || undefined}>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={isGuest}
+            aria-disabled={busy || undefined}
+          >
             {busy ? 'Saving…' : editing === null ? 'Save draft' : 'Save changes'}
           </button>
           {editing !== null && (
-            <button type="button" disabled={busy} onClick={() => setEditing(null)}>
+            <button
+              type="button"
+              className="btn btn-quiet"
+              disabled={busy}
+              onClick={() => setEditing(null)}
+            >
               Stop editing
             </button>
           )}
@@ -243,6 +253,14 @@ export default function Campaigns({
     </section>
   );
 }
+
+/** Each campaign state's status tone (components.css, .badge[data-tone]). */
+const CAMPAIGN_TONE: Record<CampaignResponse['state'], string> = {
+  draft: 'done',
+  scheduled: 'pending',
+  sent: 'ready',
+  cancelled: 'problem',
+};
 
 /** One campaign: its facts, its numbers, and the buttons its state allows. */
 export function CampaignCard({
@@ -303,7 +321,10 @@ export function CampaignCard({
     <li>
       <h4>{subjectText(campaign.subject)}</h4>
       <p>
-        <strong>{campaignStateLabel(campaign.state)}</strong>. {stateSays(campaign.state)}
+        <strong className="badge" data-tone={CAMPAIGN_TONE[campaign.state]}>
+          {campaignStateLabel(campaign.state)}
+        </strong>{' '}
+        {stateSays(campaign.state)}
       </p>
       <dl>
         <dt>Template</dt>
@@ -335,7 +356,7 @@ export function CampaignCard({
       </dl>
 
       {actions.includes('schedule') && (
-        <p>
+        <p className="inline-action">
           <label htmlFor={`when-${id}`}>Send at (the bakery’s time)</label>
           <input
             id={`when-${id}`}
@@ -345,7 +366,12 @@ export function CampaignCard({
             aria-describedby={`when-${id}-says`}
             onChange={(e) => setWhen(e.target.value)}
           />{' '}
-          <button type="button" disabled={busy} onClick={() => void schedule()}>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={busy}
+            onClick={() => void schedule()}
+          >
             Schedule
           </button>{' '}
           <button
@@ -365,13 +391,23 @@ export function CampaignCard({
       {(actions.includes('edit') || actions.includes('cancel')) && (
         <p className="actions">
           {actions.includes('edit') && (
-            <button type="button" disabled={busy} onClick={() => onEdit(campaign)}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={busy}
+              onClick={() => onEdit(campaign)}
+            >
               Edit
             </button>
           )}
           {actions.includes('cancel') && (
             <button
               type="button"
+              className={
+                campaign.state === 'scheduled'
+                  ? 'btn btn-secondary btn-sm'
+                  : 'btn btn-danger btn-sm'
+              }
               disabled={busy}
               onClick={() =>
                 void act(`${id}:cancel:${campaign.state}`, (key) =>

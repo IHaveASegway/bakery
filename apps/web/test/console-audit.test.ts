@@ -17,12 +17,16 @@ import { countText } from '../src/lib/inbox';
 import { applyEvent, bakeLineText, EMPTY_BOARD, type Card } from '../src/lib/kitchen';
 import { andList, priceSetsText, statusSaid, waitingText } from '../src/lib/menu';
 import { nextPollMs, POLL_MAX_MS, POLL_MS } from '../src/lib/use-poll';
-import { clockOfText, timesIn, whenText } from '../src/lib/when';
+import { clockOfText, shortDate, shortWhen, timesIn, whenText } from '../src/lib/when';
 import { day, orderId, plan, stop } from './dispatch-support';
 
 describe('one formatter for every time shown', () => {
   test('a business time reads as the bakery says it', () => {
     expect(whenText('2026-11-08T08:15:00-07:00')).toBe('8:15 am on Sunday 2026-11-08');
+    expect(shortWhen('2026-11-08T08:15:00-07:00')).toBe('Sun 8 Nov, 8:15 am');
+    expect(shortWhen('2026-11-10T21:45:00Z')).toBe('Tue 10 Nov, 2:45 pm');
+    expect(shortWhen('soon')).toBe('soon');
+    expect(shortDate('2026-11-10T21:45:00Z')).toBe('Tue 10 Nov');
     expect(whenText('2026-11-10T07:00:00-07:00')).toBe('7:00 am on Tuesday 2026-11-10');
   });
 
@@ -74,8 +78,9 @@ describe('one formatter for every time shown', () => {
         onRefunded: () => undefined,
       }),
     );
+    // The card says it short, as people say it; the long form is the element's title.
     expect(html).toContain(
-      '<time dateTime="2026-11-08T08:15:00-07:00">8:15 am on Sunday 2026-11-08</time>',
+      '<time dateTime="2026-11-08T08:15:00-07:00" title="8:15 am on Sunday 2026-11-08"><span class="card-clock">8:15 am</span> <span class="card-date">Sun 8 Nov</span></time>',
     );
     // Focus can be put on the card when its new state has no button.
     expect(html).toContain('tabindex="-1"');
@@ -204,7 +209,10 @@ describe('a campaign card after its send', () => {
         onEdit: () => undefined,
       }),
     );
-    expect(html).toContain('<strong>Sent</strong>. The recipients were fixed');
+    // The state is a badge (components.css), its word followed by the sentence on what it means.
+    expect(html).toContain(
+      '<strong class="badge" data-tone="ready">Sent</strong> The recipients were fixed',
+    );
     expect(html).not.toContain('Sent. Sent.');
     expect(html).not.toContain('Scheduled.');
     expect(stateSays('cancelled')).toBe('Nothing was sent.');

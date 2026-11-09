@@ -127,6 +127,7 @@ export default function Console() {
           </p>
           <button
             type="button"
+            className="btn btn-primary"
             onClick={() => {
               setView({ name: 'loading' });
               void load();
@@ -138,12 +139,12 @@ export default function Console() {
       );
     case 'signedout':
       return (
-        <section>
+        <section className="empty">
           <h2>You are not signed in</h2>
-          <p>
-            The console shows your own sandbox, so it needs a session.{' '}
-            <a href="/signin/">Sign in or try it as a guest</a>.
-          </p>
+          <p>The console shows your own sandbox, so it needs a session.</p>
+          <a className="btn btn-primary" href="/signin/">
+            Sign in or try it as a guest
+          </a>
         </section>
       );
     case 'failed':
@@ -151,7 +152,7 @@ export default function Console() {
         <section>
           <h2>The console could not load</h2>
           <Message error={view.error} />
-          <button type="button" onClick={() => void load()}>
+          <button type="button" className="btn btn-primary" onClick={() => void load()}>
             Try again
           </button>
         </section>
@@ -187,36 +188,46 @@ export default function Console() {
   // A guest's new sandbox needs a Turnstile pass, and the widget lives on the sign-in page.
   const another = isGuest ? (
     <p>
-      <a className="action" href="/signin/">
+      <a className="btn btn-primary" href="/signin/">
         Start another guest sandbox
       </a>
     </p>
   ) : (
     <p>
-      <button type="button" disabled={busy} onClick={() => void newSandbox(false)}>
+      <button
+        type="button"
+        className="btn btn-primary"
+        disabled={busy}
+        onClick={() => void newSandbox(false)}
+      >
         New sandbox
       </button>
     </p>
   );
 
   const header = (
-    <>
+    <div className="console-head">
       <h2>{KINDS[session.kind]}</h2>
-      <p>
-        <button type="button" disabled={busy} onClick={() => void leave()}>
-          Sign out
-        </button>
-      </p>
-    </>
+      <button
+        type="button"
+        className="btn btn-secondary btn-sm"
+        disabled={busy}
+        onClick={() => void leave()}
+      >
+        Sign out
+      </button>
+    </div>
   );
 
   if (view.name === 'none') {
     return (
       <section>
         {header}
-        <h3>You have no sandbox</h3>
-        <p>A sandbox is yours until 10:00 UTC, when every sandbox is deleted.</p>
-        {another}
+        <div className="empty">
+          <h3>You have no sandbox</h3>
+          <p>A sandbox is yours until 10:00 UTC, when every sandbox is deleted.</p>
+          {another}
+        </div>
         <Message error={error} />
       </section>
     );
@@ -280,14 +291,16 @@ export function Gone({
   return (
     <section>
       {header}
-      <h3 id="gone-heading" ref={heading} tabIndex={-1}>
-        {wiped ? 'Your sandbox is wiped' : 'Your sandbox was deleted at 10:00 UTC'}
-      </h3>
-      <p>
-        {wiped ? 'Everything in it is gone. ' : 'Every sandbox is deleted each night. '}
-        Make a new one for a fresh start.
-      </p>
-      {another}
+      <div className="empty">
+        <h3 id="gone-heading" ref={heading} tabIndex={-1}>
+          {wiped ? 'Your sandbox is wiped' : 'Your sandbox was deleted at 10:00 UTC'}
+        </h3>
+        <p>
+          {wiped ? 'Everything in it is gone. ' : 'Every sandbox is deleted each night. '}
+          Make a new one for a fresh start.
+        </p>
+        {another}
+      </div>
       <Message error={error} />
     </section>
   );
