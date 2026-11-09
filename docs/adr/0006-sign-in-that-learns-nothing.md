@@ -1,6 +1,6 @@
 # ADR 0006: Sign-in that learns nothing: Google with the openid scope alone, GitHub with its numeric id alone, and demo accounts without email
 
-Status: Proposed · 2026-11-04 · Deciders: Joseph Peterson
+Status: Accepted · 2026-11-09, by delegation; as amended by the postscript below · Proposed 2026-11-04 · Deciders: Joseph Peterson
 
 ## Context
 

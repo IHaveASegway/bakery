@@ -1,6 +1,6 @@
 # ADR 0003: SQLite-backed Durable Objects as the system of record: one object per aggregate, an event log and a transactional outbox
 
-Status: Proposed · 2026-11-04 · Deciders: Joseph Peterson
+Status: Accepted · 2026-11-09, by delegation; as amended by the postscript below · Proposed 2026-11-04 · Deciders: Joseph Peterson
 
 ## Context
 
@@ -85,4 +85,6 @@ Two-way for the data: every sandbox is wiped nightly, so a change to a table, an
 
 ## Postscript 2026-11-09
 
-As built, 2026-11-09: a command's writes are one `storage.transactionSync()` call, not `Storage::transaction`, which in workers-rs 0.8.7 is the asynchronous key-value transaction; `workers/api/src/objects/sql.rs` reaches the synchronous call through `Reflect`, and an error inside the closure rolls every write back. workers-rs exposes the WebSocket auto-response through `worker_sys`, and the Kitchen arms it on every accept (`workers/api/src/objects/kitchen.rs`). The `exports` form is also held by a CI gate in `verify`. The Worker does not cache its flags for a few seconds: the router reads the flag at admission only, uncached, and the Queue consumer caches it for 60 s (`workers/api/src/queue.rs`); `read-only` refuses creation only, which is a decision pending, listed in the roadmap's Remaining work. No screen shows how far behind it is as a number.
+As built, 2026-11-09: a command's writes are one `storage.transactionSync()` call, not `Storage::transaction`, which in workers-rs 0.8.7 is the asynchronous key-value transaction; `workers/api/src/objects/sql.rs` reaches the synchronous call through `Reflect`, and an error inside the closure rolls every write back. workers-rs exposes the WebSocket auto-response through `worker_sys`, and the Kitchen arms it on every accept (`workers/api/src/objects/kitchen.rs`). The `exports` form is also held by a CI gate in `verify`. The Worker does not cache its flags for a few seconds: the router reads the flag at admission only, uncached, and the Queue consumer caches it for 60 s (`workers/api/src/queue.rs`); `read-only` refuses creation only, which was decided as built on 2026-11-09, below. No screen shows how far behind it is as a number.
+
+Decided on 2026-11-09 by the session, under Joseph's delegation of the same day; revisable: `read-only` refuses new sandboxes and new demo accounts only, as built, and commands inside existing sandboxes continue, bounded by the per-sandbox limits and the nightly wipe (roadmap R20). Consequences' flags cached "for a few seconds" by the Worker describe no cache that exists: admission reads the flag uncached, and only the Queue consumer caches it, for 60 s.

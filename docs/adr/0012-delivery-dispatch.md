@@ -1,6 +1,6 @@
 # ADR 0012: Delivery dispatch: VROOM in the browser to plan, a savings heuristic in Rust to propose, the object to decide
 
-Status: Proposed · 2026-11-04 · Deciders: Joseph Peterson
+Status: Accepted · 2026-11-09, by delegation; as amended by the postscript below · Proposed 2026-11-04 · Deciders: Joseph Peterson
 
 ## Context
 
@@ -21,7 +21,7 @@ Platform facts, as of 2026-11-04:
 - A DO handles one event at a time. A 2-second solve inside a handler would hold every other message to that object for 2 seconds, the kitchen board's included if it shared the object ([DO limits](https://developers.cloudflare.com/durable-objects/platform/limits/): a soft 1,000 requests a second per object, CPU 30 s a request by default).
 - Containers are Paid-only, start cold in 1 to 3 s, and under abuse the site priced one at about $185 per 72 hours ([the site's cost.md](https://github.com/IHaveASegway/website/blob/main/docs/cost.md), scenario E). The bakery does not use Containers.
 
-The Clarke–Wright savings heuristic (Clarke and Wright, 1964) builds routes by merging the pair of stops whose shared trip saves the most travel, under each van's capacity. For n stops it computes n(n−1)/2 savings and sorts them: 1,770 for 60 stops, a few milliseconds of CPU in Rust, even compiled to WebAssembly.
+The Clarke–Wright savings heuristic (*Operations Research*, 1964) builds routes by merging the pair of stops whose shared trip saves the most travel, under each van's capacity. For n stops it computes n(n−1)/2 savings and sorts them: 1,770 for 60 stops, a few milliseconds of CPU in Rust, even compiled to WebAssembly.
 
 ## Decision
 
@@ -83,8 +83,10 @@ Two-way. The solvers, the page and the fixture are code and static files. Dispat
 
 As built, 2026-11-09: the solver's files are not copied into `apps/web/public/app/dispatch/solver/`. `scripts/fetch-solver.mjs` fetches them at build from the site's repository at the lock's commit into a git-ignored folder and checks every byte against `apps/web/solver.lock.json`; they are never committed. Time windows are checked since 2026-11-08: vans leave at 09:00, a stop is served until two hours after its window opens, 3 minutes a door (`crates/domain/src/dispatch.rs`), and VROOM is given the same times. The 25% gap in Revisit if is now measured against windowed plans. On 2026-11-09, over seed 42 born 2026-11-07, the busy Saturday's 63 stops on 4 vans drive 328 minutes in the savings plan and 290 in the windowed plan of VROOM 1.15.0 (`apps/web/solver.lock.json`), a gap of 13.1% of total drive time; the day's own 2 stops drive 23 minutes in both, a gap of 0%. Born on 2026-11-04, 2026-11-10 and 2026-11-13 the busy Saturdays' gaps are 3.7%, 17.3% and 17.3%, so the trigger has not fired. Without windows VROOM drives the same 63 stops in 203 minutes, so the trigger compares windowed plan with windowed plan, never with an unwindowed one, and the heuristic cannot be run without its window check. These figures were first a one-off run of `savings_plan` against VROOM in Node, in drive minutes counted leg by leg from the matrix. Later on 2026-11-09 the check became repeatable: `cargo run -p bakery-seed --example dispatch-problem` writes a sandbox's busy Saturday as ids, units, windows and the Worker's minutes, with the server's plan and the validator's answer, and `scripts/dispatch-gap.mjs` solves it with the storefront's VROOM as the dispatch screen asks it, prints both totals and the gap, and exits 1 above 25%. `apps/web/test/dispatch-gap.test.ts` runs it in `verify` on seed 42 born 2026-11-07 and checks that the heuristic's plan passes the validator with windows, so the trigger is now the test it names. Its run on 2026-11-09 gave the figures above again (328 and 290 minutes, 13.1%; 3.7%, 17.3% and 17.3% for the other three births), each solve took 245 to 416 ms, well inside the screen's 5 s limit, and eight more seeds born 2026-11-07 (1, 2, 3, 7, 99, 777, 1234 and 31337) gave gaps from 7.1% to 16.5%.
 
+Decided on 2026-11-09 by the session, under Joseph's delegation of the same day; revisable: the record is amended. Delivery windows are part of the model since #62 (2026-11-08), so Revisit if's third trigger is resolved, and its second reads: the gap on the seed's busy day, with windows, above 25% of total drive time, measured by `scripts/dispatch-gap.mjs` (#90). It has not fired: 13.1% on seed 42 born 2026-11-07, as above (roadmap R58).
+
 ## Patterns and further reading
 
-- The savings heuristic: G. Clarke and J. W. Wright, ["Scheduling of Vehicles from a Central Depot to a Number of Delivery Points"](https://doi.org/10.1287/opre.12.4.568), *Operations Research* 12(4), 1964.
+- The savings heuristic: ["Scheduling of Vehicles from a Central Depot to a Number of Delivery Points"](https://doi.org/10.1287/opre.12.4.568), *Operations Research* 12(4), 1964.
 - VROOM: [VROOM project](https://github.com/VROOM-Project/vroom), BSD-2-Clause.
-- Command validation by a single writer: Martin Fowler, ["CQRS"](https://martinfowler.com/bliki/CQRS.html) (2011).
+- Command validation by a single writer: ["CQRS"](https://martinfowler.com/bliki/CQRS.html) (bliki, 2011).

@@ -1,6 +1,6 @@
 # ADR 0002: Rust for every backend, as WebAssembly on Workers, with the domain in native-testable crates
 
-Status: Proposed · 2026-11-04 · Deciders: Joseph Peterson
+Status: Accepted · 2026-11-09, by delegation; as amended by the postscript below · Proposed 2026-11-04 · Deciders: Joseph Peterson
 
 ## Context
 
@@ -77,4 +77,6 @@ Two-way per crate, expensive as a whole. `crates/domain` and `crates/app` would 
 
 ## Postscript 2026-11-09
 
-As built, 2026-11-09: the Worker routes with a table of its own (`workers/api/src/http/routes.rs`, matched by `match_route`), not the `worker` crate's `Router`. Two of the six ports have Worker adapters, `Clock` (`workers/api/src/clock.rs`) and `PaymentGateway` (`workers/api/src/stripe.rs`); `EventStore`, `Outbox`, `Mailbox` and `IdGen` are used by the native tests' fakes, and the objects write events and the outbox through `workers/api/src/objects/stream.rs` directly. Keeping those four as test seams or removing them is a decision pending, listed in the roadmap's Remaining work. The WebAssembly budget is uncompressed bytes, not gzip: PR 10's stripped module plus 25%, 5,317,776 B in `workers/api/budgets.json`, checked by `verify`. The `wrangler dev` smoke scripts run by hand; no CI job runs them, and CI's `e2e` job covers the browser paths on both Workers.
+As built, 2026-11-09: the Worker routes with a table of its own (`workers/api/src/http/routes.rs`, matched by `match_route`), not the `worker` crate's `Router`. Two of the six ports have Worker adapters, `Clock` (`workers/api/src/clock.rs`) and `PaymentGateway` (`workers/api/src/stripe.rs`); `EventStore`, `Outbox`, `Mailbox` and `IdGen` are used by the native tests' fakes, and the objects write events and the outbox through `workers/api/src/objects/stream.rs` directly. What happens to those four was decided on 2026-11-09, below. The WebAssembly budget is uncompressed bytes, not gzip: PR 10's stripped module plus 25%, 5,317,776 B in `workers/api/budgets.json`, checked by `verify`. The `wrangler dev` smoke scripts run by hand; no CI job runs them yet (decided below), and CI's `e2e` job covers the browser paths on both Workers.
+
+Decided on 2026-11-09 by the session, under Joseph's delegation of the same day; revisable: a port that nothing in production implements is removed rather than kept as ceremony, unless the app layer's own tested logic needs the seam; `Clock` and `PaymentGateway` stay. The audit of `EventStore`, `Outbox`, `Mailbox` and `IdGen`, then the removal or the wiring, is roadmap R68, and this postscript changes with it (R22). The smoke scripts are to run weekly in `scheduled.yml` and open one issue on a failure, not on every pull request, since a smoke check failed on `main` unnoticed until it was run by hand on 2026-11-09 (#86); Consequences' "run in their own CI job" means that weekly job, which is roadmap R70 (R28).
