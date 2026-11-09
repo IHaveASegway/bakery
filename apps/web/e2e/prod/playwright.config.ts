@@ -15,6 +15,8 @@ const apiPort = Number(process.env.E2E_API_PORT || 8798);
 // attach, Incident #41). The run gets that wait plus two minutes for the checks, and never less than
 // the five minutes it always had: 5 minutes by default, 12 on a first attach.
 const waitMs = Number(process.env.SMOKE_WAIT_MS || 120_000);
+// Another Chromium build for the local rehearsal, as in e2e/playwright.config.ts (e2e/run.mjs).
+const chromiumPath = process.env.E2E_CHROMIUM_PATH || undefined;
 
 export default defineConfig({
   testDir: '.',
@@ -34,6 +36,7 @@ export default defineConfig({
     ignoreHTTPSErrors: local, // wrangler dev's certificate; production's is the zone's
     trace: 'retain-on-failure',
     launchOptions: {
+      ...(chromiumPath ? { executablePath: chromiumPath } : {}),
       args: local
         ? [
             '--no-proxy-server',
