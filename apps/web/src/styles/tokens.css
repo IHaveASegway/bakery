@@ -47,11 +47,11 @@
   --font-reading:
     var(--font-reading-serif, var(--font-reading-fallbacks)), var(--font-reading-fallbacks);
 
-  /* Corners by hierarchy (docs/design/overhaul.md, "Shape"): the bar and full-width bands are
-     square; a control is 4px; a card or a lab's desk 8px. Inline code keeps 2px. */
+  /* Corners by hierarchy (design brief, 2026-11-09): the bars are square; a control is 6px; a card,
+     a panel or a popover 10px. Inline code keeps 2px. */
   --radius-sm: 2px;
-  --radius-md: 4px;
-  --radius-lg: 8px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
 
   /* Type scale (docs/design/overhaul.md, "Type"; ADR 0027): eight steps on the classic scale of
      The Elements of Typographic Style (12, 14, 18, 21, 24, 36, 48, 60, 72, 96), each fluid size
@@ -116,24 +116,68 @@
 :root,
 :root[data-theme='light'] {
   color-scheme: light;
-  --background: oklch(0.99 0.002 255);
-  --surface-1: oklch(1 0 0);
-  --surface-2: oklch(0.955 0.005 255);
-  --foreground: oklch(0.17 0.02 262);
-  --muted-foreground: oklch(0.44 0.02 262);
+  /* The roles every component reads (design brief, 2026-11-09). Surfaces: the page, a card or
+     panel raised on it, a well or table header sunk into it. One hairline, one stronger line for
+     controls, the ink and its quieter step, and one accent for what can be pressed. */
+  --surface: oklch(0.97 0.01 255);
+  --surface-raised: oklch(1 0 0);
+  --surface-sunken: oklch(0.95 0.01 255);
+  --text: oklch(0.2 0.02 262);
+  --text-muted: oklch(0.45 0.02 262);
+  --border-strong: oklch(0.6 0.02 258);
+  --accent: oklch(0.5 0.27 264);
+  --accent-hover: oklch(0.42 0.24 264);
+  --accent-foreground: oklch(1 0 0);
+  --accent-tint: oklch(0.95 0.02 264);
+  --focus-ring: var(--accent);
+  /* Refund, cancel, wipe: the danger ink, its fill on hover and the pale ground of a warning. */
+  --danger: oklch(0.5 0.19 27);
+  --danger-hover: oklch(0.44 0.17 27);
+  --danger-foreground: oklch(1 0 0);
+  --danger-tint: oklch(0.95 0.02 27);
+  --shadow-color: oklch(0.2 0.02 262 / 0.14);
+  /* The seven status tones: a tint behind the word, a solid for the mark beside it. The word is
+     always there, so no status is told by colour alone. */
+  --tone-pending-tint: oklch(0.95 0.05 85);
+  --tone-pending-solid: oklch(0.6 0.12 70);
+  --tone-confirmed-tint: oklch(0.95 0.02 255);
+  --tone-confirmed-solid: oklch(0.53 0.19 260);
+  --tone-making-tint: oklch(0.95 0.02 300);
+  --tone-making-solid: oklch(0.52 0.2 300);
+  --tone-ready-tint: oklch(0.95 0.05 150);
+  --tone-ready-solid: oklch(0.55 0.14 150);
+  --tone-out-tint: oklch(0.95 0.04 195);
+  --tone-out-solid: oklch(0.55 0.09 200);
+  --tone-done-tint: oklch(0.94 0.01 255);
+  --tone-done-solid: oklch(0.55 0.03 255);
+  --tone-problem-tint: oklch(0.95 0.02 25);
+  --tone-problem-solid: oklch(0.55 0.2 27);
+  /* The guide's own layer, dark in both schemes so it never reads as part of the bakery. */
+  --guide-surface: oklch(0.22 0.02 262);
+  --guide-raised: oklch(0.28 0.02 262);
+  --guide-border: oklch(0.4 0.02 262);
+  --guide-text: oklch(0.97 0.01 240);
+  --guide-muted: oklch(0.8 0.02 248);
+  --guide-accent: oklch(0.82 0.14 212);
+  /* The names the earlier pages and the site's copy read, kept as the roles above. */
+  --background: var(--surface);
+  --surface-1: var(--surface-raised);
+  --surface-2: var(--surface-sunken);
+  --foreground: var(--text);
+  --muted-foreground: var(--text-muted);
   --subtle-foreground: var(--muted-foreground);
-  --border: oklch(0.91 0.006 255);
+  --border: oklch(0.9 0.01 255);
   --ground: oklch(0.975 0.004 255);
   --grid-line: oklch(0.17 0.02 262 / 0.045);
   --field-line: oklch(0.5 0.27 264 / 0.11);
   --field-light: oklch(0.5 0.27 264 / 0.05);
-  --input: oklch(0.6 0.02 258);
-  --primary: oklch(0.5 0.27 264);
-  --primary-strong: oklch(0.42 0.24 264);
-  --primary-foreground: oklch(1 0 0);
+  --input: var(--border-strong);
+  --primary: var(--accent);
+  --primary-strong: var(--accent-hover);
+  --primary-foreground: var(--accent-foreground);
   --signal: var(--primary);
-  --destructive: var(--foreground);
-  --ring: var(--primary);
+  --destructive: var(--danger);
+  --ring: var(--focus-ring);
   /* The isometric drawings: three faces of a solid lit from the top left, and the plane's grid.
      Fills only, never the only cue: every solid is edged in --foreground. */
   --iso-top: oklch(1 0 0);
@@ -150,8 +194,8 @@
   --line-cache: oklch(0.535 0.15 46);
   --line-backfill: oklch(0.56 0.09 205);
 
-  --map-water: var(--background);
-  --map-land: var(--surface-2);
+  --map-water: oklch(0.99 0 0);
+  --map-land: oklch(0.95 0.01 255);
   --map-park: oklch(0.88 0.03 150);
   --map-band-1: oklch(0.648 0.034 171);
   --map-band-2: oklch(0.695 0.027 172);
@@ -175,24 +219,60 @@
 /* Night, chosen in this browser: the blueprint. */
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --background: oklch(0.155 0.014 262);
-  --surface-1: oklch(0.19 0.016 262);
+  --surface: oklch(0.16 0.01 262);
+  --surface-raised: oklch(0.2 0.02 262);
+  --surface-sunken: oklch(0.13 0.01 262);
+  --text: oklch(0.97 0.01 240);
+  --text-muted: oklch(0.78 0.02 248);
+  --border-strong: oklch(0.6 0.03 255);
+  --accent: oklch(0.82 0.14 212);
+  --accent-hover: oklch(0.9 0.08 212);
+  --accent-foreground: var(--surface);
+  --accent-tint: oklch(0.28 0.05 230);
+  --focus-ring: var(--accent);
+  --danger: oklch(0.75 0.15 25);
+  --danger-hover: oklch(0.82 0.09 25);
+  --danger-foreground: var(--surface);
+  --danger-tint: oklch(0.28 0.07 25);
+  --shadow-color: oklch(0 0 0 / 0.5);
+  --tone-pending-tint: oklch(0.3 0.06 75);
+  --tone-pending-solid: oklch(0.8 0.14 80);
+  --tone-confirmed-tint: oklch(0.3 0.07 260);
+  --tone-confirmed-solid: oklch(0.75 0.13 255);
+  --tone-making-tint: oklch(0.3 0.08 300);
+  --tone-making-solid: oklch(0.76 0.13 300);
+  --tone-ready-tint: oklch(0.3 0.06 150);
+  --tone-ready-solid: oklch(0.78 0.15 150);
+  --tone-out-tint: oklch(0.3 0.05 200);
+  --tone-out-solid: oklch(0.8 0.11 195);
+  --tone-done-tint: oklch(0.28 0.02 255);
+  --tone-done-solid: oklch(0.72 0.02 255);
+  --tone-problem-tint: oklch(0.3 0.07 25);
+  --tone-problem-solid: oklch(0.72 0.16 25);
+  --guide-surface: oklch(0.22 0.02 262);
+  --guide-raised: oklch(0.28 0.02 262);
+  --guide-border: oklch(0.4 0.02 262);
+  --guide-text: oklch(0.97 0.01 240);
+  --guide-muted: oklch(0.8 0.02 248);
+  --guide-accent: oklch(0.82 0.14 212);
+  --background: var(--surface);
+  --surface-1: var(--surface-raised);
   --surface-2: oklch(0.235 0.02 262);
-  --foreground: oklch(0.97 0.005 240);
-  --muted-foreground: oklch(0.78 0.02 248);
+  --foreground: var(--text);
+  --muted-foreground: var(--text-muted);
   --subtle-foreground: var(--muted-foreground);
   --border: oklch(0.31 0.024 262);
   --ground: oklch(0.175 0.015 262);
   --grid-line: oklch(0.97 0.005 240 / 0.045);
   --field-line: oklch(0.82 0.14 212 / 0.15);
   --field-light: oklch(0.82 0.14 212 / 0.08);
-  --input: oklch(0.6 0.03 255);
-  --primary: oklch(0.82 0.14 212);
-  --primary-strong: oklch(0.9 0.08 212);
-  --primary-foreground: var(--background);
+  --input: var(--border-strong);
+  --primary: var(--accent);
+  --primary-strong: var(--accent-hover);
+  --primary-foreground: var(--accent-foreground);
   --signal: var(--primary);
-  --destructive: var(--foreground);
-  --ring: var(--primary);
+  --destructive: var(--danger);
+  --ring: var(--focus-ring);
   --iso-top: oklch(0.27 0.022 262);
   --iso-left: oklch(0.215 0.018 262);
   --iso-right: oklch(0.18 0.015 262);
@@ -247,24 +327,60 @@
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme='light'])) {
     color-scheme: dark;
-    --background: oklch(0.155 0.014 262);
-    --surface-1: oklch(0.19 0.016 262);
+    --surface: oklch(0.16 0.01 262);
+    --surface-raised: oklch(0.2 0.02 262);
+    --surface-sunken: oklch(0.13 0.01 262);
+    --text: oklch(0.97 0.01 240);
+    --text-muted: oklch(0.78 0.02 248);
+    --border-strong: oklch(0.6 0.03 255);
+    --accent: oklch(0.82 0.14 212);
+    --accent-hover: oklch(0.9 0.08 212);
+    --accent-foreground: var(--surface);
+    --accent-tint: oklch(0.28 0.05 230);
+    --focus-ring: var(--accent);
+    --danger: oklch(0.75 0.15 25);
+    --danger-hover: oklch(0.82 0.09 25);
+    --danger-foreground: var(--surface);
+    --danger-tint: oklch(0.28 0.07 25);
+    --shadow-color: oklch(0 0 0 / 0.5);
+    --tone-pending-tint: oklch(0.3 0.06 75);
+    --tone-pending-solid: oklch(0.8 0.14 80);
+    --tone-confirmed-tint: oklch(0.3 0.07 260);
+    --tone-confirmed-solid: oklch(0.75 0.13 255);
+    --tone-making-tint: oklch(0.3 0.08 300);
+    --tone-making-solid: oklch(0.76 0.13 300);
+    --tone-ready-tint: oklch(0.3 0.06 150);
+    --tone-ready-solid: oklch(0.78 0.15 150);
+    --tone-out-tint: oklch(0.3 0.05 200);
+    --tone-out-solid: oklch(0.8 0.11 195);
+    --tone-done-tint: oklch(0.28 0.02 255);
+    --tone-done-solid: oklch(0.72 0.02 255);
+    --tone-problem-tint: oklch(0.3 0.07 25);
+    --tone-problem-solid: oklch(0.72 0.16 25);
+    --guide-surface: oklch(0.22 0.02 262);
+    --guide-raised: oklch(0.28 0.02 262);
+    --guide-border: oklch(0.4 0.02 262);
+    --guide-text: oklch(0.97 0.01 240);
+    --guide-muted: oklch(0.8 0.02 248);
+    --guide-accent: oklch(0.82 0.14 212);
+    --background: var(--surface);
+    --surface-1: var(--surface-raised);
     --surface-2: oklch(0.235 0.02 262);
-    --foreground: oklch(0.97 0.005 240);
-    --muted-foreground: oklch(0.78 0.02 248);
+    --foreground: var(--text);
+    --muted-foreground: var(--text-muted);
     --subtle-foreground: var(--muted-foreground);
     --border: oklch(0.31 0.024 262);
     --ground: oklch(0.175 0.015 262);
     --grid-line: oklch(0.97 0.005 240 / 0.045);
     --field-line: oklch(0.82 0.14 212 / 0.15);
     --field-light: oklch(0.82 0.14 212 / 0.08);
-    --input: oklch(0.6 0.03 255);
-    --primary: oklch(0.82 0.14 212);
-    --primary-strong: oklch(0.9 0.08 212);
-    --primary-foreground: var(--background);
+    --input: var(--border-strong);
+    --primary: var(--accent);
+    --primary-strong: var(--accent-hover);
+    --primary-foreground: var(--accent-foreground);
     --signal: var(--primary);
-    --destructive: var(--foreground);
-    --ring: var(--primary);
+    --destructive: var(--danger);
+    --ring: var(--focus-ring);
     --iso-top: oklch(0.27 0.022 262);
     --iso-left: oklch(0.215 0.018 262);
     --iso-right: oklch(0.18 0.015 262);
@@ -325,6 +441,7 @@
   :root[data-theme] {
     --subtle-foreground: var(--muted-foreground);
     --border: var(--input);
+    --text-muted: var(--text);
   }
 }
 
@@ -333,6 +450,15 @@
   :root,
   :root[data-theme] {
     color-scheme: light;
+    --surface: oklch(1 0 0);
+    --surface-raised: oklch(1 0 0);
+    --surface-sunken: oklch(1 0 0);
+    --text: oklch(0 0 0);
+    --text-muted: oklch(0.3 0 0);
+    --accent: oklch(0 0 0);
+    --accent-hover: oklch(0 0 0);
+    --accent-foreground: oklch(1 0 0);
+    --border-strong: oklch(0.55 0 0);
     --background: oklch(1 0 0);
     --surface-1: oklch(1 0 0);
     --surface-2: oklch(1 0 0);
@@ -379,6 +505,45 @@
     --iso-right: oklch(0.9 0 0);
     --iso-grid: oklch(0.55 0 0 / 0.25);
   }
+}
+
+/* The scales every component reads (design brief, 2026-11-09). No colour here, so the contrast test
+   and the theme blocks never see this block.
+
+   Type: eight sizes, 12 to 36 px. The console's base is 14, the shop's 16, an essay's 18. Headings
+   are 600 and tight; body text 1.5. Space: 4 px steps. One shadow, for what floats over the page
+   (a menu, a drawer, a popover), never for a card that sits in the flow. */
+:root {
+  --type-12: 12px;
+  --type-13: 13px;
+  --type-14: 14px;
+  --type-16: 16px;
+  --type-18: 18px;
+  --type-22: 22px;
+  --type-28: 28px;
+  --type-36: 36px;
+  --leading-tight: 1.2;
+  --leading-body: 1.5;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --radius-control: var(--radius-md);
+  --radius-card: var(--radius-lg);
+  --shadow-raised: 0 1px 2px var(--shadow-color), 0 8px 24px var(--shadow-color);
+  --motion-fast: 150ms;
+  --motion: 200ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --shop-width: 70rem;
+  --prose-width: 68ch;
+  --topbar-height: 56px;
+  --sidebar-width: 240px;
+  --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-code: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
 
 /* The current (ADR 0029): the accent as light, for what is live or can be pressed. It follows the
