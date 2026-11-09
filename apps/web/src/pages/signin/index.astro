@@ -19,26 +19,28 @@ import SignInError from '../../components/SignInError';
 
   <SignInError client:load />
 
-  <section aria-labelledby="providers" data-tour="signin-providers">
-    <h2 id="providers">Sign in with an account you have</h2>
-    <p>
-      Google and GitHub tell the bakery only a number that identifies the account, kept as a keyed
-      hash.
-    </p>
-    <ul class="choices">
-      <li>
-        <a class="action" href={signinUrl('google')}>
-          Continue with Google
-        </a>
-      </li>
-      <li>
-        <a class="action" href={signinUrl('github')}>
-          Continue with GitHub
-        </a>
-      </li>
-    </ul>
-  </section>
+  <div class="card-grid">
+    <section aria-labelledby="providers" data-tour="signin-providers">
+      <h2 id="providers">Sign in with an account you have</h2>
+      <p>
+        Google and GitHub tell the bakery only a number that identifies the account, kept as a keyed
+        hash.
+      </p>
+      <ul class="choices">
+        <li>
+          <a class="btn btn-secondary" href={signinUrl('google')}>
+            Continue with Google
+          </a>
+        </li>
+        <li>
+          <a class="btn btn-secondary" href={signinUrl('github')}>
+            Continue with GitHub
+          </a>
+        </li>
+      </ul>
+    </section>
 
-  <DemoAccount client:load />
-  <Guest client:load />
+    <DemoAccount client:load />
+    <Guest client:load />
+  </div>
 </Base>
