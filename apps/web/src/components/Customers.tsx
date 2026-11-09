@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { shortWhen } from '../lib/when';
 import { whenText, zoneLabel } from '../lib/crm';
 import { useCustomers } from '../lib/use-customers';
 import CustomerTimeline from './CustomerTimeline';
@@ -32,9 +33,9 @@ export default function Customers({
       <h3 id="customers-heading" tabIndex={-1} data-tour="crm-customers">
         Customers
       </h3>
-      <p>
-        {customers === null ? 'The' : `The ${customers.length}`} synthetic customers of this
-        sandbox. Pick one to see their timeline and their consent to marketing email.
+      <p className="hint">
+        {customers === null ? 'The' : `The ${customers.length}`} synthetic customers: pick one for
+        their timeline and consent.
       </p>
       <Message error={error} />
       {customers === null ? (
@@ -77,7 +78,15 @@ export default function Customers({
                   <td>{c.marketing ? 'Yes' : 'No'}</td>
                   <td className="num">{c.loyalty_points}</td>
                   <td className="num">{c.orders}</td>
-                  <td>{whenText(c.last_order_at)}</td>
+                  <td>
+                    {c.last_order_at ? (
+                      <time dateTime={c.last_order_at} title={whenText(c.last_order_at)}>
+                        {shortWhen(c.last_order_at)}
+                      </time>
+                    ) : (
+                      whenText(c.last_order_at)
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

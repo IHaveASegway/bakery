@@ -31,22 +31,26 @@ export default function DispatchComparison({
     <>
       <p aria-live="polite">{report.summary}</p>
       <div className="table-scroll" role="region" aria-label="Plans compared" tabIndex={0}>
-        <table>
+        <table className="table">
           <thead>
             <tr>
               <th scope="col">
                 <span className="sr-only">Figure</span>
               </th>
-              <th scope="col">{SOURCE_NAMES.server}</th>
-              <th scope="col">{SOURCE_NAMES.browser}</th>
+              <th scope="col" className="num">
+                {SOURCE_NAMES.server}
+              </th>
+              <th scope="col" className="num">
+                {SOURCE_NAMES.browser}
+              </th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
               <tr key={row.name}>
                 <th scope="row">{row.name}</th>
-                <td>{cell(server, row.pick, 'Not proposed yet')}</td>
-                <td>{cell(browser, row.pick, noBrowser)}</td>
+                <td className="num">{cell(server, row.pick, 'Not proposed yet')}</td>
+                <td className="num">{cell(browser, row.pick, noBrowser)}</td>
               </tr>
             ))}
           </tbody>

@@ -88,21 +88,21 @@ describe('the comparison', () => {
     const out = html(both, 'ready');
     expect(out).toContain('Server (savings heuristic)');
     expect(out).toContain('Browser (VROOM)');
-    expect(out).toContain('<td>104</td><td>90</td>');
-    expect(out).toContain('<td>10:42 am</td><td>10:42 am</td>');
-    expect(out).toContain('<td>2</td><td>1</td>');
+    expect(out).toContain('<td class="num">104</td><td class="num">90</td>');
+    expect(out).toContain('<td class="num">10:42 am</td><td class="num">10:42 am</td>');
+    expect(out).toContain('<td class="num">2</td><td class="num">1</td>');
     expect(out).toContain('The server’s plan drives 15.6% longer than the browser’s');
   });
 
   test('without a browser plan: the server’s figures alone, and the other column says it is not planned', () => {
     const out = html(day(stops, { proposed: server }), 'idle');
-    expect(out).toContain('<td>104</td><td>Not planned yet</td>');
+    expect(out).toContain('<td class="num">104</td><td class="num">Not planned yet</td>');
     expect(out).toContain('Only the server’s plan so far');
   });
 
   test('with the solver unavailable: the server’s figures alone, and the column says unavailable', () => {
     const out = html(day(stops, { proposed: server }), 'unavailable');
-    expect(out).toContain('<td>104</td><td>Unavailable here</td>');
+    expect(out).toContain('<td class="num">104</td><td class="num">Unavailable here</td>');
     expect(out).toContain('The browser’s solver is not available here');
   });
 
@@ -128,7 +128,7 @@ describe('the plan and the stops', () => {
       createElement(DispatchPlan, { plan: server, title: 'Server' }),
     );
     expect(out).toContain('2 vans, 104 drive minutes in all, the last van back at 10:42 am');
-    expect(out).toContain('<td>41</td>');
+    expect(out).toContain('<td class="num">41</td>');
     expect(out).toContain('swatch-b');
   });
 
@@ -154,7 +154,7 @@ describe('the plan and the stops', () => {
       expect(out).toContain(`<span class="font-semibold sm:hidden">${label}: </span>`);
     }
     // The table breaks only between words ("Delivered", not "Delivere d").
-    expect(out).toContain('<table class="[overflow-wrap:normal]">');
+    expect(out).toContain('<table class="table [overflow-wrap:normal]">');
     expect(out).toContain('9:00 am to 11:00 am');
     expect(out).toContain('Zone 1');
     expect(out).toContain('Provisional (not paid yet)');
