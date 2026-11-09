@@ -1853,7 +1853,7 @@ mod tests {
     #[test]
     fn every_readme_route_is_in_the_table_with_its_answers() {
         let rows = readme_rows();
-        assert!(rows.len() >= 46, "{} rows", rows.len());
+        assert!(rows.len() >= 74, "{} rows", rows.len());
         let covered = readme_pr();
         let mut listed = BTreeSet::new();
         // (a) Every README row is in the table with its method, pattern, session rule, bearer

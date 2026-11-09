@@ -4,13 +4,12 @@ The Rust Worker behind `api.bakery.ihaveasegway.com`: the router, every Durable 
 Queue consumer and the cron handler ([architecture.md](../../docs/architecture.md)). Since the
 launch on 2026-11-06 it runs at api.bakery.ihaveasegway.com and locally on `wrangler dev`.
 
-The number 19 below, in the line the tests read and in the route table's `pr`, is the UI audit of
-2026-11-08, which has no pull request number of its own (as of 2026-11-09: 74 routes, 59 of
-them accepting a token, in `apps/web/public/docs/api/openapi.json`). The tax rate's route, added
-on 2026-11-09, is numbered 20, the roadmap's next work package; the README may list it before the
-line below moves.
+The number 19 in the route table's `pr` is the UI audit of 2026-11-08, which has no pull request
+number of its own. The number 20 below, in the line the tests read and in the table's `pr`, is the
+remaining-work day of 2026-11-09, which has none either; the tax rate's route was added on it (as of
+2026-11-09: 74 routes, 59 of them accepting a token, in `apps/web/public/docs/api/openapi.json`).
 
-Through PR 19 it answers:
+Through PR 20 it answers:
 
 | Route                                                     | Session                                       | Token | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Answers                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | --------------------------------------------------------- | --------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
