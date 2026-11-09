@@ -195,6 +195,7 @@ export async function liveSandbox(page: Page): Promise<Sandbox> {
 
 interface MenuItem {
   status: string;
+  pickup_only?: boolean;
   days_baked: string[];
   season?: { from: string; to: string } | null;
   variants: { slug: string; lead_minutes: number }[];
@@ -280,6 +281,69 @@ export function pickupOrder(
   throw new Error('no item on the seeded menu fits a slot four hours out');
 }
 
+/** The bakery date (America/Denver) of a moment, as YYYY-MM-DD. */
+export const businessDate = (ms: number) => {
+  const p = parts(ms);
+  return `${p.year}-${p.month}-${p.day}`;
+};
+
+/** The n-th open day after a bakery date: every day but Monday, as scripts/smoke-dispatch.sh counts. */
+export function nthOpenDay(date: string, n: number): string {
+  let ms = Date.parse(`${date}T12:00:00Z`);
+  let left = n;
+  while (left > 0) {
+    ms += 86_400_000;
+    if (new Date(ms).getUTCDay() !== 1) left -= 1;
+  }
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * A delivery to zone z2 in a date's 09:00 window, qty of one item baked that weekday that is
+ * neither pickup-only nor seasonal, with a lead time inside two hours: scripts/smoke-dispatch.sh's
+ * delivery_order.
+ */
+export function deliveryOrder(
+  menu: { categories: { items: MenuItem[] }[] },
+  date: string,
+  qty: number,
+) {
+  const nine = Date.parse(`${date}T16:00:00Z`);
+  const weekday = parts(nine).weekday.toLowerCase().slice(0, 3);
+  // 09:00 in Denver is 15:00 or 16:00 UTC; iso() gives the date's own offset either way.
+  const zone = iso(nine).slice(-6);
+  for (const category of menu.categories) {
+    for (const item of category.items) {
+      if (item.status !== 'available' || item.pickup_only || item.season) continue;
+      if (!item.days_baked.includes(weekday)) continue;
+      const variant = item.variants.find((v) => v.lead_minutes <= 120);
+      if (variant) {
+        return {
+          kind: 'delivery',
+          slot: `${date}T09:00:00${zone}`,
+          zone: 'z2',
+          lines: [{ variant: variant.slug, qty }],
+        };
+      }
+    }
+  }
+  throw new Error(`no item on the seeded menu fits a delivery on ${date}`);
+}
+
+/** Pays an order as the storefront does, its id as the key, and confirms it at the fake Stripe. */
+export async function payOrder(page: Page, sandboxId: string, orderId: string) {
+  const payment = await api<{ client_secret: string }>(
+    page,
+    'POST',
+    `/v1/sandboxes/${sandboxId}/orders/${orderId}/payment`,
+    undefined,
+    orderId,
+  );
+  expect(payment.status, JSON.stringify(payment.body)).toBe(200);
+  const confirm = await confirmAtFakeStripe(payment.body.client_secret);
+  expect(confirm.body.status).toBe('succeeded');
+}
+
 /**
  * The Payment Element's confirm, made at the fake Stripe with Stripe's test payment method, as
  * scripts/smoke-payments.sh makes it. The Payment Element itself cannot mount here: Stripe.js
@@ -332,6 +396,13 @@ export function listObjects() {
  * `exclude` skips named rules for one page; give each a comment naming the violation and "R47".
  */
 export async function expectNoAxeViolations(page: Page, options: { exclude?: string[] } = {}) {
+  // A board card that just arrived fades in (global.css, card-in), and axe reads its text's
+  // contrast against the half-faded card. Let running animations finish first; none loops.
+  await page
+    .waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'), null, {
+      timeout: 5_000,
+    })
+    .catch(() => undefined);
   let builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']);
   if (options.exclude?.length) builder = builder.disableRules(options.exclude);
   const { violations } = await builder.analyze();
