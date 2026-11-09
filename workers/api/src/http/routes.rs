@@ -1447,7 +1447,7 @@ mod tests {
             agrees(route, spec);
             served += 1;
         }
-        assert!(served >= 64, "{served} routes through PR {covered}");
+        assert!(served >= 74, "{served} routes through PR {covered}");
     }
 
     #[test]
