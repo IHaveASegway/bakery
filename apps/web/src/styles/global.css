@@ -1336,7 +1336,7 @@ html.tour-open {
   font-weight: 600;
 }
 
-.cart-lines .qty {
+.cart-lines .stepper {
   grid-area: qty;
   margin: 0;
   font-weight: 400;
@@ -1347,7 +1347,7 @@ html.tour-open {
   text-align: right;
 }
 
-.cart-lines button {
+.cart-lines .remove {
   grid-area: remove;
 }
 

@@ -375,3 +375,284 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---------- The menu ---------- */
+
+.menu-status:empty {
+  display: none;
+}
+
+.menu-status > .hint {
+  margin: 0 0 var(--space-3);
+}
+
+/* No sandbox yet: one banner, one button. */
+.start-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-5);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-card);
+  background: var(--accent-tint);
+}
+
+.start-banner p {
+  margin: 0;
+}
+
+.start-title {
+  font-weight: 600;
+}
+
+.start-banner .hint {
+  color: var(--text);
+}
+
+/* The categories: a bar that stays under the top of the window while the list scrolls. */
+.category-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.category-bar ul {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: none;
+}
+
+.category-bar a.cat-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: var(--type-14);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.category-bar a.cat-link:hover {
+  border-color: var(--accent);
+}
+
+.category-bar .count {
+  color: var(--text-muted);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.menu-shop .category h2 {
+  scroll-margin-top: 72px;
+}
+
+/* The cart: a panel beside the grid on a wide screen. The bar and the close button are the
+   phone's. */
+.shop-split.menu-shop > .cart {
+  top: var(--space-4);
+}
+
+.cart-bar,
+.cart-close,
+.cart-scrim {
+  display: none;
+}
+
+.cart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cart-head h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--type-18);
+}
+
+.cart-head h2:focus {
+  outline: none;
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+}
+
+.stepper .btn-icon {
+  min-height: 34px;
+  width: 34px;
+  border-radius: 0;
+}
+
+.stepper .btn-icon:disabled {
+  border-style: solid;
+  border-color: transparent;
+  opacity: 0.45;
+}
+
+.stepper .qty input {
+  width: 3.25rem;
+  min-height: 34px;
+  padding: 0 var(--space-1);
+  border: 0;
+  border-inline: 1px solid var(--border);
+  border-radius: 0;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  appearance: textfield;
+}
+
+.stepper .qty input::-webkit-inner-spin-button,
+.stepper .qty input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.menu-shop .totals {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  max-width: none;
+  margin: var(--space-3) 0 0;
+  font-weight: 600;
+}
+
+.menu-shop .totals dt {
+  color: var(--text);
+}
+
+.menu-shop .cart-sheet > .hint {
+  margin: 0 0 var(--space-3);
+}
+
+.menu-shop .checkout-go {
+  width: 100%;
+  min-height: 44px;
+}
+
+.menu-shop .said:empty {
+  display: none;
+}
+
+/* A line's price never breaks beside the wider stepper. */
+.cart .cart-lines li {
+  grid-template-columns: auto minmax(max-content, 1fr) auto;
+}
+
+.cart .cart-lines .price {
+  white-space: nowrap;
+}
+
+/* A phone: the cart is a bar at the foot of the window, and a sheet when the bar is pressed. The
+   tour's button moves up to sit above the bar (until the guide replaces the tour). */
+@media (max-width: 60rem) {
+  .menu-shop {
+    padding-bottom: 72px;
+  }
+
+  body:has(.cart-bar) .tour-trigger:not(.tour-dock .tour-trigger) {
+    bottom: 80px;
+  }
+
+  .category-bar {
+    margin-inline: calc(-1 * var(--space-4));
+    padding-inline: var(--space-4);
+  }
+
+  .shop-split.menu-shop > .cart {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+
+  .cart-bar {
+    position: fixed;
+    right: var(--space-4);
+    bottom: var(--space-4);
+    left: var(--space-4);
+    z-index: 19;
+    display: flex;
+    justify-content: space-between;
+    min-height: 48px;
+    padding: 0 var(--space-4);
+    border-color: var(--accent);
+    background: var(--accent);
+    box-shadow: var(--shadow-raised);
+    color: var(--accent-foreground);
+    font-size: var(--type-16);
+  }
+
+  .cart-bar:hover {
+    background: var(--accent-hover);
+  }
+
+  .cart-bar:disabled[data-hydrating] {
+    border-style: solid;
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--accent-foreground);
+  }
+
+  .cart-sheet {
+    display: none;
+  }
+
+  .cart[data-open] .cart-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 21;
+    display: block;
+    background: var(--text);
+    opacity: 0.35;
+  }
+
+  .cart[data-open] .cart-sheet {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 22;
+    display: block;
+    max-height: 80vh;
+    box-sizing: border-box;
+    padding: var(--space-4) var(--space-4) var(--space-5);
+    border-top: 1px solid var(--border);
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-raised);
+    overflow-y: auto;
+  }
+
+  .cart[data-open] .cart-close {
+    display: inline-flex;
+  }
+
+  .menu-shop .said {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
