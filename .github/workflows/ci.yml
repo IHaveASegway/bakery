@@ -1,12 +1,12 @@
 # The pipeline (docs/delivery.md, "Pipeline"; ADR 0011). The shape follows the site's ci.yml,
 # whose steps are named in plain sentences.
 #
-# DORMANT UNTIL LAUNCH DAY. verify, firewall and firewall-selftest run as they have since PR 2.
-# Every job below them (preview, e2e, lighthouse, preview-cleanup, deploy, prod-smoke,
-# prod-verdict, rollback) runs only when the repository variable LAUNCHED is 'true'
-# (Settings, Secrets and variables, Actions, Variables). It does not exist yet, so none of them
-# runs, and none holds a credential, until Joseph sets it on launch day (docs/operations.md,
-# "Launch"). Unsetting it, or setting anything but 'true', makes them dormant again.
+# THE LAUNCH JOBS. verify, firewall and firewall-selftest run as they have since PR 2. Every
+# job below them (preview, e2e, lighthouse, preview-cleanup, deploy, prod-smoke, prod-verdict,
+# rollback) runs only when the repository variable LAUNCHED is 'true' (Settings, Secrets and
+# variables, Actions, Variables). Joseph set it on launch day, 2026-11-06 (docs/operations.md,
+# "Launch"), and they have run since. Unsetting it, or setting anything but 'true', makes them
+# dormant again, and then none of them holds a credential.
 #
 # Secrets, by name only, each in the env of the steps that use it (rule 2), with the Cloudflare
 # permissions each job's commands need, from docs/operations.md's access setup:

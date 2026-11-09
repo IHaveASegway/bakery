@@ -8,9 +8,10 @@ import { describe, expect, test } from 'vitest';
 import { inlineHashes } from '../scripts/inline-hashes.mjs';
 import { readLock, verifyFolder } from '../../../scripts/fetch-solver.mjs';
 
-// The built pages against the policy: the 404 carries no script at all (ADR 0008), and every
-// inline script or style on a page with an island (since PR 10 every page but the 404 has one, the
-// guided tour) is covered by a hash in the page's own rule.
+// The built pages against the policy: a page with no island carries no script at all (ADR 0008;
+// as of 2026-11-09 seventeen pages: About, How it's built, its fourteen essays and the 404), and
+// every inline script or style on a page with an island (the guided tour's, on every other
+// screen since PR 10) is covered by a hash in the page's own rule.
 // Run after `pnpm build`.
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));

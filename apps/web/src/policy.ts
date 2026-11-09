@@ -26,7 +26,8 @@
   page with a hydrated island: the <astro-island> definition script and a one-rule style. So every
   page of the challenge and island classes allows those by SHA-256 hash, read from the built HTML
   by scripts/inline-hashes.mjs, and never by 'unsafe-inline' or 'unsafe-eval'. Pages with no
-  island, which is the 404 alone since the tour, get no hash.
+  island get no hash: as of 2026-11-09 seventeen of them, About, How it's built, its fourteen
+  essays and the 404.
 
   The dispatch screen (/app/dispatch/) is a fifth class, the challenge class plus worker-src 'self'
   so its module Web Worker can load. The solver that worker runs sits in /app/dispatch/solver/,

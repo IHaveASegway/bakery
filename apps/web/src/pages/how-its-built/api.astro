@@ -134,10 +134,10 @@ const SOURCES = [
       so a visitor can script their own bakery and nobody else’s. It lasts 24 hours (86,400 seconds,{' '}
       <code>crates/app/src/auth/token.rs</code>), and it dies with the sandbox. Rotating it raises
       the sandbox’s token version, which makes every older token 401 <code>token</code>. It is
-      accepted on 57 of the 72 routes, and never on the routes that mint one, so a token cannot make
-      its successor. It is sent in <code>Authorization: Bearer</code> and refused in a query string,
-      which is what RFC 6750, as read on {READ}, advises, and a token beside a cookie is refused
-      too.
+      accepted on 58 of the 73 routes as of 2026-11-09, and never on the routes that mint one, so a
+      token cannot make its successor. It is sent in <code>Authorization: Bearer</code> and refused
+      in a query string, which is what RFC 6750, as read on {READ}, advises, and a token beside a
+      cookie is refused too.
     </p>
     <p>
       Each token has its own limit of 60 requests a minute, keyed by its id, reads included. The
