@@ -225,14 +225,15 @@ export interface PathState {
   index: number;
 }
 
-export type PathAction = { type: 'start' } | { type: 'done'; entry: string } | { type: 'skip' };
+export type PathAction =
+  { type: 'start' } | { type: 'done'; entry: string } | { type: 'skip' } | { type: 'end' };
 
 export const PATH_CLOSED: PathState = { open: false, index: 0 };
 
 /**
  * The next state. A step moves on only when the visitor has done its thing (`done` naming that
  * step's entry) or chosen to skip it; doing something else changes nothing. After the last step the
- * path closes.
+ * path closes, and `end` closes it at once.
  */
 export function pathReduce(state: PathState, action: PathAction, steps: readonly PathStep[]) {
   switch (action.type) {
@@ -248,6 +249,8 @@ export function pathReduce(state: PathState, action: PathAction, steps: readonly
       return state.index + 1 >= steps.length
         ? { open: false, index: state.index }
         : { open: true, index: state.index + 1 };
+    case 'end':
+      return { open: false, index: state.index };
   }
 }
 

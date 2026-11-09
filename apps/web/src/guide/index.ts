@@ -1,7 +1,6 @@
 // Every screen's entries, in the order a visitor meets them on the page. The console's come from four
-// files because it is the largest screen; they are one list. The short paths ("Show me around")
-// pick at most five of a screen's entries and say what to do at each.
-import type { GuideEntry, PathStep, ScreenId } from '../lib/guide';
+// files because it is the largest screen; they are one list.
+import type { GuideEntry, RouteShape, ScreenId } from '../lib/guide';
 import { CATERING } from './catering';
 import { CONSOLE } from './console';
 import { CONTROLS } from './controls';
@@ -10,6 +9,8 @@ import { DISPATCH } from './dispatch';
 import { INBOX } from './inbox';
 import { KITCHEN } from './kitchen';
 import { API_PAGE, CHECKOUT, HOME, MENU, PRIVACY, SIGNIN, STATUS } from './simple';
+
+export { PATHS } from './paths';
 
 // The console's entries in the order its sections render (components/Console.tsx), so the recorder
 // panel lists them down the page. The entry files group them by topic; this list is the page's
@@ -80,35 +81,16 @@ export const entriesFor = (screen: ScreenId): GuideEntry[] => ENTRIES[screen];
 export const ALL_ENTRIES: GuideEntry[] = Object.values(ENTRIES).flat();
 
 /**
- * The short paths: the signature minute strung across the shop and the console, at most five
- * stops a screen. Each waits for the visitor to do its thing (a click inside the entry's element,
- * or a request on one of its triggers), and can be skipped. A screen with none offers no path.
+ * The writes the page makes that no entry's `api` names (the token panel's own, and the account's
+ * sign-in and sign-out), so the recorder can still name their route. Checked against the document
+ * in test/guide.test.ts.
  */
-export const PATHS: Partial<Record<ScreenId, PathStep[]>> = {
-  signin: [{ entry: 'signin-guest', do: 'Try it as a guest, or sign in.' }],
-  menu: [
-    { entry: 'menu-list', do: 'Add something to the cart.' },
-    { entry: 'menu-cart', do: 'Go to the checkout.' },
-  ],
-  checkout: [
-    { entry: 'checkout-form', do: 'Pick a time and place the order.' },
-    { entry: 'checkout-pay', do: 'Pay with Stripe’s test card.' },
-    { entry: 'checkout-receipt', do: 'Read the receipt, then open the console.' },
-  ],
-  console: [
-    { entry: 'kitchen-board', do: 'Press a card’s button to move it on.' },
-    { entry: 'controls-clock', do: 'Advance the clock.' },
-    { entry: 'controls-menu-publish', do: 'Change a price, then publish the menu.' },
-    { entry: 'crm-activity', do: 'Find your actions in the feed.' },
-  ],
-  catering: [
-    { entry: 'catering-inquiry', do: 'Send an inquiry.' },
-    { entry: 'catering-events', do: 'Open your event.' },
-  ],
-  dispatch: [
-    { entry: 'dispatch-propose', do: 'Ask the server for a plan.' },
-    { entry: 'dispatch-plan', do: 'Plan the same stops in your browser.' },
-    { entry: 'dispatch-publish', do: 'Publish one of the plans.' },
-  ],
-  inbox: [{ entry: 'inbox-list', do: 'Open a message.' }],
-};
+export const OTHER_WRITES: RouteShape[] = [
+  { routeId: 'issue-token', method: 'POST', path: '/v1/sandboxes/{id}/token' },
+  { routeId: 'rotate-token', method: 'POST', path: '/v1/sandboxes/{id}/token/rotate' },
+  { routeId: 'demo-signin', method: 'POST', path: '/v1/auth/demo/signin' },
+  { routeId: 'signout', method: 'POST', path: '/v1/auth/signout' },
+];
+
+/** Every route the guide can name from a request: the entries' and the others. */
+export const ROUTE_SHAPES: RouteShape[] = [...ALL_ENTRIES.map((e) => e.api), ...OTHER_WRITES];

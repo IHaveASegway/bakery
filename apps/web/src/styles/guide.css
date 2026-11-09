@@ -1,0 +1,630 @@
+/*
+  The guide, "Under the hood" (components/Guide.tsx; docs/architecture.md, "The guide"; ADR 0014).
+
+  Its layer is dark in both colour schemes, so it never reads as part of the bakery. Its colours are
+  its own custom properties, scoped to its root (.guide-layer), and test/guide-tokens.test.ts holds
+  every pair: text 4.5 to 1 on each of the layer's surfaces, and the edge of anything that floats
+  over the page 3 to 1 against the page's background in both schemes. This sheet styles nothing
+  outside the guide but the ring on the element a note points at, which uses the page's own ring.
+
+  Nothing is positioned from markup: a note's place and caret are set through the style object
+  after mount (lib/guide.ts, placeNote), and a hotspot's likewise. On a phone a note is a sheet over
+  the lower third. With reduced motion nothing animates.
+*/
+
+.guide-layer {
+  --guide-surface: #171a21;
+  --guide-raised: #232731;
+  --guide-hairline: #333947;
+  --guide-edge: #7a8499;
+  --guide-text: #eef0f5;
+  --guide-muted: #aab1bf;
+  --guide-accent: #8fb8ff;
+  --guide-accent-ink: #0d1424;
+  --guide-bad: #ffa59a;
+  --guide-shadow: 0 8px 24px rgb(0 0 0 / 0.28), 0 2px 6px rgb(0 0 0 / 0.2);
+
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--guide-text);
+}
+
+/* ---- Controls, reset from the page's own buttons ---- */
+
+.guide-layer button {
+  box-sizing: border-box;
+  min-height: 28px;
+  margin: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--guide-hairline);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--guide-text);
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.guide-layer button:hover {
+  border-color: var(--guide-edge);
+}
+
+.guide-layer button:disabled {
+  border-style: solid;
+  border-color: var(--guide-hairline);
+  background: transparent;
+  color: var(--guide-muted);
+  cursor: default;
+}
+
+.guide-layer button:focus-visible,
+.guide-layer a:focus-visible,
+.guide-layer pre:focus-visible,
+.guide-layer summary:focus-visible,
+.guide-layer h2:focus-visible {
+  outline: 2px solid var(--guide-accent);
+  outline-offset: 2px;
+}
+
+.guide-layer a {
+  color: var(--guide-accent);
+  text-underline-offset: 0.2em;
+}
+
+.guide-layer code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.guide-layer p {
+  margin: 0;
+}
+
+/* ---- The bar: the switch, the short path and the recorder ---- */
+
+.guide-bar {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--guide-edge);
+  border-radius: 10px;
+  background: var(--guide-surface);
+  box-shadow: var(--guide-shadow);
+}
+
+.guide-layer .guide-switch,
+.guide-layer .guide-quiet {
+  border-color: transparent;
+}
+
+.guide-layer .guide-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.guide-switch-track {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 16px;
+  border: 1px solid var(--guide-edge);
+  border-radius: 8px;
+  background: var(--guide-raised);
+}
+
+.guide-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--guide-muted);
+  transition: transform 160ms ease-out;
+}
+
+.guide-switch[aria-checked='true'] .guide-switch-track {
+  border-color: var(--guide-accent);
+  background: var(--guide-accent);
+}
+
+.guide-switch[aria-checked='true'] .guide-switch-thumb {
+  background: var(--guide-accent-ink);
+  transform: translateX(12px);
+}
+
+.guide-layer .guide-secondary {
+  border-color: var(--guide-edge);
+  background: var(--guide-raised);
+}
+
+.guide-layer .guide-quiet[aria-expanded='true'] {
+  border-color: var(--guide-accent);
+}
+
+/* ---- Hotspots ---- */
+
+.guide-layer .guide-spot {
+  position: absolute;
+  z-index: 25;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  min-height: 24px;
+  height: 24px;
+  padding: 0;
+  border: 2px solid var(--guide-accent);
+  border-radius: 50%;
+  background: var(--guide-surface);
+}
+
+.guide-spot span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--guide-accent);
+}
+
+/* A mark draws the eye twice when it appears, then keeps still. */
+.guide-layer .guide-spot::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border: 2px solid var(--guide-accent);
+  border-radius: 50%;
+  opacity: 0;
+  animation: guide-ping 1200ms ease-out 2;
+}
+
+.guide-layer .guide-spot[aria-expanded='true'] {
+  background: var(--guide-accent);
+}
+
+.guide-layer .guide-spot[aria-expanded='true'] span {
+  background: var(--guide-accent-ink);
+}
+
+/* ---- A note ---- */
+
+.guide-note {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  box-sizing: border-box;
+  width: 344px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--guide-edge);
+  border-radius: 10px;
+  background: var(--guide-surface);
+  box-shadow: var(--guide-shadow);
+  animation: guide-in 180ms ease-out;
+  overscroll-behavior: contain;
+}
+
+/* The caret: a small square turned on its corner, on the side that faces the anchor. */
+.guide-note[data-side]::before {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--guide-edge);
+  background: var(--guide-surface);
+  transform: rotate(45deg);
+}
+
+.guide-note[data-side='left']::before {
+  top: calc(var(--guide-caret, 24px) - 6px);
+  left: -6px;
+  border-top-color: transparent;
+  border-right-color: transparent;
+}
+
+.guide-note[data-side='right']::before {
+  top: calc(var(--guide-caret, 24px) - 6px);
+  right: -6px;
+  border-bottom-color: transparent;
+  border-left-color: transparent;
+}
+
+.guide-note[data-side='top']::before {
+  top: -6px;
+  left: calc(var(--guide-caret, 24px) - 6px);
+  border-right-color: transparent;
+  border-bottom-color: transparent;
+}
+
+.guide-note[data-side='bottom']::before {
+  bottom: -6px;
+  left: calc(var(--guide-caret, 24px) - 6px);
+  border-top-color: transparent;
+  border-left-color: transparent;
+}
+
+/* No anchor on the page: a card in the corner, above the bar. */
+.guide-note.guide-corner {
+  top: auto;
+  right: 16px;
+  bottom: 64px;
+  left: auto;
+}
+
+.guide-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.guide-head-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.guide-eyebrow {
+  color: var(--guide-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.guide-layer .guide-title {
+  margin: 2px 0 0;
+  color: var(--guide-text);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.guide-layer .guide-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  padding: 0;
+  border-color: transparent;
+}
+
+.guide-layer .guide-icon[aria-pressed='true'] {
+  border-color: var(--guide-accent);
+  color: var(--guide-accent);
+}
+
+/* ---- The chain of hops ---- */
+
+.guide-chain {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 0 0 0 14px;
+  border-left: 2px solid var(--guide-hairline);
+  list-style: none;
+}
+
+.guide-hop {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+  padding-left: 76px;
+}
+
+/* A dot on the line for each hop: filled once observed, hollow while expected. */
+.guide-hop::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: -20px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--guide-muted);
+  border-radius: 50%;
+  background: var(--guide-surface);
+}
+
+.guide-hop[data-state='observed']::before {
+  border-color: var(--guide-accent);
+  background: var(--guide-accent);
+  animation: guide-lit 200ms ease-out;
+}
+
+.guide-hop[data-state='seen-in-feed']::before {
+  border-color: var(--guide-accent);
+}
+
+.guide-hop-kind {
+  position: absolute;
+  top: 1px;
+  left: 0;
+  width: 72px;
+  color: var(--guide-muted);
+  font-size: 12px;
+}
+
+.guide-chip {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  padding: 1px 6px;
+  border: 1px solid var(--guide-hairline);
+  border-radius: 4px;
+  background: var(--guide-raised);
+  color: var(--guide-text);
+}
+
+.guide-hop[data-state='observed'] .guide-chip:first-of-type {
+  border-color: var(--guide-accent);
+  color: var(--guide-accent);
+}
+
+.guide-hop[data-state='expected'] .guide-chip {
+  border-style: dashed;
+  border-color: var(--guide-edge);
+  background: transparent;
+  color: var(--guide-muted);
+}
+
+.guide-layer .guide-chip-bad,
+.guide-hop[data-state='observed'] .guide-chip.guide-chip-bad {
+  border-color: var(--guide-bad);
+  color: var(--guide-bad);
+}
+
+.guide-meta {
+  color: var(--guide-muted);
+  font-size: 12px;
+}
+
+.guide-meta code {
+  color: var(--guide-text);
+}
+
+/* ---- Why, when not, and the standing body ---- */
+
+.guide-why {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--guide-hairline);
+}
+
+.guide-label {
+  display: block;
+  color: var(--guide-accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.guide-read {
+  color: var(--guide-muted);
+  font-size: 12px;
+}
+
+.guide-body {
+  display: grid;
+  gap: 10px;
+}
+
+.guide-events {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.guide-events .guide-label {
+  flex-basis: 100%;
+}
+
+.guide-principle {
+  color: var(--guide-muted);
+  font-size: 12px;
+}
+
+.guide-principle .guide-label {
+  display: inline;
+}
+
+.guide-curl summary {
+  min-height: 24px;
+  color: var(--guide-accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.guide-curl pre {
+  margin: 6px 0;
+  padding: 8px;
+  overflow-x: auto;
+  border: 1px solid var(--guide-hairline);
+  border-radius: 6px;
+  background: var(--guide-raised);
+}
+
+.guide-curl pre code {
+  color: var(--guide-text);
+  white-space: pre;
+}
+
+.guide-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.guide-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.guide-layer .guide-tab {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.guide-layer .guide-tab[aria-pressed='true'] {
+  border-color: var(--guide-accent);
+  color: var(--guide-accent);
+}
+
+.guide-do {
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+/* ---- The recorder panel ---- */
+
+.guide-panel {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  bottom: 64px;
+  z-index: 35;
+  box-sizing: border-box;
+  width: 384px;
+  max-width: calc(100vw - 32px);
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--guide-edge);
+  border-radius: 10px;
+  background: var(--guide-surface);
+  box-shadow: var(--guide-shadow);
+  overscroll-behavior: contain;
+}
+
+.guide-layer .guide-section {
+  margin: 14px 0 6px;
+  color: var(--guide-muted);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.guide-rows {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.guide-layer .guide-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.guide-row code {
+  color: var(--guide-muted);
+  font-weight: 400;
+}
+
+.guide-layer .guide-row[aria-expanded='true'] {
+  border-color: var(--guide-accent);
+}
+
+.guide-row-body {
+  padding: 10px 4px 8px 8px;
+}
+
+/* ---- The element a note points at: the page's own ring ---- */
+
+[data-guide-anchor] {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+/* ---- A phone: the note is a sheet over the lower third, the panel most of the screen ---- */
+
+@media (max-width: 40rem) {
+  .guide-bar {
+    right: 8px;
+    bottom: 8px;
+  }
+
+  .guide-note,
+  .guide-note.guide-corner {
+    top: auto !important;
+    right: 0;
+    bottom: 0;
+    left: 0 !important;
+    width: auto;
+    max-width: none;
+    max-height: 34vh;
+    /* Room at the foot for the bar, which stays above the sheet. */
+    padding-bottom: 64px;
+    border-radius: 10px 10px 0 0;
+  }
+
+  .guide-note[data-side]::before {
+    display: none;
+  }
+
+  .guide-panel {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    max-width: none;
+    height: 72vh;
+    border-radius: 10px 10px 0 0;
+  }
+}
+
+@keyframes guide-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes guide-ping {
+  from {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.9);
+  }
+}
+
+@keyframes guide-lit {
+  from {
+    box-shadow: 0 0 0 6px var(--guide-accent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-note,
+  .guide-hop[data-state='observed']::before,
+  .guide-layer .guide-spot::after {
+    animation: none;
+  }
+
+  .guide-switch-thumb {
+    transition: none;
+  }
+}

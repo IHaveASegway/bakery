@@ -3,14 +3,14 @@ import '../styles/global.css';
 import tokensCss from '../styles/tokens.css?raw';
 import { chromeColor } from '../lib/tokens';
 import SessionLink from '../components/SessionLink.astro';
-import Tour from '../components/Tour';
+import Guide from '../components/Guide';
 import type { ScreenId } from '../lib/guide';
 import { REPO, SITE_LAB } from '../lib/links';
 
 interface Props {
   title: string;
   description: string;
-  /** The screen whose guided tour the page carries; a page with none (the 404) has no tour. */
+  /** The screen whose guide the page carries; a page with none (the 404) has no guide. */
   screen?: ScreenId;
 }
 const { title, description, screen } = Astro.props;
@@ -110,7 +110,7 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
       </nav>
       <p>Everything here is made up: the bakery, its customers, their orders and their cards.</p>
     </footer>
-    {screen && <Tour screen={screen} client:idle />}
+    {screen && <Guide screen={screen} client:idle />}
     {screen && <SessionLink />}
   </body>
 </html>
