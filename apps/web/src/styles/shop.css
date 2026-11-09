@@ -1,0 +1,28 @@
+/* The shop's front (design brief, 2026-11-09): the landing page, sign-in and the menu. Imported
+   once from global.css, before its own rules, so a rule here that meets one there is written one
+   class more specific. Colours are tokens only (ADR 0010). */
+
+/* A control rendered on the server inside an island that has not hydrated yet: disabled, so a
+   press waits for the island, but drawn as it will be once live, so nothing flashes
+   (src/lib/use-mounted.ts). */
+.btn:disabled[data-hydrating],
+.btn-primary:disabled[data-hydrating] {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-foreground);
+  cursor: progress;
+}
+
+.btn-secondary:disabled[data-hydrating] {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+/* A page's one sentence under its heading. */
+.page-lead {
+  margin: 0 0 var(--space-5);
+  color: var(--text-muted);
+  font-size: var(--type-18);
+}
