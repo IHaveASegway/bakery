@@ -20,6 +20,7 @@ import {
   type GuideEntry,
   type PageId,
 } from '../../lib/guide';
+import { followWrite, sandboxOf, useRecorderState } from '../../lib/recorder';
 import { traces, type Trace } from '../../lib/trace';
 import {
   entryForTraces,
@@ -41,6 +42,7 @@ import {
   TraceChain,
   WatchChain,
   ReadStory,
+  RecorderSays,
   WhyLines,
   traceSentence,
   watchSentence,
@@ -137,6 +139,26 @@ export default function Layer({
   useEffect(() => {
     lastFocused.current = null;
   }, [live?.gesture]);
+  // The recorder: once the visitor's write is answered 2xx, read its hops a few times, until
+  // every event the note expects is observed (lib/recorder.ts holds the bounds and the cost).
+  const recorder = useRecorderState();
+  const followed = useRef<number | null>(null);
+  const writeDone =
+    group[0]?.transport === 'http' && group[0].outcome === 'ok' && group[0].read === undefined;
+  useEffect(() => {
+    if (!on || live === null || !writeDone || followed.current === live.gesture) return;
+    const sandbox = sandboxOf(group[0]?.path ?? '');
+    if (sandbox === null) return;
+    followed.current = live.gesture;
+    const expected = expectedFor(liveEntry, group);
+    const gesture = live.gesture;
+    void followWrite(sandbox, () => {
+      const mine = traces.getSnapshot().traces.filter((t) => t.gesture === gesture);
+      const seen = new Set(mine.flatMap((t) => t.events.map((e) => e.type)));
+      return expected.every((type) => seen.has(type));
+    });
+  }, [on, live, writeDone, group, liveEntry]);
+
   // One sentence, once, when the first answer is in.
   const first = group[0];
   useEffect(() => {
@@ -449,7 +471,9 @@ export default function Layer({
                 traces={group}
                 expected={expectedFor(liveEntry, group)}
                 feed={snapshot.feed}
+                reading={followed.current === live.gesture ? recorder.reading : 'idle'}
               />
+              <RecorderSays state={recorder} />
               {group[0]?.read !== undefined && <ReadStory trace={group[0]} />}
               {liveEntry?.happened !== undefined && (
                 <p className="guide-happened">{liveEntry.happened}</p>

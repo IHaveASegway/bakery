@@ -5,7 +5,9 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
 import { Note, resolveAnchor } from '../src/components/guide/Note';
-import { byGesture } from '../src/components/guide/Panel';
+import { byGesture, hopWords } from '../src/components/guide/Panel';
+import { RECORDER } from '../src/guide/recorder';
+import { sandboxOf } from '../src/lib/recorder';
 import {
   expectedFor,
   gesturesIn,
@@ -17,6 +19,7 @@ import {
 } from '../src/components/guide/match';
 import {
   TraceChain,
+  deliveryWords,
   WatchChain,
   WhyLines,
   listeningText,
@@ -33,6 +36,7 @@ import {
   pathReduce,
   pickEntry,
   placeNote,
+  sentenceCount,
   spotBox,
   spotFits,
   spotPlaces,
@@ -410,6 +414,76 @@ describe('what a story read’s note says', () => {
     expect(html).toContain('Bakery-Cache: hit');
     expect(html).toContain('ETag: &quot;v3&quot;');
     expect(html).toContain('If-None-Match: &quot;v3&quot;');
+  });
+});
+
+describe('what the recorder showed, in plain words', () => {
+  test('delivered, on a later attempt, retried, dead-lettered', () => {
+    expect(deliveryWords([{ to: 'Kitchen', outcome: 'ok', attempt: 1 }])).toBe(
+      'delivered to Kitchen',
+    );
+    expect(
+      deliveryWords([
+        { to: 'Kitchen', outcome: 'ok', attempt: 2 },
+        { to: 'Crm', outcome: 'ok', attempt: 2 },
+      ]),
+    ).toBe('delivered to Kitchen, Crm on attempt 2');
+    expect(deliveryWords([{ to: 'Kitchen', outcome: 'retry', attempt: 1 }])).toBe(
+      'Kitchen retried after attempt 1',
+    );
+    expect(
+      deliveryWords([
+        { to: 'Schedule', outcome: 'ok', attempt: 4 },
+        { to: 'Kitchen', outcome: 'dead', attempt: 4 },
+      ]),
+    ).toBe('delivered to Schedule on attempt 4; dead-lettered for Kitchen after attempt 4');
+  });
+
+  test('the panel’s hop lines say the same', () => {
+    expect(hopWords({ attempt: 1, deliveries: [{ to: 'Kitchen', outcome: 'delivered' }] })).toBe(
+      'Delivered to Kitchen,',
+    );
+    expect(
+      hopWords({ attempt: 3, deliveries: [{ to: 'Kitchen', outcome: 'dead_lettered' }] }),
+    ).toBe('Dead-lettered for Kitchen after attempt 3,');
+  });
+
+  test('a note whose reads are done says an unseen event was not seen, never that it did not happen', () => {
+    const html = renderToStaticMarkup(
+      createElement(TraceChain, {
+        traces: [trace()],
+        expected: ['OrderPlaced'],
+        feed: [],
+        reading: 'done',
+      }),
+    );
+    expect(html).toContain('not seen yet: the recorder may have missed it');
+    const reading = renderToStaticMarkup(
+      createElement(TraceChain, {
+        traces: [trace()],
+        expected: ['OrderPlaced'],
+        feed: [],
+        reading: 'reading',
+      }),
+    );
+    expect(reading).toContain('expected');
+    expect(reading).not.toContain('not seen yet');
+  });
+
+  test('the recorder’s own explanation is short, and judged as every entry is', () => {
+    expect(sentenceCount(RECORDER.why)).toBe(1);
+    expect(sentenceCount(RECORDER.whenNot)).toBe(1);
+    expect(RECORDER.why.length).toBeLessThanOrEqual(150);
+    expect(RECORDER.whenNot.length).toBeLessThanOrEqual(150);
+    expect(RECORDER.whenNot).toMatch(/^Not /);
+    expect(RECORDER.carries).toContain('No hop carries a note, a name or an amount');
+  });
+
+  test('a page path names its sandbox', () => {
+    expect(sandboxOf('/v1/sandboxes/01JC9A0K3W9QF2N4T7XRB5M0HD/orders')).toBe(
+      '01JC9A0K3W9QF2N4T7XRB5M0HD',
+    );
+    expect(sandboxOf('/v1/session')).toBeNull();
   });
 });
 
