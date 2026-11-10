@@ -34,7 +34,8 @@ pub use crm::{
     register, seed_messages,
 };
 pub use dispatch::{
-    CITY_MATRIX_JSON, DispatchDay, busy_saturday, city_matrix, seed_dispatch, seed_matrix, vans_for,
+    CITY_MATRIX_JSON, DispatchDay, busy_saturday, city_matrix, seed_dispatch, seed_matrix,
+    vans_for, zone_of_place,
 };
 pub use menu::{ALLERGENS, CATEGORIES, ITEMS, ItemSpec, PACKAGES, PackageSpec, VariantSpec};
 
@@ -574,8 +575,11 @@ impl Generator {
                     preferences.push(ITEMS[pool[i]].slug);
                 }
                 let marketing = self.below(100) < 70;
-                let home_zone = ZONES[self.below(ZONES.len())];
+                // The zone was drawn until 2026-11-10; the draw stays, so every later value of
+                // the seed is as it was, and the zone is now the place's (roadmap R69).
+                let _drawn_zone = self.below(ZONES.len());
                 let place = format!("p{}", 1 + self.below(PLACE_COUNT));
+                let home_zone = zone_of_place(&place).expect("p1 to p64 is a city place");
                 let address = Address::synthetic(&place, i + 1);
                 Customer {
                     id,
@@ -1329,6 +1333,11 @@ mod tests {
         for c in &g.customers {
             assert!(is_place(&c.place), "{}", c.place);
             assert!(ZONES.contains(&c.home_zone));
+            assert_eq!(
+                Some(c.home_zone),
+                zone_of_place(&c.place),
+                "a customer's zone is their place's"
+            );
             assert!((1..=3).contains(&c.preferences.len()));
             let distinct: HashSet<&str> = c.preferences.iter().copied().collect();
             assert_eq!(distinct.len(), c.preferences.len());

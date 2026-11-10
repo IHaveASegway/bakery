@@ -21,11 +21,11 @@
 //! aggregate's own `decide`, as it does a catering event's, so its log is one the aggregate could
 //! have written; [`DispatchDay::events`] and [`DispatchDay::state`] are that log and its fold.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use bakery_domain::calendar::local;
 use bakery_domain::dispatch::{
-    AddStop, DEFAULT_CAPACITY, Dispatch, DispatchCommand, DispatchEvent, DispatchState,
+    AddStop, DEFAULT_CAPACITY, Dispatch, DispatchCommand, DispatchEvent, DispatchState, PlaceIndex,
     TravelMatrix, place_index,
 };
 use bakery_domain::{BakeryDate, BusinessTime, DecideContext, Ulid, execute};
@@ -52,6 +52,40 @@ pub const CITY_MATRIX_JSON: &str = include_str!("../data/salt-lake-city/matrix.j
 /// The fixture as a [`TravelMatrix`].
 pub fn city_matrix() -> TravelMatrix {
     TravelMatrix::from_json(CITY_MATRIX_JSON).expect("the committed fixture is a valid matrix")
+}
+
+/// Each of the 64 places' delivery zone, by its drive from the bakery in the city's fixture: the
+/// nearest third (21 places) `z1`, the next 21 `z2`, the farthest 22 `z3`, ties by place number.
+/// A customer's zone is the zone of their place (roadmap R69, decided 2026-11-09 as R24), so one
+/// place is in one zone, and the server derives a delivery's zone from it. The bakery's own place,
+/// `p1`, is the nearest.
+fn zones() -> &'static [&'static str] {
+    static ZONES_BY_PLACE: OnceLock<Vec<&'static str>> = OnceLock::new();
+    ZONES_BY_PLACE.get_or_init(|| {
+        let m = city_matrix();
+        let depot = m.depot();
+        let n = m.len();
+        let mut by_drive: Vec<(u32, usize)> = (0..n)
+            .map(|i| {
+                let place = PlaceIndex::try_from(i).unwrap_or(depot);
+                (m.minutes(depot, place).unwrap_or(0), i)
+            })
+            .collect();
+        by_drive.sort_unstable();
+        let mut zones = vec![crate::ZONES[0]; n];
+        let third = n / 3;
+        for (rank, &(_, i)) in by_drive.iter().enumerate() {
+            zones[i] = crate::ZONES[(rank / third).min(crate::ZONES.len() - 1)];
+        }
+        zones
+    })
+}
+
+/// A place's delivery zone, from its seed label (`p1` to `p64`): `None` for a label that is not
+/// one of the city's places.
+pub fn zone_of_place(label: &str) -> Option<&'static str> {
+    let i = place_index(label)?;
+    zones().get(usize::from(i)).copied()
 }
 
 /// The matrix the seed's days are planned on: the city's fixture, the same for every seed.
@@ -205,6 +239,35 @@ fn run(date: BakeryDate, commands: Vec<(BusinessTime, DispatchCommand)>) -> Disp
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_place_has_one_zone_by_its_drive_from_the_bakery() {
+        let m = city_matrix();
+        let labels: Vec<String> = (1..=PLACE_COUNT).map(|n| format!("p{n}")).collect();
+        let zone = |l: &str| zone_of_place(l).unwrap();
+        let count = |z: &str| labels.iter().filter(|l| zone(l) == z).count();
+        assert_eq!((count("z1"), count("z2"), count("z3")), (21, 21, 22));
+        assert_eq!(zone("p1"), "z1", "the bakery's own place is the nearest");
+        let drive = |l: &str| m.minutes(m.depot(), place_index(l).unwrap()).unwrap();
+        let farthest = |z: &str| {
+            labels
+                .iter()
+                .filter(|l| zone(l) == z)
+                .map(|l| drive(l))
+                .max()
+        };
+        let nearest = |z: &str| {
+            labels
+                .iter()
+                .filter(|l| zone(l) == z)
+                .map(|l| drive(l))
+                .min()
+        };
+        assert!(farthest("z1") <= nearest("z2") && farthest("z2") <= nearest("z3"));
+        assert_eq!(zone_of_place("p0"), None);
+        assert_eq!(zone_of_place("p65"), None);
+        assert_eq!(zone_of_place("bakery"), None);
+    }
     use crate::{BirthDate, Generator, Seed};
     use bakery_domain::dispatch::{PlanChoice, StopStatus};
     use bakery_domain::{Aggregate, DomainEvent};
