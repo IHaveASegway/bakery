@@ -85,6 +85,15 @@ As built, 2026-11-09: the solver's files are not copied into `apps/web/public/ap
 
 Decided on 2026-11-09 by the session, under Joseph's delegation of the same day; revisable: the record is amended. Delivery windows are part of the model since #62 (2026-11-08), so Revisit if's third trigger is resolved, and its second reads: the gap on the seed's busy day, with windows, above 25% of total drive time, measured by `scripts/dispatch-gap.mjs` (#90). It has not fired: 13.1% on seed 42 born 2026-11-07, as above (roadmap R58).
 
+## Postscript 2026-11-10
+
+Corrected on 2026-11-10 by the session, under the owner's delegation of 2026-11-09; revisable. Each line names a sentence above that the build or a later record contradicts, and gives what is true, with its source. The decision text above is not rewritten.
+
+- Decision 2 and option A say the savings heuristic runs "in a few milliseconds". Measured on 2026-11-10: `savings_plan` on seed 42 born 2026-11-07, the busy Saturday's 63 stops on 4 vans of 250 units, took a median of 0.69 ms and at worst 2.2 ms, over three runs of 5,000 calls each after 200 warm-up calls. Native, built with the workspace's release profile, on this session's machine (4 virtual CPUs at 2.1 GHz, shared with other builds), 2026-11-10; not WebAssembly and not the edge. As WebAssembly, under `wrangler dev` or on the edge, it is not measured (roadmap R80). The harness was a scratch crate outside the repository that called `bakery_seed::busy_saturday` and `bakery_domain::dispatch::savings_plan`, as `crates/seed/examples/dispatch-problem.rs` does.
+- Consequences' "The Route Lab's solver bytes and pipeline are reused as they are" and "the bakery copies the new folder and its lock" predate the amendment of 2026-11-05. Nothing of the site's pipeline is copied, and the solver folder is fetched at build and checked against `apps/web/solver.lock.json` (the postscript of 2026-11-09). A VROOM upgrade is a pull request that moves the lock.
+- The amendment of 2026-11-05 replaced OSRM with openrouteservice by the owner's direction of that day. That is the whole reason recorded; no engineering comparison was made. Both engines self-host from the same OpenStreetMap extract and both answer a duration matrix for a car profile, and no measured difference between them is recorded. [ADR 0016](0016-alternatives-weighed-after-the-build.md) weighs it, and roadmap R79 asks for one matrix built with each.
+- Three VROOM timings in the records are different runs, not a disagreement: about 320 ms for 63 orders on 4 vans in the site's headless Chromium (Context, 2026-10-25), 548 ms for the 63-stop day in one headless Chrome run (the routes essay, 2026-11-05), and 245 to 416 ms a solve in `scripts/dispatch-gap.mjs` under Node (the postscript of 2026-11-09). The last is the repeatable one.
+
 ## Patterns and further reading
 
 - The savings heuristic: ["Scheduling of Vehicles from a Central Depot to a Number of Delivery Points"](https://doi.org/10.1287/opre.12.4.568), *Operations Research* 12(4), 1964.
