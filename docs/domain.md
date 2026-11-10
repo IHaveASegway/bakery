@@ -90,6 +90,8 @@ Invariants:
 - Exactly one payment counts. Refunds sum to at most what was paid.
 - An unpaid order expires 15 minutes of business time after placement (Q13 · Q-order-flow).
 
+The order's answer (`GET /v1/sandboxes/{id}/orders/{oid}`, and placing or cancelling one) says when each step happened in `step_times`: `placed`, `paid`, `in_production`, `ready`, `picked_up`, `out_for_delivery` and `delivered`, each the business time of the first event that took the order there, read from the Order's own log, the clock `placed_at` reads, and `null` for a step not taken (since 2026-11-10, roadmap R94). Before then the answer carried `placed_at` alone, so the order's page showed a step's time only if the tab had heard its event, and "Paid", which lands before the page opens, never had one.
+
 ```mermaid
 stateDiagram-v2
   [*] --> placed: PlaceOrder

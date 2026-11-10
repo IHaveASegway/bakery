@@ -112,6 +112,8 @@ Whether it is a breaking change, by Decision 3's rule: it is not, and the socket
 
 **A price for each variant (R86).** On 2026-11-10 `MenuItemPatch`, the body of `PATCH /v1/sandboxes/{id}/menu/items/{slug}`, gained an optional `variant`, the slug of the one variant `price_cents` is for (roadmap R86; `crates/contracts/src/lib.rs`). It is an addition under decision 3: a new optional request field. A body without it means what it meant, a price on every variant of the item, which `a_patch_with_a_variant_needs_a_price_and_one_without_still_means_every_variant` (`workers/api/src/http/menu.rs`) and `a_price_edit_names_one_variant_or_every_one` (`crates/domain/src/catalog.rs`) hold. Two rules are new in the existing 422 `menu` problem: `unknown-variant`, for a slug that is not one of the item's variants, and `variant-without-price`.
 
+**Each step's time (R94).** On 2026-11-10 `OrderResponse` gained `step_times`, an object with one field per step (`placed`, `paid`, `in_production`, `ready`, `picked_up`, `out_for_delivery`, `delivered`), each a business time or `null` (roadmap R94; `crates/contracts/src/lib.rs`, `OrderStepTimes`). It is an addition under decision 3: a new response field, with no field, status or slug renamed or removed; an answer without it reads as no times (`the_answer_carries_the_steps_times`, `workers/api/src/objects/order.rs`).
+
 ## Patterns and further reading
 
 - Problem details for HTTP APIs: [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457), as of 2026-11-05.
