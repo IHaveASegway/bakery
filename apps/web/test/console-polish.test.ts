@@ -7,14 +7,14 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
 import { CardView } from '../src/components/KitchenBoard';
-import {
-  FOLLOWED_KEY_PREFIX,
-  eventWords,
-  followedOrders,
-  waitingFor,
-  type Card,
-} from '../src/lib/kitchen';
+import { eventWords, waitingFor, type Card } from '../src/lib/kitchen';
 import { recordedBy } from '../src/lib/payment';
+import {
+  PLACED_ORDERS_ITEM,
+  PLACED_ORDERS_MAX,
+  placedOrders,
+  rememberPlacedOrder,
+} from '../src/lib/placed-orders';
 import { utcMomentText } from '../src/lib/when';
 
 const ORDER = '01JC8Z5R0T2B6Y8C4V1N3K7QXE';
@@ -47,34 +47,76 @@ const draw = (c: Card, yours = false) =>
     }),
   );
 
-/** A storage with these keys, as the browser's sessionStorage lists them. */
-const store = (keys: string[]): Pick<Storage, 'length' | 'key'> => ({
-  length: keys.length,
-  key: (i: number) => keys[i] ?? null,
-});
+/** A tab's storage in memory, as sessionStorage keeps strings. */
+function memory(initial: Record<string, string> = {}) {
+  const data = new Map(Object.entries(initial));
+  return {
+    data,
+    getItem: (k: string) => data.get(k) ?? null,
+    setItem: (k: string, v: string) => void data.set(k, v),
+  };
+}
+
+/** A storage the browser refuses: every touch throws, as with blocked site data or a full quota. */
+const refused = {
+  getItem: (): string | null => {
+    throw new Error('blocked');
+  },
+  setItem: (): void => {
+    throw new Error('blocked');
+  },
+};
+
+/** An order id of this test's own, n of them: synthetic, never a hex string. */
+const idOf = (n: number) => `01JC8Z5R0T2B6Y8C4V1N3K${String(n).padStart(4, 'Q')}`;
 
 describe('the visitor’s own order on the board (G7)', () => {
-  test('the orders this tab followed are read from the keys the order’s page keeps', () => {
-    const seen = followedOrders(
-      store([`${FOLLOWED_KEY_PREFIX}${ORDER}`, 'bakery.cart.v1', FOLLOWED_KEY_PREFIX]),
-    );
-    expect([...seen]).toEqual([ORDER]);
-    expect(followedOrders(null).size).toBe(0);
-    const blocked = {
-      get length(): number {
-        throw new Error('blocked');
-      },
-      key: () => null,
-    };
-    expect(followedOrders(blocked).size).toBe(0);
+  test('the checkout remembers each order it places, newest first, once each', () => {
+    const tab = memory();
+    rememberPlacedOrder(idOf(1), tab);
+    rememberPlacedOrder(idOf(2), tab);
+    rememberPlacedOrder(idOf(1), tab);
+    expect(JSON.parse(tab.data.get(PLACED_ORDERS_ITEM) ?? '')).toEqual([idOf(1), idOf(2)]);
+    expect([...placedOrders(tab)]).toEqual([idOf(1), idOf(2)]);
   });
 
-  test('the key is the one the order’s page writes, so the two cannot drift apart', () => {
-    const page = readFileSync(
-      new URL('../src/components/OrderStatus.tsx', import.meta.url),
-      'utf8',
+  test('the tab keeps at most 20 ids, dropping the oldest', () => {
+    const tab = memory();
+    for (let n = 1; n <= 25; n++) rememberPlacedOrder(idOf(n), tab);
+    const kept = JSON.parse(tab.data.get(PLACED_ORDERS_ITEM) ?? '') as string[];
+    expect(kept).toHaveLength(PLACED_ORDERS_MAX);
+    expect(kept[0]).toBe(idOf(25));
+    expect(kept).not.toContain(idOf(5));
+    expect(kept).toContain(idOf(6));
+  });
+
+  test('bad JSON or entries that are not ids read as nothing, never a throw', () => {
+    expect(placedOrders(memory({ [PLACED_ORDERS_ITEM]: '{not json' })).size).toBe(0);
+    expect(placedOrders(memory({ [PLACED_ORDERS_ITEM]: '{"a":1}' })).size).toBe(0);
+    expect([
+      ...placedOrders(memory({ [PLACED_ORDERS_ITEM]: JSON.stringify([idOf(1), 7, null, '']) })),
+    ]).toEqual([idOf(1)]);
+    // A bad value is replaced, not kept, by the next order.
+    const tab = memory({ [PLACED_ORDERS_ITEM]: '{not json' });
+    rememberPlacedOrder(idOf(3), tab);
+    expect([...placedOrders(tab)]).toEqual([idOf(3)]);
+  });
+
+  test('the key is named in the data inventory and the privacy page says what it keeps', () => {
+    const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+    expect(read('../../../docs/security.md')).toContain(
+      `| Placed order ids (\`sessionStorage\` \`${PLACED_ORDERS_ITEM}\`, added 2026-11-10) |`,
     );
-    expect(page).toContain(`\`${FOLLOWED_KEY_PREFIX}\${id}\``);
+    const privacy = read('../src/pages/privacy.astro');
+    expect(privacy).toContain('Which orders you placed in this tab');
+    expect(privacy).toContain('So the kitchen board can mark them as yours.');
+  });
+
+  test('missing or blocked storage marks nothing and never throws', () => {
+    expect(placedOrders(null).size).toBe(0);
+    expect(placedOrders(refused).size).toBe(0);
+    expect(() => rememberPlacedOrder(idOf(1), refused)).not.toThrow();
+    expect(() => rememberPlacedOrder(idOf(1), null)).not.toThrow();
   });
 
   test('a card the visitor placed says "Yours" in words; another does not', () => {

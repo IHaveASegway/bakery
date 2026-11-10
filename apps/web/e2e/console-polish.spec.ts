@@ -22,6 +22,7 @@ import {
   pickupOrder,
   test,
 } from './fixtures';
+import { PLACED_ORDERS_ITEM } from '../src/lib/placed-orders';
 
 type Menu = Parameters<typeof pickupOrder>[0];
 
@@ -46,18 +47,49 @@ async function paidOrder(page: Page, sandbox: Sandbox, want: unknown): Promise<s
   return placed.body.id;
 }
 
-/** Opens the order's page in this tab, as the checkout leaves a visitor on it, until it is paid. */
-async function followOrder(page: Page, id: string) {
-  await page.goto(`/order/?id=${id}`);
-  await expect(
-    page.getByRole('list', { name: 'Your order’s steps' }).locator('[aria-current="step"]'),
-  ).toContainText('Paid');
-  // The page keeps what it saw for this tab; the board reads the same keys (lib/kitchen.ts).
-  await expect
-    .poll(() =>
-      page.evaluate((order) => Object.keys(sessionStorage).some((k) => k.endsWith(order)), id),
-    )
-    .toBe(true);
+/** Stands in for Stripe.js, which cannot load here: defines no `Stripe` (order-status.spec.ts). */
+const STRIPE_STUB = '/* e2e: Stripe.js cannot load on this machine */';
+
+/**
+ * Places an order through the real checkout in this tab, as a visitor does: the cart as the menu
+ * leaves it, then how, when and Place order. Returns the order's id from its page.
+ */
+async function checkoutOrder(page: Page, want: ReturnType<typeof pickupOrder>): Promise<string> {
+  await page
+    .context()
+    .route('https://js.stripe.com/**', (route) =>
+      route.fulfill({ status: 200, contentType: 'text/javascript', body: STRIPE_STUB }),
+    );
+  await page.evaluate((cart) => sessionStorage.setItem('bakery.cart.v1', JSON.stringify(cart)), {
+    lines: want.lines,
+    note: '',
+    kind: 'pickup',
+    zone: 'z1',
+    slot: '',
+  });
+  await page.goto('/checkout/');
+  const how = page.locator('section[aria-labelledby="how-heading"]');
+  await expect(how.getByRole('radio', { name: /^Pickup/ })).toBeChecked();
+  await how.getByRole('button', { name: 'Continue' }).click();
+  await page.locator(`input[name="day"][value="${want.slot.slice(0, 10)}"]`).check();
+  const slot = page.locator(`input[name="slot"][value^="${want.slot.slice(0, 16)}"]`);
+  await expect(slot).toBeEnabled();
+  await slot.check();
+  await page.getByRole('button', { name: 'Place order' }).click();
+  await expect(page.getByText(/\d+ min left to pay\./)).toBeVisible();
+  await page.getByRole('link', { name: 'Follow this order' }).click();
+  await expect(page).toHaveURL(/\/order\/\?id=/);
+  const id = new URL(page.url()).searchParams.get('id') ?? '';
+  expect(id).not.toBe('');
+  return id;
+}
+
+/** Marks an order as placed in this tab, as the checkout does (lib/placed-orders.ts). */
+async function markPlaced(page: Page, id: string) {
+  await page.evaluate(([key, order]) => sessionStorage.setItem(key, JSON.stringify([order])), [
+    PLACED_ORDERS_ITEM,
+    id,
+  ] as const);
 }
 
 /** The board, live. */
@@ -167,10 +199,41 @@ test.describe('on a phone', () => {
     const sandbox = await guestSandbox(page);
     const menu = await api<Menu>(page, 'GET', `/v1/sandboxes/${sandbox.id}/menu`);
     expect(menu.status).toBe(200);
-    const id = await paidOrder(page, sandbox, pickupOrder(menu.body, sandbox.clock_offset_s ?? 0));
+    // Through the checkout, which remembers the order for this tab, then paid at the fake Stripe.
+    const id = await checkoutOrder(page, pickupOrder(menu.body, sandbox.clock_offset_s ?? 0));
     const short = id.slice(-6);
-    await followOrder(page, id);
+    await payOrder(page, sandbox.id, id);
+    await expect(
+      page.getByRole('list', { name: 'Your order’s steps' }).locator('[aria-current="step"]'),
+    ).toContainText('Paid');
+    expect(
+      await page.evaluate(
+        (key) => JSON.parse(sessionStorage.getItem(key) ?? '[]'),
+        PLACED_ORDERS_ITEM,
+      ),
+    ).toEqual([id]);
+
+    // A seeded order's page, opened in the same tab, does not make that order the visitor's.
+    const ledger = await api<{ entries: { kind: string; ref: string; stripe_id: string }[] }>(
+      page,
+      'GET',
+      `/v1/sandboxes/${sandbox.id}/billing/ledger`,
+    );
+    expect(ledger.status).toBe(200);
+    const seeded = ledger.body.entries.find(
+      (e) => e.kind === 'payment' && e.stripe_id.startsWith('seed:'),
+    )?.ref;
+    expect(seeded, 'the seed made at least one order paid').toBeTruthy();
+    await page.goto(`/order/?id=${seeded}`);
+    await expect(page.getByRole('list', { name: 'Your order’s steps' })).toBeVisible();
     await openBoard(page);
+    const seededShort = (seeded ?? '').slice(-6);
+    await expect(cardOf(page, seeded ?? '')).toHaveCount(1);
+    await expect(
+      page
+        .locator('.board li.card[data-yours]')
+        .filter({ has: page.getByText(seededShort, { exact: true }) }),
+    ).toHaveCount(0);
 
     // Marked in words, and the board opens on the column that holds it.
     const own = page.locator('.board li.card[data-yours]');
@@ -212,7 +275,9 @@ test('a chip stays in its card at every width, and a ready delivery says what it
   // Two open days on: a day no plan has been published for, so no van has the delivery yet.
   const day = nthOpenDay(businessDate(Date.now() + offset * 1000), 2);
   const delivery = await paidOrder(page, sandbox, deliveryOrder(menu.body, day, 2));
-  await followOrder(page, pickup);
+  // This test is about the chip: the order is marked as the checkout marks it (the phone test
+  // places one through the checkout itself).
+  await markPlaced(page, pickup);
   await openBoard(page);
 
   const own = cardOf(page, pickup);

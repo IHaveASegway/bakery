@@ -3,7 +3,6 @@ import {
   actionFor,
   bakeListsByDate,
   eventWords,
-  followedOrders,
   groupByState,
   isSimulated,
   routeWords,
@@ -11,6 +10,7 @@ import {
   type Card,
 } from '../lib/kitchen';
 import { AFTER_BOARD, WORKSPACES } from '../lib/console-sections';
+import { placedOrders } from '../lib/placed-orders';
 import { dateOf, mountainLocal } from '../lib/slots';
 import { useKitchen, type Command } from '../lib/use-kitchen';
 import { clockOfText, shortDate, whenText } from '../lib/when';
@@ -166,7 +166,7 @@ export function CardView({
   onRefunded: (said: string, whole: boolean) => void;
   /** Business now (wall clock plus the sandbox's offset), so "this year" is the bakery's. */
   now?: number | undefined;
-  /** The order this browser tab followed on the order's page: the visitor's own (G7). */
+  /** An order the checkout placed in this tab: the visitor's own (G7). */
   yours?: boolean;
 }) {
   const action = actionFor(card);
@@ -330,18 +330,10 @@ export default function KitchenBoard({
   const clearFollow = useRef(() => setFollow(null)).current;
   // The column a phone shows; null until the visitor picks one.
   const [shown, setShown] = useState<Card['state'] | null>(null);
-  // The orders this tab followed on the order's page, marked "Yours" (G7). Read after the first
-  // paint: the server has no storage, and the page's first render must match its.
+  // The orders the checkout placed in this tab, marked "Yours" (G7; lib/placed-orders.ts). Read
+  // after the first paint: the server has no storage, and the page's first render must match its.
   const [yours, setYours] = useState<ReadonlySet<string>>(() => new Set());
-  useEffect(() => {
-    let store: Storage | null = null;
-    try {
-      store = window.sessionStorage;
-    } catch {
-      // Blocked storage: no card is marked.
-    }
-    setYours(followedOrders(store));
-  }, []);
+  useEffect(() => setYours(placedOrders()), []);
   // Which of the last two things this page said is the newer: a refund's line or a move's (G8).
   const [latest, setLatest] = useState<'refund' | 'command'>('command');
   const open = kitchen.status === 'open';
