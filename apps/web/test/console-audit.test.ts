@@ -72,7 +72,7 @@ describe('one formatter for every time shown', () => {
       createElement(CardView, {
         card,
         sandboxId: 'S',
-        canAct: false,
+        canRefund: false,
         open: true,
         onAct: () => undefined,
         onRefunded: () => undefined,

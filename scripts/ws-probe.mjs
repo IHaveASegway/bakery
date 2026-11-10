@@ -13,6 +13,8 @@
 //                       the one before it is answered
 //   --delay SECONDS     wait this long after the snapshot before sending anything, so an idle
 //                       socket's first frame can wake a hibernated Kitchen
+//   --pace MS           wait at least this long between one --cmd and the next, so a long list
+//                       stays under the socket's 10 frames a second
 //   --raw TEXT          a frame sent as is after the snapshot (and after any --cmd)
 //   --flood N           N copies of a `cmd` frame with no id, sent at once after the snapshot
 //   --at-second-start   send the flood only when the wall clock's milliseconds are 50 to 200,
@@ -42,6 +44,7 @@ const opts = {
   flood: 0,
   atSecondStart: false,
   delay: 0,
+  pace: 0,
   timeout: 10,
   hold: null,
   waitEvt: null,
@@ -73,6 +76,9 @@ for (let i = 0; i < args.length; i++) {
       break;
     case '--delay':
       opts.delay = Number(next());
+      break;
+    case '--pace':
+      opts.pace = Number(next());
       break;
     case '--flood':
       opts.flood = Number(next());
@@ -161,6 +167,7 @@ let finished = false;
 let evts = 0;
 const pending = [...opts.cmds];
 let awaiting = null;
+let lastSent = 0;
 
 const ws = new WebSocket(opts.url, { headers });
 
@@ -221,7 +228,13 @@ function sendNextCmd() {
     return;
   }
   awaiting = cmd.id;
-  ws.send(JSON.stringify({ t: 'cmd', v: 1, ...cmd }));
+  const send = () => {
+    lastSent = Date.now();
+    ws.send(JSON.stringify({ t: 'cmd', v: 1, ...cmd }));
+  };
+  const wait = lastSent + opts.pace - Date.now();
+  if (wait > 0) setTimeout(send, wait);
+  else send();
 }
 
 ws.onopen = () => {

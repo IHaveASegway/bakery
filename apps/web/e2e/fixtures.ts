@@ -197,6 +197,40 @@ export async function liveSandbox(page: Page): Promise<Sandbox> {
   return sandbox;
 }
 
+/**
+ * A guest's sandbox, made as a visitor makes one: the sign-in page's "Continue as a guest", whose
+ * Turnstile is the guard's stand-in. Waited on until its seeding is done.
+ */
+export async function guestSandbox(page: Page): Promise<Sandbox> {
+  await page.goto('/signin/');
+  const button = page.getByRole('button', { name: 'Continue as a guest' });
+  await expect(button).toBeEnabled();
+  const [created] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/v1/sandboxes',
+    ),
+    button.click(),
+  ]);
+  expect(created.status()).toBe(201);
+  // The page goes on as soon as the sandbox is made, so the id is read from the session after.
+  await page.waitForURL((url) => url.pathname !== '/signin/');
+  const session = await api<{ kind: string; sandbox: string | null }>(page, 'GET', '/v1/session');
+  expect(session.body.kind).toBe('guest');
+  const id = session.body.sandbox ?? '';
+  expect(id).not.toBe('');
+  let sandbox: Sandbox = { id, state: 'seeding' };
+  await expect
+    .poll(
+      async () => {
+        sandbox = (await api<Sandbox>(page, 'GET', `/v1/sandboxes/${id}`)).body;
+        return sandbox.state;
+      },
+      { timeout: 60_000 },
+    )
+    .toBe('live');
+  return sandbox;
+}
+
 interface MenuItem {
   status: string;
   pickup_only?: boolean;
