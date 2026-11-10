@@ -545,6 +545,13 @@ export function waitingFor(
  */
 export const eventWords = (type: string): string[] => type.split(/(?=[A-Z][a-z])/);
 
+/**
+ * An event's type for a card's chip: its words joined by soft hyphens, so a narrow card breaks it
+ * only between two words, with a hyphen at the break, and never inside one. The text reads as the
+ * type when nothing breaks it.
+ */
+export const chipText = (type: string): string => eventWords(type).join('\u00AD');
+
 /** The activity feed's entries: the last 50 events, newest first. */
 export const FEED_MAX = 50;
 

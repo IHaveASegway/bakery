@@ -774,17 +774,19 @@ details.capacity-group .capacity-table {
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
-/* A card's last event, `OrderProductionStarted`, is one name: it never breaks inside, where
-   "OrderProduction / Started" read as two broken words (2026-11-10), and never runs past the
-   card's edge. A card too narrow for it ends the name in an ellipsis; its title holds it whole. */
+/* A card's last event, `OrderProductionStarted`, never runs past the card's edge, and breaks only
+   where a reader breaks a long word: between two of its words, at a soft hyphen that shows as
+   "OrderProduction-" over "Started" (KitchenBoard.tsx, `chipText`). Never inside a word, which
+   `overflow-wrap: anywhere` allowed, and never without the hyphen, which read as two broken words
+   (2026-11-10). */
 .board .card .card-event {
   display: inline-block;
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  border-radius: var(--space-2);
+  white-space: normal;
   overflow-wrap: normal;
-  vertical-align: bottom;
+  word-break: normal;
+  hyphens: manual;
 }
 
 /* What a card with no button waits for: a ready delivery's van (G9). */

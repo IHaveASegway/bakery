@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   actionFor,
   bakeListsByDate,
+  chipText,
   groupByState,
   isSimulated,
   routeWords,
@@ -227,10 +228,11 @@ export function CardView({
       {(card.last || card.cause) && (
         <p className="hint">
           {card.last ? (
-            // The event's type is one name, so it never breaks inside: on a card too narrow for it,
-            // it ends in an ellipsis and its title holds the whole (console.css).
+            // One name: where the card is too narrow for it, it breaks only between its words and
+            // says so with a hyphen, "OrderProduction-" over "Started", as a reader breaks a long
+            // word (soft hyphens, `chipText`; console.css).
             <span className="badge card-event" data-tone="kind" title={card.last}>
-              {card.last}
+              {chipText(card.last)}
             </span>
           ) : (
             'Last event'

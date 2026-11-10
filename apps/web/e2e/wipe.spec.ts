@@ -13,6 +13,7 @@ import {
   runCron,
   test,
 } from './fixtures';
+import { nextClientIp } from './addresses';
 
 // After a wipe the console asks for its sandbox and the API answers 410, which Chromium logs.
 test.use({ allowedStatuses: [410] });
@@ -69,6 +70,12 @@ test('New sandbox on the System page asks in the page, then says which sandbox i
   await expect(asked).toHaveCount(0);
   await expect(actions.getByRole('button', { name: 'New sandbox' })).toBeFocused();
   await actions.getByRole('button', { name: 'New sandbox' }).click();
+  // The API makes one sandbox a minute per address, and this test made one already: the replace
+  // comes from a second synthetic address.
+  const second = nextClientIp(test.info().workerIndex);
+  await page.route(`${API}/v1/sandboxes`, (route) =>
+    route.continue({ headers: { ...route.request().headers(), 'cf-connecting-ip': second } }),
+  );
   await asked.getByRole('button', { name: 'Replace it' }).click();
   const result = actions.locator('[data-guide-result]');
   await expect(result).toContainText('is yours now', { timeout: 20_000 });
