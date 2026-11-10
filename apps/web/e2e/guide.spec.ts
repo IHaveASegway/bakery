@@ -21,10 +21,13 @@ import {
 } from './fixtures';
 
 /**
- * The note never covers its anchor, and sits beside it with its caret when there is room (here,
- * the suite's 1280 px window and the 608 px column, there is). Both are in the window.
+ * The note never covers its anchor, and sits beside it with its caret when there is room. Both
+ * are in the window. `room` says whether the page is sure to have that room: the order's page
+ * has it (the suite's 1280 px window and the 608 px column). The board has it or not by how many
+ * cards the seed's day puts above the pressed one, which grows through the morning, so there only
+ * the first half is asked: a note with no room beside its card is placed with no side.
  */
-async function beside(page: Page, note: Locator) {
+async function beside(page: Page, note: Locator, room = true) {
   const anchor = page.locator('[data-guide-anchor]');
   await expect(anchor).toHaveCount(1);
   await expect
@@ -38,9 +41,9 @@ async function beside(page: Page, note: Locator) {
         n.y >= a.y + a.height ||
         n.y + n.height <= a.y;
       const side = await note.getAttribute('data-side');
-      return apart && side !== null ? 'beside' : `apart ${apart}, side ${side}`;
+      return apart && (side !== null || !room) ? 'clear' : `apart ${apart}, side ${side}`;
     })
-    .toBe('beside');
+    .toBe('clear');
 }
 
 test('a card’s button on the board opens a note: the frame, the event and its sequence, why and when not', async ({
