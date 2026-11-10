@@ -1,6 +1,6 @@
 # ADR 0014: A live guide in place of the tour: notes beside what the visitor just did, hotspots for the rest, and a recorder, from one set of entries
 
-Status: Proposed · 2026-11-09 · Deciders: Joseph Peterson
+Status: Accepted · 2026-11-10, by delegation · Proposed 2026-11-09 · Deciders: Joseph Peterson
 
 ## Context
 
