@@ -8,6 +8,28 @@ export const LIVE_DEFAULT = 'Your sandbox is live.';
 /** The live sentence where an order placed on the page goes to the sandbox: the menu, the checkout. */
 export const ORDERS_LIVE = 'Your sandbox is live. Orders you place here go to it.';
 
+/** The offline sentence where a page has no more to say: the console's pages. */
+export const OFFLINE_DEFAULT =
+  'The API is unreachable, so nothing here can be read or changed right now.';
+
+/**
+ * The offline sentence, true on each page: what cannot be done there while the API is unreachable
+ * (2026-11-10: the catering page and the inbox said the demo's own menu was shown, and they show
+ * none). A page not named here gets the general one.
+ */
+export const OFFLINE: Record<NextPath, string> = {
+  '/menu/': 'The API is unreachable, so the demo’s own menu is shown and nothing can be ordered.',
+  '/checkout/': 'The API is unreachable, so nothing can be ordered or paid for right now.',
+  '/catering/':
+    'The API is unreachable, so no event can be asked about and your events cannot be shown.',
+  '/inbox/': 'The API is unreachable, so your messages cannot be shown.',
+  '/app/': OFFLINE_DEFAULT,
+};
+
+/** The offline sentence for a page, by its listed path (null for a page not on the list). */
+export const offlineFor = (here: NextPath | null): string =>
+  here === null ? OFFLINE_DEFAULT : OFFLINE[here];
+
 /** One sentence about the visitor's sandbox, for the storefront pages. A live region. */
 export default function StatusLine({
   phase,
@@ -44,7 +66,7 @@ export default function StatusLine({
       text = live ?? LIVE_DEFAULT;
       break;
     case 'offline':
-      text = 'The API is unreachable, so the demo’s own menu is shown and nothing can be ordered.';
+      text = offlineFor(here);
       break;
     case 'nosession':
     case 'nosandbox':

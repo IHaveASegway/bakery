@@ -13,7 +13,8 @@
   Since 2026-11-10 the menu (/menu/) is in the challenge class too, and the checkout is the payment
   class plus Turnstile (the checkout class): both start a guest sandbox in place with Start ordering
   (audit F1, components/Guest.tsx), and load Turnstile's script only once that button is pressed, so
-  a visitor who only reads the menu still loads nothing from Cloudflare. Pages with an island but no
+  a visitor who only reads the menu still loads nothing from Cloudflare. Later the same day the
+  catering page (/catering/) joined the checkout class: its gate, Start an inquiry, does the same. Pages with an island but no
   third party (/inbox/, and since the tour, now the guide, /privacy/ and /docs/api/, and since PR 13
   /status/, and since 2026-11-09 the order's status page, /order/) are the island class: the strict
   policy plus the hashes below. The start page carries the guide too, but it has no rule of its own:
@@ -166,9 +167,11 @@ export const PAYMENT_PATHS = ['/checkout/*', '/catering/*'];
 
 /**
  * The payment pages that also load Turnstile, and so get the checkout class: the checkout, whose
- * Start ordering makes a guest sandbox in place (2026-11-10). The catering page does not.
+ * Start ordering makes a guest sandbox in place (2026-11-10), and since later that day the catering
+ * page, whose Start an inquiry does the same. Both payment pages are here, so no page has the plain
+ * payment class today; it stays for a payment page that starts no sandbox.
  */
-export const CHECKOUT_PATHS = ['/checkout/*'];
+export const CHECKOUT_PATHS = ['/checkout/*', '/catering/*'];
 
 /** Every path that gets a rule of its own, which scripts/inline-hashes.mjs reads hashes for. */
 export const RULE_PATHS = [
@@ -238,7 +241,7 @@ export function headersFile(apiOrigin: string, hashes: Record<string, Hashes> = 
     const checkout = CHECKOUT_PATHS.includes(path);
     lines.push(
       checkout
-        ? '# The checkout loads Stripe for its payment step and Turnstile for Start ordering.'
+        ? '# The checkout and the catering page load Stripe to pay and Turnstile to start a sandbox.'
         : '# The checkout and the catering page load Stripe for a payment step, and only they do.',
       path,
       '  ! Content-Security-Policy',

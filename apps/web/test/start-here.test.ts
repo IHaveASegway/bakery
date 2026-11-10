@@ -4,7 +4,17 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
-import { AlreadyIn, START_SENTENCE, START_TITLE, StartHere } from '../src/components/Guest';
+import {
+  AlreadyIn,
+  START_ACTION,
+  START_SENTENCE,
+  START_TITLE,
+  StartHere,
+} from '../src/components/Guest';
+import { ENTRIES } from '../src/guide';
+import { CATERING_START } from '../src/lib/catering';
+
+const CATERING_PROPS = { title: CATERING_START.title, action: CATERING_START.action };
 
 const html = (props: Parameters<typeof StartHere>[0]) =>
   renderToStaticMarkup(createElement(StartHere, props));
@@ -47,5 +57,47 @@ describe('StartHere', () => {
 describe('AlreadyIn', () => {
   test('draws nothing until the API has said there is a sandbox', () => {
     expect(renderToStaticMarkup(createElement(AlreadyIn))).toBe('');
+  });
+});
+
+describe('StartHere on the catering page (2026-11-10)', () => {
+  test('takes its own title and button, keeps the sentence, and comes back to /catering/', () => {
+    const out = html({ here: '/catering/', ...CATERING_PROPS });
+    expect(out).toContain('Catering starts with your own sandbox.');
+    expect(out).toMatch(/<button type="button" class="btn btn-primary">Start an inquiry<\/button>/);
+    expect(out).toContain(START_SENTENCE.replaceAll('’', '’'));
+    expect(out).toContain('href="/signin/?next=/catering/"');
+    expect(out).not.toContain('Start ordering');
+  });
+
+  test('the menu’s and the checkout’s words are the defaults, unchanged', () => {
+    expect(START_TITLE).toBe('Ordering starts with your own sandbox.');
+    expect(START_ACTION).toBe('Start ordering');
+  });
+});
+
+describe('the gate’s guide entry where there is no menu (2026-11-10)', () => {
+  test('the checkout and the catering page meet it first, with the same words, on the gate', () => {
+    const checkout = ENTRIES.checkout[0]!;
+    const catering = ENTRIES.catering[0]!;
+    expect([checkout.id, catering.id]).toEqual(['checkout-start', 'catering-start']);
+    expect(checkout.target).toBe('start-here');
+    expect(catering.target).toBe('start-here');
+    for (const key of ['title', 'what', 'why', 'whenNot', 'api'] as const) {
+      expect(catering[key], key).toEqual(checkout[key]);
+    }
+    expect(html({ here: '/checkout/', tour: 'start-here' })).toContain('data-tour="start-here"');
+  });
+
+  test('says what a sandbox is, what the button sends and when it is wiped, and nothing of a menu', () => {
+    const entry = ENTRIES.checkout[0]!;
+    expect(entry.what).toContain('private copy of the bakery');
+    expect(entry.what).toContain('10:00 UTC');
+    expect(entry.api).toMatchObject({ method: 'POST', path: '/v1/sandboxes' });
+    for (const words of [entry.title, entry.what, entry.why, entry.whenNot]) {
+      expect(words).not.toMatch(/menu/i);
+    }
+    // The menu keeps its own entry, which speaks of the seed menu.
+    expect(ENTRIES.menu[0]!.id).toBe('menu-start');
   });
 });

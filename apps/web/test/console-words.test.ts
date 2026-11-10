@@ -5,7 +5,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
 import DispatchStops from '../src/components/DispatchStops';
-import { CATERING_SIGNED_OUT } from '../src/lib/catering';
+import { CATERING_START } from '../src/lib/catering';
 import { scheduledSaid, stateSays } from '../src/lib/crm';
 import { dayFromQuery, dropOffNote, queryWithDay } from '../src/lib/dispatch';
 import { ALL_ENTRIES } from '../src/guide';
@@ -68,10 +68,14 @@ describe('N13: the dispatch day lives in the URL', () => {
 });
 
 describe('P4: the catering page says what is true signed out', () => {
-  test('it speaks of events, not of a menu', () => {
-    expect(CATERING_SIGNED_OUT).toBe(
-      'You have no sandbox yet, so there are no catering events to show.',
-    );
-    expect(CATERING_SIGNED_OUT).not.toContain('menu');
+  // Since 2026-11-10 the page shows the gate there, with its own title and button.
+  test('its gate speaks of catering and an inquiry, not of a menu or an order', () => {
+    expect(CATERING_START).toEqual({
+      title: 'Catering starts with your own sandbox.',
+      action: 'Start an inquiry',
+    });
+    for (const words of Object.values(CATERING_START)) {
+      expect(words).not.toMatch(/menu|order/i);
+    }
   });
 });
