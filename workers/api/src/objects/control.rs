@@ -1222,13 +1222,16 @@ async fn ask<B: Serialize, T: serde::de::DeserializeOwned>(
     body: Option<&B>,
 ) -> Result<T> {
     let mut res = sql::call(env, BINDING, CONTROL, method, path, body).await?;
-    if res.status_code() != 200 {
+    let status = res.status_code();
+    // Read to its end whatever the status: the Queue's consumer asks the flag here, and an
+    // answer's body left unread can hold its invocation open (queue.rs, `call`).
+    let text = res.text().await?;
+    if status != 200 {
         return Err(Error::RustError(format!(
-            "control {path} answered {}",
-            res.status_code()
+            "control {path} answered {status}"
         )));
     }
-    res.json().await
+    Ok(serde_json::from_str(&text)?)
 }
 
 pub async fn status(env: &Env) -> Result<StatusResponse> {
