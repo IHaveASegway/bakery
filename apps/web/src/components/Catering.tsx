@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CateringResponse } from '../contracts';
 import { listCatering } from '../lib/api';
 import {
-  CATERING_SIGNED_OUT,
+  CATERING_START,
   bakeryDate,
   earliestDate,
   packageLabel,
@@ -13,15 +13,17 @@ import { dollars } from '../lib/money';
 import { businessNowMs, dayText } from '../lib/when';
 import { usePoll } from '../lib/use-poll';
 import { useSandboxPhase } from '../lib/use-session';
-import { signinFor } from '../lib/next';
 import CateringDetail from './CateringDetail';
 import CateringInquiryForm from './CateringInquiryForm';
+import { StartHere } from './Guest';
 import Message from './Message';
 import StatusLine from './StatusLine';
 
 /**
  * The /catering/ island: the inquiry, the visitor's events, and the one open for reading. The list
  * looks again every ten seconds, so a quote or a delivery the staff make shows without Refresh.
+ * With no sandbox yet, the gate the menu and the checkout show stands where the inquiry goes, and
+ * starts a guest sandbox on this page (R87's follow-up, 2026-11-10).
  */
 export default function Catering() {
   const phase = useSandboxPhase();
@@ -91,10 +93,24 @@ export default function Catering() {
   }, []);
 
   const open = events?.find((e) => e.catering === selected) ?? null;
+  // Once the gate's sandbox is live, the focus, left on a button that is gone, goes to the form.
+  const wasGated = useRef(false);
+  const formShown = sandboxId !== null && earliest !== null;
+  useEffect(() => {
+    if (phase.name === 'nosession' || phase.name === 'nosandbox' || phase.name === 'seeding') {
+      wasGated.current = true;
+    } else if (formShown && wasGated.current) {
+      wasGated.current = false;
+      document.getElementById('inquiry-heading')?.focus();
+    }
+  }, [phase.name, formShown]);
+  // No sandbox, or one seeding: the gate, which says so itself, so the status line stays out.
+  const gated =
+    phase.name === 'nosession' || phase.name === 'nosandbox' || phase.name === 'seeding';
 
   return (
     <>
-      <StatusLine phase={phase} signedOut={CATERING_SIGNED_OUT} />
+      {!gated && <StatusLine phase={phase} />}
 
       {sandboxId !== null && earliest !== null ? (
         <CateringInquiryForm
@@ -107,14 +123,16 @@ export default function Catering() {
             setSelected(event.catering);
           }}
         />
-      ) : phase.name === 'seeding' || phase.name === 'loading' ? (
-        <p>Seeding your bakery… You can ask about an event as soon as it is ready.</p>
-      ) : (
-        <p>
-          Catering needs a sandbox.{' '}
-          <a href={signinFor('/catering/')}>Sign in or try it as a guest</a>.
-        </p>
-      )}
+      ) : gated ? (
+        <StartHere
+          here="/catering/"
+          seeding={phase.name === 'seeding'}
+          title={CATERING_START.title}
+          action={CATERING_START.action}
+          className="catering-gate"
+          tour="start-here"
+        />
+      ) : null}
 
       {sandboxId !== null && (
         <section aria-labelledby="events-heading" data-tour="catering-events">

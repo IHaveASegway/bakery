@@ -335,6 +335,32 @@
   margin-top: var(--space-3);
 }
 
+/* A cart line in the summary's narrow column (2026-11-10): the stepper, the price and Remove did not
+   fit one row at 1280 px, and two loaves' price broke inside itself ("$19.0" over "0"). Remove
+   moves up beside the name, the stepper and the price share the row below, and a price never
+   breaks: ten of the dearest cake fits with room. */
+.checkout-summary .cart-lines li {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'name remove'
+    'qty price';
+}
+
+.checkout-summary .cart-lines .stepper {
+  justify-self: start;
+}
+
+.checkout-summary .cart-lines .remove,
+.checkout-summary .cart-lines .price {
+  justify-self: end;
+}
+
+.checkout-summary .cart-lines .price,
+.checkout-summary .summary-totals dd {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .receipt-lines {
   margin: 0;
   padding: 0;

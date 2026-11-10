@@ -169,7 +169,8 @@ describe('headersFile', () => {
   test('the inbox gets an island rule, the checkout and catering pages a payment rule: detach, then their own policy and hashes', () => {
     // The menu is a challenge page since 2026-11-10: Start ordering makes a guest sandbox there.
     expect(CHALLENGE_PATHS).toEqual(['/signin/*', '/app/*', '/menu/*']);
-    expect(CHECKOUT_PATHS).toEqual(['/checkout/*']);
+    // The catering page joined the checkout class later the same day: its gate starts a sandbox too.
+    expect(CHECKOUT_PATHS).toEqual(['/checkout/*', '/catering/*']);
     expect(ISLAND_PATHS).toEqual([
       '/inbox/*',
       '/privacy/*',
@@ -227,12 +228,13 @@ describe('headersFile', () => {
     expect(lines[at + 2]).not.toContain('cloudflare');
   });
 
-  test('the catering page is a payment page: its rule carries the payment policy, and nothing else does', () => {
+  test('the catering page is in the checkout class, Stripe and Turnstile, and only payment pages name Stripe', () => {
     const lines = headersFile(DEFAULT_API_ORIGIN).split('\n');
     const at = lines.indexOf('/catering/*');
     expect(at).toBeGreaterThan(0);
     expect(lines[at + 1]).toBe('  ! Content-Security-Policy');
-    expect(lines[at + 2]).toBe(`  Content-Security-Policy: ${csp('payment', DEFAULT_API_ORIGIN)}`);
+    expect(lines[at + 2]).toBe(`  Content-Security-Policy: ${csp('checkout', DEFAULT_API_ORIGIN)}`);
+    expect(lines[at + 2]).toContain('challenges.cloudflare.com');
     // The one rule that names Stripe and the page it belongs to are the same set as PAYMENT_PATHS.
     const withStripe = lines
       .map((line, i) => ({ line, i }))

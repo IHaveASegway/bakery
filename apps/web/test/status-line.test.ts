@@ -3,7 +3,13 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
-import StatusLine, { LIVE_DEFAULT, ORDERS_LIVE } from '../src/components/StatusLine';
+import StatusLine, {
+  LIVE_DEFAULT,
+  OFFLINE,
+  OFFLINE_DEFAULT,
+  ORDERS_LIVE,
+  offlineFor,
+} from '../src/components/StatusLine';
 
 const html = (props: Parameters<typeof StatusLine>[0]) =>
   renderToStaticMarkup(createElement(StatusLine, props));
@@ -51,5 +57,27 @@ describe('StatusLine live, a true sentence per page (2026-11-10)', () => {
       '>y',
     );
     expect(html({ phase: { name: 'nosession' }, live: 'y' })).not.toContain('>y');
+  });
+});
+
+describe('StatusLine offline, a true sentence per page (2026-11-10)', () => {
+  test('the menu keeps its sentence; the other pages say what cannot be done there', () => {
+    expect(offlineFor('/menu/')).toContain('the demo’s own menu is shown');
+    for (const page of ['/checkout/', '/catering/', '/inbox/', '/app/'] as const) {
+      expect(offlineFor(page), page).not.toContain('menu');
+      expect(offlineFor(page), page).toMatch(/^The API is unreachable, so /);
+    }
+    expect(OFFLINE['/catering/']).toContain('no event can be asked about');
+    expect(OFFLINE['/inbox/']).toContain('your messages cannot be shown');
+    expect(OFFLINE['/checkout/']).toContain('nothing can be ordered or paid for');
+  });
+
+  test('a page not on the list gets the general sentence', () => {
+    expect(offlineFor(null)).toBe(OFFLINE_DEFAULT);
+    expect(OFFLINE_DEFAULT).not.toContain('menu');
+  });
+
+  test('before the page is known, the line says the general sentence, never the menu’s', () => {
+    expect(html({ phase: { name: 'offline' } })).toContain(OFFLINE_DEFAULT);
   });
 });
