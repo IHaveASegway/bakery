@@ -481,6 +481,8 @@ expect_json unknown_variant "b.detail.includes('not-on-menu')"
 NO_SLOT="${SLOT:0:14}$(printf '%02d' $((10#${SLOT:14:2} + 5)))${SLOT:16}"
 command_as no_slot G 192.0.2.41 POST "/v1/sandboxes/$GID/orders" "{\"kind\":\"pickup\",\"slot\":\"$NO_SLOT\",\"lines\":[{\"variant\":\"$VARIANT\",\"qty\":1}]}"
 expect_problem no_slot 422 no-such-slot
+# Its detail names the rule as a whole word, as the Order's do, so the checkout's matcher finds it.
+expect_json no_slot "b.detail.endsWith(' The rule is no-such-slot.')"
 # A Monday at 10:00, the first after today: the Schedule's `closed-day` stands behind the order's
 # own rule, since the menu bakes nothing on a Monday (the catalog refuses `mon`), so the order
 # names the item not baked that day and holds no place. scripts/smoke-catering.sh drives
