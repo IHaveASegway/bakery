@@ -55,7 +55,7 @@ const shortId = (id: string) => id.slice(-6);
 /**
  * An id as its last six characters, the whole id in its title and read out in full: a ULID's 26
  * characters wrapped over three lines on a card and were cut off on a phone. A stream's kind
- * (`schedule:…`) stays in front of the tail.
+ * (`schedule:`) stays in front of the tail, and a short key such as a day is printed whole.
  */
 function IdTail({ id }: { id: string }) {
   const colon = id.indexOf(':');
@@ -63,7 +63,7 @@ function IdTail({ id }: { id: string }) {
   const rest = id.slice(kind.length);
   return (
     <code title={id}>
-      <span aria-hidden="true">{rest.length > 8 ? `${kind}…${rest.slice(-6)}` : id}</span>
+      <span aria-hidden="true">{rest.length > 12 ? `${kind}…${rest.slice(-6)}` : id}</span>
       <span className="sr-only">{id}</span>
     </code>
   );
