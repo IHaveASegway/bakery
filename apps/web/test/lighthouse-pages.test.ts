@@ -7,6 +7,7 @@ import { describe, expect, test } from 'vitest';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const listFile = fileURLToPath(new URL('../lighthouse-pages.txt', import.meta.url));
+const configFile = fileURLToPath(new URL('../lighthouserc.json', import.meta.url));
 
 /** The paths in the list, in order: one a line, `#` comments and blank lines skipped. */
 const listed = readFileSync(listFile, 'utf8')
@@ -61,5 +62,21 @@ describe('the Lighthouse page list', () => {
 
   test('each exclusion is one sentence', () => {
     for (const reason of Object.values(EXCLUDED)) expect(reason).toMatch(/^[A-Z][^.]*\.$/);
+  });
+});
+
+describe('the browser the Lighthouse job launches', () => {
+  // A Chrome for Testing build switches on every experiment in its field-trial testing
+  // configuration. In build 158 one of them reads the whole page just after the load and lays
+  // all of it out, which cost the API reference a tenth of its score from one network and nothing
+  // from another (docs/delivery.md, "Lighthouse", 2026-11-10). The job measures the browser at
+  // its defaults, as Playwright launches the browser suite's.
+  test('runs at its defaults, without a build’s experiments', () => {
+    const config = JSON.parse(readFileSync(configFile, 'utf8')) as {
+      ci: { collect: { settings: { chromeFlags: string } } };
+    };
+    expect(config.ci.collect.settings.chromeFlags.split(' ')).toContain(
+      '--disable-field-trial-config',
+    );
   });
 });
