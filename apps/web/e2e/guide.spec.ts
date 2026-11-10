@@ -4,6 +4,7 @@
 // this tool and when not; at checkout, placing an order opens a note with the request, its status
 // and its time. A note is not a dialog and takes no focus, axe holds with one open, Escape closes
 // it, and the recorder reaches the same by keyboard.
+import AxeBuilder from '@axe-core/playwright';
 import type { Locator, Page } from '@playwright/test';
 import {
   api,
@@ -655,6 +656,99 @@ test.describe('a keyboard on the menu', () => {
     expect(guide).toBeGreaterThan(order.indexOf('main'));
     expect(guide).toBeGreaterThan(order.indexOf('footer'));
     expect(order.indexOf('main')).toBeGreaterThan(order.indexOf('header'));
+  });
+});
+
+test('a card scrolled under the console’s own top bar is the viewport’s doing, not a small target', async ({
+  page,
+}) => {
+  await demoAccount(page);
+  await liveSandbox(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/app/');
+  await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+  // The failing state of pull request #140's run, on purpose: a card's button scrolled up behind
+  // the top bar, under one of the bar's own buttons (the clock stood above the Confirmed column).
+  // Which of the board's buttons lies under one depends on the seeded board, so the candidates are
+  // those that share columns of the window with a button of the bar, each scrolled to the positions
+  // around the window's top edge (where a sweep on 2026-11-10 found axe names it), until axe alone
+  // names a control: the test proves the rule the helper's exception is about, not luck.
+  const candidates = await page.evaluate(() => {
+    const bar = [...document.querySelectorAll('.topbar button, .topbar a[href]')].map((el) =>
+      el.getBoundingClientRect(),
+    );
+    const found = [
+      ...document.querySelectorAll('.board .card-actions .btn-primary, .board summary'),
+    ].filter((el) => {
+      const r = el.getBoundingClientRect();
+      return bar.some((b) => r.left < b.right && r.right > b.left);
+    });
+    found.forEach((el, n) => el.setAttribute('data-test-under-bar', String(n)));
+    return found.length;
+  });
+  expect(candidates).toBeGreaterThan(0);
+  let named: string[] = [];
+  for (let n = 0; n < Math.min(candidates, 6) && named.length === 0; n += 1) {
+    const control = page.locator(`[data-test-under-bar="${n}"]`);
+    for (const top of [0, -2, 2, -4, 4, -6, 6, -8, 8]) {
+      await control.evaluate(
+        (el, t) => window.scrollBy(0, el.getBoundingClientRect().top - t),
+        top,
+      );
+      await page.waitForFunction(() => document.documentElement.dataset.guideMarks === 'settled');
+      const raw = await new AxeBuilder({ page }).withRules(['target-size']).analyze();
+      named = raw.violations.flatMap((v) => v.nodes.map((x) => String(x.target[0])));
+      if (named.length > 0) break;
+    }
+  }
+  expect(named).not.toEqual([]);
+  // The helper drops it, since a scroll brings the card back out between the bars.
+  await expectNoAxeViolations(page);
+});
+
+test.describe('a control under the guide’s own layer', () => {
+  test.use({ allowedStatuses: [401, 404] });
+
+  test('still fails the helper: the guide’s own layer is not one of the page’s bars (fixture page)', async ({
+    page,
+  }) => {
+    // A small page built for the check, on the 404 page: a page button a scroll could move, and
+    // one of the guide's marks (a button in a data-guide-root) over its right half, as a mark or
+    // a note's button would lie over a control. Styles are set through the style object, as the
+    // policy requires.
+    await page.goto('/no-such-page/');
+    await page.evaluate(() => {
+      const tall = document.createElement('div');
+      tall.style.height = '3000px';
+      document.body.append(tall);
+      const target = document.createElement('button');
+      target.textContent = 'Go';
+      target.id = 'covered';
+      Object.assign(target.style, {
+        position: 'absolute',
+        top: '300px',
+        left: '40px',
+        width: '40px',
+        height: '24px',
+      });
+      document.body.append(target);
+      const root = document.createElement('div');
+      root.setAttribute('data-guide-root', '');
+      root.className = 'guide-layer';
+      const mark = document.createElement('button');
+      mark.className = 'guide-spot';
+      mark.setAttribute('aria-label', 'Under the hood: a test mark');
+      Object.assign(mark.style, {
+        position: 'absolute',
+        top: '298px',
+        left: '58px',
+        width: '28px',
+        height: '28px',
+      });
+      root.append(mark);
+      document.body.append(root);
+    });
+    await expect(expectNoAxeViolations(page)).rejects.toThrow(/target-size/);
   });
 });
 
