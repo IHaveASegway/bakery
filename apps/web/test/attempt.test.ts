@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import { ApiError, NetworkError } from '../src/lib/api';
 import { attemptFor, keepKeyAfter } from '../src/lib/attempt';
@@ -94,6 +96,62 @@ describe('the 422 shown as a sentence', () => {
       const message = describeOrderError(refused);
       expect(message.title).toBe(title);
       expect(message.detail).toBe(detail);
+    }
+  });
+
+  // Every rule placing an order can answer has words of its own, read from the domain that owns
+  // the rules: the Order's (`place_order`, `delivery_zone` and a second placement) and the four
+  // the day's hold answers 422 with (crates/domain/src/schedule.rs, `ScheduleError::rule`).
+  const rust = (path: string) => {
+    const file = fileURLToPath(new URL(`../../../${path}`, import.meta.url));
+    return existsSync(file) ? readFileSync(file, 'utf8') : null;
+  };
+  const order = rust('crates/domain/src/order.rs');
+  const schedule = rust('crates/domain/src/schedule.rs');
+
+  test.skipIf(order === null || schedule === null)(
+    'every rule an order can be refused by has its own sentence',
+    () => {
+      const text = order ?? '';
+      const body = (start: string) => {
+        const from = text.indexOf(start);
+        expect(from, start).toBeGreaterThan(-1);
+        const end = text.indexOf('\n}\n', from);
+        return text.slice(from, end);
+      };
+      const variants = new Set(
+        [
+          body('fn place_order('),
+          body('pub fn delivery_zone('),
+          /OrderCommand::PlaceOrder\(_\) => Err\(OrderError::\w+\)/.exec(text)?.[0] ?? '',
+        ].flatMap((part) => [...part.matchAll(/OrderError::(\w+)/g)].map((m) => m[1] ?? '')),
+      );
+      // The slug each variant's arm of `rule()` names.
+      const ruleFn = (source: string) => {
+        const from = source.indexOf('pub fn rule(&self)');
+        return source.slice(from, source.indexOf('\n    }\n', from));
+      };
+      const slugOf = (enumName: string, source: string, variant: string) =>
+        new RegExp(`${enumName}::${variant}\\b[^=]*=> "([a-z-]+)"`).exec(ruleFn(source))?.[1];
+      const rules = [...variants].map((v) => slugOf('OrderError', text, v));
+      for (const v of ['ClosedDay', 'NoSuchSlot', 'UnknownZone', 'ZoneRequired']) {
+        rules.push(slugOf('ScheduleError', schedule ?? '', v));
+      }
+      expect(rules).toContain('wrong-zone');
+      expect(rules).toContain('zone-required');
+      for (const rule of rules) {
+        expect(rule).toBeDefined();
+        const message = describeOrderError(problem(422, `The rule is ${rule ?? ''}.`));
+        expect(message.title, rule).toBe('The bakery could not take this order');
+        expect(message.detail, rule).toBeTruthy();
+      }
+    },
+  );
+
+  test('a delivery the bakery cannot place says so without asking for a zone', () => {
+    for (const rule of ['zone-required', 'unknown-zone', 'wrong-zone']) {
+      const detail = describeOrderError(problem(422, rule)).detail ?? '';
+      expect(detail, rule).not.toMatch(/choose (one|zone)/i);
     }
   });
 
