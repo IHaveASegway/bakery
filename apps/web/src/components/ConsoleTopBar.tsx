@@ -23,6 +23,14 @@ const KINDS: Record<SessionResponse['kind'], string> = {
   demo: 'Signed in with a demo account',
 };
 
+/**
+ * The way out, by who is here. A signed-in session signs out and can sign back in to the same
+ * sandbox. A guest's sign-out only clears the cookie: no account holds the sandbox, so nothing can
+ * reach it again, and the word is "Leave".
+ */
+export const leaveLabel = (kind: SessionResponse['kind']) =>
+  kind === 'guest' ? 'Leave' : 'Sign out';
+
 /** The rate the top bar's switch starts simulated traffic at; the System page offers the others. */
 const TRAFFIC_RATE = 3;
 
@@ -156,14 +164,48 @@ function Controls({
             {SHORT[kind]}
           </span>
         </h2>
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          disabled={busy}
-          onClick={onLeave}
-        >
-          Sign out
-        </button>
+        {isGuest ? (
+          // A guest confirms in the bar, as the sandbox's own popover holds Wipe now: two true
+          // sentences, then Leave or Stay. The route lets a guest wipe its own sandbox.
+          <Popover
+            id="topbar-leave"
+            buttonClass="btn btn-secondary btn-sm"
+            label={leaveLabel(kind)}
+            panelLabel="Leave this sandbox"
+          >
+            {(close) => (
+              <>
+                <p>You cannot come back to this sandbox once you leave.</p>
+                <p>
+                  It is wiped at 10:00 UTC, or at once with Wipe now under the sandbox’s button in
+                  this bar.
+                </p>
+                <p className="actions">
+                  <button
+                    type="button"
+                    className="btn btn-danger btn-sm"
+                    disabled={busy}
+                    onClick={onLeave}
+                  >
+                    Leave
+                  </button>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={close}>
+                    Stay
+                  </button>
+                </p>
+              </>
+            )}
+          </Popover>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={busy}
+            onClick={onLeave}
+          >
+            {leaveLabel(kind)}
+          </button>
+        )}
       </div>
     </>
   );
@@ -225,7 +267,8 @@ function Popover({
   title?: string;
   buttonClass: string;
   panelLabel: string;
-  children: ReactNode;
+  /** The panel's content, or a function of how to close it (for a panel with its own Cancel). */
+  children: ReactNode | ((close: () => void) => ReactNode);
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -264,7 +307,12 @@ function Popover({
       </button>
       {open && (
         <div id={id} className="menu-panel popover-panel" role="group" aria-label={panelLabel}>
-          {children}
+          {typeof children === 'function'
+            ? children(() => {
+                setOpen(false);
+                button.current?.focus();
+              })
+            : children}
         </div>
       )}
     </div>

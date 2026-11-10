@@ -180,6 +180,27 @@ test('placing an order at checkout opens a note with the request, its status and
   await expectNoAxeViolations(page);
 });
 
+test('a guest’s Leave asks first, in the bar, and a guest who stays keeps the sandbox', async ({
+  page,
+}) => {
+  const sandbox = await guestSandbox(page);
+  await page.goto('/app/');
+  const leave = page.getByRole('button', { name: 'Leave', exact: true });
+  await expect(leave).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign out' })).toHaveCount(0);
+  await leave.click();
+  const panel = page.getByRole('group', { name: 'Leave this sandbox' });
+  await expect(panel).toContainText('You cannot come back to this sandbox once you leave.');
+  await expect(panel).toContainText('It is wiped at 10:00 UTC, or at once with Wipe now');
+  await expectNoAxeViolations(page);
+  await panel.getByRole('button', { name: 'Stay' }).click();
+  await expect(panel).toHaveCount(0);
+  await expect(page).toHaveURL(/\/app\/$/);
+  // Still this guest's sandbox: the session answers with it.
+  const session = await api<{ sandbox: string | null }>(page, 'GET', '/v1/session');
+  expect(session.body.sandbox).toBe(sandbox.id);
+});
+
 test('with the switch off, a press opens no note and the layer is not loaded; on again, notes return, but never over the recorder', async ({
   page,
 }) => {
@@ -330,6 +351,26 @@ async function shownWords(page: Page): Promise<number> {
     }
     return shown;
   });
+}
+
+/** A guest's sandbox, made as the storefront makes one, waited on until it is live. */
+async function guestSandbox(page: Page): Promise<{ id: string; clock_offset_s?: number }> {
+  await page.goto('/signin/');
+  const made = await api<{ id: string; state: string; clock_offset_s?: number }>(
+    page,
+    'POST',
+    '/v1/sandboxes',
+    { turnstile_token: 'pass-e2e-setup', replace: false },
+  );
+  expect(made.status, JSON.stringify(made.body)).toBe(201);
+  await expect
+    .poll(
+      async () =>
+        (await api<{ state: string }>(page, 'GET', `/v1/sandboxes/${made.body.id}`)).body.state,
+      { timeout: 60_000 },
+    )
+    .toBe('live');
+  return made.body;
 }
 
 /**
