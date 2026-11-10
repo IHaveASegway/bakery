@@ -62,7 +62,7 @@ pub const SOCKET_FRAMES: &[(&str, &str, &str, &str)] = &[
         "client-to-server",
         "cmd",
         "{t: \"cmd\", v: 1, id: <ULID>, order: <ULID>, action: \"start_production\" | \"mark_ready\" | \"mark_picked_up\"}",
-        "a staff action, sent to the Order with `id` as the idempotency key",
+        "a move on the board, from any session of the sandbox, a guest's included (since 2026-11-10), sent to the Order with `id` as the idempotency key",
     ),
     (
         "server-to-client",
@@ -74,7 +74,7 @@ pub const SOCKET_FRAMES: &[(&str, &str, &str, &str)] = &[
         "server-to-client",
         "nack",
         "{t: \"nack\", v: 1, id, rule}",
-        "the command was refused, naming the rule; a guest gets `guest-scope`",
+        "the command was refused, naming the rule (`out-of-order` from the order's rules, `unknown-order`, `key-reused`, or the frame's `version`, `frame`, `id` or `action`); a guest's command is read as any session's since 2026-11-10, and the socket no longer sends `guest-scope`",
     ),
     (
         "client-to-server",

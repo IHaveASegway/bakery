@@ -315,7 +315,8 @@ the DLQ, and `dlq` when the Sandbox keeps it.
 ## The kitchen socket
 
 `GET /v1/sandboxes/{id}/kitchen/ws` upgrades to a socket the `Kitchen` accepts on the Hibernation
-API, with the session's kind (staff or guest) in the socket's attachment. Frames are JSON text,
+API, with the socket's own id in its attachment. Any session of the sandbox, a guest's included,
+reads the board and sends its three moves (since 2026-11-10, roadmap R72). Frames are JSON text,
 protocol v1, each with `"v":1`:
 
 | Direction        | Frame                                                                                           | When                                                                                                                          |
@@ -324,8 +325,8 @@ protocol v1, each with `"v":1`:
 | server to client | `{t: "evt", env, bake_list?}`                                                                   | each event that changed the board, the envelope whole, the note with it; and the Sandbox's `ClockAdvanced`; `bake_list` below |
 | server to client | `{t: "presence", sockets}`                                                                      | a socket opened or closed                                                                                                     |
 | server to client | `{t: "bye", reason: "wiped" or "limit"}`                                                        | before the server closes: 1001 at the wipe; 1008, 1009 or 1003 at a limit                                                     |
-| client to server | `{t: "cmd", id: <ULID>, order: <ULID>, action: start_production, mark_ready or mark_picked_up}` | a staff action, sent to the Order's `/_command` with `id` as the idempotency key                                              |
-| server to client | `{t: "ack", id}` or `{t: "nack", id, rule}`                                                     | the answer; a guest gets `guest-scope`; a repeated `id` gets the first answer                                                 |
+| client to server | `{t: "cmd", id: <ULID>, order: <ULID>, action: start_production, mark_ready or mark_picked_up}` | a move on the board from any session, sent to the Order's `/_command` with `id` as the idempotency key                        |
+| server to client | `{t: "ack", id}` or `{t: "nack", id, rule}`                                                     | the answer; a repeated `id` gets the first answer, after a wake too; a guest's command is answered as any session's           |
 
 Since PR 6 the snapshot's `board.bake_lists` is `[{date, version, lines: [{item, qty, start}],
 reserved}]`, one entry per bakery day from business today on that the board has heard of, sorted

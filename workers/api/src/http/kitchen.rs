@@ -5,7 +5,8 @@
 //! The upgrade reaches the Kitchen only after the router's checks: the exact `Origin` (a GET,
 //! but it carries the cookie and ignores CORS), the session cookie and never a token, the
 //! per-session upgrade limit, and `sbx == id`. The Kitchen accepts the socket on the Hibernation
-//! API with the session's kind, so a guest watches and a signed-in visitor also commands.
+//! API, and any session of the sandbox, a guest's included, watches the board and sends its three
+//! moves (roadmap R72, 2026-11-10), so the upgrade carries no session kind.
 
 use bakery_contracts::SandboxState;
 use worker::{Headers, Method, Request, RequestInit, Response};
@@ -13,7 +14,7 @@ use worker::{Headers, Method, Request, RequestInit, Response};
 use super::Cx;
 use super::problem::{self, Failure};
 use super::sandboxes::{not_revoked, own_sandbox, state};
-use crate::objects::kitchen::{self, SessionKind};
+use crate::objects::kitchen;
 use crate::objects::sql::call_empty;
 
 type Answer = Result<Response, Failure>;
@@ -40,11 +41,6 @@ pub async fn socket(cx: &Cx, req: &Request, id: Option<&str>) -> Answer {
     }
     let (claims, id) = own_sandbox(cx, id)?;
     not_revoked(cx, &claims).await?;
-    let kind = if claims.is_guest() {
-        SessionKind::Guest
-    } else {
-        SessionKind::Staff
-    };
     let stub = cx
         .env
         .durable_object(kitchen::BINDING)?
@@ -53,17 +49,10 @@ pub async fn socket(cx: &Cx, req: &Request, id: Option<&str>) -> Answer {
     headers.set("Upgrade", "websocket")?;
     let mut init = RequestInit::new();
     init.with_method(Method::Get).with_headers(headers);
-    let inner = Request::new_with_init(
-        &format!("https://object.internal/_ws?kind={}", kind.as_str()),
-        &init,
-    )?;
+    let inner = Request::new_with_init("https://object.internal/_ws", &init)?;
     let res = stub.fetch_with_request(inner).await?;
     match res.status_code() {
         101 => {
-            cx.reason(match kind {
-                SessionKind::Staff => "socket-staff",
-                SessionKind::Guest => "socket-guest",
-            });
             // A response from an object has immutable headers; a fresh one takes the router's.
             let ws = res
                 .websocket()

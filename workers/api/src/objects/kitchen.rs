@@ -7,9 +7,11 @@
 //! one write: a redelivery changes nothing (ADR 0004, decision 3).
 //!
 //! Everything the Kitchen needs after it hibernates is in SQLite or on the socket: the board, the
-//! last 64 command ids and the heartbeat in tables, and each socket's session kind and id in its
-//! attachment, so a guest's command is refused after a wake as before it. Only the per-socket
-//! frame counts live in memory; they start again at a wake, which only an idle board takes.
+//! last 64 command ids and their answers, and the heartbeat in tables, and each socket's own id in
+//! its attachment, so a command id repeated after a wake is answered as before it. Every session
+//! of the sandbox, a guest's included, sends the same commands (roadmap R72, 2026-11-10), so the
+//! socket holds no session kind. Only the per-socket frame counts live in memory; they start
+//! again at a wake, which only an idle board takes.
 //!
 //! Paths:
 //!
@@ -24,8 +26,8 @@
 //! - `POST /_fault {on}` → 200 `{kitchen}`: the Sandbox's switch, copied here.
 //! - `GET /_board` → 200 `{cards, bake_lists, applied}`: the snapshot a joining socket is sent,
 //!   and how many events changed the board.
-//! - `GET /_ws?kind=staff|guest` with `Upgrade: websocket` → 101: the socket, accepted on the
-//!   Hibernation API. The router checked the session, the `Origin` and the sandbox first.
+//! - `GET /_ws` with `Upgrade: websocket` → 101: the socket, accepted on the Hibernation API.
+//!   The router checked the session, the `Origin` and the sandbox first.
 //! - `POST /_heartbeat` → 204: the console is open with no socket (it sends one every 30 s).
 //! - `GET /_presence` → 200 `{sockets, last_heartbeat}`: what the Simulator asks each minute.
 //! - `POST /_wipe`, `POST /_clock`: the child protocol (child.rs). The wipe says `bye` to every
@@ -140,38 +142,11 @@ pub struct Presence {
     pub last_heartbeat: Option<WallTime>,
 }
 
-/// Who holds a socket, as the router's session check found it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SessionKind {
-    /// A signed-in visitor: may send commands.
-    Staff,
-    /// A guest: sees the board; every command is refused with `guest-scope`.
-    Guest,
-}
-
-impl SessionKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            SessionKind::Staff => "staff",
-            SessionKind::Guest => "guest",
-        }
-    }
-
-    fn parse(text: &str) -> Option<SessionKind> {
-        match text {
-            "staff" => Some(SessionKind::Staff),
-            "guest" => Some(SessionKind::Guest),
-            _ => None,
-        }
-    }
-}
-
-/// A socket's attachment, which survives hibernation: its session kind and its own id, the key
-/// of its frame count. Stored as JSON text, so no second deserializer is built for it.
+/// A socket's attachment, which survives hibernation: its own id, the key of its frame count. A
+/// socket with none was not accepted here and is closed. Stored as JSON text, so no second
+/// deserializer is built for it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Tag {
-    kind: SessionKind,
     id: String,
 }
 
@@ -335,11 +310,8 @@ impl Cmd {
 }
 
 /// Reads a client's text frame: the command, or the id to answer (empty when it has none) and
-/// the rule it broke. A guest is refused before the command is read any further.
-pub fn read_frame(
-    text: &str,
-    kind: SessionKind,
-) -> std::result::Result<Cmd, (String, &'static str)> {
+/// the rule it broke. Every session's frame is read the same way, a guest's included.
+pub fn read_frame(text: &str) -> std::result::Result<Cmd, (String, &'static str)> {
     let frame: Incoming = serde_json::from_str(text).map_err(|_| (String::new(), "frame"))?;
     let raw_id = frame.id.clone().unwrap_or_default();
     if frame.v != Some(u64::from(PROTOCOL)) {
@@ -349,9 +321,6 @@ pub fn read_frame(
         return Err((raw_id, "frame"));
     }
     let id: Ulid = raw_id.parse().map_err(|_| (raw_id.clone(), "id"))?;
-    if kind == SessionKind::Guest {
-        return Err((raw_id, "guest-scope"));
-    }
     let action = match frame.action.as_deref() {
         Some("start_production") => Action::StartProduction,
         Some("mark_ready") => Action::MarkReady,
@@ -540,7 +509,7 @@ impl DurableObject for Kitchen {
             close(&ws, Closing::Wiped);
             return Ok(());
         }
-        let (id, answer) = match read_frame(&text, tag.kind) {
+        let (id, answer) = match read_frame(&text) {
             Ok(cmd) => {
                 let answer = self.command(&cmd).await?;
                 (cmd.id.to_string(), answer)
@@ -684,20 +653,14 @@ impl Kitchen {
         close(ws, why);
     }
 
-    /// The upgrade: accepted on the Hibernation API with the session kind in the attachment,
-    /// then the snapshot, then everyone's presence. A fifth socket is accepted only to be told
+    /// The upgrade: accepted on the Hibernation API with the socket's id in the attachment, then
+    /// the snapshot, then everyone's presence. A fifth socket is accepted only to be told
     /// why it is closed, which a refused upgrade could not say.
     fn upgrade(&self, req: &Request, meta: &child::Meta, now: WallTime) -> Result<Response> {
         let upgrade = req.headers().get("Upgrade")?.unwrap_or_default();
         if !upgrade.eq_ignore_ascii_case("websocket") {
             return refuse(426, "upgrade");
         }
-        let kind = req
-            .url()?
-            .query_pairs()
-            .find(|(k, _)| k == "kind")
-            .and_then(|(_, v)| SessionKind::parse(&v))
-            .ok_or_else(|| Error::RustError("an upgrade with no session kind".into()))?;
         let open = self.open_sockets();
         let pair = WebSocketPair::new()?;
         let server = pair.server;
@@ -719,7 +682,6 @@ impl Kitchen {
             .map_err(|_| Error::RustError("auto-response pair".into()))?;
         self.state.set_websocket_auto_response(&pong);
         let tag = Tag {
-            kind,
             id: random::ulid(SystemClock::new().now_wall())?.to_string(),
         };
         server.serialize_attachment(serde_json::to_string(&tag)?)?;
@@ -733,16 +695,15 @@ impl Kitchen {
         let mut all = open;
         all.push(server);
         console_log!(
-            "{{\"event\":\"kitchen_socket_open\",\"instance\":\"{}\",\"kind\":\"{}\",\"sockets\":{}}}",
+            "{{\"event\":\"kitchen_socket_open\",\"instance\":\"{}\",\"sockets\":{}}}",
             self.instance,
-            kind.as_str(),
             all.len()
         );
         broadcast(&all, &presence_frame(all.len()));
         Response::from_websocket(pair.client)
     }
 
-    /// A staff command from a socket: answered from the last 64 ids when it is one of them,
+    /// A command from a socket, any session's: answered from the last 64 ids when it is one of them,
     /// else checked against the board and sent to its Order with the frame id as the key. An
     /// answer the Order gave is kept; a failure to reach it is not, so the same id may retry.
     async fn command(&self, cmd: &Cmd) -> Result<Answer> {
@@ -909,51 +870,56 @@ mod tests {
         format!(r#"{{"t":"cmd","v":1,"id":"{ID}","order":"{ORDER}","action":"{action}"}}"#)
     }
 
+    /// Any session's socket, a guest's included (roadmap R72, 2026-11-10): the frame alone
+    /// decides, so a guest's three moves read as the commands a signed-in session's do.
     #[test]
-    fn a_staff_command_reads_its_three_actions() {
+    fn a_command_reads_its_three_actions_whoever_sends_it() {
         for (name, action) in [
             ("start_production", Action::StartProduction),
             ("mark_ready", Action::MarkReady),
             ("mark_picked_up", Action::MarkPickedUp),
         ] {
-            let c = read_frame(&cmd(name), SessionKind::Staff).unwrap();
+            let c = read_frame(&cmd(name)).unwrap();
             assert_eq!(c.action, action);
             assert_eq!(c.id.to_string(), ID);
             assert_eq!(c.order.to_string(), ORDER);
         }
     }
 
+    /// The socket's attachment is the socket's id and nothing else: no session kind is kept, and
+    /// one written before 2026-11-10 with a `kind` still reads after a deploy.
     #[test]
-    fn a_guest_is_refused_with_the_rule_and_its_id() {
-        assert_eq!(
-            read_frame(&cmd("mark_ready"), SessionKind::Guest),
-            Err((ID.to_owned(), "guest-scope"))
-        );
+    fn the_attachment_holds_the_socket_id_only() {
+        let text = serde_json::to_string(&Tag { id: ID.to_owned() }).unwrap();
+        assert_eq!(text, format!(r#"{{"id":"{ID}"}}"#));
+        let old: Tag = serde_json::from_str(&format!(r#"{{"kind":"guest","id":"{ID}"}}"#)).unwrap();
+        assert_eq!(old.id, ID);
     }
 
     #[test]
     fn bad_frames_are_named() {
-        let staff = SessionKind::Staff;
-        assert_eq!(read_frame("not json", staff), Err((String::new(), "frame")));
+        assert_eq!(read_frame("not json"), Err((String::new(), "frame")));
+        assert_eq!(read_frame(&cmd("cancel")), Err((ID.to_owned(), "action")));
         assert_eq!(
-            read_frame(&cmd("cancel"), staff),
-            Err((ID.to_owned(), "action"))
-        );
-        assert_eq!(
-            read_frame(&cmd("mark_ready").replace("\"v\":1", "\"v\":2"), staff),
+            read_frame(&cmd("mark_ready").replace("\"v\":1", "\"v\":2")),
             Err((ID.to_owned(), "version"))
         );
         assert_eq!(
-            read_frame(&cmd("mark_ready").replace("\"cmd\"", "\"ping\""), staff),
+            read_frame(&cmd("mark_ready").replace("\"cmd\"", "\"ping\"")),
             Err((ID.to_owned(), "frame"))
         );
         assert_eq!(
-            read_frame(&cmd("mark_ready").replace(ID, "not-an-id"), staff),
+            read_frame(&cmd("mark_ready").replace(ID, "not-an-id")),
             Err(("not-an-id".to_owned(), "id"))
         );
         assert_eq!(
-            read_frame(&cmd("mark_ready").replace(ORDER, "x"), staff),
+            read_frame(&cmd("mark_ready").replace(ORDER, "x")),
             Err((ID.to_owned(), "unknown-order"))
+        );
+        assert_eq!(
+            read_frame(&cmd("mark_ready").replace(&format!(r#","order":"{ORDER}""#), "")),
+            Err((ID.to_owned(), "unknown-order")),
+            "a command with no order"
         );
         assert_eq!(safe_id("not-an-id"), "");
         assert_eq!(safe_id(ID), ID);
@@ -1137,9 +1103,9 @@ mod tests {
         let ack = Answer::ack().frame(ID);
         assert_eq!(ack, format!(r#"{{"id":"{ID}","t":"ack","v":1}}"#));
         let nack: serde_json::Value =
-            serde_json::from_str(&Answer::nack("guest-scope").frame(ID)).unwrap();
+            serde_json::from_str(&Answer::nack("out-of-order").frame(ID)).unwrap();
         assert_eq!(nack["t"], "nack");
-        assert_eq!(nack["rule"], "guest-scope");
+        assert_eq!(nack["rule"], "out-of-order");
         let bye: serde_json::Value = serde_json::from_str(&bye_frame("wiped")).unwrap();
         assert_eq!(
             (bye["t"].as_str(), bye["v"].as_u64()),
