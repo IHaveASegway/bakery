@@ -61,7 +61,7 @@ import Base from '../layouts/Base.astro';
         </tr>
       </thead>
       <tbody>
-        <tr>
+        <tr data-stored="__Host-session">
           <th scope="row" data-label="What">
             Session cookie
           </th>
@@ -70,7 +70,7 @@ import Base from '../layouts/Base.astro';
             It lets you into your sandbox. The browser keeps it; page scripts cannot read it.
           </td>
         </tr>
-        <tr>
+        <tr data-stored="__Host-oauth">
           <th scope="row" data-label="What">
             Sign-in transaction cookie
           </th>
@@ -122,7 +122,20 @@ import Base from '../layouts/Base.astro';
             It checks that you are a person when you make a sandbox or an account.
           </td>
         </tr>
-        <tr>
+        <tr data-stored="bakery.cart.v1">
+          <th scope="row" data-label="What">
+            Your cart
+          </th>
+          <td data-label="Kept for">
+            In this browser tab, until you close it, empty the cart or place the order
+          </td>
+          <td data-label="Why">
+            So the cart follows you from the menu to the checkout: what you chose, pickup or
+            delivery, the time and your note. It is kept in the tab’s own storage and sent only as
+            your order, when you place it.
+          </td>
+        </tr>
+        <tr data-stored="bakery-guide">
           <th scope="row" data-label="What">
             That you turned “Under the hood” off
           </th>
@@ -132,7 +145,7 @@ import Base from '../layouts/Base.astro';
             and never sent anywhere.
           </td>
         </tr>
-        <tr>
+        <tr data-stored="bakery.placed-orders.v1">
           <th scope="row" data-label="What">
             Which orders you placed in this tab
           </th>
@@ -140,6 +153,31 @@ import Base from '../layouts/Base.astro';
           <td data-label="Why">
             So the kitchen board can mark them as yours. Order ids only, kept in the tab’s own
             storage and never sent anywhere.
+          </td>
+        </tr>
+        <tr data-stored="bakery.signed-in">
+          <th scope="row" data-label="What">
+            That this browser last saw you signed in
+          </th>
+          <td data-label="Kept for">
+            In this browser until a page finds you signed out, you sign out, or you clear the site’s
+            data
+          </td>
+          <td data-label="Why">
+            So a page with nothing else to ask the bakery checks your session once and points “Your
+            bakery” at your console. It is a single “yes”: no name, id or token.
+          </td>
+        </tr>
+        <tr data-stored="bakery.status.last-good">
+          <th scope="row" data-label="What">
+            The status page’s last answer
+          </th>
+          <td data-label="Kept for">
+            In this browser until the next answer replaces it, or you clear the site’s data
+          </td>
+          <td data-label="Why">
+            So the status page can show its last numbers when the bakery cannot be reached. They are
+            counts for the whole demo and say nothing about you.
           </td>
         </tr>
         <tr>
@@ -165,9 +203,11 @@ import Base from '../layouts/Base.astro';
   <h2>Cookies and consent</h2>
   <p>
     The session cookie is what lets the service you asked for work, so there is no consent banner.
-    The bakery sets no cookie to track you and loads no third-party script, except Turnstile: on the
-    sign-in page, and on the menu, the checkout or the catering page only once you press the button
-    that starts your sandbox there.
+    The bakery sets no cookie to track you and loads two third-party scripts only. Turnstile runs on
+    the sign-in page, and on the menu, the checkout or the catering page only once you press the
+    button that starts your sandbox there. Stripe’s runs on the checkout and the catering page once
+    you reach a payment, to take the test card. What each keeps in your browser is under its own
+    policy.
   </p>
 
   <p class="asof">
