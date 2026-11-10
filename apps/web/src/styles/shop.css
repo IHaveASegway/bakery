@@ -439,9 +439,14 @@
   display: none;
 }
 
-/* On the catering page the gate stands where the inquiry form goes. */
+/* On the catering page the gate stands where the inquiry form goes, apart from the lead above it.
+   The form's heading takes the focus once the gate's sandbox is live, and its ring hugs the words. */
 .catering-gate {
-  margin: 0 0 var(--space-5);
+  margin: var(--space-4) 0 var(--space-5);
+}
+
+#inquiry-heading {
+  width: fit-content;
 }
 
 /* While the page asks the API, the gate's frame holds the place, quietly. */
