@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
 import { test as base, expect, type Page } from '@playwright/test';
 import { nextClientIp } from './addresses';
+import { freeable } from './cover';
 
 export const STOREFRONT = 'https://bakery.ihaveasegway.com';
 export const API = 'https://api.bakery.ihaveasegway.com';
@@ -461,8 +462,98 @@ export async function expectNoAxeViolations(page: Page, options: { exclude?: str
   let builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']);
   if (options.exclude?.length) builder = builder.disableRules(options.exclude);
   const { violations } = await builder.analyze();
-  const lines = violations.map(
-    (v) => `${v.id} (${v.impact ?? 'unrated'}) at ${String(v.nodes[0]?.target[0])}: ${v.help}`,
+  const counted = await withoutViewportCovers(page, violations);
+  // Every node of every violation, so a failure names all of them, not the first.
+  const lines = counted.map(
+    (v) =>
+      `${v.id} (${v.impact ?? 'unrated'}) at ${v.nodes.map((n) => String(n.target[0])).join(', ')}: ${v.help}`,
   );
   expect(lines, 'no axe violation').toEqual([]);
+}
+
+type AxeViolation = Awaited<ReturnType<AxeBuilder['analyze']>>['violations'][number];
+
+/**
+ * The one kind of finding the helper drops (2026-11-10, from a run of pull request #140): a
+ * `target-size` finding for a control that, at this scroll position, lies under one of the page's
+ * OWN sticky or fixed bars along the window's top or foot (the console's top bar, the masthead,
+ * the menu's category chips, the phone's bottom nav, found by their computed position, not by
+ * name) and that some scroll position would bring out between those bars. axe counts a control
+ * partly behind another focusable widget as too small; a card's Start scrolled up under the top
+ * bar's clock is that, and no visitor sees it: the card is out of view. A finding still counts
+ * when what covers the control is the guide's own layer (a note, a mark, its control, the
+ * recorder: audit 4's G3 is exactly that), and when no scroll can free the control (the end of a
+ * page under a fixed bottom nav, a control taller than the room between the bars:
+ * e2e/cover.ts, freeable). The page is not scrolled to find out: on a phone a scroll folds an open
+ * note, and the test goes on afterwards.
+ */
+async function withoutViewportCovers(
+  page: Page,
+  violations: AxeViolation[],
+): Promise<AxeViolation[]> {
+  const out: AxeViolation[] = [];
+  for (const v of violations) {
+    if (v.id !== 'target-size') {
+      out.push(v);
+      continue;
+    }
+    const selectors = v.nodes.map((n) => String(n.target[0]));
+    const measured = await page.evaluate((sels) => {
+      const height = window.innerHeight;
+      type R = { top: number; bottom: number; left: number; right: number };
+      const box = (el: Element): R => {
+        const r = el.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+      };
+      const meets = (a: R, b: R) =>
+        a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+      const tops: R[] = [];
+      const foots: R[] = [];
+      for (const el of document.querySelectorAll('body *')) {
+        const position = getComputedStyle(el).position;
+        if (position !== 'sticky' && position !== 'fixed') continue;
+        if (el.closest('[data-guide-root]') !== null) continue;
+        const r = box(el);
+        if (r.right - r.left === 0 || r.bottom - r.top === 0 || r.bottom - r.top > height / 2) {
+          continue;
+        }
+        if (r.top <= 1) tops.push(r);
+        else if (r.bottom >= height - 1) foots.push(r);
+      }
+      const guide = [
+        ...document.querySelectorAll(
+          '.guide-note, .guide-spot, .guide-bar, .guide-panel, .guide-line, .guide-full[data-open]',
+        ),
+      ]
+        .map(box)
+        .filter((r) => r.right - r.left > 0 && r.bottom - r.top > 0);
+      return {
+        bands: {
+          top: Math.max(0, ...tops.map((r) => r.bottom)),
+          bottom: Math.min(height, ...foots.map((r) => r.top)),
+        },
+        maxScroll: Math.max(0, document.documentElement.scrollHeight - height),
+        nodes: sels.map((sel) => {
+          const el = document.querySelector(sel);
+          if (el === null) return null;
+          const r = box(el);
+          return {
+            docTop: r.top + window.scrollY,
+            docBottom: r.bottom + window.scrollY,
+            underBar: [...tops, ...foots].some((b) => meets(r, b)),
+            underGuide: guide.some((b) => meets(r, b)),
+          };
+        }),
+      };
+    }, selectors);
+    const nodes = v.nodes.filter((_, i) => {
+      const m = measured.nodes[i];
+      if (m === null || m === undefined) return true;
+      const viewportsDoing =
+        m.underBar && !m.underGuide && freeable(m, measured.bands, measured.maxScroll);
+      return !viewportsDoing;
+    });
+    if (nodes.length > 0) out.push({ ...v, nodes });
+  }
+  return out;
 }
