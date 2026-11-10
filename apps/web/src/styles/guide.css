@@ -19,6 +19,20 @@
   color: var(--guide-text);
 }
 
+/* The layer in the body holds the marks, placed in page coordinates. It spans the window's width
+   and clips across it, so no mark, even one drawn for a wider window a moment before, can make
+   the page wider than the window: a phone would then widen its layout to fit, and every fixed
+   part of the guide (the recorder, a sheet) with it. Notes and the panel are fixed, so the clip
+   never cuts them. */
+.guide-layer-page {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 0;
+  overflow-x: clip;
+}
+
 /* ---- Controls, reset from the page's own buttons ---- */
 
 .guide-layer button {
@@ -883,41 +897,24 @@
   text-align: left;
 }
 
-.guide-line-title {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* The answer's chip gives way before the title does: the title is what the line is about. */
-.guide-line .guide-chip {
-  flex: 0 1000 auto;
-  min-width: 2.5em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* In the masthead the line reads whole: its title and its answer wrap onto a second row rather
-   than cut, since the line sits in the page's flow and has the row's width. */
-.guide-line-docked .guide-line-open {
+/* The line is the guide's one visible line, so it reads whole wherever it sits: its title and its
+   answer wrap onto a second row rather than cut mid-word. */
+.guide-layer .guide-line-open {
   flex-wrap: wrap;
   row-gap: 2px;
   padding-block: 6px;
 }
 
-.guide-line-docked .guide-line-title {
+.guide-line-title {
   flex: 1 1 auto;
-  overflow: visible;
+  min-width: 0;
   white-space: normal;
 }
 
-.guide-line-docked .guide-line .guide-chip {
+.guide-line .guide-chip {
   flex: none;
   min-width: 0;
-  overflow: visible;
+  white-space: nowrap;
 }
 
 /* The control beside the line (in the masthead, or the dock below it) already says "Under the
@@ -1081,4 +1078,10 @@
   .guide-switch-thumb {
     transition: none;
   }
+}
+
+/* While a sheet or a dialog of the page is open (the menu's cart on a phone), the guide's control
+   gets out of its way: it never lies over the sheet's buttons, and comes back when it closes. */
+body:has(.cart[data-open], dialog[open], [aria-modal='true']) .guide-bar-dock {
+  visibility: hidden;
 }

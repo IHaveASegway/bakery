@@ -441,6 +441,23 @@ export async function expectNoAxeViolations(page: Page, options: { exclude?: str
       timeout: 5_000,
     })
     .catch(() => undefined);
+  // The page must be at rest too: a step of the guide's short path scrolls its element into view
+  // smoothly, and axe read the board mid-scroll, while the guide's marks were being placed again
+  // for the new scroll position (data-guide-marks="settling", components/guide/Layer.tsx). A mark
+  // is an opaque dark disc, so one read at its old place over a card's muted id made that text
+  // fail against it. Wait until the scroll has stopped and the marks stand where the layout puts
+  // them: two animation frames at the same scroll position with the marks settled.
+  await page.waitForFunction(
+    () => {
+      const w = window as Window & { __axeY?: number };
+      const still = w.__axeY === window.scrollY;
+      w.__axeY = window.scrollY;
+      const marks = document.documentElement.dataset.guideMarks;
+      return still && (marks === undefined || marks === 'settled');
+    },
+    null,
+    { polling: 'raf', timeout: 10_000 },
+  );
   let builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']);
   if (options.exclude?.length) builder = builder.disableRules(options.exclude);
   const { violations } = await builder.analyze();

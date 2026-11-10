@@ -128,7 +128,7 @@ export const SIGNIN: GuideEntry[] = [
     screen: 'signin',
     target: 'signin-guest',
     title: 'Try it as a guest',
-    what: 'No account: a Turnstile pass buys a sandbox and a cookie. Guests browse, order, pay with a test card and move their own orders on the kitchen board; the console’s other writes need a sign-in.',
+    what: 'No account: a Turnstile pass buys a sandbox and a cookie. Guests browse, order, pay with a test card and move any order on their own sandbox’s kitchen board, seeded ones included; the console’s other writes need a sign-in.',
     why: 'Admission happens once, at the door, so every later request is cheap and the daily cap is counted in one place.',
     whenNot:
       'Not where a refusal is unacceptable: on a busy day the cap turns a visitor away rather than spend more.',
@@ -153,7 +153,7 @@ export const MENU: GuideEntry[] = [
     screen: 'menu',
     target: 'menu-start',
     title: 'Your own bakery first',
-    what: 'Ordering needs a sandbox of your own; until then this is the demo’s seed menu. A guest sandbox takes a few seconds and is wiped tonight.',
+    what: 'Ordering starts with your own sandbox: a private copy of the bakery, made in a few seconds with no account and wiped at 10:00 UTC. Until then this is the demo’s seed menu.',
     why: 'A sandbox per visitor means an order you place can never land in anyone else’s kitchen.',
     whenNot:
       'Not for a shop that must sell to a stranger at once: here a check that you are a person comes before the first order.',
@@ -164,7 +164,7 @@ export const MENU: GuideEntry[] = [
       method: 'POST',
       path: '/v1/sandboxes',
       body: { turnstile_token: '<the token Turnstile gives the page>', replace: false },
-      note: 'What the sign-in page’s guest button sends.',
+      note: 'What Start ordering sends, as the sign-in page’s guest button does.',
     },
     triggers: [],
   },

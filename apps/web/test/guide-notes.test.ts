@@ -191,6 +191,38 @@ describe('where a note sits', () => {
     }
   });
 
+  test('never over a control the page offers when a place clear of it exists', () => {
+    // A card on a board; the next column's buttons lie where the note would go on the right.
+    const card = { top: 300, left: 430, width: 160, height: 120 };
+    const buttons = [{ top: 330, left: 620, width: 100, height: 32 }];
+    const at = placeNote(card, note, view, buttons);
+    expect(at.clear).toBe(true);
+    expect(at.side).toBe('right');
+    // Nothing to avoid: the first place, as before.
+    expect(placeNote(card, note, view).side).toBe('left');
+  });
+
+  test('a place level with the anchor’s top before another side, when the middle covers a button', () => {
+    const card = { top: 300, left: 430, width: 160, height: 120 };
+    // A button above the card's middle on the right, and the whole left side taken.
+    const buttons = [
+      { top: 180, left: 610, width: 100, height: 32 },
+      { top: 0, left: 0, width: 420, height: 836 },
+    ];
+    const at = placeNote(card, note, view, buttons);
+    expect(at.clear).toBe(true);
+    expect(at.side).toBe('left');
+    expect(at.top).toBe(300);
+  });
+
+  test('with no place clear of the controls, says so, so the note can wait as its line', () => {
+    const card = { top: 300, left: 430, width: 160, height: 120 };
+    const everywhere = [{ top: 0, left: 0, width: 1440, height: 836 }];
+    const at = placeNote(card, note, view, everywhere);
+    expect(at.clear).toBe(false);
+    expect(at.side).toBe('left');
+  });
+
   test('an anchor near the window’s edge keeps the note inside and the caret on the note', () => {
     const at = placeNote({ top: 820, left: 300, width: 100, height: 30 }, note, view);
     expect(at.top + note.height).toBeLessThanOrEqual(view.height - 8);
@@ -359,6 +391,13 @@ describe('where a hotspot sits', () => {
     // No heading, or one whose line has no room left: no place at all, so no mark.
     expect(spotPlaces(card, phone, null)).toEqual([]);
     expect(spotPlaces(card, phone, { ...heading, width: 340 })).toEqual([]);
+  });
+
+  test('at the end of its words at every width: a wide window’s gutter only for a target without any', () => {
+    const card = { top: 200, left: 300, width: 400, height: 80 };
+    const heading = { top: 160, left: 300, width: 120, height: 32 };
+    expect(spotPlaces(card, view, heading)).toEqual([{ top: 162, left: 438, how: 'line' }]);
+    expect(spotPlaces(card, view, null)).toEqual([{ top: 200, left: 708, how: 'gutter' }]);
   });
 
   test('for a paragraph, after its own last line before its heading’s, so two under one heading keep apart', () => {

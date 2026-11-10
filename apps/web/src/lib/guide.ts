@@ -205,6 +205,8 @@ export interface Placement {
   side: 'left' | 'right' | 'top' | 'bottom' | 'none';
   /** The caret's offset along that side, from the note's corner. */
   caret: number;
+  /** Whether the place covers none of the boxes to avoid (the page's controls). */
+  clear: boolean;
 }
 
 /** The gap between the anchor and the note, and the room kept from the window's edges. */
@@ -215,72 +217,105 @@ const CARET_MIN = 16;
 const clamp = (value: number, low: number, high: number) =>
   Math.min(Math.max(value, low), Math.max(low, high));
 
+/** The area two boxes share. */
+const shared = (a: Box, b: Box) =>
+  Math.max(0, Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left)) *
+  Math.max(0, Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top));
+
 /**
  * Where a note of `note` size sits beside `anchor` in a `view` (all in window coordinates), never
- * over it, and never over the page's top bar or masthead, whose bottom edge is `view.top`: to the right if it fits, else to the left, else below, else above, with the caret
- * pointing at the anchor's middle. When no side has room it docks in a corner of the window (the
- * foot first, where the view already stops short of the guide's bar) that does not cover the
- * anchor, or covers least of it, with no caret; the anchor keeps its ring so the eye still finds it. A phone's sheet does
- * not use this: CSS puts it at the foot.
+ * over it, and never over the page's top bar or masthead, whose bottom edge is `view.top`: to the
+ * right if it fits, else to the left, else below, else above, with the caret pointing at the
+ * anchor. Each side is tried centred on the anchor, then level with its top, then with its bottom.
+ * The first of those places that covers none of `avoid` (the page's buttons, links and fields in
+ * the window) wins: a note never lies over the next thing to press when a place clear of it
+ * exists. With no side clear, a corner of the window clear of the anchor and of `avoid` (the foot
+ * first, where the view already stops short of the guide's bar), docked with no caret. With none
+ * clear at all (a dense board has buttons on every side), the place beside the anchor that covers
+ * least of them, `clear` false: the note still sits by what was pressed.
+ * A phone's sheet does not use this: CSS puts it at the foot.
  */
 export function placeNote(
   anchor: Box,
   note: { width: number; height: number },
   view: { width: number; height: number; top?: number },
+  avoid: readonly Box[] = [],
 ): Placement {
   const middleY = anchor.top + anchor.height / 2;
   const middleX = anchor.left + anchor.width / 2;
   // The highest a note's top edge may be: under the page's top bar or masthead, when one shows.
   const high = (view.top ?? 0) + EDGE;
+  const low = view.height - note.height - EDGE;
   const tallEnough = note.height + high + EDGE <= view.height;
-  const fitsRight =
-    tallEnough && anchor.left + anchor.width + GAP + note.width + EDGE <= view.width;
-  const fitsLeft = tallEnough && anchor.left - GAP - note.width >= EDGE;
-  if (fitsRight || fitsLeft) {
-    const left = fitsRight ? anchor.left + anchor.width + GAP : anchor.left - GAP - note.width;
-    const top = clamp(middleY - note.height / 2, high, view.height - note.height - EDGE);
-    return {
-      top,
-      left,
-      side: fitsRight ? 'left' : 'right',
-      caret: clamp(middleY - top, CARET_MIN, note.height - CARET_MIN),
-    };
-  }
   const wideEnough = note.width + 2 * EDGE <= view.width;
+  const places: Omit<Placement, 'clear'>[] = [];
+  const beside = (left: number, side: 'left' | 'right') => {
+    for (const top of [
+      middleY - note.height / 2,
+      anchor.top,
+      anchor.top + anchor.height - note.height,
+    ]) {
+      const at = clamp(top, high, low);
+      places.push({
+        top: at,
+        left,
+        side,
+        caret: clamp(middleY - at, CARET_MIN, note.height - CARET_MIN),
+      });
+    }
+  };
+  if (tallEnough && anchor.left + anchor.width + GAP + note.width + EDGE <= view.width) {
+    beside(anchor.left + anchor.width + GAP, 'left');
+  }
+  if (tallEnough && anchor.left - GAP - note.width >= EDGE) {
+    beside(anchor.left - GAP - note.width, 'right');
+  }
   const below = anchor.top + anchor.height + GAP;
   const above = anchor.top - GAP - note.height;
-  const fitsBelow = wideEnough && below + note.height + EDGE <= view.height;
-  const fitsAbove = wideEnough && above >= high;
-  if (fitsBelow || fitsAbove) {
-    const left = clamp(middleX - note.width / 2, EDGE, view.width - note.width - EDGE);
-    return {
-      top: fitsBelow ? below : above,
-      left,
-      side: fitsBelow ? 'top' : 'bottom',
-      caret: clamp(middleX - left, CARET_MIN, note.width - CARET_MIN),
-    };
-  }
-  const foot = Math.max(high, view.height - note.height - EDGE);
+  const across = (top: number, side: 'top' | 'bottom') => {
+    for (const left of [
+      middleX - note.width / 2,
+      anchor.left,
+      anchor.left + anchor.width - note.width,
+    ]) {
+      const at = clamp(left, EDGE, view.width - note.width - EDGE);
+      places.push({
+        top,
+        left: at,
+        side,
+        caret: clamp(middleX - at, CARET_MIN, note.width - CARET_MIN),
+      });
+    }
+  };
+  if (wideEnough && below + note.height + EDGE <= view.height) across(below, 'top');
+  if (wideEnough && above >= high) across(above, 'bottom');
+  const foot = Math.max(high, low);
   const right = Math.max(EDGE, view.width - note.width - EDGE);
+  // The corners, those clear of the anchor first, then the one that covers least of it. The page
+  // is never scrolled for the note: that would move what the visitor is looking at.
   const corners = [
     { top: foot, left: right },
     { top: foot, left: EDGE },
     { top: high, left: right },
     { top: high, left: EDGE },
-  ];
-  // The corner clear of the anchor; with none clear, the one that covers least of it. The page is
-  // never scrolled for the note: that would move what the visitor is looking at.
-  const covered = (c: { top: number; left: number }) =>
-    Math.max(
-      0,
-      Math.min(c.left + note.width, anchor.left + anchor.width) - Math.max(c.left, anchor.left),
-    ) *
-    Math.max(
-      0,
-      Math.min(c.top + note.height, anchor.top + anchor.height) - Math.max(c.top, anchor.top),
-    );
-  const best = corners.reduce((a, b) => (covered(b) < covered(a) ? b : a));
-  return { ...best, side: 'none', caret: 0 };
+  ]
+    .map((c) => ({ ...c, side: 'none' as const, caret: 0 }))
+    .map((c, i) => ({ c, i, covers: shared({ ...c, ...note }, anchor) }))
+    .sort((a, b) => a.covers - b.covers || a.i - b.i);
+  const covering = (p: { top: number; left: number }) =>
+    avoid.reduce((sum, box) => sum + shared({ ...p, ...note }, box), 0);
+  const clearSide = places.find((p) => covering(p) === 0);
+  if (clearSide !== undefined) return { ...clearSide, clear: true };
+  const clearCorner = corners.find((x) => x.covers === 0 && covering(x.c) === 0);
+  if (clearCorner !== undefined) return { ...clearCorner.c, clear: true };
+  // None clear: the place beside the anchor that covers least of the controls, so the note still
+  // sits by what was pressed (a dense board has buttons on every side).
+  const fallback =
+    places.length === 0
+      ? [corners[0]?.c ?? { top: high, left: EDGE, side: 'none' as const, caret: 0 }]
+      : places;
+  const least = fallback.reduce((best, p) => (covering(p) < covering(best) ? p : best));
+  return { ...least, clear: avoid.length === 0 };
 }
 
 /** A hotspot's size, with the ring drawn around it, and the clear margin it keeps. */
@@ -297,14 +332,13 @@ export const overlaps = (a: Box, b: Box) =>
   a.top + a.height > b.top;
 
 /**
- * Where a hotspot for `target` may sit, in window coordinates, best first. In the gutter outside the
- * target's top-right corner, when the window has room for the mark and a clear margin there; else,
- * when the target has a heading, in that heading's own line, after its text (`line` is the box of
- * the heading's last line of text), so the mark reads as part of the line it explains. Never on
- * the target's edge where the gutter is too narrow: that is where it sat on a button or a word.
- * For a target that is one paragraph, after its own last line of text (`tail`) comes before the
- * heading's line: two paragraphs under one heading, such as the status page's breaker and kill
- * switch, then each keep a mark by their own words, and opening a note never swaps them.
+ * Where a hotspot for `target` may sit, in window coordinates, best first: at the end of the words
+ * it explains, at every width. For a target that is one paragraph, after its own last line of text
+ * (`tail`); else after its heading's last line (`line`), so the mark reads as part of the line it
+ * explains and two paragraphs under one heading each keep a mark by their own words. Only a target
+ * with neither has the gutter outside its top-right corner, when the window has room for the mark
+ * and a clear margin there. Never on the target's edge: that is where it sat on a border, a button
+ * or a word.
  */
 export function spotPlaces(
   target: Box,
@@ -313,10 +347,6 @@ export function spotPlaces(
   tail: Box | null = null,
 ): { top: number; left: number; how: 'gutter' | 'line' | 'tail' }[] {
   const places: { top: number; left: number; how: 'gutter' | 'line' | 'tail' }[] = [];
-  const gutterLeft = target.left + target.width + CLEAR;
-  if (gutterLeft + SPOT + CLEAR <= view.width) {
-    places.push({ top: target.top, left: gutterLeft, how: 'gutter' });
-  }
   if (tail !== null) {
     const left = tail.left + tail.width + LINE_GAP;
     if (left + SPOT + CLEAR <= view.width) {
@@ -328,6 +358,10 @@ export function spotPlaces(
     if (left + SPOT + CLEAR <= view.width) {
       places.push({ top: line.top + (line.height - SPOT) / 2, left, how: 'line' });
     }
+  }
+  const gutterLeft = target.left + target.width + CLEAR;
+  if (tail === null && line === null && gutterLeft + SPOT + CLEAR <= view.width) {
+    places.push({ top: target.top, left: gutterLeft, how: 'gutter' });
   }
   return places;
 }
