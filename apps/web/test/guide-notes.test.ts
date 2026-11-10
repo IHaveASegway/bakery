@@ -138,6 +138,22 @@ describe('where a note sits', () => {
   const view = { width: 1440, height: 836 };
   const note = { width: 344, height: 300 };
 
+  test('never over the masthead or the top bar: beside, above or docked, its top is under the bar', () => {
+    const masthead = { ...view, top: 64 };
+    // Beside an anchor near the top: clamped under the bar, not to the window's edge.
+    const beside = placeNote({ top: 70, left: 430, width: 160, height: 44 }, note, masthead);
+    expect(beside.side).toBe('left');
+    expect(beside.top).toBe(64 + 8);
+    // Docked (an anchor as wide and tall as the window): the top corners are under the bar too.
+    const big = placeNote({ top: 60, left: 0, width: 1440, height: 776 }, note, masthead);
+    expect(big.side).toBe('none');
+    expect(big.top).toBeGreaterThanOrEqual(64 + 8);
+    // With no room above under the bar, the note goes below its anchor instead of above.
+    const narrow = { width: 500, height: 836, top: 64 };
+    const low = placeNote({ top: 380, left: 20, width: 460, height: 40 }, note, narrow);
+    expect(low.side).toBe('top');
+  });
+
   test('to the right of its anchor when it fits, the caret at the anchor’s middle', () => {
     const at = placeNote({ top: 400, left: 430, width: 160, height: 44 }, note, view);
     expect(at.side).toBe('left');

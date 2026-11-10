@@ -547,7 +547,8 @@
 
 .guide-panel {
   position: fixed;
-  top: 16px;
+  /* Under the top bar or masthead showing now (Layer.tsx sets --guide-top), never over it. */
+  top: max(16px, calc(var(--guide-top, 0px) + 8px));
   right: 16px;
   bottom: 64px;
   z-index: 35;

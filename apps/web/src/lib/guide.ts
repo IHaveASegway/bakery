@@ -200,7 +200,7 @@ const clamp = (value: number, low: number, high: number) =>
 
 /**
  * Where a note of `note` size sits beside `anchor` in a `view` (all in window coordinates), never
- * over it: to the right if it fits, else to the left, else below, else above, with the caret
+ * over it, and never over the page's top bar or masthead, whose bottom edge is `view.top`: to the right if it fits, else to the left, else below, else above, with the caret
  * pointing at the anchor's middle. When no side has room it docks in a corner of the window (the
  * foot first, where the view already stops short of the guide's bar) that does not cover the
  * anchor, or covers least of it, with no caret; the anchor keeps its ring so the eye still finds it. A phone's sheet does
@@ -209,17 +209,19 @@ const clamp = (value: number, low: number, high: number) =>
 export function placeNote(
   anchor: Box,
   note: { width: number; height: number },
-  view: { width: number; height: number },
+  view: { width: number; height: number; top?: number },
 ): Placement {
   const middleY = anchor.top + anchor.height / 2;
   const middleX = anchor.left + anchor.width / 2;
-  const tallEnough = note.height + 2 * EDGE <= view.height;
+  // The highest a note's top edge may be: under the page's top bar or masthead, when one shows.
+  const high = (view.top ?? 0) + EDGE;
+  const tallEnough = note.height + high + EDGE <= view.height;
   const fitsRight =
     tallEnough && anchor.left + anchor.width + GAP + note.width + EDGE <= view.width;
   const fitsLeft = tallEnough && anchor.left - GAP - note.width >= EDGE;
   if (fitsRight || fitsLeft) {
     const left = fitsRight ? anchor.left + anchor.width + GAP : anchor.left - GAP - note.width;
-    const top = clamp(middleY - note.height / 2, EDGE, view.height - note.height - EDGE);
+    const top = clamp(middleY - note.height / 2, high, view.height - note.height - EDGE);
     return {
       top,
       left,
@@ -231,7 +233,7 @@ export function placeNote(
   const below = anchor.top + anchor.height + GAP;
   const above = anchor.top - GAP - note.height;
   const fitsBelow = wideEnough && below + note.height + EDGE <= view.height;
-  const fitsAbove = wideEnough && above >= EDGE;
+  const fitsAbove = wideEnough && above >= high;
   if (fitsBelow || fitsAbove) {
     const left = clamp(middleX - note.width / 2, EDGE, view.width - note.width - EDGE);
     return {
@@ -241,13 +243,13 @@ export function placeNote(
       caret: clamp(middleX - left, CARET_MIN, note.width - CARET_MIN),
     };
   }
-  const foot = Math.max(EDGE, view.height - note.height - EDGE);
+  const foot = Math.max(high, view.height - note.height - EDGE);
   const right = Math.max(EDGE, view.width - note.width - EDGE);
   const corners = [
     { top: foot, left: right },
     { top: foot, left: EDGE },
-    { top: EDGE, left: right },
-    { top: EDGE, left: EDGE },
+    { top: high, left: right },
+    { top: high, left: EDGE },
   ];
   // The corner clear of the anchor; with none clear, the one that covers least of it. The page is
   // never scrolled for the note: that would move what the visitor is looking at.

@@ -30,7 +30,7 @@ import {
   watchToOpen,
   type WatchNews,
 } from './match';
-import { Note, barBoxes, resolveAnchor } from './Note';
+import { Note, barBoxes, resolveAnchor, topInset } from './Note';
 import Panel from './Panel';
 import {
   EntryBody,
@@ -250,11 +250,35 @@ export default function Layer({
     return () => document.removeEventListener('keydown', onKey);
   }, [live, standing, path.open, panel, pathEnd, onClosePanel]);
 
+  // The panel opens under the top bar or masthead showing now (guide.css reads --guide-top), so
+  // the switch that opened it stays in sight.
+  const root = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const layer = root.current;
+    if (layer === null) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      layer.style.setProperty('--guide-top', `${topInset()}px`);
+    };
+    const soon = () => {
+      if (frame === 0) frame = requestAnimationFrame(measure);
+    };
+    measure();
+    window.addEventListener('scroll', soon, { passive: true, capture: true });
+    window.addEventListener('resize', soon);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', soon, { capture: true });
+      window.removeEventListener('resize', soon);
+    };
+  }, []);
+
   const showLive = on && live !== null && group.length > 0;
   // The layer lives in the body, so a note or a mark is placed against the page, wherever the
   // guide's bar is (the app shell's top bar is sticky, and would hold them otherwise).
   return createPortal(
-    <div className="guide-layer" data-guide-root="">
+    <div className="guide-layer" data-guide-root="" ref={root}>
       {on && (
         <Hotspots
           entries={entries}

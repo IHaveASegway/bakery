@@ -115,7 +115,11 @@ export function Note({
       const at = placeNote(
         { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
         { width: note.offsetWidth, height: note.offsetHeight },
-        { width: document.documentElement.clientWidth, height: window.innerHeight - BAR_ROOM },
+        {
+          width: document.documentElement.clientWidth,
+          height: window.innerHeight - BAR_ROOM,
+          top: topInset(),
+        },
       );
       setCorner(false);
       note.style.top = `${Math.round(at.top)}px`;
