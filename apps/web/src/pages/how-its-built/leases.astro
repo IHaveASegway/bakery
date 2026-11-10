@@ -85,7 +85,7 @@ const SOURCES = [
 
     <h2>A promise with its end written down</h2>
     <p>
-      The older answer is the lease. Gray and Cheriton’s 1989 paper on file-cache consistency grants
+      The older answer is the lease. The 1989 SOSP paper on leases for file-cache consistency grants
       a client rights for a fixed term, so that a server never has to find out whether the client is
       alive: when the term runs out, the rights are the server’s again. The bakery uses the idea
       more broadly than the paper. What matters is the order of events. The end is decided when the
@@ -156,7 +156,7 @@ const SOURCES = [
       refund. That is what the Order does once its own expiry has run: a payment after it emits{' '}
       <code>OrderPaymentLate</code> and a refund request. The line between the two is where the
       Order’s state says the payment landed. <code>docs/roadmap.md</code> (PR 6) lists the revival
-      as a reading for Joseph to confirm, and it is the one way a count passes its capacity.
+      as a reading the owner has yet to confirm, and it is the one way a count passes its capacity.
     </p>
 
     <h2>What it costs</h2>
@@ -194,15 +194,14 @@ const SOURCES = [
         <em>
           Leases: An Efficient Fault-Tolerant Mechanism for Distributed File Cache Consistency
         </em>
-        , Cary G. Gray and David R. Cheriton, the 12th ACM Symposium on Operating Systems
-        Principles, 1989: a lease as rights for a fixed term, and the grantor’s freedom to take them
-        back. Cited as <code>docs/architecture.md</code> lists it; the paper itself was not read on{' '}
-        {READ}.
+        , the 12th ACM Symposium on Operating Systems Principles, 1989: a lease as rights for a
+        fixed term, and the grantor’s freedom to take them back. Cited as{' '}
+        <code>docs/architecture.md</code> lists it; the paper itself was not read on {READ}.
       </li>
       <li>
-        <em>Release It!</em>, Michael T. Nygard, 2nd edition, 2018: the stability patterns, chapter
-        5, among them timeouts, as the bakery’s <code>docs/architecture.md</code> cites them. The
-        book was not read on {READ}.
+        <em>Release It!</em>, 2nd edition (book, 2018): the stability patterns, chapter 5, among
+        them timeouts, as the bakery’s <code>docs/architecture.md</code> cites them. The book was
+        not read on {READ}.
       </li>
       {SOURCES.map((s) => (
         <li>
