@@ -560,7 +560,7 @@ describe('dist', () => {
   // Measured 2026-11-10 with node's gzipSync at its default level, per class (the largest page of
   // the class), after the console's seven pages (#106) merged: guide only 81,485 B
   // (home, privacy); API reference 81,738 B; status 84,258 B; storefront 95,439 B (menu, sign-in);
-  // checkout 113,645 B; the order's page 105,120 B; console screens 112,748 B (the kitchen; the
+  // checkout 113,645 B; the order's page 105,120 B; console screens 112,749 B (the kitchen; the
   // console's seven pages, the shop's catering and the inbox). Each budget is the measured size
   // plus a quarter, rounded up to the next 1,000 B. The ADR's own numbers (5,000 B for a public
   // page, 120,000 B for an app screen or the checkout) are not met on the public pages: every
@@ -574,7 +574,7 @@ describe('dist', () => {
   // the tour's total it replaces, as main last measured it: guide only 81,485 / 106,990 / 94,187;
   // API reference 81,738 / 107,243 / 94,440; status 84,258 / 109,763 / 96,960; storefront
   // 95,439 / 120,400 / 103,417; checkout 113,645 / 138,606 / 122,775 (its three steps, #101);
-  // console screens 112,748 / 137,709 / 122,232 (the kitchen as its own page). The first load is
+  // console screens 112,749 / 137,710 / 122,232 (the kitchen as its own page). The first load is
   // smaller than the tour's by 7,978 B to 12,702 B; with the guide on the page is larger, by
   // 12,803 B to 16,983 B. The tour's totals were taken before the shop's and the console's later
   // changes merged, so part of each gap is theirs, not the guide's. The order's status page
