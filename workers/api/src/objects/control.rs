@@ -17,6 +17,14 @@
 //! its time and state. Nothing here reads Analytics Engine or arms a timer for it. `admit`
 //! writes the `sandbox_created` point and the wipe's last fan-out run writes `wipe`.
 //!
+//! The count of sandboxes past their wipe (2026-11-10): each 15-minute sweep counts the rows not
+//! wiped more than 2 hours after the first 10:00 UTC after their birth
+//! (`bakery_app::wipe::count_past_wipe`) and stores the number with its time in `past_wipe`, one
+//! row beside the status snapshot. `GET /status` reads that row and serves the count while it is
+//! at most 20 minutes old, so the public route reads one row and never scans `sandboxes`. The
+//! sweep runs whether or not the analytics secrets are set, which is why the count is not inside
+//! the analytics snapshot.
+//!
 //! The 15-minute cron breaker (PR 17) keeps its state here: the cron reads the window's usage in
 //! the Worker and hands it over by command (`POST /breaker`); this object decides with
 //! `bakery_app::breaker::decide` against the stored state, stores the run, and on a trip raises
@@ -34,6 +42,7 @@ use bakery_app::analytics::{Event, Point, counters_state};
 use bakery_app::auth::hex;
 use bakery_app::breaker::{Reads, decide, raised_flag};
 use bakery_app::names::{CONTROL, sandbox_object_name};
+use bakery_app::wipe::{count_past_wipe, served_past_wipe};
 use bakery_contracts::{
     BreakerState, BreakerStatus, Flag, SandboxKind, StatusCounters, StatusResponse,
 };
@@ -118,6 +127,13 @@ const SCHEMA: &[&str] = &[
        as_of TEXT,
        json TEXT,
        failed_at TEXT)",
+    // The sweep's count of sandboxes past their wipe, with the sweep's time (2026-11-10): one
+    // row, replaced at each sweep. Its own table, so the existing snapshot row needs no new
+    // column.
+    "CREATE TABLE IF NOT EXISTS past_wipe (
+       id INTEGER PRIMARY KEY CHECK (id = 1),
+       count INTEGER NOT NULL,
+       counted_at TEXT NOT NULL)",
     // One row per nightly wipe, opened by the 10:00 UTC cron and closed by its last fan-out
     // run, which writes the `wipe` point from it. Pruned with the ledger.
     "CREATE TABLE IF NOT EXISTS wipe_runs (
@@ -517,6 +533,7 @@ impl Control {
             counters_as_of,
             counters_state: counters_state(as_of, failed_at, now),
             breaker: read_breaker(&sql)?.status(),
+            sandboxes_past_wipe: served_past_wipe(read_past_wipe(&sql)?, now),
             sandboxes_today: read_meter(&sql, &day, SANDBOXES)?,
             sandbox_cap: caps.sandboxes,
             guests_today: read_meter(&sql, &day, GUEST_SANDBOXES)?,
@@ -862,10 +879,47 @@ impl Control {
         if stamped > 0 {
             self.start_fan_out(now).await?;
         }
-        console_log!("{{\"event\":\"sweep\",\"rows\":{stamped}}}");
+        let past_wipe = self.store_past_wipe(now)?;
+        console_log!("{{\"event\":\"sweep\",\"rows\":{stamped},\"past_wipe\":{past_wipe}}}");
         Ok(Stamped {
             stamped: u32::try_from(stamped).unwrap_or(u32::MAX),
         })
+    }
+
+    /// The sweep's count of sandboxes past their wipe at `now`, stored with `now` for
+    /// `GET /status`. Only unwiped rows are read: at most the day's sandboxes when the wipe works.
+    /// A row whose `created_at` cannot be read is counted, since nothing shows it is not late.
+    fn store_past_wipe(&self, now: WallTime) -> Result<u32> {
+        #[derive(Deserialize)]
+        struct Unwiped {
+            created_at: String,
+        }
+        let sql = self.sql();
+        let unwiped: Vec<Unwiped> = rows(
+            &sql,
+            "SELECT created_at FROM sandboxes WHERE wiped_at IS NULL",
+            vec![],
+        )?;
+        let mut unreadable = 0u32;
+        let born: Vec<(WallTime, bool)> = unwiped
+            .iter()
+            .filter_map(|r| match r.created_at.parse::<WallTime>() {
+                Ok(at) => Some((at, false)),
+                Err(_) => {
+                    unreadable += 1;
+                    None
+                }
+            })
+            .collect();
+        let count = count_past_wipe(born, now).saturating_add(unreadable);
+        exec(
+            &sql,
+            "INSERT INTO past_wipe (id, count, counted_at) VALUES (1, ?, ?)
+             ON CONFLICT (id) DO UPDATE SET count = excluded.count,
+               counted_at = excluded.counted_at",
+            vec![i64::from(count).into(), now.to_string().into()],
+        )?;
+        Ok(count)
     }
 
     async fn start_fan_out(&self, now: WallTime) -> Result<()> {
@@ -1129,6 +1183,25 @@ fn read_snapshot(sql: &SqlStorage) -> Result<Option<Snapshot>> {
         counters: r.json.as_deref().and_then(|j| serde_json::from_str(j).ok()),
         as_of: r.as_of.unwrap_or_default(),
         failed_at: r.failed_at,
+    }))
+}
+
+/// The sweep's stored count and its time; `None` before the first sweep, or when the time does
+/// not read.
+fn read_past_wipe(sql: &SqlStorage) -> Result<Option<(u32, WallTime)>> {
+    #[derive(Deserialize)]
+    struct Row {
+        count: i64,
+        counted_at: String,
+    }
+    let row: Option<Row> = first(
+        sql,
+        "SELECT count, counted_at FROM past_wipe WHERE id = 1",
+        vec![],
+    )?;
+    Ok(row.and_then(|r| {
+        let at = r.counted_at.parse::<WallTime>().ok()?;
+        Some((u32::try_from(r.count).unwrap_or(u32::MAX), at))
     }))
 }
 
