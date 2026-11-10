@@ -2077,6 +2077,19 @@
           "status": {
             "$ref": "#/components/schemas/OrderStatus"
           },
+          "step_times": {
+            "$ref": "#/components/schemas/OrderStepTimes",
+            "default": {
+              "delivered": null,
+              "in_production": null,
+              "out_for_delivery": null,
+              "paid": null,
+              "picked_up": null,
+              "placed": null,
+              "ready": null
+            },
+            "description": "When each step of the order happened, a business time as `placed_at` is, read from the\norder's own events; `null` for a step it has not taken (added 2026-11-10, roadmap R94)."
+          },
           "subtotal_cents": {
             "format": "int64",
             "type": "integer"
@@ -2129,6 +2142,55 @@
           "closed"
         ],
         "type": "string"
+      },
+      "OrderStepTimes": {
+        "additionalProperties": false,
+        "description": "When each step of an order happened: the business time of the first event that took it there\n(`OrderPlaced`, `OrderPaid`, `OrderProductionStarted`, `OrderReady`, `OrderPickedUp`,\n`OrderOutForDelivery`, `OrderDelivered`), the clock `placed_at` reads. A step the order has\nnot taken is `null`; a pickup never has the two delivery steps, and a delivery never has\n`picked_up`.",
+        "properties": {
+          "delivered": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "in_production": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "out_for_delivery": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paid": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "picked_up": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "placed": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ready": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
       },
       "PaymentPurpose": {
         "description": "What a payment pays for.",

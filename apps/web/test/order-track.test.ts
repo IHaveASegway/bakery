@@ -18,12 +18,13 @@ import {
   stageOf,
   stagesFor,
   stepsTaken,
+  timesOf,
   trackFrom,
   withCard,
   withEvent,
   withOrder,
 } from '../src/lib/order-track';
-import { keptTimes } from '../src/components/OrderStatus';
+import { readFileSync } from 'node:fs';
 
 const ID = '01JTESTORDERTRACK000000AA';
 const order = (over: Partial<OrderResponse> = {}): OrderResponse => ({
@@ -200,24 +201,66 @@ describe('the status page', () => {
   });
 });
 
-describe('the times a tab saw for an order’s steps', () => {
-  const store = (items: Record<string, string>) => ({ getItem: (k: string) => items[k] ?? null });
-  test('survive a reload, read back as they were kept', () => {
-    const kept = { placed: '2026-11-10T11:48:00-07:00', paid: '2026-11-10T11:49:00-07:00' };
-    const read = keptTimes(
-      'ord-one',
-      store({ 'bakery.order-times.v1.ord-one': JSON.stringify(kept) }),
-    );
-    expect(read).toEqual(kept);
+describe('each step’s time, from the order’s answer (R94)', () => {
+  const paidAt = '2026-11-10T09:02:00-07:00';
+  const times = {
+    placed: '2026-11-10T09:00:00-07:00',
+    paid: paidAt,
+    in_production: null,
+    ready: null,
+    picked_up: null,
+    out_for_delivery: null,
+    delivered: null,
+  };
+
+  test('a fresh read shows the paid time the tab never heard', () => {
+    const track = trackFrom(order({ status: 'confirmed', events_seq: 2, step_times: times }));
+    expect(track.times).toEqual({ placed: '2026-11-10T09:00:00-07:00', paid: paidAt });
   });
-  test('read as none when nothing was kept, the storage is blocked or the value is not times', () => {
-    expect(keptTimes('ord-one', store({}))).toEqual({});
-    expect(keptTimes('ord-one', null)).toEqual({});
-    expect(keptTimes('ord-one', store({ 'bakery.order-times.v1.ord-one': 'not json' }))).toEqual(
-      {},
+
+  test('an answer from before the field gives the placed time alone', () => {
+    expect(timesOf(order())).toEqual({ placed: '2026-11-10T09:00:00-07:00' });
+  });
+
+  test('a heard event adds its time; a newer read keeps it and adds its own', () => {
+    let track = trackFrom(order({ status: 'confirmed', events_seq: 2, step_times: times }));
+    track = withEvent(track, {
+      v: 1,
+      id: 'e3',
+      sandbox: 's',
+      stream: `order:s:${ID}`,
+      seq: 3,
+      type: 'OrderProductionStarted',
+      at: '2026-11-10T09:30:00-07:00',
+      recorded_at: '2026-11-10T16:30:00Z',
+      data: {},
+      cause: null,
+    } as unknown as Envelope);
+    expect(track.times.in_production).toBe('2026-11-10T09:30:00-07:00');
+    const later = withOrder(
+      track,
+      order({
+        status: 'ready',
+        events_seq: 4,
+        step_times: {
+          ...times,
+          in_production: '2026-11-10T09:30:00-07:00',
+          ready: '2026-11-10T09:45:00-07:00',
+        },
+      }),
     );
-    expect(
-      keptTimes('ord-one', store({ 'bakery.order-times.v1.ord-one': '{"paid":3,"placed":""}' })),
-    ).toEqual({});
+    expect(later.times).toEqual({
+      placed: '2026-11-10T09:00:00-07:00',
+      paid: paidAt,
+      in_production: '2026-11-10T09:30:00-07:00',
+      ready: '2026-11-10T09:45:00-07:00',
+    });
+  });
+
+  test('the page and the tracker keep nothing in the browser’s storage', () => {
+    for (const file of ['../src/components/OrderStatus.tsx', '../src/lib/order-track.ts']) {
+      const code = readFileSync(new URL(file, import.meta.url), 'utf8');
+      expect(code, file).not.toMatch(/sessionStorage|localStorage|indexedDB|document\.cookie/);
+    }
   });
 });

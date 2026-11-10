@@ -601,6 +601,28 @@ pub struct OrderResponse {
     pub menu_version: u32,
     /// The `seq` of the order's latest event.
     pub events_seq: u64,
+    /// When each step of the order happened, a business time as `placed_at` is, read from the
+    /// order's own events; `null` for a step it has not taken (added 2026-11-10, roadmap R94).
+    #[serde(default)]
+    pub step_times: OrderStepTimes,
+}
+
+/// When each step of an order happened: the business time of the first event that took it there
+/// (`OrderPlaced`, `OrderPaid`, `OrderProductionStarted`, `OrderReady`, `OrderPickedUp`,
+/// `OrderOutForDelivery`, `OrderDelivered`), the clock `placed_at` reads. A step the order has
+/// not taken is `null`; a pickup never has the two delivery steps, and a delivery never has
+/// `picked_up`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(transform = require_every_property)]
+pub struct OrderStepTimes {
+    pub placed: Option<String>,
+    pub paid: Option<String>,
+    pub in_production: Option<String>,
+    pub ready: Option<String>,
+    pub picked_up: Option<String>,
+    pub out_for_delivery: Option<String>,
+    pub delivered: Option<String>,
 }
 
 /// What a staff edit may set on a menu item's status.
