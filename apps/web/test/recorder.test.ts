@@ -58,10 +58,17 @@ describe('the recorder panel when its socket is refused', () => {
   });
 
   test('a note reads on time three times, then late until about 30 s, and stops at the first read that saw everything', async () => {
-    const { NOTE_READS_MS, NOTE_READS_ON_TIME, followWrite, recorderState } =
-      await import('../src/lib/recorder');
+    const { NOTE_READS_MS, NOTE_READS_ON_TIME, followWrite } = await import('../src/lib/recorder');
+    const { recorderSource } = await import('../src/lib/trace');
+    // How far the reads got is told to the trace store, on the write's own trace.
+    const said = new Map<string, string>();
+    recorderSource.connect({
+      record: (e) => {
+        if (e.kind === 'reads') said.set(e.key, e.state);
+      },
+    });
     let seen = false;
-    const done = followWrite('sbx-two', () => seen);
+    const done = followWrite('sbx-two', 'cause-two', () => seen);
     await vi.advanceTimersByTimeAsync(NOTE_READS_MS[0]);
     expect(reads).toHaveLength(1);
     seen = true;
@@ -70,16 +77,17 @@ describe('the recorder panel when its socket is refused', () => {
     await vi.advanceTimersByTimeAsync(10_000);
     expect(reads).toHaveLength(2);
     reads.length = 0;
-    const never = followWrite('sbx-three', () => false);
+    expect(said.get('cause-two')).toBe('done');
+    const never = followWrite('sbx-three', 'cause-three', () => false);
     const onTime = NOTE_READS_MS.slice(0, NOTE_READS_ON_TIME).reduce((a, b) => a + b, 0);
     await vi.advanceTimersByTimeAsync(onTime);
     expect(reads).toHaveLength(NOTE_READS_ON_TIME);
     // Not seen in the first three reads: late, and still listened for.
-    expect(recorderState.get().reading).toBe('late');
+    expect(said.get('cause-three')).toBe('late');
     await vi.advanceTimersByTimeAsync(40_000);
     await never;
     expect(reads).toHaveLength(NOTE_READS_MS.length);
     expect(NOTE_READS_MS.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(31_000);
-    expect(recorderState.get().reading).toBe('done');
+    expect(said.get('cause-three')).toBe('done');
   });
 });

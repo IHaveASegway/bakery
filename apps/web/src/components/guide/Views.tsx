@@ -17,12 +17,13 @@ import {
   type ReadFacts,
   type HeardEvent,
   type Listening,
+  type Reading,
   type Trace,
 } from '../../lib/trace';
 import type { RecorderState } from '../../lib/recorder';
 import { useSandboxPhase } from '../../lib/use-session';
 import { ROUTE_SHAPES } from '../../guide';
-import { routeIdOf } from './match';
+import { LATER, routeIdOf } from './match';
 import { ulid } from '../../lib/ulid';
 
 // ---- Words, pure, so the tests can read them ----
@@ -271,33 +272,44 @@ export function ReadStory({ trace }: { trace: Trace }) {
  * What an event the note waits for says before it is seen (audit G4): waiting for the recorder at
  * first; after about 3 s, late and still listened for; after about 30 s, not seen, in words.
  */
-export function hopWait(reading: 'idle' | 'reading' | 'late' | 'done'): string {
+export function hopWait(reading: Reading): string {
   if (reading === 'late') return 'not seen on the recorder yet; still listening';
   if (reading === 'done') return 'not seen on the recorder in 30 s; it may have missed it';
   return reading === 'reading' ? 'waiting for the recorder' : 'on its way';
 }
 
 /**
+ * What the chain says of an observed event's subscribers: the classes the recorder saw take it, or,
+ * when its hop named none, that nothing subscribes to it; nothing while only the socket has it.
+ */
+export function takenWords(deliveries: readonly Delivery[] | undefined): string | null {
+  if (deliveries === undefined) return null;
+  return deliveries.length === 0 ? 'written; nothing subscribes to it' : deliveryWords(deliveries);
+}
+
+/**
  * The chain of hops for the visitor's action: each request (or socket command) with its answer,
- * time and key; the object that decided it, once an event names it; then each event the entry
- * expects, observed with its sequence number, seen in the activity feed, or still expected; and
- * the subscribers the server's recorder saw take it, when it reports them.
+ * time and cause; the object that decided it, once an event names it; then each event the action
+ * makes, observed with its sequence number, seen in the activity feed, or not yet seen; and the
+ * subscribers the server's recorder saw take it. The live note and the recorder panel both draw
+ * it from the same traces, whose reading state is the store's (lib/trace.ts), so they say the
+ * same of every event (audit H1).
  */
 export function TraceChain({
   traces,
   expected,
   feed,
-  reading = 'idle',
 }: {
   traces: readonly Trace[];
   /** The event types the action should make (match.ts, expectedFor). */
   expected: readonly string[];
   feed: readonly FeedArrival[];
-  /** The recorder's reads for this note: once done, an event no hop showed is "not seen yet". */
-  reading?: 'idle' | 'reading' | 'late' | 'done';
 }) {
   const first = traces[0];
   if (first === undefined) return null;
+  const reading = first.reading;
+  const route = routeIdOf(first);
+  const later = route === null ? undefined : LATER[route];
   const hops = expectedHops(
     expected,
     { startedAt: first.startedAt, events: traces.flatMap((t) => t.events) },
@@ -324,7 +336,7 @@ export function TraceChain({
               {trace.ms !== null && <span className="guide-meta">{trace.ms} ms</span>}
               {trace.key !== null && (
                 <span className="guide-meta" title={trace.key}>
-                  {trace.transport === 'socket' ? 'id' : 'key'} <code>{shortId(trace.key)}</code>
+                  {trace.transport === 'socket' ? 'id' : 'cause'} <code>{shortId(trace.key)}</code>
                 </span>
               )}
               {trace.read !== undefined && <ReadHeaders read={trace.read} />}
@@ -342,7 +354,7 @@ export function TraceChain({
       )}
       {hops.map((hop) => {
         const event = hop.event;
-        const delivered = event?.deliveries ?? [];
+        const taken = hop.state === 'observed' ? takenWords(event?.deliveries) : null;
         return (
           <li key={`${hop.type}-${event?.id ?? ''}`} className="guide-hop" data-state={hop.state}>
             <span className="guide-hop-kind">
@@ -363,13 +375,20 @@ export function TraceChain({
                   {hop.state === 'seen-in-feed' ? 'in the activity feed' : hopWait(reading)}
                 </span>
               )}
-              {delivered.length > 0 && (
-                <span className="guide-meta guide-deliveries">{deliveryWords(delivered)}</span>
-              )}
+              {taken !== null && <span className="guide-meta guide-deliveries">{taken}</span>}
             </span>
           </li>
         );
       })}
+      {later !== undefined && !hops.some((h) => h.type === later.type) && (
+        <li className="guide-hop" data-state="later">
+          <span className="guide-hop-kind">Later</span>
+          <span className="guide-hop-body">
+            <code className="guide-chip">{later.type}</code>
+            <span className="guide-meta">{later.when}</span>
+          </span>
+        </li>
+      )}
     </ol>
   );
 }

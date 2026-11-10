@@ -5,7 +5,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
 import { Note, resolveAnchor } from '../src/components/guide/Note';
-import { byGesture, hopWords } from '../src/components/guide/Panel';
+import { byGesture, hopLines, hopWords } from '../src/components/guide/Panel';
 import { RECORDER } from '../src/guide/recorder';
 import { sandboxOf } from '../src/lib/recorder';
 import {
@@ -47,7 +47,14 @@ import {
   switchOn,
   type GuideEntry,
 } from '../src/lib/guide';
-import { observations, type Trace } from '../src/lib/trace';
+import {
+  createTraceStore,
+  fromHop,
+  observations,
+  type RecorderHop,
+  type Trace,
+} from '../src/lib/trace';
+import type { TraceHop } from '../src/contracts';
 
 const entry = (id: string): GuideEntry => ALL_ENTRIES.find((e) => e.id === id)!;
 const T0 = Date.parse('2026-11-09T15:00:00Z');
@@ -68,6 +75,7 @@ const trace = (over: Partial<Trace> = {}): Trace => ({
   rule: null,
   startedAt: T0,
   events: [],
+  reading: 'idle',
   ...over,
 });
 const command = (over: Partial<Trace> = {}) =>
@@ -495,31 +503,31 @@ describe('what the recorder showed, in plain words', () => {
   });
 
   test('the panel’s hop lines say the same', () => {
-    expect(hopWords({ attempt: 1, deliveries: [{ to: 'Kitchen', outcome: 'delivered' }] })).toBe(
+    expect(hopWords({ deliveries: [{ to: 'Kitchen', outcome: 'ok', attempt: 1 }] })).toBe(
       'Delivered to Kitchen,',
     );
-    expect(
-      hopWords({ attempt: 3, deliveries: [{ to: 'Kitchen', outcome: 'dead_lettered' }] }),
-    ).toBe('Dead-lettered for Kitchen after attempt 3,');
+    expect(hopWords({ deliveries: [{ to: 'Kitchen', outcome: 'dead', attempt: 3 }] })).toBe(
+      'Dead-lettered for Kitchen after attempt 3,',
+    );
+    // A hop that named no class: the event was written and nothing subscribes to it.
+    expect(hopWords({ deliveries: [] })).toBe('Written; nothing subscribes to it;');
   });
 
   test('a note whose reads are done says an unseen event was not seen, never that it did not happen', () => {
     const html = renderToStaticMarkup(
       createElement(TraceChain, {
-        traces: [trace()],
+        traces: [trace({ reading: 'done' })],
         expected: ['OrderPlaced'],
         feed: [],
-        reading: 'done',
       }),
     );
     expect(html).toContain('not seen on the recorder in 30 s; it may have missed it');
     const draw = (reading: 'idle' | 'reading' | 'late') =>
       renderToStaticMarkup(
         createElement(TraceChain, {
-          traces: [trace()],
+          traces: [trace({ reading })],
           expected: ['OrderPlaced'],
           feed: [],
-          reading,
         }),
       );
     expect(draw('reading')).toContain('waiting for the recorder');
@@ -563,7 +571,15 @@ describe('what the recorder showed, in plain words', () => {
       key: null,
     });
     expect(expectedFor(entry('controls-menu-edit'), [keyless])).toEqual([]);
-    expect(unfollowable([keyless])).toContain('no Idempotency-Key');
+    // Said in plain words (audit H4): setting a value twice is setting it once; no key is needed.
+    expect(unfollowable([keyless])).toContain('Setting a value twice');
+    expect(unfollowable([keyless])).not.toContain('cannot be tied');
+    // Publish waits for the plan's own event; the order goes out later, on another press.
+    expect(
+      expectedFor(entry('dispatch-publish'), [
+        write('POST', '/v1/sandboxes/sb1/dispatch/2026-11-10/publish'),
+      ]),
+    ).toEqual(['RoutePublished']);
   });
 
   test('the recorder’s own explanation is short, and judged as every entry is', () => {
@@ -846,5 +862,196 @@ describe('a value the page read', () => {
     const zone = ALL_ENTRIES.find((e) => e.id === 'checkout-zone');
     expect(zone?.what).toContain('wrong-zone');
     expect(zone?.facts?.join(' ')).toContain('first breaking change');
+  });
+});
+
+describe('a note and the recorder panel never disagree (audit H1)', () => {
+  // Made-up ULID-shaped ids. The call's key, and the cause the API answered with (Bakery-Cause):
+  // a dispatch step stores its events under the key with the route's prefix.
+  const SENT_ID = '01JC9A0K3W9QF2N4T7XRB5M0HQ';
+  const CAUSE = `propose:${SENT_ID}`;
+  const PROPOSED = '01JC9A0K4P2B6Y8C4V1N3K7QZC';
+  const REPLIES = ['01JC9A0K5Q2B6Y8C4V1N3K7QZD', '01JC9A0K5Q2B6Y8C4V1N3K7QZE'];
+  const OTHER = '01JC9A0K6R2B6Y8C4V1N3K7QZF';
+  const PATH = '/v1/sandboxes/sbx-one/dispatch/2026-11-10/propose';
+
+  const hop = (id: string, type: string, cause: string, to: string[]): TraceHop => ({
+    id,
+    type,
+    stream: 'dispatch:sbx-one:2026-11-10',
+    seq: 1,
+    cause,
+    at: '2026-11-10T09:04:00-07:00',
+    recorded_at: '2026-11-10T16:04:01Z',
+    delivered_at: '2026-11-10T16:04:02Z',
+    lag_ms: 29,
+    attempt: 1,
+    deliveries: to.map((c) => ({ to: c, outcome: 'delivered' as const })),
+  });
+  const hops = [
+    hop(PROPOSED, 'RouteProposed', CAUSE, ['Crm']),
+    ...REPLIES.map((id) => hop(id, 'MessageDelivered', PROPOSED, ['Crm'])),
+    // Someone else's write (another tab): listed, never the visitor's.
+    hop(OTHER, 'RouteProposed', 'propose:01JC9A0K7S2B6Y8C4V1N3K7QZG', ['Crm']),
+  ];
+
+  /** Each event type the chain shows, with its row's state. */
+  const rows = (html: string) =>
+    new Map(
+      [
+        ...html.matchAll(
+          /data-state="([a-z-]+)"[^>]*>(?:(?!<\/li>).)*?<code class="guide-chip">([A-Za-z]+)<\/code>/g,
+        ),
+      ].map((m) => [m[2] as string, m[1] as string]),
+    );
+
+  /** Every way the panel's hop list and an action's chain can disagree, named. */
+  function disagreements(store: ReturnType<typeof createTraceStore>): string[] {
+    const snap = store.getSnapshot();
+    const out: string[] = [];
+    for (const group of byGesture(snap.traces)) {
+      const chain = rows(
+        renderToStaticMarkup(
+          createElement(TraceChain, {
+            traces: group,
+            expected: expectedFor(entry('dispatch-propose'), group),
+            feed: [],
+          }),
+        ),
+      );
+      const ids = new Set(group.map((t) => t.id));
+      const mine = snap.hops.filter((h) => h.trace !== null && ids.has(h.trace));
+      for (const h of mine) {
+        if (chain.get(h.type) !== 'observed') {
+          out.push(
+            `${h.type}: the panel lists it as the action's, the chain says ${chain.get(h.type)}`,
+          );
+        }
+      }
+      for (const [type, state] of chain) {
+        if (state === 'observed' && !mine.some((h) => h.type === type)) {
+          const fromSocket = group.some((t) =>
+            t.events.some((e) => e.type === type && e.source !== 'recorder'),
+          );
+          if (!fromSocket)
+            out.push(`${type}: observed in the chain, not the action's in the panel`);
+        }
+      }
+    }
+    return out;
+  }
+
+  for (const order of ['answer first', 'hops first'] as const) {
+    test(`a dispatch step's events, tied by the cause the API named (${order})`, () => {
+      const store = createTraceStore();
+      store.gesture(null, T0);
+      const answer = () =>
+        store.record({
+          kind: 'call',
+          key: CAUSE,
+          method: 'POST',
+          path: PATH,
+          status: 200,
+          ms: 54,
+          at: T0 + 54,
+        });
+      const heard = () => {
+        for (const h of hops) store.record(fromHop(h, T0 + 300));
+      };
+      if (order === 'answer first') {
+        answer();
+        expect(disagreements(store)).toEqual([]);
+        heard();
+      } else {
+        heard();
+        answer();
+      }
+      expect(disagreements(store)).toEqual([]);
+      const snap = store.getSnapshot();
+      // The visitor's own: the proposal and both replies it caused; the other tab's is nobody's.
+      expect(snap.hops.filter((h) => h.trace === CAUSE).map((h) => h.type)).toEqual([
+        'MessageDelivered',
+        'MessageDelivered',
+        'RouteProposed',
+      ]);
+      expect(snap.hops.find((h) => h.id === OTHER)?.trace).toBeNull();
+      const html = renderToStaticMarkup(
+        createElement(TraceChain, {
+          traces: byGesture(snap.traces)[0] as Trace[],
+          expected: ['RouteProposed'],
+          feed: [],
+        }),
+      );
+      expect(rows(html).get('RouteProposed')).toBe('observed');
+      expect(html).toContain('delivered to Crm');
+      expect(html).not.toContain('on its way');
+      // The panel folds the two replies into one line and keeps the action's hops in view.
+      const lines = hopLines(snap.hops, CAUSE);
+      expect(lines.map((l) => [l.type, l.hops.length])).toContainEqual(['MessageDelivered', 2]);
+    });
+  }
+
+  test('a call the store cannot tie (no cause named) is nobody’s in the panel too', () => {
+    const store = createTraceStore();
+    store.gesture(null, T0);
+    store.record({
+      kind: 'call',
+      key: SENT_ID,
+      method: 'POST',
+      path: PATH,
+      status: 200,
+      ms: 54,
+      at: T0 + 54,
+    });
+    for (const h of hops) store.record(fromHop(h, T0 + 300));
+    expect(store.getSnapshot().hops.every((h) => h.trace === null)).toBe(true);
+    expect(disagreements(store)).toEqual([]);
+  });
+
+  test('an event no class takes is said so, in the chain and the panel', () => {
+    const store = createTraceStore();
+    store.gesture(null, T0);
+    store.record({
+      kind: 'call',
+      key: CAUSE,
+      method: 'POST',
+      path: PATH,
+      status: 200,
+      ms: 54,
+      at: T0 + 54,
+    });
+    store.record(fromHop(hop(PROPOSED, 'PlanSubmitted', CAUSE, []), T0 + 300));
+    const snap = store.getSnapshot();
+    const html = renderToStaticMarkup(
+      createElement(TraceChain, {
+        traces: byGesture(snap.traces)[0] as Trace[],
+        expected: ['PlanSubmitted'],
+        feed: [],
+      }),
+    );
+    expect(html).toContain('written; nothing subscribes to it');
+    expect(hopWords(snap.hops[0] as RecorderHop)).toBe('Written; nothing subscribes to it;');
+    expect(disagreements(store)).toEqual([]);
+  });
+
+  test('the store’s reading state is the one both read', () => {
+    const store = createTraceStore();
+    store.gesture(null, T0);
+    store.record({
+      kind: 'call',
+      key: CAUSE,
+      method: 'POST',
+      path: PATH,
+      status: 200,
+      ms: 54,
+      at: T0 + 54,
+    });
+    store.record({ kind: 'reads', key: CAUSE, state: 'late' });
+    const group = byGesture(store.getSnapshot().traces)[0] as Trace[];
+    expect(group[0]?.reading).toBe('late');
+    const html = renderToStaticMarkup(
+      createElement(TraceChain, { traces: group, expected: ['RouteProposed'], feed: [] }),
+    );
+    expect(html).toContain('not seen on the recorder yet; still listening');
   });
 });

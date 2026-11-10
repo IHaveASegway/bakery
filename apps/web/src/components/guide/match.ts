@@ -1,7 +1,7 @@
 // Which route a trace was and which entry explains it: shared by the live note and the recorder.
 import { ALL_ENTRIES, ROUTE_SHAPES } from '../../guide';
 import { pickEntry, routeMatcher, type GuideEntry, type ScreenId } from '../../lib/guide';
-import type { HeardEvent, Listening, Trace } from '../../lib/trace';
+import { traces, type HeardEvent, type Listening, type Trace } from '../../lib/trace';
 
 const routeOf = routeMatcher(ROUTE_SHAPES);
 
@@ -29,6 +29,23 @@ export function entryForTraces(group: readonly Trace[], screen: ScreenId, anchor
   return pickEntry(ALL_ENTRIES, screen, routeIdOf(first), types, inTarget);
 }
 
+/**
+ * The entry for a click's traces, as both the live note and the recorder panel choose it: by the
+ * element the click pressed, which the store keeps. One choice, so the two expect the same events.
+ */
+export const entryForGroup = (group: readonly Trace[], screen: ScreenId) =>
+  entryForTraces(group, screen, traces.anchorOf(group[0]?.gesture ?? null));
+
+/** The visitor's traces grouped by the click that made them, newest click first. */
+export function byGesture(traces: readonly Trace[]): Trace[][] {
+  const groups = new Map<number, Trace[]>();
+  for (const trace of traces) {
+    if (trace.gesture === null) continue;
+    groups.set(trace.gesture, [trace, ...(groups.get(trace.gesture) ?? [])]);
+  }
+  return [...groups.entries()].sort(([a], [b]) => b - a).map(([, group]) => group);
+}
+
 /** The element an entry explains, if the page is showing it. */
 export const targetOf = (target: string) =>
   document.querySelector<HTMLElement>(`[data-tour="${CSS.escape(target)}"]`);
@@ -46,7 +63,8 @@ export const COMMAND_EVENT: Record<string, string> = {
  * webhook pays it after the card is confirmed, which is another press. Issuing a token at the same
  * version writes nothing; rotating it writes ApiTokenRotated. Starting traffic writes
  * TrafficStarted; its orders come a minute or more later. Scheduling a campaign writes
- * CampaignScheduled; it is sent at its time.
+ * CampaignScheduled; it is sent at its time. Publishing a plan writes RoutePublished; an order on
+ * it goes out for delivery when the kitchen makes it ready, a later press (LATER).
  */
 export const ROUTE_WRITES: Record<string, readonly string[]> = {
   pay: ['PaymentIntentCreated'],
@@ -55,6 +73,18 @@ export const ROUTE_WRITES: Record<string, readonly string[]> = {
   'rotate-token': ['ApiTokenRotated'],
   'start-traffic': ['TrafficStarted'],
   'schedule-campaign': ['CampaignScheduled'],
+  'publish-dispatch': ['RoutePublished'],
+};
+
+/**
+ * An entry's event that a route's write does not make by itself, and what makes it, in words a
+ * note shows under the events it waits for, so it waits for nothing the press did not start.
+ */
+export const LATER: Record<string, { type: string; when: string }> = {
+  'publish-dispatch': {
+    type: 'OrderOutForDelivery',
+    when: 'goes out when its order is made ready on the board, a later press',
+  },
 };
 
 /** The sandbox a write names in its path, or null (`/v1/sandboxes` itself, the auth routes). */
@@ -77,8 +107,8 @@ export function expectedFor(entry: GuideEntry | null, group: readonly Trace[]): 
   if (first !== undefined && first.transport !== 'socket') {
     const bare = first.path.split('?')[0] ?? first.path;
     if (/^\/v1\/sandboxes\/[^/]+$/.test(bare) || sandboxIn(bare) === null) return [];
-    // A write sent with no Idempotency-Key (a price draft's PATCH): the server makes its own key,
-    // so the recorder's events name a cause this page never saw and cannot be tied to it here.
+    // A write whose answer named no cause (an API older than Bakery-Cause, a PATCH sent with no
+    // key): its events name a cause this page never saw, so none is waited for.
     if (first.key === null) return [];
     const route = routeIdOf(first);
     const writes = route === null ? undefined : ROUTE_WRITES[route];
@@ -99,7 +129,9 @@ export function unfollowable(group: readonly Trace[]): string | null {
     return 'The recorder is the sandbox’s own, so it goes with the sandbox: no event of this is shown here.';
   }
   if (first.key === null && first.method !== 'GET' && sandboxIn(bare) !== null) {
-    return 'This call carries no Idempotency-Key, so the server named its own and the events it wrote cannot be tied to it here; the Recorder panel lists them as they arrive.';
+    return first.method === 'PATCH' || first.method === 'PUT'
+      ? 'Setting a value twice leaves it as setting it once does, so this call needs no key to be safe to repeat. Its answer named no cause, so its events are not followed here; the Recorder panel lists them as they arrive.'
+      : 'Its answer named no cause, so its events are not followed here; the Recorder panel lists them as they arrive.';
   }
   if (sandboxIn(bare) === null && first.method !== 'GET') {
     return 'The recorder is read by sandbox and this call names none, so its events are not followed here; the Recorder panel shows them once the sandbox is yours.';

@@ -26,7 +26,8 @@ import { followWrite, sandboxOf, useRecorderState } from '../../lib/recorder';
 import { traces, type Trace } from '../../lib/trace';
 import { useSandboxPhase } from '../../lib/use-session';
 import {
-  entryForTraces,
+  byGesture,
+  entryForGroup,
   expectedFor,
   gesturesIn,
   noteToOpen,
@@ -167,8 +168,7 @@ export default function Layer({
     [snapshot, live],
   );
   const liveEntry = useMemo(
-    () =>
-      live === null ? null : entryForTraces(group, screenGroup, traces.anchorOf(live.gesture)),
+    () => (live === null ? null : entryForGroup(group, screenGroup)),
     // The entry is chosen once the first request is known; later evidence does not change it.
     [live?.gesture, group[0]?.id, screenGroup],
   );
@@ -205,27 +205,34 @@ export default function Layer({
   useEffect(() => {
     lastFocused.current = null;
   }, [live?.gesture]);
-  // The recorder: once the visitor's write is answered 2xx, read its hops a few times, until
-  // every event the note expects is observed (lib/recorder.ts holds the bounds and the cost).
+  // The recorder: once a write the visitor made is answered 2xx, read its hops a few times, until
+  // every event its action makes is observed (lib/recorder.ts holds the bounds and the cost). Every
+  // such write is followed, with a note open or not (the recorder panel open, a note folded), so
+  // the panel's row and the note say the same of it: the reading state is the trace's own.
   const recorder = useRecorderState();
-  const followed = useRef<number | null>(null);
-  const writeDone =
-    group[0]?.transport === 'http' && group[0].outcome === 'ok' && group[0].read === undefined;
+  const followed = useRef(gesturesIn(traces.getSnapshot().traces, Date.now()));
   useEffect(() => {
-    if (!on || live === null || !writeDone || followed.current === live.gesture) return;
-    // A write to the sandbox itself (its wipe) leaves nothing to read: the recorder goes with it.
-    const path = group[0]?.path ?? '';
-    const sandbox = sandboxOf(path);
-    if (sandbox === null || /^\/v1\/sandboxes\/[^/?]+$/.test(path)) return;
-    followed.current = live.gesture;
-    const expected = expectedFor(liveEntry, group);
-    const gesture = live.gesture;
-    void followWrite(sandbox, () => {
-      const mine = traces.getSnapshot().traces.filter((t) => t.gesture === gesture);
-      const seen = new Set(mine.flatMap((t) => t.events.map((e) => e.type)));
-      return expected.every((type) => seen.has(type));
-    });
-  }, [on, live, writeDone, group, liveEntry]);
+    for (const mine of byGesture(snapshot.traces).slice(0, 3)) {
+      const head = mine[0];
+      if (head === undefined || head.gesture === null || followed.current.has(head.gesture))
+        continue;
+      if (head.transport !== 'http' || head.read !== undefined || head.outcome === 'pending') {
+        continue;
+      }
+      followed.current.add(head.gesture);
+      if (head.outcome !== 'ok') continue;
+      // A write to the sandbox itself (its wipe) leaves nothing to read: the recorder goes with it.
+      const sandbox = sandboxOf(head.path);
+      if (sandbox === null || /^\/v1\/sandboxes\/[^/?]+$/.test(head.path)) continue;
+      const expected = expectedFor(entryForGroup(mine, screenGroup), mine);
+      const gesture = head.gesture;
+      void followWrite(sandbox, head.id, () => {
+        const now = traces.getSnapshot().traces.filter((t) => t.gesture === gesture);
+        const seen = new Set(now.flatMap((t) => t.events.map((e) => e.type)));
+        return expected.every((type) => seen.has(type));
+      });
+    }
+  }, [snapshot.traces, screenGroup]);
 
   // One sentence, once, when the first answer is in.
   const first = group[0];
@@ -695,7 +702,6 @@ export default function Layer({
                 traces={group}
                 expected={expectedFor(liveEntry, group)}
                 feed={snapshot.feed}
-                reading={followed.current === live.gesture ? recorder.reading : 'idle'}
               />
               {unfollowable(group) !== null && <p className="guide-meta">{unfollowable(group)}</p>}
               <RecorderSays state={recorder} />
@@ -740,6 +746,7 @@ export default function Layer({
               entries={entries}
               traces={snapshot.traces.filter((t) => t.gesture !== null)}
               feed={snapshot.feed}
+              hops={snapshot.hops}
               heard={snapshot.heard}
               listening={snapshot.listening}
               onClose={onClosePanel}

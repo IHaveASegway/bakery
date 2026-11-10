@@ -454,6 +454,18 @@
   color: var(--guide-accent);
 }
 
+/* An event a later press makes, named so the note waits for nothing this press did not start: a
+   dotted ring and a dotted chip. */
+.guide-hop[data-state='later']::before {
+  border-style: dotted;
+}
+
+.guide-hop[data-state='later'] .guide-chip {
+  border-style: dotted;
+  background: transparent;
+  color: var(--guide-muted);
+}
+
 .guide-hop[data-state='expected'] .guide-chip {
   border-style: dashed;
   border-color: var(--guide-edge);

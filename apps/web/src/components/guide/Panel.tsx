@@ -1,29 +1,67 @@
 import { useEffect, useRef, useState } from 'react';
 import { RECORDER } from '../../guide/recorder';
-import { tailForPanel, useRecorderState, type RecentHop } from '../../lib/recorder';
+import { tailForPanel, useRecorderState } from '../../lib/recorder';
 import { useSandboxPhase } from '../../lib/use-session';
 import type { GuideEntry, ScreenId } from '../../lib/guide';
-import type { FeedArrival, HeardEvent, Listening, Trace } from '../../lib/trace';
-import { entryForTraces, expectedFor, routeIdOf, targetOf } from './match';
+import type {
+  Delivery,
+  FeedArrival,
+  HeardEvent,
+  Listening,
+  RecorderHop,
+  Trace,
+} from '../../lib/trace';
+import { byGesture, entryForGroup, expectedFor, routeIdOf, targetOf } from './match';
 import {
   EntryBody,
   ReadStory,
   TraceChain,
   WhyLines,
+  deliveryWords,
   listeningText,
   objectOf,
   requestText,
 } from './Views';
 
-/** The visitor's traces grouped by the click that made them, newest click first. */
-export function byGesture(traces: readonly Trace[]): Trace[][] {
-  const groups = new Map<number, Trace[]>();
-  for (const trace of traces) {
-    if (trace.gesture === null) continue;
-    groups.set(trace.gesture, [trace, ...(groups.get(trace.gesture) ?? [])]);
-  }
-  return [...groups.entries()].sort(([a], [b]) => b - a).map(([, group]) => group);
+/** How many lines the panel's hop list shows; repeats of one kind fold into one line. */
+export const HOP_LINES = 8;
+
+/** A line of the panel's hop list: one hop, or a run of hops of one type that read the same. */
+export interface HopLine {
+  hops: readonly RecorderHop[];
+  type: string;
+  /** The visitor's action whose trace holds these hops, or null. */
+  trace: string | null;
 }
+
+/**
+ * The recorder's hops as the panel lists them, newest first: a run of the same type with the same
+ * deliveries and the same owner is one line with a count ("MessageDelivered, 8 times"), so a burst
+ * of replies never pushes the visitor's own hop out; at most HOP_LINES lines, and a line holding a
+ * hop of the visitor's newest action (`keep`) is never cut (audit, Step 4: the hop a note cited at
+ * 220 ms had left the list).
+ */
+export function hopLines(hops: readonly RecorderHop[], keep: string | null): HopLine[] {
+  const lines: HopLine[] = [];
+  for (const hop of hops) {
+    const last = lines.at(-1);
+    if (
+      last !== undefined &&
+      last.type === hop.type &&
+      last.trace === hop.trace &&
+      hopWords(last.hops[0] as RecorderHop) === hopWords(hop)
+    ) {
+      lines[lines.length - 1] = { ...last, hops: [...last.hops, hop] };
+    } else {
+      lines.push({ hops: [hop], type: hop.type, trace: hop.trace });
+    }
+  }
+  const shown = lines.slice(0, HOP_LINES);
+  const kept = lines.slice(HOP_LINES).filter((l) => keep !== null && l.trace === keep);
+  return [...shown, ...kept];
+}
+
+export { byGesture };
 
 /**
  * The recorder: the keyboard's and the screen reader's way to everything a note shows. It lists
@@ -37,6 +75,7 @@ export default function Panel({
   entries,
   traces,
   feed,
+  hops,
   heard = [],
   listening = null,
   onClose,
@@ -45,6 +84,8 @@ export default function Panel({
   entries: readonly GuideEntry[];
   traces: readonly Trace[];
   feed: readonly FeedArrival[];
+  /** The recorder's hops, from the same store as the traces (lib/trace.ts). */
+  hops: readonly RecorderHop[];
   /** On a page that watches an order: what it heard, and how it listens. */
   heard?: readonly HeardEvent[];
   listening?: Listening | null;
@@ -99,11 +140,11 @@ export default function Panel({
         <ul className="guide-rows">
           {groups.map((group) => {
             const first = group[0] as Trace;
-            const entry = entryForTraces(group, screen, null);
+            const entry = entryForGroup(group, screen);
             const id = `trace-${first.id}`;
             const { sent, answer } = requestText(first);
             return (
-              <li key={id}>
+              <li key={id} data-guide-trace={first.id}>
                 <button
                   type="button"
                   className="guide-row"
@@ -164,19 +205,37 @@ export default function Panel({
                   ? 'The recorder’s socket was refused here (a preview’s address is not the API’s, or the session’s upgrades are spent), so this panel reads it every 5 seconds instead.'
                   : 'Connecting to the recorder…'}
           </p>
-          {recorder.recent.length > 0 && (
+          {hops.length > 0 && (
             <ul
               className="guide-rows guide-heard"
               aria-label="Hops from the recorder, newest first"
             >
-              {recorder.recent.map((hop) => (
-                <li key={`${hop.id}-${hop.attempt}`}>
-                  <code className="guide-chip">{hop.type}</code>{' '}
-                  <span className="guide-meta">
-                    {hopWords(hop)} {hop.lagMs} ms after it was written.
-                  </span>
-                </li>
-              ))}
+              {hopLines(hops, groups[0]?.[0]?.id ?? null).map((line) => {
+                const hop = line.hops[0] as RecorderHop;
+                const yours =
+                  line.trace === null
+                    ? null
+                    : groups.find((g) => g.some((t) => t.id === line.trace));
+                return (
+                  <li key={`${hop.id}-${hop.attempt}`} data-guide-hop-of={line.trace ?? undefined}>
+                    <code className="guide-chip">{line.type}</code>{' '}
+                    {line.hops.length > 1 && (
+                      <span className="guide-meta">{line.hops.length} times, </span>
+                    )}
+                    <span className="guide-meta">
+                      {hopWords(hop)} {hop.lagMs} ms after it was written
+                      {line.hops.length > 1 ? ' (the newest)' : ''}.
+                    </span>
+                    {yours !== undefined && yours !== null && (
+                      <span className="guide-meta guide-yours">
+                        {' '}
+                        From your action:{' '}
+                        {entryForGroup(yours, screen)?.title ?? routeIdOf(yours[0] as Trace)}.
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
           <details className="guide-curl">
@@ -217,23 +276,12 @@ export default function Panel({
   );
 }
 
-/** A recorder hop in plain words: whom it reached, on which attempt, a retry or a dead letter. */
-export function hopWords(hop: Pick<RecentHop, 'deliveries' | 'attempt'>): string {
-  const of = (outcome: string) =>
-    hop.deliveries.filter((d) => d.outcome === outcome).map((d) => d.to);
-  const delivered = of('delivered');
-  const retried = of('retried');
-  const dead = of('dead_lettered');
-  if (hop.deliveries.length === 0) return 'No class consumes it;';
-  const parts: string[] = [];
-  if (delivered.length > 0) {
-    parts.push(
-      `delivered to ${delivered.join(', ')}${hop.attempt > 1 ? ` on attempt ${hop.attempt}` : ''}`,
-    );
-  }
-  if (retried.length > 0) parts.push(`${retried.join(', ')} retried after attempt ${hop.attempt}`);
-  if (dead.length > 0)
-    parts.push(`dead-lettered for ${dead.join(', ')} after attempt ${hop.attempt}`);
-  const said = parts.join('; ');
+/**
+ * A recorder hop in plain words, the note's own words for it (Views.tsx, deliveryWords): whom it
+ * reached, on which attempt, a retry or a dead letter; or that nothing subscribes to it.
+ */
+export function hopWords(hop: { deliveries: readonly Delivery[] }): string {
+  if (hop.deliveries.length === 0) return 'Written; nothing subscribes to it;';
+  const said = deliveryWords(hop.deliveries);
   return `${said.charAt(0).toUpperCase()}${said.slice(1)},`;
 }
