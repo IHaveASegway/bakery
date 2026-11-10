@@ -18,9 +18,8 @@ use crate::objects::sql::call_empty;
 
 type Answer = Result<Response, Failure>;
 
-/// What a Kitchen's (or a Recorder's) 410 means: the sandbox is still seeding its children, or it
-/// is gone.
-pub(super) async fn gone(cx: &Cx, id: bakery_domain::Ulid) -> Failure {
+/// What a Kitchen's 410 means: the sandbox is still seeding its children, or it is gone.
+async fn gone(cx: &Cx, id: bakery_domain::Ulid) -> Failure {
     match state(cx, id).await {
         Ok(Some(s)) if s.state == SandboxState::Seeding => problem::seeding(),
         Ok(_) => problem::wiped(),

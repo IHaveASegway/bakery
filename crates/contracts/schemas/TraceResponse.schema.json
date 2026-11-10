@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "TraceResponse",
-  "description": "`GET /v1/sandboxes/{id}/trace`: the hops recorded after the cursor `after`, oldest first and\nnewest last, at most 50 batches of them; then `cursor` for the next call. Any session of the\nsandbox reads it, a guest's included. The recorder keeps the last 200 batches the consumer\nsent it and drops older ones, so a cursor older than that misses hops, and says so.",
+  "description": "`GET /v1/sandboxes/{id}/trace`: the hops recorded after the cursor `after`, oldest first and\nnewest last, at most 50 batches of them; then `cursor` for the next call. Any session of the\nsandbox reads it, a guest's included. The recorder keeps the last 200 batches the consumer\nsent it and drops older ones, so a cursor older than that misses hops, and says so. A live\nsandbox whose recorder was never seeded (one born before the recorder's deploy) answers an\nempty page; one being wiped answers 410 `wiped`.",
   "type": "object",
   "properties": {
     "cursor": {
@@ -17,7 +17,7 @@
       }
     },
     "missed": {
-      "description": "Batches after `after` were dropped from the ring before this read.",
+      "description": "Hops were missed: batches after `after` were dropped from the ring before this read, or\n`after` was past the ring's newest batch (a cursor kept from another sandbox), so the read\nstarted again from the oldest kept.",
       "type": "boolean"
     },
     "more": {
@@ -60,7 +60,7 @@
           "type": "string"
         },
         "attempt": {
-          "description": "The attempt this hop records, from 1, as the recorder counts the hops it was sent for the\nevent (lossy, like the recorder: a dropped hop is not counted).",
+          "description": "The recorder's own count of the hops it recorded for the event, from 1, in the order they\narrived: a lower bound on the Queue's attempts, not the Queue's number. A retry made with\nthe flag `off` builds no hop, and a hop whose recording was lost is not counted. A dead hop\nrepeats the event's last count (1 when it held none), since it is no attempt of its own.",
           "type": "integer",
           "format": "uint32",
           "minimum": 0
@@ -134,12 +134,12 @@
           "const": "delivered"
         },
         {
-          "description": "It did not get the event on this attempt, by its own failure or an earlier subscriber's,\nand the Queue sends the message again.",
+          "description": "It did not get the event on this attempt, by its own failure or an earlier subscriber's,\nand the message went back to the Queue. A hop never says this attempt was the last: that\nis only known once the message is dead.",
           "type": "string",
           "const": "retried"
         },
         {
-          "description": "It did not get the event on the last attempt the Queue makes (the fourth, after 3\nretries): the message goes to the dead letters.",
+          "description": "The message is a dead letter and this class never got it: observed, never inferred. Only\na dead hop carries it, recorded when the dead-letter queue's consumer has kept the message\n(the Queue gives up after 3 retries). It marks the classes from the one that had not\nanswered on the event's last recorded hop. When the recorder held no earlier hop for the\nevent (they were lost, or every attempt was retried with the flag `off`), which class\nfailed is not known, and every routed class is `dead_lettered`.",
           "type": "string",
           "const": "dead_lettered"
         }

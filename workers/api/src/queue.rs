@@ -47,8 +47,11 @@
 //! times, each routed class with its outcome, never `data`), and at the end of the batch sends
 //! each sandbox's `Recorder` one `/_record` with that sandbox's hops, through `wait_until`, so
 //! the handler returns, and every ack stands, before it is sent. A failure to record is one
-//! `trace_drop` line with the sandbox and the count, and changes nothing else. With the flag
-//! `off` nothing is delivered, so nothing is recorded.
+//! `trace_drop` line with the sandbox and the count, and changes nothing else; hops not yet sent
+//! when the platform ends the invocation are lost with no line. The dead-letter queue's consumer
+//! sends each sandbox's Recorder its dead hops (`/_dead`) the same way, once the dead letters are
+//! kept: the Recorder learns of a dead letter only from there, never from a count. With the flag
+//! `off` nothing is delivered and nothing is recorded, dead hops included.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -119,19 +122,30 @@ thread_local! {
 #[event(queue)]
 async fn queue(batch: MessageBatch<String>, env: Env, ctx: Context) -> Result<()> {
     if batch.queue() == DLQ {
-        dead_letters(&batch, &env).await
+        let dead = dead_letters(&batch, &env).await?;
+        // A dead letter is the Recorder's only news of the event's end; with the flag `off`
+        // nothing is recorded, as on the main queue.
+        if !dead.is_empty() && flag(&env).await != Flag::Off {
+            ctx.wait_until(record(env, dead, "/_dead"));
+        }
+        Ok(())
     } else {
         let hops = consume(&batch, &env).await?;
         if !hops.is_empty() {
-            ctx.wait_until(record(env, hops));
+            ctx.wait_until(record(env, hops, "/_record"));
         }
         Ok(())
     }
 }
 
-/// Each sandbox's hops of the batch to its `Recorder`, one request a sandbox, after the batch's
-/// acks. Best effort: a failure is logged as `trace_drop`, with the sandbox and the count only.
-async fn record(env: Env, hops: BTreeMap<Ulid, Vec<TraceHop>>) {
+/// Each sandbox's hops of the batch to its `Recorder` at `path` (`/_record` from the consumer,
+/// `/_dead` from the dead-letter queue's), one request a sandbox, one after another, after the
+/// batch's acks. The work is bounded by the batch: at most 10 messages (`max_batch_size` in
+/// wrangler.jsonc), so at most 10 sandboxes and 10 requests, each through [`call`], which reads
+/// the answer to its end. Best effort: a failure is logged as `trace_drop`, with the sandbox and
+/// the count only. When the platform ends the invocation's `wait_until` before the last request,
+/// the hops not yet sent are lost with no line at all.
+async fn record(env: Env, hops: BTreeMap<Ulid, Vec<TraceHop>>, path: &'static str) {
     for (sandbox, hops) in hops {
         let n = hops.len();
         let status = call(
@@ -139,14 +153,14 @@ async fn record(env: Env, hops: BTreeMap<Ulid, Vec<TraceHop>>) {
             recorder::BINDING,
             &recorder::name(sandbox),
             Method::Post,
-            "/_record",
+            path,
             Some(&recorder::RecordIn { hops }),
         )
         .await
         .map_or(0, |r| r.status_code());
         if status != 200 {
             console_log!(
-                "{{\"event\":\"trace_drop\",\"sandbox\":\"{sandbox}\",\"hops\":{n},\"status\":{status}}}"
+                "{{\"event\":\"trace_drop\",\"sandbox\":\"{sandbox}\",\"path\":{path:?},\"hops\":{n},\"status\":{status}}}"
             );
         }
     }
@@ -890,7 +904,13 @@ async fn write_dead_letter(
     Ok(res.status_code())
 }
 
-async fn dead_letters(batch: &MessageBatch<String>, env: &Env) -> Result<()> {
+/// Each message written to its Sandbox's dead letters and acked; the dead hop of each one kept,
+/// by sandbox, for the flight recorder (an envelope that does not read has none).
+async fn dead_letters(
+    batch: &MessageBatch<String>,
+    env: &Env,
+) -> Result<BTreeMap<Ulid, Vec<TraceHop>>> {
+    let mut dead: BTreeMap<Ulid, Vec<TraceHop>> = BTreeMap::new();
     for message in batch.raw_iter() {
         let body = message.body().as_string();
         let sandbox = body.as_deref().and_then(sandbox_of);
@@ -903,11 +923,20 @@ async fn dead_letters(batch: &MessageBatch<String>, env: &Env) -> Result<()> {
             .ok()
             .and_then(|v| v.get("id").and_then(|i| i.as_str()).map(str::to_owned))
             .unwrap_or_default();
+        let envelope = read(&body).ok();
         match write_dead_letter(env, sandbox, body, None).await {
             Ok(200) => {
                 console_log!("{{\"event\":\"dlq\",\"outcome\":\"kept\",\"id\":{id:?}}}");
                 metrics::write(env, &Point::one(Event::Dlq));
                 message.ack();
+                if let Some(e) = envelope {
+                    let routes: Vec<Subscriber> = deliver_to(&e).iter().map(|r| r.to).collect();
+                    dead.entry(e.sandbox).or_default().push(recorder::dead_hop(
+                        &e,
+                        &routes,
+                        SystemClock::new().now_wall(),
+                    ));
+                }
             }
             Ok(410) => {
                 console_log!("{{\"event\":\"dlq\",\"outcome\":\"wiped\",\"id\":{id:?}}}");
@@ -919,7 +948,7 @@ async fn dead_letters(batch: &MessageBatch<String>, env: &Env) -> Result<()> {
             }
         }
     }
-    Ok(())
+    Ok(dead)
 }
 
 #[cfg(test)]

@@ -8,7 +8,6 @@
 use bakery_contracts::{SandboxState, TraceResponse};
 use worker::{Headers, Method, Request, RequestInit, Response};
 
-use super::kitchen::gone;
 use super::problem::{self, Failure};
 use super::sandboxes::{not_revoked, own_sandbox, state};
 use super::{Cx, json};
@@ -16,6 +15,32 @@ use crate::objects::recorder::{self, after_of};
 use crate::objects::sql::call_empty;
 
 type Answer = Result<Response, Failure>;
+
+/// What a Recorder's 410 means, read from the sandbox's state: one rule for both routes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unrecorded {
+    /// The sandbox is still seeding its children: 503 `seeding`.
+    Seeding,
+    /// The sandbox is being wiped, or is gone: 410 `wiped`.
+    Wiped,
+    /// A live sandbox whose Recorder was never seeded, one born before the recorder's deploy: it
+    /// has recorded nothing. The read answers an empty page; the socket refuses with 404
+    /// `not-found`, reason `no-recorder`, since there is no object to watch and nothing was wiped.
+    NeverSeeded,
+}
+
+pub fn unrecorded(state: Option<SandboxState>) -> Unrecorded {
+    match state {
+        Some(SandboxState::Seeding) => Unrecorded::Seeding,
+        Some(SandboxState::Live) => Unrecorded::NeverSeeded,
+        Some(SandboxState::Wiping | SandboxState::Wiped) | None => Unrecorded::Wiped,
+    }
+}
+
+/// The sandbox's state, for a Recorder that answered 410.
+async fn unrecorded_for(cx: &Cx, id: bakery_domain::Ulid) -> Result<Unrecorded, Failure> {
+    Ok(unrecorded(state(cx, id).await?.map(|s| s.state)))
+}
 
 /// `GET /v1/sandboxes/{id}/trace`: the Recorder's page after `after`. A live sandbox whose
 /// Recorder was never seeded (one born before the recorder existed) has recorded nothing, and
@@ -40,18 +65,21 @@ pub async fn get(cx: &Cx, req: &Request, id: Option<&str>) -> Answer {
             out.headers_mut().set("Cache-Control", "no-store")?;
             Ok(out)
         }
-        410 => match state(cx, id).await? {
-            Some(s) if s.state == SandboxState::Seeding => Err(problem::seeding()),
-            Some(_) => json(
-                &TraceResponse {
-                    hops: Vec::new(),
-                    cursor: after,
-                    more: false,
-                    missed: false,
-                },
-                200,
-            ),
-            None => Err(problem::wiped()),
+        410 => match unrecorded_for(cx, id).await? {
+            Unrecorded::Seeding => Err(problem::seeding()),
+            Unrecorded::Wiped => Err(problem::wiped()),
+            Unrecorded::NeverSeeded => {
+                cx.reason("no-recorder");
+                json(
+                    &TraceResponse {
+                        hops: Vec::new(),
+                        cursor: after,
+                        more: false,
+                        missed: false,
+                    },
+                    200,
+                )
+            }
         },
         _ => Err(problem::internal()),
     }
@@ -89,8 +117,31 @@ pub async fn socket(cx: &Cx, req: &Request, id: Option<&str>) -> Answer {
                 .ok_or_else(|| problem::internal().because("no-socket"))?;
             Ok(Response::from_websocket(ws)?)
         }
-        410 => Err(gone(cx, id).await),
+        410 => Err(match unrecorded_for(cx, id).await? {
+            Unrecorded::Seeding => problem::seeding(),
+            Unrecorded::Wiped => problem::wiped(),
+            Unrecorded::NeverSeeded => problem::not_found().because("no-recorder"),
+        }),
         426 => Err(problem::upgrade()),
         _ => Err(problem::internal()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One rule for both routes, by the sandbox's state when its Recorder answers 410.
+    #[test]
+    fn a_missing_recorder_is_read_from_the_sandbox_state() {
+        assert_eq!(unrecorded(Some(SandboxState::Seeding)), Unrecorded::Seeding);
+        assert_eq!(unrecorded(Some(SandboxState::Wiping)), Unrecorded::Wiped);
+        assert_eq!(unrecorded(Some(SandboxState::Wiped)), Unrecorded::Wiped);
+        assert_eq!(unrecorded(None), Unrecorded::Wiped, "no sandbox at all");
+        assert_eq!(
+            unrecorded(Some(SandboxState::Live)),
+            Unrecorded::NeverSeeded,
+            "live, but born before the recorder: not wiped"
+        );
     }
 }

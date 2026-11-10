@@ -645,7 +645,10 @@ pub const ROUTES: &[RouteSpec] = &[
             None,
             Some("TraceResponse"),
             &[
-                ok(200, "the hops after `after`, with the next cursor"),
+                ok(
+                    200,
+                    "the hops after `after`, with the next cursor; an empty page for a live sandbox whose recorder was never seeded",
+                ),
                 SEEDING,
             ],
         ),
@@ -666,7 +669,10 @@ pub const ROUTES: &[RouteSpec] = &[
         None,
         &[
             ok(101, "the socket; frames in `x-websocket`"),
-            ok(404, "another sandbox's id"),
+            ok(
+                404,
+                "another sandbox's id, or a live sandbox whose recorder was never seeded (`no-recorder`)",
+            ),
             no(426, "upgrade", "without `Upgrade: websocket`"),
             SEEDING,
         ],
