@@ -49,7 +49,7 @@ const SOURCES = [
   {
     href: 'https://martinfowler.com/bliki/CircuitBreaker.html',
     title: 'CircuitBreaker',
-    by: 'Martin Fowler’s bliki',
+    by: 'a bliki entry',
     for: 'a protected call wrapped in an object that trips when failures pass a threshold, answers at once while open, and is watched and reset by people',
   },
   {
@@ -100,10 +100,10 @@ const SOURCES = [
     </p>
     <p>
       The breaker is the third layer, and it measures what neither of the others can: what the
-      platform itself says was used. Nygard set the pattern down in <em>Release It!</em>, and Martin
-      Fowler’s page describes its shape: it trips when failures pass a threshold, answers at once
-      while open, and is reset by people. Here the count is dollars, and what trips is the whole
-      demo.
+      platform itself says was used. <em>Release It!</em> set the pattern down, and the
+      CircuitBreaker bliki entry describes its shape: it trips when failures pass a threshold,
+      answers at once while open, and is reset by people. Here the count is dollars, and what trips
+      is the whole demo.
     </p>
 
     <h2>Five meters, two lines, one decision</h2>
@@ -208,17 +208,16 @@ const SOURCES = [
     <h2>Sources</h2>
     <ul class="sources">
       <li>
-        <em>Release It!</em>, Michael T. Nygard, 2nd edition, 2018: the circuit breaker and the
-        shedding of load, as the bakery’s <code>docs/architecture.md</code> cites them. The book was
-        not read on {READ}.
+        <em>Release It!</em>, 2nd edition (book, 2018): the circuit breaker and the shedding of
+        load, as the bakery’s <code>docs/architecture.md</code> cites them. The book was not read on{' '}
+        {READ}.
       </li>
       <li>
         <a href="https://arxiv.org/abs/2104.08031" rel="noopener">
           A paper on denial of wallet
         </a>
-        , Kelly, Glavin and Barrett, 2021: the attack, or the bug, that forces financial exhaustion
-        on a serverless account, as <code>docs/cost.md</code> defines it. The paper was not read on{' '}
-        {READ}.
+        , arXiv, 2021: the attack, or the bug, that forces financial exhaustion on a serverless
+        account, as <code>docs/cost.md</code> defines it. The paper was not read on {READ}.
       </li>
       {SOURCES.map((s) => (
         <li>
