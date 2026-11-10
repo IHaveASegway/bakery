@@ -308,12 +308,50 @@ main:focus {
   .site-nav .session-link {
     margin-left: 0;
   }
+
+  /* One row on a phone: the links scroll sideways under the name, and the session link stays
+     pinned at the row's right end. No script: a focused link scrolls itself into view. */
+  .masthead nav {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .masthead .site-nav {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .masthead .site-nav li {
+    flex: none;
+  }
+
+  .masthead .site-nav li:has(.session-link) {
+    position: sticky;
+    right: 0;
+    margin-left: auto;
+    padding-left: var(--space-2);
+    background: var(--surface-raised);
+  }
 }
 
 /* The app: the console's top bar, a sidebar where the page has one, and a workspace that fills
    the rest. The console's base size is 14 px. */
 .shell-app {
   font-size: var(--type-14);
+}
+
+/* A short page (the API unreachable, a sandbox still seeding) still fills the window: the main
+   column grows and the footer sits at the foot, never mid-screen over the grey surface. */
+body.shell-app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+body.shell-app > main {
+  flex: 1 0 auto;
 }
 
 .topbar {
