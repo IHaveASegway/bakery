@@ -458,7 +458,9 @@ test.describe('a stranger at the gate', () => {
       timeout: 30_000,
     });
     await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible({ timeout: 30_000 });
-    expect(await guideOverControls(page)).toEqual([]);
+    // With the gate gone and no result line on the checkout, the note waits as its line once the
+    // page has settled (up to about a second: Layer.tsx, afterSettling).
+    await expect.poll(() => guideOverControls(page)).toEqual([]);
   });
 });
 
