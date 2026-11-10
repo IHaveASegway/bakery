@@ -255,6 +255,32 @@ test('with the kitchen refusing deliveries, the panel shows the retry and the de
   );
 });
 
+test('a guest’s short path on the console moves a card, and says a refund needs a sign-in', async ({
+  page,
+}) => {
+  await guestSandbox(page);
+  await page.goto('/app/');
+  await expect(
+    page.getByText('Guests move their own orders here; a refund needs a sign-in.'),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'More of Under the hood' }).click();
+  await page.getByRole('button', { name: 'Show me around' }).click();
+  const note = page.locator('#guide-path');
+  // The board's move is a guest's since 2026-11-10: no sign-in asked.
+  await expect(note).toContainText('Press a card’s button to move it on.');
+  await expect(note).not.toContainText('needs a sign-in');
+  await note.getByRole('button', { name: 'Next' }).click();
+  // The refund is not: the step says so, links to sign in, and Next moves past it.
+  await expect(note).toContainText('Refund an order from a card’s menu.');
+  await expect(note).toContainText(
+    'This step needs a sign-in: a guest can read it here, not do it.',
+  );
+  await expect(note.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/signin/');
+  await note.getByRole('button', { name: 'Next' }).click();
+  await expect(note).toContainText('Read the day’s bake list.');
+  await expectNoAxeViolations(page);
+});
+
 test('with the switch off, a press opens no note and the layer is not loaded; on again, notes return, but never over the recorder', async ({
   page,
 }) => {

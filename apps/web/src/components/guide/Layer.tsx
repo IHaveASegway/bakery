@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { PATHS, entriesFor } from '../../guide';
 import {
+  NEEDS_SIGN_IN,
   PATH_CLOSED,
   pathReduce,
   spotBox,
@@ -22,6 +23,7 @@ import {
 } from '../../lib/guide';
 import { followWrite, sandboxOf, useRecorderState } from '../../lib/recorder';
 import { traces, type Trace } from '../../lib/trace';
+import { useSandboxPhase } from '../../lib/use-session';
 import {
   entryForTraces,
   expectedFor,
@@ -242,6 +244,9 @@ export default function Layer({
     onClosePanel();
   }, [pathRun]);
   const pathStep = path.open ? steps[path.index] : undefined;
+  // A guest is never asked for what a guest cannot do: a signed-in step says so, and Next skips.
+  const phase = useSandboxPhase();
+  const guest = (phase.name === 'live' || phase.name === 'seeding') && phase.kind === 'guest';
   const pathEntry =
     pathStep === undefined ? null : (entries.find((e) => e.id === pathStep.entry) ?? null);
   // A step is done when the visitor's request is one of its triggers...
@@ -496,6 +501,11 @@ export default function Layer({
                 onClose={pathEnd}
               />
               <p className="guide-do">{pathStep.do}</p>
+              {pathStep.signedIn === true && guest && (
+                <p className="guide-meta guide-needs">
+                  {NEEDS_SIGN_IN} <a href="/signin/">Sign in</a>
+                </p>
+              )}
               <p className="guide-meta">{pathEntry.what}</p>
               <p className="guide-actions">
                 <button

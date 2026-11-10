@@ -348,7 +348,15 @@ export interface PathStep {
   entry: string;
   /** What to do, one short sentence starting with a verb. */
   do: string;
+  /**
+   * The step's action is a signed-in session's only (docs/security.md, "Sandbox isolation"): a
+   * guest is shown what it does and why, told it needs a sign-in, and Next moves past it.
+   */
+  signedIn?: true;
 }
+
+/** What a guest reads on a step that needs a sign-in, beside a link to sign in. */
+export const NEEDS_SIGN_IN = 'This step needs a sign-in: a guest can read it here, not do it.';
 
 export interface PathState {
   open: boolean;
@@ -405,7 +413,9 @@ export function fillPath(path: string, sandboxId: string | null): string {
 }
 
 /** Whether the API takes the sandbox's token on this path: the sandbox's routes do. */
-export const takesToken = (path: string): boolean => path.startsWith('/v1/sandboxes/{id}');
+/** A sandbox's routes take its API token, but never its sockets: those are the cookie only. */
+export const takesToken = (path: string): boolean =>
+  path.startsWith('/v1/sandboxes/{id}') && !path.endsWith('/ws');
 
 /** The 6 + 4 form the API's `masked` uses; a token under 16 characters is shown as `…` alone. */
 export function maskToken(token: string): string {

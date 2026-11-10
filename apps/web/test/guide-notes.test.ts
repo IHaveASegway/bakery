@@ -9,6 +9,7 @@ import { byGesture, hopWords } from '../src/components/guide/Panel';
 import { RECORDER } from '../src/guide/recorder';
 import { sandboxOf } from '../src/lib/recorder';
 import {
+  entryForTraces,
   expectedFor,
   gesturesIn,
   newestWatchNews,
@@ -484,6 +485,41 @@ describe('what the recorder showed, in plain words', () => {
       '01JC9A0K3W9QF2N4T7XRB5M0HD',
     );
     expect(sandboxOf('/v1/session')).toBeNull();
+  });
+});
+
+describe('a guest and the board', () => {
+  test('a move refused with the rule rate-limit is the budget’s entry, with what happened', () => {
+    const refused = command({ outcome: 'refused', rule: 'rate-limit' });
+    const entry = entryForTraces([refused], 'console', null);
+    expect(entry?.id).toBe('kitchen-rate-limit');
+    expect(entry?.happened).toContain('one token comes back each second');
+    // Any other refusal stays the board's.
+    expect(
+      entryForTraces([command({ outcome: 'refused', rule: 'out-of-order' })], 'console', null)?.id,
+    ).toBe('kitchen-board');
+  });
+
+  test('the guided paths never ask a guest for a console write: only the board’s move, a read and the persona’s own consent are unmarked', () => {
+    const consoleScreens = [
+      'console',
+      'console-menu',
+      'console-system',
+      'console-catering',
+      'console-customers',
+      'dispatch',
+    ] as const;
+    for (const screen of consoleScreens) {
+      for (const step of PATHS[screen] ?? []) {
+        const guestMay = ['kitchen-board', 'kitchen-bake', 'crm-customers'].includes(step.entry);
+        expect(step.signedIn === true, `${screen}: ${step.entry}`).toBe(!guestMay);
+      }
+    }
+    // The shop's steps are a guest's.
+    for (const screen of ['menu', 'checkout', 'order', 'catering', 'inbox'] as const) {
+      for (const step of PATHS[screen] ?? [])
+        expect(step.signedIn, `${screen}: ${step.entry}`).toBeUndefined();
+    }
   });
 });
 
