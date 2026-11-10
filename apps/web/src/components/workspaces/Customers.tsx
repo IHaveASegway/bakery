@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Activity from '../Activity';
 import Campaigns from '../Campaigns';
+import { businessNowMs } from '../../lib/when';
 import Console, { type WorkspaceProps } from '../Console';
 import Customers from '../Customers';
 import Rebuild from '../Rebuild';
@@ -20,6 +21,7 @@ export function CustomersView({ sandbox, isGuest }: WorkspaceProps) {
           isGuest={isGuest}
           personaId={sandbox.persona}
           refresh={crmTick}
+          now={businessNowMs(sandbox.clock_offset_s)}
           onConsent={() => setCrmTick((n) => n + 1)}
         />
       </div>
@@ -30,7 +32,11 @@ export function CustomersView({ sandbox, isGuest }: WorkspaceProps) {
         <Campaigns sandboxId={sandbox.id} isGuest={isGuest} clockOffsetS={sandbox.clock_offset_s} />
       </div>
       <div className="panel third">
-        <Activity sandboxId={sandbox.id} refresh={crmTick} />
+        <Activity
+          sandboxId={sandbox.id}
+          refresh={crmTick}
+          now={businessNowMs(sandbox.clock_offset_s)}
+        />
       </div>
       <div className="panel half">
         <Rebuild

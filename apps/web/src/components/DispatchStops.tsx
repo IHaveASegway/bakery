@@ -9,17 +9,8 @@ import {
 import { windowText } from '../lib/when';
 import type { DispatchResponse } from '../contracts';
 
-/** The column names, said in the table's head and, on a phone, before each value. */
+/** The column names, said in the table's head and, on a phone, before each value (`data-label`). */
 const COLUMNS = ['Order', 'Place', 'Window', 'Zone', 'Units', 'Status', 'Van', 'Stop'] as const;
-
-/**
- * A cell's own label, shown only below 40rem, where the global styles stack the table's rows into
- * blocks and hide its head: without it a phone shows "2", "Confirmed", "Not planned" with nothing to
- * say what each is. `sm:hidden` takes it away where the head is shown.
- */
-function Label({ name }: { name: (typeof COLUMNS)[number] }) {
-  return <span className="font-semibold sm:hidden">{name}: </span>;
-}
 
 /**
  * The day's stops: order, place, window, zone, units, status, and the van and stop number once a
@@ -58,37 +49,23 @@ export default function DispatchStops({
             const note = dropOffNote(row.label, placeName(data, row.place));
             return (
               <tr key={row.order}>
-                <td>
-                  <Label name="Order" />
+                <td data-label="Order">
                   <code>{row.short}</code>
                 </td>
-                <td>
-                  <Label name="Place" />
+                <td data-label="Place">
                   {row.label}
                   {note !== null && <span className="hint">{note}</span>}
                 </td>
-                <td>
-                  <Label name="Window" />
-                  {windowText(row.window)}
+                <td data-label="Window">{windowText(row.window)}</td>
+                <td className="whitespace-nowrap" data-label="Zone">
+                  {zoneText(row.zone)}
                 </td>
-                {/* "Zone 2" names itself, so it needs no label of its own. */}
-                <td className="whitespace-nowrap">{zoneText(row.zone)}</td>
-                <td className="num">
-                  <Label name="Units" />
+                <td className="num" data-label="Units">
                   {row.units}
                 </td>
-                <td>
-                  <Label name="Status" />
-                  {statusText(row.status)}
-                </td>
-                <td>
-                  <Label name="Van" />
-                  {row.van ?? 'Not planned'}
-                </td>
-                <td>
-                  <Label name="Stop" />
-                  {row.stop ?? '–'}
-                </td>
+                <td data-label="Status">{statusText(row.status)}</td>
+                <td data-label="Van">{row.van ?? 'Not planned'}</td>
+                <td data-label="Stop">{row.stop ?? ''}</td>
               </tr>
             );
           })}

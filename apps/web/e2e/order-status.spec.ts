@@ -155,9 +155,10 @@ test('a guest pays, moves their own order to Ready on the board, and its page fo
   await board.goto('/app/');
   await expect(board.getByText('Live. Changes appear here as they happen.')).toBeVisible();
   await expect(
-    board.getByText('Guests move their own orders here; a refund needs a sign-in.'),
+    board.getByText('You can move any order here; a refund needs a sign-in.'),
   ).toBeVisible();
-  await expect(board.getByRole('button', { name: `More for order ${short}` })).toHaveCount(0);
+  // A card's menu is a <summary>, a disclosure rather than a button, so it is found by its element.
+  await expect(board.locator(`summary[aria-label="More for order ${short}"]`)).toHaveCount(0);
   await expectNoAxeViolations(board);
   await move(board, `Start production for order ${short}`);
   await expect(current).toContainText('In production');

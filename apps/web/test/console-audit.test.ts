@@ -28,13 +28,17 @@ import { nextPollMs, POLL_MAX_MS, POLL_MS } from '../src/lib/use-poll';
 import { clockOfText, shortDate, shortWhen, timesIn, whenText } from '../src/lib/when';
 import { day, orderId, plan, stop } from './dispatch-support';
 
+// Business now for the dates these tests print: a day in 2026, so no date carries its year, whatever
+// year the machine's clock says (lib/when.ts, dayText).
+const NOW = Date.parse('2026-11-10T16:00:00Z');
+
 describe('one formatter for every time shown', () => {
   test('a business time reads as the bakery says it', () => {
     expect(whenText('2026-11-08T08:15:00-07:00')).toBe('8:15 am on Sunday 2026-11-08');
-    expect(shortWhen('2026-11-08T08:15:00-07:00')).toBe('Sun 8 Nov, 8:15 am');
-    expect(shortWhen('2026-11-10T21:45:00Z')).toBe('Tue 10 Nov, 2:45 pm');
+    expect(shortWhen('2026-11-08T08:15:00-07:00', { now: NOW })).toBe('Sun 8 Nov, 8:15 am');
+    expect(shortWhen('2026-11-10T21:45:00Z', { now: NOW })).toBe('Tue 10 Nov, 2:45 pm');
     expect(shortWhen('soon')).toBe('soon');
-    expect(shortDate('2026-11-10T21:45:00Z')).toBe('Tue 10 Nov');
+    expect(shortDate('2026-11-10T21:45:00Z', { now: NOW })).toBe('Tue 10 Nov');
     expect(whenText('2026-11-10T07:00:00-07:00')).toBe('7:00 am on Tuesday 2026-11-10');
   });
 
@@ -54,9 +58,11 @@ describe('one formatter for every time shown', () => {
   });
 
   test('times inside a sentence the API wrote are put in words, the rest left as it is', () => {
-    expect(timesIn('Clock moved from 2026-11-11T07:01:40-07:00 to 2026-11-12T07:01:40-07:00')).toBe(
-      'Clock moved from 7:01 am on Wednesday 2026-11-11 to 7:01 am on Thursday 2026-11-12',
-    );
+    expect(
+      timesIn('Clock moved from 2026-11-11T07:01:40-07:00 to 2026-11-12T07:01:40-07:00', {
+        now: NOW,
+      }),
+    ).toBe('Clock moved from Wed 11 Nov, 7:01 am to Thu 12 Nov, 7:01 am');
     expect(timesIn('Routes proposed: 2 vans')).toBe('Routes proposed: 2 vans');
   });
 
@@ -84,6 +90,7 @@ describe('one formatter for every time shown', () => {
         open: true,
         onAct: () => undefined,
         onRefunded: () => undefined,
+        now: NOW,
       }),
     );
     // The card says it short, as people say it; the long form is the element's title.

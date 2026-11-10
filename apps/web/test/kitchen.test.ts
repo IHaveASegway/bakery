@@ -349,13 +349,9 @@ describe('a delivery’s van and stop', () => {
     const plain = renderToStaticMarkup(createElement(GuestNote));
     expect(plain).toContain('Sign in to use the console’s writes.');
     const board = renderToStaticMarkup(
-      createElement(
-        GuestNote,
-        null,
-        'Guests move their own orders here; a refund needs a sign-in.',
-      ),
+      createElement(GuestNote, null, 'You can move any order here; a refund needs a sign-in.'),
     );
-    expect(board).toContain('Guests move their own orders here; a refund needs a sign-in.');
+    expect(board).toContain('You can move any order here; a refund needs a sign-in.');
     expect(board).not.toContain('console’s writes');
     expect(board).toContain('href="/signin/"');
   });

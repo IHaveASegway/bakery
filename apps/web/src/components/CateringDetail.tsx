@@ -12,7 +12,7 @@ import {
 import { describeCateringError } from '../lib/catering-errors';
 import { type Message as Text } from '../lib/messages';
 import { dollars } from '../lib/money';
-import { startText } from '../lib/schedule';
+import { momentText } from '../lib/when';
 import CateringFigures from './CateringFigures';
 import Message from './Message';
 import PaymentPanel from './PaymentPanel';
@@ -31,10 +31,13 @@ export default function CateringDetail({
   sandboxId,
   event,
   onChange,
+  now,
 }: {
   sandboxId: string;
   event: CateringResponse;
   onChange: (event: CateringResponse) => void;
+  /** Business now (wall clock plus the sandbox's offset), so "this year" is the bakery's. */
+  now?: number | undefined;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Text | null>(null);
@@ -90,7 +93,7 @@ export default function CateringDetail({
       onChange(answer);
       then?.();
     } catch (e) {
-      setError(describeCateringError(e));
+      setError(describeCateringError(e, now));
     } finally {
       setBusy(false);
     }
@@ -101,9 +104,9 @@ export default function CateringDetail({
       <h2 id="event-heading">Your event</h2>
       <p className="hint">
         Event <code>{event.catering}</code>, asked about at{' '}
-        <time dateTime={event.created_at}>{startText(event.created_at)}</time>.
+        <time dateTime={event.created_at}>{momentText(event.created_at, { now })}</time>.
       </p>
-      <CateringFigures event={event} />
+      <CateringFigures event={event} now={now} />
       {event.brief && (
         <>
           <h3>Your brief</h3>

@@ -13,7 +13,16 @@ import Message from './Message';
  * `refresh` changes when something the ledger depends on did (a refund), and it also looks every
  * ten seconds, since a payment arrives by webhook and not by anything this page did.
  */
-export default function Ledger({ sandboxId, refresh }: { sandboxId: string; refresh: number }) {
+export default function Ledger({
+  sandboxId,
+  refresh,
+  now,
+}: {
+  sandboxId: string;
+  refresh: number;
+  /** Business now (wall clock plus the sandbox's offset), so "this year" is the bakery's. */
+  now?: number | undefined;
+}) {
   const [ledger, setLedger] = useState<LedgerResponse | null>(null);
   const [error, setError] = useState<Text | null>(null);
   const [busy, setBusy] = useState(false);
@@ -97,12 +106,12 @@ export default function Ledger({ sandboxId, refresh }: { sandboxId: string; refr
                 <tbody>
                   {entries.map((e, i) => (
                     <tr key={`${e.stripe_id ?? e.at}-${i}`}>
-                      <td>
+                      <td data-label="When">
                         <time dateTime={e.at} title={whenText(e.at)}>
-                          {shortWhen(e.at)}
+                          {shortWhen(e.at, { now })}
                         </time>
                       </td>
-                      <td>
+                      <td data-label="Entry">
                         <span
                           className="badge"
                           data-tone={e.kind === 'payment' ? 'ready' : 'pending'}
@@ -110,11 +119,13 @@ export default function Ledger({ sandboxId, refresh }: { sandboxId: string; refr
                           {e.kind === 'payment' ? 'Payment' : 'Refund'}
                         </span>
                       </td>
-                      <td>
+                      <td data-label="For">
                         {PURPOSES[e.purpose] ?? e.purpose} <code>{e.ref.slice(-6)}</code>
                       </td>
-                      <td>{ledgerSource(e) === '' ? 'Stripe' : 'Billing (seeded)'}</td>
-                      <td className="num">
+                      <td data-label="Recorded by">
+                        {ledgerSource(e) === '' ? 'Stripe' : 'Billing (seeded)'}
+                      </td>
+                      <td className="num" data-label="Amount">
                         {e.kind === 'payment' ? '+' : '−'}
                         {dollars(Math.abs(e.amount_cents))}
                       </td>

@@ -10,7 +10,7 @@ import {
 } from '../lib/catering';
 import { describeError, type Message as Text } from '../lib/messages';
 import { dollars } from '../lib/money';
-import { dateLabel } from '../lib/schedule';
+import { businessNowMs, dayText } from '../lib/when';
 import { usePoll } from '../lib/use-poll';
 import { useSandboxPhase } from '../lib/use-session';
 import { signinFor } from '../lib/next';
@@ -27,6 +27,8 @@ export default function Catering() {
   const phase = useSandboxPhase();
   const sandboxId = phase.name === 'live' ? phase.id : null;
   const offsetS = phase.name === 'live' ? phase.clockOffsetS : 0;
+  // Business now, so a date this year prints without its year on the bakery's calendar.
+  const bakeryNow = businessNowMs(offsetS);
   const [now, setNow] = useState<number | null>(null);
   const [apiEarliest, setApiEarliest] = useState<string | null>(null);
   const [events, setEvents] = useState<CateringResponse[] | null>(null);
@@ -98,6 +100,7 @@ export default function Catering() {
         <CateringInquiryForm
           sandboxId={sandboxId}
           earliest={earliest}
+          now={bakeryNow}
           onLead={setApiEarliest}
           onCreated={(event) => {
             take(event);
@@ -126,7 +129,7 @@ export default function Catering() {
               {events.map((e) => (
                 <li key={e.catering}>
                   <p>
-                    <strong>{stateLabel(e.state)}</strong>: {dateLabel(e.date)}
+                    <strong>{stateLabel(e.state)}</strong>: {dayText(e.date, { now: bakeryNow })}
                   </p>
                   <p>
                     {packageLabel(e.package)} for {e.headcount}
@@ -165,7 +168,7 @@ export default function Catering() {
       )}
 
       {sandboxId !== null && open !== null && (
-        <CateringDetail sandboxId={sandboxId} event={open} onChange={take} />
+        <CateringDetail sandboxId={sandboxId} event={open} onChange={take} now={bakeryNow} />
       )}
     </>
   );

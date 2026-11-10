@@ -1,3 +1,4 @@
+import { businessNowMs } from '../../lib/when';
 import Console, { type WorkspaceProps } from '../Console';
 import Ledger from '../Ledger';
 import Seeding from './Seeding';
@@ -8,7 +9,7 @@ export function MoneyView({ sandbox }: WorkspaceProps) {
   return (
     <div className="workspace">
       <div className="panel">
-        <Ledger sandboxId={sandbox.id} refresh={0} />
+        <Ledger sandboxId={sandbox.id} refresh={0} now={businessNowMs(sandbox.clock_offset_s)} />
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import CateringQueue from '../CateringQueue';
+import { businessNowMs } from '../../lib/when';
 import Console, { type WorkspaceProps } from '../Console';
 import LeadPipeline from '../LeadPipeline';
 import Seeding from './Seeding';
@@ -9,7 +10,11 @@ export function CateringView({ sandbox, isGuest }: WorkspaceProps) {
   return (
     <div className="workspace panel-grid">
       <div className="panel two-thirds">
-        <CateringQueue sandboxId={sandbox.id} isGuest={isGuest} />
+        <CateringQueue
+          sandboxId={sandbox.id}
+          isGuest={isGuest}
+          now={businessNowMs(sandbox.clock_offset_s)}
+        />
       </div>
       <div className="panel third">
         <LeadPipeline sandboxId={sandbox.id} refresh={0} />

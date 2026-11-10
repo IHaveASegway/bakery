@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { MessageResponse } from '../contracts';
 import { getMessage, listInbox } from '../lib/api';
-import { whenText } from '../lib/crm';
+import { businessNowMs, momentText, whenText } from '../lib/when';
 import {
   ALL_KINDS,
   MESSAGE_KINDS,
@@ -30,6 +30,8 @@ const LIMIT = 50;
 export default function Inbox() {
   const phase = useSandboxPhase();
   const sandboxId = phase.name === 'live' ? phase.id : null;
+  // Business now: "this year" is the sandbox's, not the browser's.
+  const now = businessNowMs(phase.name === 'live' ? phase.clockOffsetS : 0);
   const [kind, setKind] = useState<string>(ALL_KINDS);
   const [messages, setMessages] = useState<MessageResponse[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -132,9 +134,9 @@ export default function Inbox() {
                     <tbody>
                       {messages.map((m) => (
                         <tr key={m.message}>
-                          <td>{kindLabel(m.kind)}</td>
-                          <td>{recipientName(names, m.to)}</td>
-                          <th scope="row">
+                          <td data-label="Kind">{kindLabel(m.kind)}</td>
+                          <td data-label="To">{recipientName(names, m.to)}</td>
+                          <th scope="row" data-label="Subject">
                             <button
                               type="button"
                               className="link"
@@ -144,11 +146,17 @@ export default function Inbox() {
                               {m.subject}
                             </button>
                           </th>
-                          <td>
-                            <time dateTime={m.delivered_at}>{whenText(m.delivered_at)}</time>
+                          <td data-label="Delivered">
+                            <time dateTime={m.delivered_at} title={whenText(m.delivered_at)}>
+                              {momentText(m.delivered_at, { now })}
+                            </time>
                           </td>
-                          <td>{m.opened_at ? whenText(m.opened_at) : '–'}</td>
-                          <td>{m.clicked_at ? whenText(m.clicked_at) : '–'}</td>
+                          <td data-label="Opened">
+                            {m.opened_at ? momentText(m.opened_at, { now }) : ''}
+                          </td>
+                          <td data-label="Clicked">
+                            {m.clicked_at ? momentText(m.clicked_at, { now }) : ''}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -162,7 +170,7 @@ export default function Inbox() {
               <h2 id="message-heading">{open.subject}</h2>
               <p className="hint">
                 {kindLabel(open.kind)} to {recipientName(names, open.to)}, delivered{' '}
-                {whenText(open.delivered_at)}. {engagementText(open)}.
+                {momentText(open.delivered_at, { now })}. {engagementText(open, now)}.
               </p>
               <p className="brief">{open.body}</p>
             </section>

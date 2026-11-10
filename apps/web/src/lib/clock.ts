@@ -5,7 +5,7 @@
 import type { ClockRequest, ClockResponse, ClockStep } from '../contracts';
 import { ApiError, advanceClock } from './api';
 import { attemptFor, keepKeyAfter, type Attempt } from './attempt';
-import { whenText } from './when';
+import { momentText } from './when';
 import { businessTime } from './slots';
 
 /** The most business time may run ahead of the wall clock: 14 days. */
@@ -99,5 +99,5 @@ export class ClockClicks {
 /** Business now for the display: the wire form for `<time>`, and words for a person. */
 export function businessNowView(wallMs: number, offsetS: number): { iso: string; text: string } {
   const iso = businessNowText(wallMs, offsetS);
-  return { iso, text: whenText(iso, { seconds: true }) };
+  return { iso, text: momentText(iso, { seconds: true, now: wallMs + offsetS * 1000 }) };
 }

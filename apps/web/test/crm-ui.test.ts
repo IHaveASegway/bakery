@@ -38,6 +38,8 @@ const card = (state: CampaignState, isGuest = false) =>
       campaign: campaign(state),
       isGuest,
       clockOffsetS: 0,
+      // A day in 2026, so a send time prints without its year whatever the machine's year.
+      now: Date.parse('2026-11-08T12:00:00Z'),
       onChange: () => undefined,
       onEdit: () => undefined,
     }),
@@ -57,7 +59,7 @@ describe('a campaign card', () => {
     expect(html).not.toContain('datetime-local');
     expect(html).not.toContain('>Edit<');
     expect(html).toContain('Unschedule (back to draft)');
-    expect(html).toContain('9:30 am on Sunday 2026-11-08');
+    expect(html).toContain('Sun 8 Nov, 9:30 am');
   });
 
   test('a sent one has no buttons and shows its numbers with their rates', () => {
