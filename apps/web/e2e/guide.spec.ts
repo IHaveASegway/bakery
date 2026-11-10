@@ -464,6 +464,38 @@ test.describe('a stranger at the gate', () => {
     }
   });
 
+  test('a title whose glyph boxes are taller than its lines keeps its mark', async ({ page }) => {
+    // Playwright's image on GitHub's runner renders `system-ui` in WenQuanYi Zen Hei, whose glyph
+    // box is taller than a 1.2 line. There the two lines of this title overlapped by 0.4 px, and
+    // the mark set level with the second was refused as lying on the first (pull request #143's
+    // run of 2026-11-10). Any font does the same once its lines are tighter than its glyph box, so
+    // the lines are tightened here, through the style object, and the mark must stay.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/catering/');
+    const mark = page.locator('[data-guide-target="start-here"]');
+    await expect(mark).toBeVisible();
+    const before = await mark.boundingBox();
+    const title = page.locator('[data-tour="start-here"] .start-title');
+    const overlap = await title.evaluate((element) => {
+      (element as HTMLElement).style.lineHeight = '1';
+      window.dispatchEvent(new Event('resize'));
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const lines = [...range.getClientRects()].filter((r) => r.width > 0);
+      const [first, second] = [lines.at(0), lines.at(-1)];
+      return first === undefined || second === undefined || first === second
+        ? 0
+        : first.bottom - second.top;
+    });
+    // The premise, in whatever font this machine has: two lines, the first reaching into the second.
+    expect(overlap).toBeGreaterThan(1);
+    // The marks are placed again for the new lines: this one has moved, or gone.
+    await expect.poll(async () => (await mark.boundingBox())?.y).not.toBe(before?.y);
+    await expect(page.locator('html')).toHaveAttribute('data-guide-marks', 'settled');
+    await expect(mark).toBeVisible();
+    await expect(mark).toHaveAttribute('data-guide-how', 'line');
+  });
+
   test('the note after Start ordering lies over none of the checkout’s controls', async ({
     page,
   }) => {

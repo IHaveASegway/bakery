@@ -326,6 +326,28 @@ const CLEAR = 8;
 /** After a heading's text, room for the mark's pulse (it grows to about 14 px past the mark). */
 const LINE_GAP = 18;
 
+/**
+ * A line of text as its line box, not its glyph box. A font whose glyph box is taller than the
+ * line (many CJK faces at a line height of 1.2; Playwright's image on GitHub's runner renders
+ * `system-ui` in one, WenQuanYi Zen Hei) reports rectangles that reach into the lines above and
+ * below, so the two lines of one wrapped heading overlap by the difference, and a mark set level
+ * with the second was refused as lying over the first. Trimmed to the line's height about its
+ * middle, a line ends where the next begins, whatever the font. A line height that is not a
+ * length (`normal`) is never shorter than the glyph box, so nothing is trimmed.
+ */
+export function lineBoxOf(rect: Box, lineHeight: number): Box {
+  if (!Number.isFinite(lineHeight) || lineHeight <= 0 || rect.height <= lineHeight) return rect;
+  return { ...rect, top: rect.top + (rect.height - lineHeight) / 2, height: lineHeight };
+}
+
+/**
+ * Whether two boxes overlap by more than `slack` pixels each way: two lines that share an edge, or
+ * meet by a rounding's worth, do not.
+ */
+export const overlapsBy = (a: Box, b: Box, slack: number) =>
+  Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left) > slack &&
+  Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top) > slack;
+
 /** Whether two boxes overlap. */
 export const overlaps = (a: Box, b: Box) =>
   a.left < b.left + b.width &&

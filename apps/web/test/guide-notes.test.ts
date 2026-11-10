@@ -35,6 +35,8 @@ import {
 } from '../src/components/guide/Views';
 import { ALL_ENTRIES, PATHS, ROUTE_SHAPES } from '../src/guide';
 import {
+  lineBoxOf,
+  overlapsBy,
   PATH_CLOSED,
   pathReduce,
   pickEntry,
@@ -846,5 +848,56 @@ describe('a value the page read', () => {
     const zone = ALL_ENTRIES.find((e) => e.id === 'checkout-zone');
     expect(zone?.what).toContain('wrong-zone');
     expect(zone?.facts?.join(' ')).toContain('first breaking change');
+  });
+});
+
+describe('a line of text is its line box, whatever the font', () => {
+  // The catering gate's title at 390 px in the font GitHub's runner gives `system-ui`: an 18 px
+  // heading on a 21.6 px line, whose glyph box is 22 px tall, wrapped onto two lines.
+  const first = { top: 480.6, left: 41, width: 227.9, height: 22 };
+  const second = { top: 502.2, left: 41, width: 71.2, height: 22 };
+  const lineHeight = 21.6;
+  const phone = { width: 390, height: 844 };
+
+  test('two lines of one heading overlap as glyph boxes and only share an edge as line boxes', () => {
+    expect(first.top + first.height).toBeGreaterThan(second.top);
+    const a = lineBoxOf(first, lineHeight);
+    const b = lineBoxOf(second, lineHeight);
+    expect(a.height).toBe(lineHeight);
+    expect(a.top + a.height).toBeCloseTo(b.top, 6);
+    expect(overlapsBy(a, b, 0.5)).toBe(false);
+  });
+
+  test('a mark set level with the last line is not on the line above', () => {
+    const line = lineBoxOf(second, lineHeight);
+    const [place] = spotPlaces({ top: 456, left: 16, width: 358, height: 208 }, phone, line);
+    expect(place?.how).toBe('line');
+    const box = place === undefined ? null : spotBox(place);
+    expect(box).not.toBeNull();
+    if (box === null) return;
+    // The mark as drawn: its box less a 2 px margin all round (components/guide/clear.ts).
+    const drawn = {
+      top: box.top + 2,
+      left: box.left + 2,
+      width: box.width - 4,
+      height: box.height - 4,
+    };
+    expect(overlapsBy(lineBoxOf(first, lineHeight), drawn, 0.5)).toBe(false);
+    // The glyph boxes would have refused it: this is what the runner did.
+    expect(overlapsBy(first, { ...drawn, top: second.top }, 0)).toBe(true);
+  });
+
+  test('a line no taller than its line height, or one with no length for it, is left alone', () => {
+    const short = { top: 100, left: 0, width: 50, height: 21 };
+    expect(lineBoxOf(short, 21.6)).toBe(short);
+    expect(lineBoxOf(first, Number.NaN)).toBe(first);
+    expect(lineBoxOf(first, 0)).toBe(first);
+  });
+
+  test('boxes that overlap by more than the slack do meet', () => {
+    const a = { top: 0, left: 0, width: 10, height: 10 };
+    expect(overlapsBy(a, { top: 9, left: 9, width: 10, height: 10 }, 0.5)).toBe(true);
+    expect(overlapsBy(a, { top: 9.6, left: 0, width: 10, height: 10 }, 0.5)).toBe(false);
+    expect(overlapsBy(a, { top: 10, left: 0, width: 10, height: 10 }, 0)).toBe(false);
   });
 });
