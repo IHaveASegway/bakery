@@ -776,6 +776,49 @@ expect_probe "after a wake, the guest's socket is still served and its repeated 
 expect_probe "after a wake, the guest's mark_ready is acked and the card moves to ready" "$TMP/ws_guest.out" "frames.some((f) => f.t === 'ack' && f.id === '$GC2') && evts.some((e) => e.type === 'OrderReady' && e.cause === '$GC2') && board['$GCARD'] === 'ready'"
 check "the woken Kitchen applied the start once: the Order reads ready, two events more than before the guest's moves" "wait_order g_ready G '$GID' '$GCARD' ready 'b.events_seq === ${GSEQ:-0} + 2'"
 
+# The sandbox's command budget (roadmap R72, review of 2026-11-10): 60 commands reach the Orders in
+# a burst, then one a second, whoever sends them. Two guest sockets send 35 fresh mark_ready each
+# for the ready card (a no-op the Order acks), 120 ms apart, under the 10 frames a second a socket.
+# The Kitchen woke above and has spent one token since, so some 10 of the 70 are refused.
+BURST_IDS=($(node -e "const A='0123456789ABCDEFGHJKMNPQRSTVWXYZ',c=require('crypto');const u=()=>{let t=Date.now(),s='';for(let i=0;i<10;i++){s=A[t%32]+s;t=Math.floor(t/32)}for(const b of c.randomBytes(16))s+=A[b%32];return s};console.log(Array.from({length:78},u).join(' '))"))
+LIMIT_FROM="$(wc -l < "$LOG")"
+BURST_MS="$(now_ms)"
+probe_args G "$GID"
+burst_args() { local out=() id; for id in "$@"; do out+=(--cmd "$id:$GCARD:mark_ready"); done; printf '%s\n' "${out[@]}"; }
+mapfile -t BURST_A < <(burst_args "${BURST_IDS[@]:0:35}")
+mapfile -t BURST_B < <(burst_args "${BURST_IDS[@]:35:35}")
+node "${PROBE[@]}" --pace 120 "${BURST_A[@]}" --timeout 20 > "$TMP/ws_burst_a.out" &
+BURST_PA=$!
+node "${PROBE[@]}" --pace 120 "${BURST_B[@]}" --timeout 20 > "$TMP/ws_burst_b.out" &
+BURST_PB=$!
+answered() { probe_ok "$1" "frames.filter((f) => f.t === 'ack' || f.t === 'nack').length >= $2"; }
+for _ in $(seq 1 100); do answered "$TMP/ws_burst_a.out" 35 && answered "$TMP/ws_burst_b.out" 35 && break; sleep 0.2; done
+BURST_S=$(( ($(now_ms) - BURST_MS + 999) / 1000 ))
+kill -TERM "$BURST_PA" "$BURST_PB" 2>/dev/null || true
+wait "$BURST_PA" "$BURST_PB" || true
+limited_n="$(cat "$TMP/ws_burst_a.out" "$TMP/ws_burst_b.out" | grep -c '"rule":"rate-limit"' || true)"
+acked_n="$(cat "$TMP/ws_burst_a.out" "$TMP/ws_burst_b.out" | grep -c '"t":"ack"' || true)"
+check "the budget: 70 fresh commands from two guest sockets in $BURST_S s, $acked_n acked and $limited_n refused rate-limit, no more acked than 60 and one a second" "(( limited_n >= 1 && acked_n + limited_n == 70 && acked_n <= 60 + BURST_S ))"
+for s in a b; do
+  expect_probe "socket $s: still open after its refusals, which are nacks and no bye" "$TMP/ws_burst_$s.out" "!frames.some((f) => f.t === 'bye')"
+done
+# While the budget is spent: three fresh ids, then an id the burst had acked, then three more.
+# At most two tokens come back in the probe's second, so the first three hold a refusal, and the
+# replay is answered from the Kitchen's commands table without a token.
+LAST_ACK="$(probe_field "$TMP/ws_burst_a.out" "(frames.filter((f) => f.t === 'ack').pop() || {}).id")"
+probe G "$GID" --pace 120 --cmd "${BURST_IDS[70]}:$GCARD:mark_ready" --cmd "${BURST_IDS[71]}:$GCARD:mark_ready" --cmd "${BURST_IDS[72]}:$GCARD:mark_ready" \
+  --cmd "$LAST_ACK:$GCARD:mark_ready" --cmd "${BURST_IDS[73]}:$GCARD:mark_ready" --cmd "${BURST_IDS[74]}:$GCARD:mark_ready" --cmd "${BURST_IDS[75]}:$GCARD:mark_ready" \
+  --timeout 5 > "$TMP/ws_spent.out" || true
+expect_probe "while the budget is spent, a fresh id is refused rate-limit and an id the burst acked is acked again from storage" "$TMP/ws_spent.out" "['${BURST_IDS[70]}', '${BURST_IDS[71]}', '${BURST_IDS[72]}'].some((id) => frames.some((f) => f.t === 'nack' && f.id === id && f.rule === 'rate-limit')) && frames.some((f) => f.t === 'ack' && f.id === '$LAST_ACK')"
+REFUSED="$(probe_field "$TMP/ws_spent.out" "(frames.find((f) => f.t === 'nack' && f.rule === 'rate-limit') || {}).id")"
+sleep 2
+probe G "$GID" --cmd "$REFUSED:$GCARD:mark_ready" --until ack --timeout 5 > "$TMP/ws_after.out" || true
+expect_probe "a refused id is acked once a token is back: a refusal stored nothing" "$TMP/ws_after.out" "frames.some((f) => f.t === 'ack' && f.id === '$REFUSED')"
+tail -n "+$LIMIT_FROM" "$LOG" > "$TMP/limit.log"
+limit_lines="$(grep -c '"rule":"rate-limit"' "$TMP/limit.log" || true)"
+refused_n="$(cat "$TMP/ws_burst_a.out" "$TMP/ws_burst_b.out" "$TMP/ws_spent.out" | grep -c '"rule":"rate-limit"' || true)"
+check "a run of refusals logs its first only: $limit_lines kitchen_cmd lines for $refused_n refusals" "(( limit_lines >= 1 && limit_lines < refused_n ))"
+
 # A reconnect gets a snapshot equal to the board a socket that stayed open holds.
 kill -TERM "$WS_B" 2>/dev/null || true
 wait "$WS_B" || true
