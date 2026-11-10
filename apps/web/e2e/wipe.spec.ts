@@ -116,6 +116,11 @@ test('Wipe now asks nothing more when the socket closes before the wipe answers'
 test('the nightly wipe deletes every sandbox and leaves no object holding data', async ({
   page,
 }) => {
+  // The wipe goes through every sandbox this run has made, and this one is the newest, so the wait
+  // grows with the suite: alone the test takes about 6 s; after 103 tests it took 30 s in CI on
+  // 2026-11-10, and after 127 the old 30 s wait ran out. Two minutes is room for a suite several
+  // times this size; the test's own limit is raised to hold that wait and the listing after it.
+  test.setTimeout(4 * 60_000);
   await demoAccount(page);
   await liveSandbox(page);
   await page.goto('/app/');
@@ -124,7 +129,7 @@ test('the nightly wipe deletes every sandbox and leaves no object holding data',
   expect(await runCron('0 10 * * *')).toBe(200);
   // The Kitchen closes the board's socket with "wiped", and the console asks again.
   await expect(page.getByRole('heading', { name: /Your sandbox was deleted/ })).toBeVisible({
-    timeout: 30_000,
+    timeout: 120_000,
   });
 
   await expect
