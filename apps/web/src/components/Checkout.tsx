@@ -352,7 +352,7 @@ export default function Checkout() {
               <StatusLine phase={phase} />
             </div>
           ) : (
-            <StartHere here="/checkout/" seeding={phase.name === 'seeding'} />
+            <StartHere here="/checkout/" seeding={phase.name === 'seeding'} tour="start-here" />
           )}
         </div>
       ) : (

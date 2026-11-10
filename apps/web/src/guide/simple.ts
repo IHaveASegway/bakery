@@ -255,7 +255,39 @@ export const MENU: GuideEntry[] = [
   },
 ];
 
+/**
+ * The gate where there is no menu (2026-11-10): the checkout's and the catering page's, written once
+ * and drawn on both, each copy under its own id and screen. The menu's own gate keeps `menu-start`,
+ * whose words speak of the seed menu.
+ */
+const START_HERE: Omit<GuideEntry, 'id' | 'screen'> = {
+  target: 'start-here',
+  title: 'Your own bakery first',
+  what: 'A sandbox is your own private copy of the bakery, made in a few seconds and wiped at 10:00 UTC. The button sends one request with a Turnstile pass, and the page stays where it is.',
+  why: 'A sandbox per visitor means an order or an inquiry can never land in anyone else’s kitchen.',
+  whenNot:
+    'Not for a shop that must serve a stranger at once: here a check that you are a person comes first.',
+  events: ['SandboxSeeded'],
+  principle: SANDBOX,
+  api: {
+    routeId: 'create-sandbox',
+    method: 'POST',
+    path: '/v1/sandboxes',
+    body: { turnstile_token: '<the token Turnstile gives the page>', replace: false },
+    note: 'What the gate’s button sends.',
+  },
+  triggers: [],
+};
+
+/** The gate on the catering page, the same entry as the checkout's (guide/index.ts). */
+export const CATERING_START: GuideEntry = {
+  ...START_HERE,
+  id: 'catering-start',
+  screen: 'catering',
+};
+
 export const CHECKOUT: GuideEntry[] = [
+  { ...START_HERE, id: 'checkout-start', screen: 'checkout' },
   {
     id: 'checkout-cart',
     screen: 'checkout',

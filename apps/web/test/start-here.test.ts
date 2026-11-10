@@ -11,6 +11,7 @@ import {
   START_TITLE,
   StartHere,
 } from '../src/components/Guest';
+import { ENTRIES } from '../src/guide';
 import { CATERING_START } from '../src/lib/catering';
 
 const CATERING_PROPS = { title: CATERING_START.title, action: CATERING_START.action };
@@ -72,5 +73,31 @@ describe('StartHere on the catering page (2026-11-10)', () => {
   test('the menu’s and the checkout’s words are the defaults, unchanged', () => {
     expect(START_TITLE).toBe('Ordering starts with your own sandbox.');
     expect(START_ACTION).toBe('Start ordering');
+  });
+});
+
+describe('the gate’s guide entry where there is no menu (2026-11-10)', () => {
+  test('the checkout and the catering page meet it first, with the same words, on the gate', () => {
+    const checkout = ENTRIES.checkout[0]!;
+    const catering = ENTRIES.catering[0]!;
+    expect([checkout.id, catering.id]).toEqual(['checkout-start', 'catering-start']);
+    expect(checkout.target).toBe('start-here');
+    expect(catering.target).toBe('start-here');
+    for (const key of ['title', 'what', 'why', 'whenNot', 'api'] as const) {
+      expect(catering[key], key).toEqual(checkout[key]);
+    }
+    expect(html({ here: '/checkout/', tour: 'start-here' })).toContain('data-tour="start-here"');
+  });
+
+  test('says what a sandbox is, what the button sends and when it is wiped, and nothing of a menu', () => {
+    const entry = ENTRIES.checkout[0]!;
+    expect(entry.what).toContain('private copy of the bakery');
+    expect(entry.what).toContain('10:00 UTC');
+    expect(entry.api).toMatchObject({ method: 'POST', path: '/v1/sandboxes' });
+    for (const words of [entry.title, entry.what, entry.why, entry.whenNot]) {
+      expect(words).not.toMatch(/menu/i);
+    }
+    // The menu keeps its own entry, which speaks of the seed menu.
+    expect(ENTRIES.menu[0]!.id).toBe('menu-start');
   });
 });

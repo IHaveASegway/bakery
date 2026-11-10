@@ -126,6 +126,7 @@ export function StartHere({
   className = '',
   title = START_TITLE,
   action = START_ACTION,
+  tour,
 }: {
   /** This page, for the sign-in link's way back. */
   here: NextPath;
@@ -135,6 +136,11 @@ export function StartHere({
    */
   title?: string;
   action?: string;
+  /**
+   * The guide's target on the gate, where the page puts its mark on the gate itself: the checkout
+   * and the catering page. The menu marks the banner's wrapper instead (StoreMenu.tsx).
+   */
+  tour?: string;
   /** The sandbox exists and its first alarm is seeding it: the gate says so and waits. */
   seeding?: boolean;
   className?: string;
@@ -180,6 +186,7 @@ export function StartHere({
       className={`start-here ${className}`.trim()}
       aria-labelledby={`${id}-title`}
       aria-busy={working || undefined}
+      data-tour={tour}
     >
       <div className="start-words">
         <h2 id={`${id}-title`} className="start-title">

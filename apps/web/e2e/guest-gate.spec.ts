@@ -49,6 +49,7 @@ test('the checkout with no sandbox is one gate that starts a guest in place, car
     'href',
     '/signin/?next=/checkout/',
   );
+  await expectGateMark(page);
   // The cart is in view beside it.
   await expect(page.getByRole('heading', { name: 'Your cart' })).toBeVisible();
   await expectNoAxeViolations(page);
@@ -163,6 +164,7 @@ test('the catering page shows the same gate, starts a sandbox in place, and then
     '/signin/?next=/catering/',
   );
   await expectNoAxeViolations(page);
+  await expectGateMark(page);
   const [made] = await Promise.all([
     sandboxMade(page),
     gate.getByRole('button', { name: 'Start an inquiry' }).click(),
@@ -171,6 +173,9 @@ test('the catering page shows the same gate, starts a sandbox in place, and then
   const form = page.getByRole('heading', { name: 'Ask about an event' });
   await expect(form).toBeVisible({ timeout: 60_000 });
   await expect(form).toBeFocused();
+  // The note the press opened never lies over the inquiry form's fields.
+  await expect(page.locator('html')).toHaveAttribute('data-guide-marks', 'settled');
+  expect(await notesOverFields(page, 'form[aria-labelledby="inquiry-heading"]')).toEqual([]);
   expect(new URL(page.url()).pathname).toBe('/catering/');
   await expect(gate).toHaveCount(0);
   await expect(page.getByText('Your sandbox is live.')).toBeVisible();
@@ -190,3 +195,31 @@ test('the catering gate’s Sign in comes back to the catering page', async ({ p
     timeout: 60_000,
   });
 });
+
+/** The gate's guide mark (2026-11-10): drawn, and at the end of the words it explains. */
+async function expectGateMark(page: Page) {
+  await expect(page.locator('html')).toHaveAttribute('data-guide-marks', 'settled');
+  const mark = page.locator('.guide-spot[data-guide-target="start-here"]');
+  await expect(mark).toHaveCount(1);
+  await expect(mark).toHaveAttribute('data-guide-how', /^(tail|line)$/);
+}
+
+/** Every open guide note that overlaps one of the fields of `form`, named by the field. */
+function notesOverFields(page: Page, form: string): Promise<string[]> {
+  return page.evaluate((form) => {
+    const notes = [...document.querySelectorAll('.guide-note')].map((n) =>
+      n.getBoundingClientRect(),
+    );
+    const fields = [
+      ...document.querySelectorAll(`${form} input, ${form} select, ${form} textarea`),
+    ];
+    return fields
+      .filter((field) => {
+        const f = field.getBoundingClientRect();
+        return notes.some(
+          (n) => n.left < f.right && f.left < n.right && n.top < f.bottom && f.top < n.bottom,
+        );
+      })
+      .map((field) => field.id || field.getAttribute('name') || field.tagName);
+  }, form);
+}

@@ -130,6 +130,7 @@ export default function Catering() {
           title={CATERING_START.title}
           action={CATERING_START.action}
           className="catering-gate"
+          tour="start-here"
         />
       ) : null}
 
