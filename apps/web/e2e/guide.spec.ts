@@ -407,6 +407,30 @@ test('the menu’s read opens a note with what answered, and Ask again shows the
   await expectNoAxeViolations(page);
 });
 
+test.describe('a stranger at the gate', () => {
+  // The first look at the session, before there is one, is a 401 that Chromium logs.
+  test.use({ allowedStatuses: [401] });
+
+  test('the note after Start ordering lies over none of the checkout’s controls', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/menu/');
+    const adds = page.getByRole('button', { name: /^Add .*, to the cart$/ });
+    await expect(adds.first()).toBeEnabled();
+    await adds.first().click();
+    await page.goto('/checkout/');
+    const gate = page.getByRole('region', { name: 'Ordering starts with your own sandbox.' });
+    await gate.getByRole('button', { name: 'Start ordering' }).click();
+    // Beside what it explains where a place is clear of the steps' controls, else as its line.
+    await expect(page.locator('.guide-line, #guide-live')).toContainText('Try it as a guest', {
+      timeout: 30_000,
+    });
+    await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible({ timeout: 30_000 });
+    expect(await guideOverControls(page)).toEqual([]);
+  });
+});
+
 test('one press of Show me around shows step 1, with the menu’s line showing', async ({ page }) => {
   await demoAccount(page);
   await liveSandbox(page);
@@ -893,8 +917,11 @@ test.describe('on a phone', () => {
       await page.goto(path);
       const nav = page.getByRole('navigation', { name: 'The bakery' });
       const control = await page.locator('.masthead .guide-bar-dock').boundingBox();
-      for (const name of ['Menu', 'Catering', 'How it’s built', 'About', 'Status', 'Sign in']) {
-        const link = nav.getByRole('link', { name, exact: true });
+      // Every section and the session link, whatever the session link's words are.
+      const links = nav.getByRole('link');
+      expect(await links.count()).toBeGreaterThanOrEqual(6);
+      for (const link of await links.all()) {
+        const name = (await link.textContent()) ?? '';
         await expect(link).toBeInViewport({ ratio: 1 });
         const box = await link.boundingBox();
         expect(box, name).not.toBeNull();

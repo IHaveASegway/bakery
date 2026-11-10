@@ -192,6 +192,15 @@ export default function Layer({
     if (liveAnchor() === null) setLineFor(live.gesture);
     // Only when the note arrives: later evidence does not fold it.
   }, [live?.gesture, group.length > 0]);
+  const foldIfGone = useCallback((): boolean => {
+    if (live === null) return false;
+    const pressed = traces.anchorOf(live.gesture);
+    if (pressed instanceof Element && pressed.isConnected) return false;
+    if (group[0]?.transport === 'socket') return false;
+    setLineFor(live.gesture);
+    setStoryOpen(false);
+    return true;
+  }, [live, group]);
   const foldLive = useCallback(() => {
     if (live === null) return;
     setLineFor(live.gesture);
@@ -503,6 +512,10 @@ export default function Layer({
               pinned={live.pinned}
               changed={snapshot.version}
               onClose={closeLive}
+              // With no place clear of the page's controls, a note whose pressed control has gone
+              // (the checkout's gate, replaced by the steps) waits as its line. One by a control
+              // still there stays beside it, the least in the way, as a board's move does.
+              onCrowded={asLine ? undefined : foldIfGone}
             >
               <NoteHead
                 eyebrow="Under the hood · just now"

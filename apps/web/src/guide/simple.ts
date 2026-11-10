@@ -153,7 +153,7 @@ export const MENU: GuideEntry[] = [
     screen: 'menu',
     target: 'menu-start',
     title: 'Your own bakery first',
-    what: 'Ordering needs a sandbox of your own; until then this is the demo’s seed menu. A guest sandbox takes a few seconds and is wiped tonight.',
+    what: 'Ordering starts with your own sandbox: a private copy of the bakery, made in a few seconds with no account and wiped at 10:00 UTC. Until then this is the demo’s seed menu.',
     why: 'A sandbox per visitor means an order you place can never land in anyone else’s kitchen.',
     whenNot:
       'Not for a shop that must sell to a stranger at once: here a check that you are a person comes before the first order.',
@@ -164,7 +164,7 @@ export const MENU: GuideEntry[] = [
       method: 'POST',
       path: '/v1/sandboxes',
       body: { turnstile_token: '<the token Turnstile gives the page>', replace: false },
-      note: 'What the sign-in page’s guest button sends.',
+      note: 'What Start ordering sends, as the sign-in page’s guest button does.',
     },
     triggers: [],
   },

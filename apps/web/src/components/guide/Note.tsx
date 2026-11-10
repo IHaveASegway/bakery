@@ -77,6 +77,7 @@ export function Note({
   pinned,
   changed,
   onClose,
+  onCrowded,
   children,
 }: {
   id: string;
@@ -87,11 +88,22 @@ export function Note({
   /** A value that changes when the note's content does, which restarts its timer. */
   changed: unknown;
   onClose: () => void;
+  /**
+   * Called when the note arrives beside an element and no place by it, nor a corner, is clear of
+   * the page's controls. The caller may fold it to its line rather than lay it over the next thing
+   * to press, and says true; otherwise, or without it, the note takes the place that covers least.
+   */
+  onCrowded?: (() => boolean) | undefined;
   children: ReactNode;
 }) {
   const box = useRef<HTMLElement>(null);
   const [inside, setInside] = useState({ pointer: false, focus: false });
   const [corner, setCorner] = useState(false);
+  const crowded = useRef(onCrowded);
+  crowded.current = onCrowded;
+  // Whether the note has a place by the element it is beside now; a new element (the pressed
+  // control gone, a fallback in its place) is a new arrival, judged afresh.
+  const arrived = useRef<Element | null>(null);
   /** The end of the window a phone's sheet took when it arrived. */
   const sheet = useRef<'foot' | 'head' | null>(null);
 
@@ -166,6 +178,9 @@ export function Note({
         },
         controlBoxes(),
       );
+      // Only where it arrives: a note the visitor is reading never folds away under them.
+      if (!at.clear && arrived.current !== target && crowded.current?.() === true) return;
+      arrived.current = target;
       setCorner(false);
       note.style.top = `${Math.round(at.top)}px`;
       note.style.left = `${Math.round(at.left)}px`;
