@@ -12,6 +12,7 @@ import {
   curlText,
   fillPath,
   maskToken,
+  pickEntry,
   screenOf,
   sentenceCount,
   shellQuote,
@@ -34,7 +35,15 @@ import {
   type LabName,
 } from '../src/lib/links';
 import { RAFT } from '../src/guide/principles';
-import { ALL_ENTRIES, CONSOLE_ORDER, ENTRIES, OTHER_WRITES, PATHS } from '../src/guide';
+import {
+  ALL_ENTRIES,
+  CONSOLE_ORDER,
+  ENTRIES,
+  OTHER_WRITES,
+  PATHS,
+  STORY_READ_ROUTES,
+} from '../src/guide';
+import { STORY_READS } from '../src/lib/trace';
 import { DECISIONS, decisionRows } from '../src/guide/decisions';
 import { CONSOLE_PAGES, PAGES } from '../src/lib/guide';
 
@@ -317,9 +326,12 @@ describe('events, principles and targets', () => {
     const text = files.join('\n');
     for (const step of allSteps) {
       // Written as data-tour="x", or as data-tour={cond ? 'x' : undefined} where only one of many
-      // elements is the target (the menu's first card).
+      // elements is the target (the menu's first card), or as tour="x" on StatusLine, which puts
+      // it on its line.
       expect(text, `${step.id}: data-tour="${step.target}"`).toMatch(
-        new RegExp(`data-tour=(?:"${step.target}"|\\{[^}]*'${step.target}')`),
+        new RegExp(
+          `(?:data-tour|<StatusLine[^>]*tour)=(?:"${step.target}"|\\{[^}]*'${step.target}')`,
+        ),
       );
     }
   });
@@ -458,6 +470,7 @@ describe('the words: short enough to read beside a button', () => {
 });
 
 describe('triggers: what opens an entry as a live note', () => {
+  const storyRoutes = new Set<string>(Object.values(STORY_READ_ROUTES));
   const writes = new Set(
     [...operations.entries()]
       .filter(([, { method }]) => ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method))
@@ -471,24 +484,41 @@ describe('triggers: what opens an entry as a live note', () => {
     }
   }
 
-  test('every trigger is a write route, the kitchen socket, or an event in the catalog', () => {
+  test('every trigger is a write route, the kitchen socket, a story read or an event in the catalog', () => {
     for (const entry of allSteps) {
       for (const trigger of entry.triggers) {
-        const ok = writes.has(trigger) || trigger === 'kitchen-socket' || catalog.has(trigger);
+        const ok =
+          writes.has(trigger) ||
+          trigger === 'kitchen-socket' ||
+          catalog.has(trigger) ||
+          storyRoutes.has(trigger);
         expect(ok, `${entry.id}: ${trigger}`).toBe(true);
       }
     }
     expect(operations.get('kitchen-socket')?.method).toBe('GET');
   });
 
-  test('a read never opens a note: no trigger is a GET route but the socket', () => {
+  test('a read opens a note only when it is a story read: no other trigger is a GET route', () => {
     const reads = new Set(
       [...operations.entries()].filter(([, o]) => o.method === 'GET').map(([id]) => id),
     );
     for (const entry of allSteps) {
       for (const t of entry.triggers) {
-        if (t !== 'kitchen-socket') expect(reads.has(t), `${entry.id}: ${t}`).toBe(false);
+        if (t !== 'kitchen-socket' && !storyRoutes.has(t)) {
+          expect(reads.has(t), `${entry.id}: ${t}`).toBe(false);
+        }
       }
+    }
+    // Each story read is a GET route in the OpenAPI document, and the api.ts read it names.
+    for (const route of storyRoutes) expect(operations.get(route)?.method, route).toBe('GET');
+    expect(STORY_READS.map((name) => STORY_READ_ROUTES[name])).toEqual([...storyRoutes]);
+  });
+
+  test('the menu’s read opens its note on the menu and on the checkout, each with its own entry', () => {
+    for (const screen of ['menu', 'checkout'] as const) {
+      const entry = pickEntry(ALL_ENTRIES, screen, 'get-menu', []);
+      expect(entry?.screen).toBe(screen);
+      expect(`${entry?.why} ${entry?.whenNot}`).toMatch(/cache/);
     }
   });
 

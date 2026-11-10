@@ -543,6 +543,26 @@
   font-weight: 600;
 }
 
+/* What a live note's action set off, and a story read's meaning: a line between the chain and the
+   why, so the note says what happened before it says why the tool was chosen. */
+.guide-happened,
+.guide-read-story > p:first-child {
+  margin: 0 0 10px;
+}
+
+.guide-read-story .guide-actions {
+  margin: 0 0 10px;
+}
+
+/* The standing facts a page's own words once said, under an entry's what. */
+.guide-facts {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--guide-muted);
+}
+
 /* ---- The recorder panel ---- */
 
 .guide-panel {
@@ -708,9 +728,10 @@
   }
 }
 
+/* A slide only, never a fade: a note is readable at full contrast from its first frame (a note can
+   open while the page loads, the menu's own read, and a checker may look at it then). */
 @keyframes guide-in {
   from {
-    opacity: 0;
     transform: translateY(4px);
   }
 }

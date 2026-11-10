@@ -54,6 +54,11 @@ export const KITCHEN: GuideEntry[] = [
     events: ['BakeListChanged', 'SlotReserved', 'SlotReleased'],
     principle: CQRS,
     triggers: [],
+    facts: [
+      'The Schedule sends each day’s plan as BakeListChanged with a version, so a late or repeated message changes nothing.',
+      'A day gets a plan when an order or a catering deposit for that day is paid, and the plan changes when another is paid or a place is released.',
+      'Moving the clock makes none: it only changes which day is today.',
+    ],
     api: {
       routeId: 'get-schedule',
       method: 'GET',

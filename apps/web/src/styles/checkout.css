@@ -9,12 +9,11 @@
 .checkout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 20rem;
-  grid-template-rows: auto auto auto 1fr;
+  grid-template-rows: auto auto 1fr;
   grid-template-areas:
     'status summary'
     'steps summary'
-    'pay summary'
-    'how summary';
+    'pay summary';
   gap: var(--space-3) var(--space-6);
   align-items: start;
 }
@@ -44,14 +43,6 @@
   grid-area: pay;
 }
 
-.checkout-how {
-  grid-area: how;
-}
-
-.checkout-how > p {
-  margin: var(--space-2) 0 0;
-}
-
 @media (max-width: 60rem) {
   .checkout {
     grid-template-columns: minmax(0, 1fr);
@@ -60,8 +51,7 @@
       'status'
       'steps'
       'summary'
-      'pay'
-      'how';
+      'pay';
   }
 
   .checkout-summary {

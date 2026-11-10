@@ -1,8 +1,6 @@
 import { bakeLineText, groupBakeLines, type BakeList as Day } from '../lib/kitchen';
 import { dateLabel } from '../lib/schedule';
 import { clockOfText } from '../lib/when';
-import { HOW } from '../guide/how';
-import HowItWorks from './HowItWorks';
 
 /**
  * The kitchen board's bake lists, one panel per bakery day, today first: what to have ready for
@@ -57,9 +55,6 @@ export default function BakeList({ lists, today }: { lists: Day[]; today: string
           );
         })
       )}
-      <HowItWorks>
-        <p>{HOW.bake}</p>
-      </HowItWorks>
     </>
   );
 }

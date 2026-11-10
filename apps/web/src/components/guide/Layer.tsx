@@ -37,6 +37,7 @@ import {
   NoteHead,
   TraceChain,
   WatchChain,
+  ReadStory,
   WhyLines,
   traceSentence,
   watchSentence,
@@ -115,15 +116,21 @@ export default function Layer({
   // page put the focus on; while the focus is elsewhere (the recorder), the last such element; and
   // only then the entry's own element.
   const lastFocused = useRef<Element | null>(null);
+  const story =
+    live !== null && group[0]?.read !== undefined && traces.anchorOf(live.gesture) === null;
   const liveAnchor = useCallback(() => {
     const focused = focusInPage();
     if (focused !== null) lastFocused.current = focused;
+    const target = () => (liveEntry === null ? null : targetOf(liveEntry.target));
+    // A story read the page made by itself (the menu's first load, or Ask again in the note) has no
+    // pressed element: its note sits by what it explains, wherever the focus is.
+    if (story) return resolveAnchor(null, [target]);
     return resolveAnchor(live === null ? null : traces.anchorOf(live.gesture), [
       () => focused,
       () => lastFocused.current,
-      () => (liveEntry === null ? null : targetOf(liveEntry.target)),
+      target,
     ]);
-  }, [live, liveEntry]);
+  }, [live, liveEntry, story]);
   useEffect(() => {
     lastFocused.current = null;
   }, [live?.gesture]);
@@ -370,6 +377,10 @@ export default function Layer({
             expected={expectedFor(liveEntry, group)}
             feed={snapshot.feed}
           />
+          {group[0]?.read !== undefined && <ReadStory trace={group[0]} />}
+          {liveEntry?.happened !== undefined && (
+            <p className="guide-happened">{liveEntry.happened}</p>
+          )}
           {liveEntry !== null && <WhyLines entry={liveEntry} />}
         </Note>
       )}

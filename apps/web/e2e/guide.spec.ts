@@ -244,7 +244,37 @@ test('with the switch off, a press opens no note and the layer is not loaded; on
 
   // With the recorder closed, the next press opens its note again.
   await advance.click();
-  await expect(page.getByRole('region', { name: 'Under the hood: The clock' })).toBeVisible();
+  const clock = page.getByRole('region', { name: 'Under the hood: The clock' });
+  await expect(clock).toBeVisible();
+  // What the press set off, said in the note now that the page no longer says it.
+  await expect(clock).toContainText('each one worked out its timers again');
+  await expect(page.getByText('How this works')).toHaveCount(0);
+});
+
+test('the menu’s read opens a note with what answered, and Ask again shows the 304', async ({
+  page,
+}) => {
+  await demoAccount(page);
+  await liveSandbox(page);
+  await page.goto('/menu/');
+  // No click: the page's own read of its menu is the story, told when it happens.
+  const note = page.getByRole('region', { name: 'Under the hood: Where the menu came from' });
+  await expect(note).toBeVisible();
+  await expect(note).toContainText('GET …/menu');
+  await expect(note).toContainText(/Bakery-Cache: (hit|miss)/);
+  await expect(note).toContainText('ETag: "');
+  await expect(note).toContainText(
+    /Served from the cache|The Catalog object answered and the cache was filled/,
+  );
+  await expect(note).toContainText('When not');
+  // The page itself no longer explains.
+  await expect(page.getByText('How this works')).toHaveCount(0);
+
+  await note.getByRole('button', { name: 'Ask again' }).click();
+  await expect(note).toContainText('304');
+  await expect(note).toContainText('If-None-Match: "');
+  await expect(note).toContainText('This page’s copy was current');
+  await expectNoAxeViolations(page);
 });
 
 /**

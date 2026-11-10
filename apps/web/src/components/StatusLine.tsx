@@ -4,8 +4,11 @@ import type { Phase } from '../lib/use-session';
 export default function StatusLine({
   phase,
   signedOut,
+  tour,
 }: {
   phase: Phase;
+  /** The guide's target on this line, where a page's story is about its sandbox's reads. */
+  tour?: string;
   /** The sentence for a visitor with no sandbox, for a screen where "ordering is off" is not the point. */
   signedOut?: React.ReactNode;
 }) {
@@ -35,7 +38,7 @@ export default function StatusLine({
       break;
   }
   return (
-    <p className="hint" aria-live="polite">
+    <p className="hint" aria-live="polite" data-tour={tour}>
       {text}
     </p>
   );

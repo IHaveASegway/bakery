@@ -16,6 +16,8 @@ export const CRM: GuideEntry[] = [
     events: ['CateringQuoteSent'],
     principle: SAGA,
     triggers: ['send-quote', 'CateringQuoteSent'],
+    happened:
+      'The quote is now on the event, and the saga waits for the customer to accept it: nothing more moves until they answer.',
     api: {
       routeId: 'send-quote',
       method: 'POST',
@@ -187,6 +189,14 @@ export const CRM: GuideEntry[] = [
     events: ['CampaignScheduled', 'CampaignSent', 'MessageDelivered'],
     principle: SAGA,
     triggers: ['schedule-campaign', 'CampaignScheduled', 'CampaignSent'],
+    happened:
+      'Scheduling put a timer on the CRM object for the send time. Nothing is sent until business time passes it, and then once; if a rebuild is running then, the send waits for it to end.',
+    facts: [
+      'When business time passes the send time, the CRM reads the segment as it is at that moment and keeps the customers whose marketing consent is true.',
+      'Recipients are frozen at send time: someone who opts out afterwards is still counted, and someone who opts in is not added.',
+      'Consent is data the send reads, not a rule this page applies.',
+      'Each message is keyed by campaign and customer. Opens and clicks are simulated from the seed; nobody clicks anything.',
+    ],
     api: {
       routeId: 'schedule-campaign',
       method: 'POST',
@@ -262,6 +272,12 @@ export const CRM: GuideEntry[] = [
     events: ['ProjectionRebuildFinished'],
     principle: BACKFILL,
     triggers: ['start-rebuild', 'ProjectionRebuildFinished'],
+    happened:
+      'The CRM emptied its projections and set a cursor at the start of the log, and an alarm now replays 200 events a step. Commands keep working, and a campaign whose send comes due meanwhile waits for the rebuild to end, so it never reads a half-built projection.',
+    facts: [
+      'The customer list, the timelines, the segments and the campaign stats are projections of the event log, so they are disposable and the log is not.',
+      'The result is the same bytes it was before: this is the Backfill Lab’s principle in production code.',
+    ],
     api: {
       routeId: 'start-rebuild',
       method: 'POST',

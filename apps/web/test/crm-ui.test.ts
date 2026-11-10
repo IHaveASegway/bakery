@@ -7,6 +7,16 @@ import { describe, expect, test } from 'vitest';
 import type { CampaignResponse, CampaignState } from '../src/contracts';
 import Campaigns, { CampaignCard } from '../src/components/Campaigns';
 import Rebuild from '../src/components/Rebuild';
+import { ALL_ENTRIES } from '../src/guide';
+
+/** Every word the guide says about one entry: what, the facts, what happened, why and when not. */
+const entryWords = (id: string) => {
+  const entry = ALL_ENTRIES.find((e) => e.id === id);
+  if (entry === undefined) throw new Error(`no entry ${id}`);
+  return [entry.what, ...(entry.facts ?? []), entry.happened ?? '', entry.why, entry.whenNot].join(
+    ' ',
+  );
+};
 
 const campaign = (state: CampaignState): CampaignResponse => ({
   campaign: '01JTESTCAMPAIGN00000000AA',
@@ -90,19 +100,21 @@ describe('the compose form and the rebuild', () => {
     expect(page).toContain('There is news from the bakery this week.');
   });
 
-  test('the "How this works" line names the three guarantees', () => {
-    expect(page).toMatch(/frozen at\s+send time/);
-    expect(page).toContain('Consent is data the send reads');
-    expect(page).toMatch(/sends\s+once, however often the alarm fires/);
+  test('the page no longer explains: its three guarantees are the guide’s scheduling entry', () => {
+    expect(page).not.toContain('How this works');
+    const said = entryWords('crm-campaign-schedule');
+    expect(said).toMatch(/frozen at send time/);
+    expect(said).toContain('Consent is data the send reads');
+    expect(said).toMatch(/sends once however often the alarm fires/);
   });
 
-  test('the rebuild button is off for a guest, and its line names the principle', () => {
+  test('the rebuild button is off for a guest, and the guide’s rebuild entry names the principle', () => {
     const guest = renderToStaticMarkup(
       createElement(Rebuild, { sandboxId: 'S', isGuest: true, onFinished: () => undefined }),
     );
     expect(guest).toMatch(/<button[^>]*disabled/);
-    expect(guest).toContain('disposable and the log is not');
-    expect(guest).toContain('Backfill');
+    expect(entryWords('crm-rebuild')).toContain('disposable and the log is not');
+    expect(entryWords('crm-rebuild')).toContain('Backfill');
     const staff = renderToStaticMarkup(
       createElement(Rebuild, { sandboxId: 'S', isGuest: false, onFinished: () => undefined }),
     );

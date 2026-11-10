@@ -21,6 +21,7 @@ import {
   WhyLines,
   listeningText,
   objectOf,
+  readSentence,
   requestText,
   shortPath,
   traceSentence,
@@ -373,6 +374,40 @@ describe('where a hotspot sits', () => {
   });
 });
 
+describe('what a story read’s note says', () => {
+  const read = (status: number, cache: string | null, asked: string | null = null) =>
+    trace({
+      key: null,
+      method: 'GET',
+      path: '/v1/sandboxes/sbx-one/menu',
+      status,
+      read: { name: 'menu', cache, etag: '"v3"', asked },
+    });
+
+  test('served from the cache, or the object answered and filled it, with the ETag it saw', () => {
+    expect(readSentence(read(200, 'hit'))).toMatch(/^Served from the cache.*"v3"/);
+    expect(readSentence(read(200, 'miss'))).toMatch(
+      /^The Catalog object answered and the cache was filled.*"v3"/,
+    );
+    expect(readSentence(read(200, null))).toContain('no Bakery-Cache header');
+  });
+
+  test('asked again with the ETag: current, 304, no body', () => {
+    expect(readSentence(read(304, 'hit', '"v3"'))).toBe(
+      'This page’s copy was current: it sent If-None-Match "v3", and the API answered 304 with no body.',
+    );
+  });
+
+  test('the chain shows the headers it carried', () => {
+    const html = renderToStaticMarkup(
+      createElement(TraceChain, { traces: [read(304, 'hit', '"v3"')], expected: [], feed: [] }),
+    );
+    expect(html).toContain('Bakery-Cache: hit');
+    expect(html).toContain('ETag: &quot;v3&quot;');
+    expect(html).toContain('If-None-Match: &quot;v3&quot;');
+  });
+});
+
 describe('a note is not a dialog', () => {
   test('it is a named region that takes no focus and carries no style in its markup', () => {
     const html = renderToStaticMarkup(
@@ -474,6 +509,21 @@ describe('when a live note opens', () => {
 
   test('the page’s own calls (no click) never open one', () => {
     expect(noteToOpen([action(null, 'beat')], new Set(), { on: true, panel: false })).toBeNull();
+  });
+
+  test('a story read is never old news: the menu’s first load opens its note however late the layer comes', () => {
+    const menu = trace({
+      id: 'menu-read',
+      key: null,
+      gesture: 9,
+      method: 'GET',
+      path: '/v1/sandboxes/sbx-one/menu',
+      status: 200,
+      read: { name: 'menu', cache: 'miss', etag: '"v1"', asked: null },
+    });
+    const seen = gesturesIn([menu], T0 + 60_000);
+    expect(seen.size).toBe(0);
+    expect(noteToOpen([menu], seen, { on: true, panel: false })).toBe(9);
   });
 });
 

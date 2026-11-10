@@ -101,6 +101,16 @@ export interface GuideEntry {
    * own click sent on one of these routes, or an event of one of these types that it caused.
    */
   triggers: string[];
+  /**
+   * What just happened, said in the live note under its chain when one of `triggers` opens it: one
+   * or two sentences about the thing the visitor set off, such as a hold placed or a timer re-armed.
+   */
+  happened?: string;
+  /**
+   * Standing facts a page once said in its own "How this works" words, kept here so the page can
+   * stop explaining: each a short sentence or two, shown under `what` in the standing note.
+   */
+  facts?: string[];
 }
 
 /** The number of sentences in a text: a stop, a question or an exclamation and then a space or the end. */
