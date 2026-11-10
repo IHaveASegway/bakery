@@ -45,7 +45,7 @@ export interface RecorderState {
 }
 
 // The hops themselves are not kept here: they go to the trace store (lib/trace.ts), which holds
-// both what a note shows and what the panel lists, by one rule (audit H1, 2026-11-10).
+// both what a note shows and what the panel lists, by one rule (since 2026-11-10).
 let state: RecorderState = {
   missed: false,
   wiped: false,

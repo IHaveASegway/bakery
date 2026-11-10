@@ -577,7 +577,7 @@ describe('what the recorder showed, in plain words', () => {
       key: null,
     });
     expect(expectedFor(entry('controls-menu-edit'), [keyless])).toEqual([]);
-    // Said in plain words (audit H4): setting a value twice is setting it once; no key is needed.
+    // Said in plain words: setting a value twice is setting it once; no key is needed.
     expect(unfollowable([keyless])).toContain('Setting a value twice');
     expect(unfollowable([keyless])).not.toContain('cannot be tied');
     // Publish waits for the plan's own event; the order goes out later, on another press.
@@ -871,7 +871,7 @@ describe('a value the page read', () => {
   });
 });
 
-describe('a note and the recorder panel never disagree (audit H1)', () => {
+describe('a note and the recorder panel never disagree', () => {
   // Made-up ULID-shaped ids. The call's key, and the cause the API answered with (Bakery-Cause):
   // a dispatch step stores its events under the key with the route's prefix.
   const SENT_ID = '01JC9A0K3W9QF2N4T7XRB5M0HQ';
@@ -1113,7 +1113,7 @@ describe('a line of text is its line box, whatever the font', () => {
   });
 });
 
-describe('a chain folds an event it did not name when it comes many times (audit H9)', () => {
+describe('a chain folds an event it did not name when it comes many times', () => {
   const caps = (seq: number, day: string): TracedEvent => ({
     id: `caps-${day}`,
     type: 'CapsRefreshed',
@@ -1151,7 +1151,7 @@ describe('a chain folds an event it did not name when it comes many times (audit
   });
 });
 
-describe('a board move says what it changes, and a repeat says it changed nothing (G12, H10)', () => {
+describe('a board move says what it changes, and a repeat says it changed nothing', () => {
   const ORDER = '01JC9A0K8T2B6Y8C4V1N3K7QZH';
   const move = (key: string): Trace =>
     trace({

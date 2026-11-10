@@ -179,7 +179,7 @@ export default function Layer({
   const lastFocused = useRef<Element | null>(null);
   // The part of the page each press was made in (its card, row, form or panel), taken at the
   // click: a control the page replaces with another (Schedule, which becomes Unschedule) leaves its
-  // note with the part it was in, not at the entry's whole element far away (audit H7).
+  // note with the part it was in, not at the entry's whole element far away.
   const homes = useRef(new WeakMap<Element, Element>());
   useEffect(() => {
     const press = (event: MouseEvent) => {
@@ -203,7 +203,10 @@ export default function Layer({
   // with no place clear of the page's controls, or a phone's sheet the visitor scrolled or tapped
   // past. The line opens it again.
   const [lineFor, setLineFor] = useState<number | null>(null);
-  const asLine = story || (live !== null && lineFor === live.gesture);
+  // On the sign-in page every way in is a control, side by side, and a press there replaces its
+  // own form: its note opens as its line, over nothing, and in full when the visitor taps it
+  // (drawn first beside its form, it lay over Google's and GitHub's buttons).
+  const asLine = story || (live !== null && (lineFor === live.gesture || screenGroup === 'signin'));
   const liveAnchor = useCallback(() => {
     const focused = focusInPage();
     if (focused !== null) lastFocused.current = focused;
@@ -284,10 +287,16 @@ export default function Layer({
     // moved, not the entry's own element), it folds. Later, the note itself folds if its element
     // goes (Note.tsx).
     const gesture = live.gesture;
+    // On a phone a sheet by a fallback lies over what the page drew in the pressed control's
+    // place, the next thing pressed (the menu's Add buttons after Start ordering): there
+    // the note waits as its line unless the page wrote a result line for it.
+    const small = window.matchMedia('(max-width: 40rem)').matches;
+    const target = liveEntry?.target ?? null;
     return afterSettling(
       () => {
         const now = traces.anchorOf(gesture);
-        return (now instanceof Element && now.isConnected) || liveAnchor() !== null;
+        if (now instanceof Element && now.isConnected) return true;
+        return small ? resultInPage(target) !== null : liveAnchor() !== null;
       },
       () => setLineFor(gesture),
     );
@@ -295,6 +304,14 @@ export default function Layer({
   }, [live?.gesture, group.length > 0, answered]);
   const foldIfGone = useCallback((): boolean => {
     if (live === null) return false;
+    // The sign-in page's ways in sit side by side, every one a control: a note with no place
+    // clear of them all waits as its line at once, never over Google's and GitHub's buttons
+    // even while its own button still says it is working.
+    if (screenGroup === 'signin') {
+      setLineFor(live.gesture);
+      setStoryOpen(false);
+      return true;
+    }
     const pressed = traces.anchorOf(live.gesture);
     if (pressed instanceof Element && pressed.isConnected) return false;
     if (group[0]?.transport === 'socket') return false;
@@ -307,18 +324,28 @@ export default function Layer({
     if (resultInPage(liveEntry?.target ?? null) !== null) return false;
     const gesture = live.gesture;
     const target = liveEntry?.target ?? null;
+    // While the page settles the note is not shown at all (Note.tsx hides it while this says
+    // true): drawn at its fallback place meanwhile, it lay over the sign-in page's provider
+    // buttons for a second or more before it folded.
+    if (judging.current === gesture) return true;
+    judging.current = gesture;
     afterSettling(
       () => {
         const now = traces.anchorOf(gesture);
-        return resultInPage(target) !== null || (now instanceof Element && now.isConnected);
+        const kept = resultInPage(target) !== null || (now instanceof Element && now.isConnected);
+        // Kept: the next placing judges afresh, and shows the note where it now belongs.
+        if (kept) judging.current = null;
+        return kept;
       },
       () => {
+        judging.current = null;
         setLineFor(gesture);
         setStoryOpen(false);
       },
     );
-    return false;
-  }, [live, group, liveEntry]);
+    return true;
+  }, [live, group, liveEntry, screenGroup]);
+  const judging = useRef<number | null>(null);
   // What the live note must never cover (audit G3): the control that was pressed, the thing that
   // shows the result (the card where it is now, the readout that changed, the line that appeared:
   // the note's anchor and any data-guide-result), and what a visitor presses next (the same control
@@ -379,7 +406,7 @@ export default function Layer({
       return { top: r.top, left: r.left, width: r.width, height: r.height };
     });
   }, [live, liveAnchor, group, liveEntry]);
-  // On the console's workspaces a live note goes in the page's flow under what it explains (D1).
+  // On the console's workspaces a live note goes in the page's flow under what it explains.
   const liveFlow = useCallback(
     (anchorEl: Element | null) => {
       if (live === null || story || anchorEl === null) return null;
@@ -549,7 +576,7 @@ export default function Layer({
     return () => document.removeEventListener('keydown', onKey, { capture: true });
   }, [live, standing, path.open, panel, pathEnd, onClosePanel]);
 
-  // While the panel is open the page makes room for it (audit H2): on a wide screen it is a column
+  // While the panel is open the page makes room for it: on a wide screen it is a column
   // beside the page, which narrows and stays usable; on a narrow one the page can scroll every
   // control clear of its sheet (guide.css reads data-guide-panel on the root).
   useLayoutEffect(() => {

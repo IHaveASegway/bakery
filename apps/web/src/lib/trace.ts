@@ -278,7 +278,7 @@ export interface TraceSnapshot {
   hops: readonly RecorderHop[];
   /**
    * The last events this page saw from any source, newest first, whoever caused them: what lets a
-   * note say a move was already made under another command, so its own wrote nothing (audit H10).
+   * note say a move was already made under another command, so its own wrote nothing.
    */
   seen: readonly SeenEvent[];
   version: number;

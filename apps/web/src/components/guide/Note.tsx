@@ -42,7 +42,7 @@ export const LINGER_MS = 8_000;
 
 /**
  * Where a note about a thing on a dense screen goes in the page's flow (ADR 0014's postscript of
- * 2026-11-10, decision D1): after the moved card or table row; else after the result line the
+ * 2026-11-10): after the moved card or table row; else after the result line the
  * press wrote near it (a line marked data-guide-result, a form's messages); else at the end of the
  * small part the press was in (a panel, a form, a card); else after the pressed control's own
  * block. Only on the console's workspaces, wider than a phone, and only inside the page's main
@@ -246,7 +246,7 @@ export function Note({
       const target = anchor();
       ring(target);
       // In the page's flow: the slot goes where flowPlace says, and the page shows the note by
-      // scrolling only as far as it must, never past the anchor's top (D1).
+      // scrolling only as far as it must, never past the anchor's top.
       const where = flowRef.current?.(target) ?? null;
       const held = slotRef.current;
       if (where !== null) {
@@ -282,7 +282,13 @@ export function Note({
       }
       // The element it sat by has gone and nothing stands in for it (a button the page replaced):
       // the caller may fold it to its line rather than leave it in a corner over the page (F6).
-      if (target === null && arrived.current !== null && crowded.current?.() === true) return;
+      // With nothing to sit by at all, from the start or since, its caller may fold it to its
+      // line rather than dock it in a corner over the page.
+      if (target === null && crowded.current?.() === true) {
+        note.style.visibility = 'hidden';
+        return;
+      }
+      note.style.removeProperty('visibility');
       if (window.matchMedia(PHONE).matches || target === null) {
         note.style.removeProperty('top');
         note.style.removeProperty('left');
@@ -297,6 +303,18 @@ export function Note({
           note.removeAttribute('data-sheet');
           return;
         }
+        // A phone's sheet whose element went (the pressed button replaced by what it made) is
+        // judged again, as a note beside a fallback is: its caller may fold it to its line rather
+        // than leave it over what the page drew in the button's place.
+        if (
+          arrived.current !== null &&
+          arrived.current !== target &&
+          crowded.current?.() === true
+        ) {
+          note.style.visibility = 'hidden';
+          return;
+        }
+        arrived.current = target;
         const h = note.offsetHeight;
         const foot = {
           top: window.innerHeight - h - footRoom(),
@@ -369,6 +387,8 @@ export function Note({
       // checkout's steps drawn after the gate), never later under a reading eye.
       const settling = performance.now() - arrivedAt.current < 2_000;
       if (!at.clear && (arrived.current !== target || settling) && crowded.current?.() === true) {
+        // Its caller is folding it, or judging whether to: not drawn over the page meanwhile.
+        note.style.visibility = 'hidden';
         return;
       }
       if (arrived.current !== target) arrivedAt.current = performance.now();
@@ -427,7 +447,8 @@ export function Note({
   // Where the pointer is, so a note in the flow never leaves from under it: what is below the
   // note would move up into the place the pointer is.
   const pointer = useRef<{ x: number; y: number } | null>(null);
-  useEffect(() => {
+  // A layout effect, so a pointer that moves in the task that draws the note is heard.
+  useLayoutEffect(() => {
     if (slot === null) return;
     const track = (event: PointerEvent) => {
       pointer.current = { x: event.clientX, y: event.clientY };

@@ -5,7 +5,7 @@ import { BREAKER, CQRS, PAYMENTS, QUEUE, RAFT } from './principles';
 
 /**
  * What each board move's event changes beyond the board, one line a move, so three moves of one
- * entry do not say the same thing three times (audit G12). From the subscriber table
+ * entry do not say the same thing three times. From the subscriber table
  * (crates/app/src/routing.rs) and what each subscriber does with the event.
  */
 export const BOARD_MOVES: Record<string, string> = {

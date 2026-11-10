@@ -297,7 +297,7 @@ type ChainRow = ExpectedHop & { also: TracedEvent[] };
 
 /**
  * The rows of a chain: each event the action makes, then the others the trace observed, with
- * several of one type folded into one row (audit H9: Publish menu listed nine bare "CapsRefreshed
+ * several of one type folded into one row (on 2026-11-10 Publish menu listed nine bare "CapsRefreshed
  * seq 2 on Schedule" rows, one a day, without the day).
  */
 export function chainRows(hops: readonly ExpectedHop[], expected: readonly string[]): ChainRow[] {
@@ -341,12 +341,12 @@ export function takenWords(deliveries: readonly Delivery[] | undefined): string 
  * makes, observed with its sequence number, seen in the activity feed, or not yet seen; and the
  * subscribers the server's recorder saw take it. The live note and the recorder panel both draw
  * it from the same traces, whose reading state is the store's (lib/trace.ts), so they say the
- * same of every event (audit H1).
+ * same of every event.
  */
 /**
  * A board move answered ack whose event this page already saw for the same order under another
  * command (another tab, or an earlier press): the Order took the repeat as a no-op and wrote
- * nothing, so there is nothing to wait for (audit H10). The other command's event, or null.
+ * nothing, so there is nothing to wait for. The other command's event, or null.
  */
 export function madeBefore(
   trace: Trace,

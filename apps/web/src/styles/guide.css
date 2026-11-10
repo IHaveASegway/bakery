@@ -1136,7 +1136,7 @@
   }
 }
 
-/* The recorder never covers the page's controls (audit H2, 2026-11-10). On a wide screen it is a
+/* The recorder never covers the page's controls (2026-11-10). On a wide screen it is a
    column of the page: while it is open (Layer.tsx sets data-guide-panel on the root) the page
    keeps its width less the panel's, so every control stays beside it, not under it. Under 60rem
    there is no room for a column: the panel is a sheet over the lower part of the window, and the
@@ -1206,15 +1206,6 @@
   body:has(.cart-bar) .guide-panel {
     bottom: 72px;
   }
-
-  .guide-bar-topbar .guide-switch-text {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
 }
 
 /* A slide only, never a fade: a note is readable at full contrast from its first frame (a note can
@@ -1260,7 +1251,7 @@ body:has(.cart[data-open], dialog[open], [aria-modal='true']) .guide-bar-dock {
   visibility: hidden;
 }
 
-/* ---- A note in the page's flow (D1, 2026-11-10) ----
+/* ---- A note in the page's flow (2026-11-10) ----
 
    On the console's workspaces a live note is drawn in the page, under what it explains: after the
    moved card in its column, at the end of the panel pressed in, after a result line (Note.tsx,

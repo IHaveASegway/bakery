@@ -16,6 +16,7 @@ import {
   expectNoAxeViolations,
   liveSandbox,
   payOrder,
+  password,
   pickupOrder,
   test,
 } from './fixtures';
@@ -660,7 +661,7 @@ test('after a fresh sandbox, a price draft and a move, no row of a note is left 
 
   // A price draft: the page sends its PATCH with no Idempotency-Key, and the API names the cause
   // it wrote under in Bakery-Cause (ADR 0013's postscript of 2026-11-10), so the note follows its
-  // MenuItemChanged to the recorder like any write (audit H4).
+  // MenuItemChanged to the recorder like any write.
   await page.goto('/app/menu/');
   const field = page.getByRole('textbox', { name: /^Price of Country loaf, Whole/ });
   await expect(field).toBeVisible();
@@ -689,7 +690,7 @@ test('after a fresh sandbox, a price draft and a move, no row of a note is left 
   await expect(move.locator('[data-state="expected"]')).toHaveCount(0);
 });
 
-test('with the recorder open on Dispatch, Propose is pressed beside it, and its row and its hops agree (H1, H2)', async ({
+test('with the recorder open on Dispatch, Propose is pressed beside it, and its row and its hops agree', async ({
   page,
 }) => {
   await demoAccount(page);
@@ -751,7 +752,7 @@ test('with the recorder open on Dispatch, Propose is pressed beside it, and its 
   await expectNoAxeViolations(page);
 });
 
-test('on the console a move’s note is drawn under its card, in the page, and the next button does not move (D1)', async ({
+test('on the console a move’s note is drawn under its card, in the page, and the next button does not move', async ({
   page,
 }) => {
   await demoAccount(page);
@@ -808,6 +809,51 @@ test('on the console a move’s note is drawn under its card, in the page, and t
 
 /** The opening of the board's Start line (src/guide/kitchen.ts, BOARD_MOVES). */
 const BOARD_LINE_START = 'OrderProductionStarted reaches the board on every screen';
+
+test.describe('a stranger signing in', () => {
+  // The first look at the session, before there is one, is a 401 that Chromium logs.
+  test.use({ allowedStatuses: [401] });
+
+  test('a demo account’s note waits as its line, over none of the other ways in, at once', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/signin/');
+    const create = page.getByRole('form', { name: 'Create a demo account' });
+    const submit = create.getByRole('button', { name: 'Create a demo account' });
+    await expect(submit).toBeEnabled();
+    await create.getByLabel('Password').fill(password());
+    // From the press on, every frame: no note over a provider's button.
+    await page.evaluate(() => {
+      const w = window as unknown as { overProviders: string[] };
+      w.overProviders = [];
+      const look = () => {
+        const notes = [...document.querySelectorAll('.guide-note')]
+          .filter((n) => getComputedStyle(n).visibility !== 'hidden')
+          .map((n) => n.getBoundingClientRect());
+        for (const b of document.querySelectorAll('main button, main a[href]')) {
+          if (!/Google|GitHub/.test(b.textContent ?? '')) continue;
+          const r = b.getBoundingClientRect();
+          for (const n of notes) {
+            if (r.left < n.right && r.right > n.left && r.top < n.bottom && r.bottom > n.top) {
+              w.overProviders.push((b.textContent ?? '').trim());
+            }
+          }
+        }
+        requestAnimationFrame(look);
+      };
+      requestAnimationFrame(look);
+    });
+    await submit.click();
+    await expect(page.locator('code.username')).toBeVisible();
+    const line = page.locator('.guide-layer:not(.guide-line-docked) > .guide-line');
+    await expect(line).toContainText('A demo account');
+    await page.waitForTimeout(1_500);
+    expect(
+      await page.evaluate(() => (window as unknown as { overProviders: string[] }).overProviders),
+    ).toEqual([]);
+  });
+});
 
 test.describe('a keyboard on the menu', () => {
   // The first look at the session, before there is one, is a 401 that Chromium logs.
@@ -1366,6 +1412,29 @@ test.describe('on a phone', () => {
       }
       // The same place on each: the same distance from the masthead's edge and from its links.
       for (const at of seen) expect(at).toEqual(seen[0]);
+      // The console's control is the same one in words, in its top bar's own row.
+      await page.goto('/app/');
+      const toggle = page.getByRole('switch', { name: 'Under the hood' });
+      await expect(toggle).toBeVisible();
+      await expect(toggle.locator('.guide-switch-text')).toBeVisible();
+      await expect(toggle).toContainText('Under the hood');
+      const covered = await toggle.evaluate((t) => {
+        const c = t.getBoundingClientRect();
+        return [...document.querySelectorAll('a[href], button, input, select')]
+          .filter((el) => el.closest('[data-guide-root]') === null)
+          .filter((el) => {
+            const r = el.getBoundingClientRect();
+            return (
+              r.width > 0 &&
+              r.left < c.right &&
+              r.right > c.left &&
+              r.top < c.bottom &&
+              r.bottom > c.top
+            );
+          })
+          .map((el) => (el.textContent ?? '').trim().slice(0, 30));
+      });
+      expect(covered, `${width} console`).toEqual([]);
     }
     // A tap opens the whole control: the switch, the short path and the recorder.
     await page.setViewportSize({ width: 390, height: 844 });

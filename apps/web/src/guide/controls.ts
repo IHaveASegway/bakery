@@ -188,7 +188,7 @@ export const CONTROLS: GuideEntry[] = [
     screen: 'console',
     target: 'controls-actions',
     title: 'A fresh sandbox',
-    what: 'A signed-in account keeps one current sandbox. New sandbox sends create with replace: the old sandbox and everything in it are deleted, and a new one is seeded in its place. The line under the button names the one that is yours now.',
+    what: 'An account keeps one current sandbox. With none yet, New sandbox makes one. From the sandbox menu it asks first and sends replace: the old sandbox and all in it are deleted, a new one is seeded, and the line under it names it.',
     why: 'Replace is asked for in the request, never inferred: a create retried without it returns the sandbox you have, and only a confirmed press deletes one.',
     whenNot: 'Not for two sandboxes side by side: an account has one at a time.',
     events: ['SandboxWiped', 'SandboxSeeded'],
