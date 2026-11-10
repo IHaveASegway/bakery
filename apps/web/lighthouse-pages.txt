@@ -1,0 +1,29 @@
+# The pages the `lighthouse` job in .github/workflows/ci.yml measures, one path a line, in order.
+# Lines that start with # and blank lines are skipped. The list lives here, not in ci.yml, because a
+# pull request that changes ci.yml gets no preview (scripts/firewall/scanner-changed.sh), so a page
+# listed there could never be measured in the pull request that adds it. apps/web/test/
+# lighthouse-pages.test.ts fails when the build emits a page that is neither listed nor excluded.
+/
+/menu/
+/catering/
+/checkout/
+/privacy/
+/signin/
+/about/
+/how-its-built/
+/how-its-built/single-writer/
+/how-its-built/outbox/
+/how-its-built/cache/
+/how-its-built/rebuild/
+/how-its-built/routes/
+/how-its-built/idempotency/
+/how-its-built/sagas/
+/how-its-built/leases/
+/how-its-built/admission/
+/how-its-built/time-travel/
+/how-its-built/lag/
+/how-its-built/sandbox/
+/how-its-built/api/
+/how-its-built/breaker/
+/status/
+/docs/api/
