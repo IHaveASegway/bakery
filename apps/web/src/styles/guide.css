@@ -1134,7 +1134,27 @@
     top: calc(var(--guide-top, 0px) + 8px) !important;
     bottom: auto !important;
   }
+}
 
+/* The recorder never covers the page's controls (audit H2, 2026-11-10). On a wide screen it is a
+   column of the page: while it is open (Layer.tsx sets data-guide-panel on the root) the page
+   keeps its width less the panel's, so every control stays beside it, not under it. Under 60rem
+   there is no room for a column: the panel is a sheet over the lower part of the window, and the
+   page gains as much room at its foot, so any control can be scrolled clear of it. */
+@media (min-width: 60.01rem) {
+  :root[data-guide-panel] body > main,
+  :root[data-guide-panel] body > .site-footer {
+    margin-right: 400px;
+  }
+
+  /* The shop's and the prose pages' column is centred with a full width: it keeps its centre
+     in the room left. */
+  :root[data-guide-panel] body:not(.shell-app) > main {
+    width: auto;
+  }
+}
+
+@media (max-width: 60rem) {
   .guide-panel {
     top: auto;
     right: 8px;
@@ -1142,7 +1162,11 @@
     left: 8px;
     width: auto;
     max-width: none;
-    height: 70vh;
+    height: 55vh;
+  }
+
+  :root[data-guide-panel] body {
+    padding-bottom: calc(55vh + 80px);
   }
 }
 

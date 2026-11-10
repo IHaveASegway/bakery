@@ -514,6 +514,16 @@ export default function Layer({
     return () => document.removeEventListener('keydown', onKey, { capture: true });
   }, [live, standing, path.open, panel, pathEnd, onClosePanel]);
 
+  // While the panel is open the page makes room for it (audit H2): on a wide screen it is a column
+  // beside the page, which narrows and stays usable; on a narrow one the page can scroll every
+  // control clear of its sheet (guide.css reads data-guide-panel on the root).
+  useLayoutEffect(() => {
+    if (!panel) return;
+    const html = document.documentElement;
+    html.setAttribute('data-guide-panel', '');
+    return () => html.removeAttribute('data-guide-panel');
+  }, [panel]);
+
   // The panel opens under the top bar or masthead showing now (guide.css reads --guide-top), so
   // the switch that opened it stays in sight.
   const root = useRef<HTMLDivElement>(null);
