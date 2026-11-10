@@ -918,6 +918,16 @@
   text-align: left;
 }
 
+/* On the console the guide sits in the top bar, not at the window's foot: the line waits under
+   the top bar's right end, over the page's headings and live words, not over the foot of the
+   board's columns and their buttons (F6, 2026-11-10). */
+@media (min-width: 60.01rem) {
+  .shell-app .guide-layer:not(.guide-line-docked) > .guide-line {
+    top: calc(var(--guide-top, 56px) + 8px);
+    bottom: auto;
+  }
+}
+
 /* The line is the guide's one visible line, so it reads whole wherever it sits: its title and its
    answer wrap onto a second row rather than cut mid-word. */
 .guide-layer .guide-line-open {

@@ -320,6 +320,8 @@ export function placeNote(
 
 /** A hotspot's size, with the ring drawn around it, and the clear margin it keeps. */
 const SPOT = 28;
+/** The mark as drawn, inside its box. */
+const DRAWN = 24;
 const CLEAR = 8;
 /** After a heading's text, room for the mark's pulse (it grows to about 14 px past the mark). */
 const LINE_GAP = 18;
@@ -340,6 +342,15 @@ export const overlaps = (a: Box, b: Box) =>
  * and a clear margin there. Never on the target's edge: that is where it sat on a border, a button
  * or a word.
  */
+/**
+ * The top of a mark set after a line of text: centred on it, or, on a line shorter than the mark,
+ * with the drawn mark's top at the line's top, so it never reaches into the line above (a heading
+ * that wraps on a phone, the gate's title at 390 px, where a centred mark touched the first line
+ * and was refused).
+ */
+const levelWith = (line: Box) =>
+  line.height >= SPOT ? line.top + (line.height - SPOT) / 2 : line.top - (SPOT - DRAWN) / 2;
+
 export function spotPlaces(
   target: Box,
   view: { width: number; height: number },
@@ -350,13 +361,13 @@ export function spotPlaces(
   if (tail !== null) {
     const left = tail.left + tail.width + LINE_GAP;
     if (left + SPOT + CLEAR <= view.width) {
-      places.push({ top: tail.top + (tail.height - SPOT) / 2, left, how: 'tail' });
+      places.push({ top: levelWith(tail), left, how: 'tail' });
     }
   }
   if (line !== null) {
     const left = line.left + line.width + LINE_GAP;
     if (left + SPOT + CLEAR <= view.width) {
-      places.push({ top: line.top + (line.height - SPOT) / 2, left, how: 'line' });
+      places.push({ top: levelWith(line), left, how: 'line' });
     }
   }
   const gutterLeft = target.left + target.width + CLEAR;

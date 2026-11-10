@@ -194,10 +194,26 @@ export function Note({
       // no room there, docked in the first corner clear of them, the same each time on a page.
       const matters = keep.current?.() ?? [];
       const everywhere = placeNote(anchorBox, size, view, [...controlBoxes(), ...matters]);
-      const at =
+      let at =
         everywhere.clear || keep.current === undefined
           ? everywhere
           : placeNote(anchorBox, size, view, matters);
+      // Too tall to sit clear of them (a wide result line across the board, a long chain): the
+      // note takes the larger band above or below its anchor and scrolls inside itself.
+      if (!at.clear && keep.current !== undefined) {
+        const below = view.height - (anchorBox.top + anchorBox.height) - 12 - 8;
+        const above = anchorBox.top - 12 - (view.top + 8);
+        const band = Math.max(below, above);
+        if (band >= 200 && band < size.height) {
+          note.style.maxHeight = `${Math.round(band)}px`;
+          at = placeNote(
+            anchorBox,
+            { width: note.offsetWidth, height: note.offsetHeight },
+            view,
+            matters,
+          );
+        }
+      }
       // Only where it arrives: a note the visitor is reading never folds away under them.
       if (!at.clear && arrived.current !== target && crowded.current?.() === true) return;
       arrived.current = target;

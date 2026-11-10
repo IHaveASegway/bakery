@@ -90,7 +90,10 @@ test('a card’s button on the board opens a note: the frame, the event and its 
   await expect(note).toContainText('two tabs cannot disagree');
   await expect(note).toContainText('When not');
   await expect(note).toContainText('that needs a projection');
-  await beside(page, note);
+  // Beside the card where there is room, else docked: never over the moved card, its next button
+  // or the next card's Start (audit G3; this check replaced "beside" on 2026-11-10).
+  await expect(page.locator('html')).toHaveAttribute('data-guide-marks', 'settled');
+  expect(await overWhatMatters(page, 'Start production')).toEqual([]);
 
   // The note took no focus: the board put it on the card's next button, where it stays.
   const inProduction = page.locator('section[aria-labelledby="board-in_production"]');
@@ -422,6 +425,22 @@ test.describe('a stranger at the gate', () => {
   // The first look at the session, before there is one, is a 401 that Chromium logs.
   test.use({ allowedStatuses: [401] });
 
+  test('at 390 px the gate on the catering page and the checkout carries its mark, after its title', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/menu/');
+    const adds = page.getByRole('button', { name: /^Add .*, to the cart$/ });
+    await expect(adds.first()).toBeEnabled();
+    await adds.first().click();
+    for (const path of ['/catering/', '/checkout/']) {
+      await page.goto(path);
+      const mark = page.locator('[data-guide-target="start-here"]');
+      await expect(mark, path).toBeVisible();
+      await expect(mark).toHaveAttribute('data-guide-how', 'line');
+    }
+  });
+
   test('the note after Start ordering lies over none of the checkout’s controls', async ({
     page,
   }) => {
@@ -581,13 +600,10 @@ test('after a fresh sandbox, a price draft and a move, no row of a note is left 
 
   // A price draft: MenuItemChanged arrives on the recorder.
   await page.goto('/app/menu/');
-  const field = page.getByRole('textbox').nth(1);
+  const field = page.getByRole('textbox', { name: /^Price of Country loaf, Whole/ });
   await expect(field).toBeVisible();
   await field.fill('9.75');
-  await page
-    .getByRole('button', { name: /^Set price/ })
-    .first()
-    .click();
+  await page.getByRole('button', { name: /^Set the price of Country loaf, Whole/ }).click();
   const draft = page.locator('#guide-live');
   await expect(draft).toBeVisible();
   await draft.getByRole('button', { name: 'Keep this note open' }).click();

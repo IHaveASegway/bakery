@@ -229,13 +229,16 @@ export default function Layer({
       return;
     }
     if (!answered || group[0]?.transport === 'socket') return;
-    // Judged once the page has drawn the answer (its result line is set as the answer lands).
+    // Judged once the page has drawn the answer (its result line is set as the answer lands): with
+    // the pressed control gone and nothing at all to sit by (no result line, no focus the page
+    // moved, not the entry's own element), it folds. Later, the note itself folds if its element
+    // goes (Note.tsx).
     const gesture = live.gesture;
     let frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(() => {
         const now = traces.anchorOf(gesture);
         if (now instanceof Element && now.isConnected) return;
-        if (resultInPage(liveEntry?.target ?? null) !== null) return;
+        if (liveAnchor() !== null) return;
         setLineFor(gesture);
       });
     });
@@ -286,6 +289,10 @@ export default function Layer({
       if (pressed.isConnected) {
         els.add(pressed);
         els.add(around(pressed));
+        // Its row of controls: the clock's other steps beside the one pressed.
+        for (const c of pressed.parentElement?.querySelectorAll('button, a[href], summary') ?? []) {
+          els.add(c);
+        }
       }
       const same = controlName(pressed);
       if (same !== '') {
@@ -299,6 +306,15 @@ export default function Layer({
       return { top: r.top, left: r.left, width: r.width, height: r.height };
     });
   }, [live, liveAnchor]);
+  // A note by a fallback (its pressed control gone, no result line on the page: the checkout's
+  // gate, replaced by the steps) keeps clear of every control, else waits as its line; one by its
+  // control, its card, or the page's result line keeps clear of what matters to the press.
+  const pressedNow = live === null ? null : traces.anchorOf(live.gesture);
+  const byFallback =
+    group[0]?.transport === 'http' &&
+    !(pressedNow instanceof Element && pressedNow.isConnected) &&
+    resultInPage(liveEntry?.target ?? null) === null;
+  const keepFor = byFallback ? undefined : keepClear;
   const foldLive = useCallback(() => {
     if (live === null) return;
     setLineFor(live.gesture);
@@ -620,7 +636,7 @@ export default function Layer({
               // (the checkout's gate, replaced by the steps) waits as its line. One by a control
               // still there stays beside it, the least in the way, as a board's move does.
               onCrowded={asLine ? undefined : foldIfGone}
-              keepClear={keepClear}
+              keepClear={keepFor}
             >
               <NoteHead
                 eyebrow="Under the hood · just now"
