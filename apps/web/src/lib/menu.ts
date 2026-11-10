@@ -8,7 +8,7 @@ import type {
   MenuVariant,
 } from '../contracts';
 import staticMenu from '../data/menu.json';
-import { DEFAULT_TAX_BP, taxPercent } from './money';
+import { DEFAULT_TAX_BP, dollars, taxPercent } from './money';
 
 export type ItemView = MenuItem;
 export type VariantView = MenuVariant;
@@ -96,13 +96,34 @@ export function andList(words: string[]): string {
 }
 
 /**
- * What the editor's one price field sets, said beside it: the price goes on every variant of the
- * item (the Catalog's `SetPrice` for each), so a half loaf gets what a whole one does. Null for an
- * item with one variant, where there is nothing to warn about.
+ * The name a variant's price field is known by (roadmap R86, 2026-11-10: each variant has its own
+ * price field, since `PATCH .../menu/items/{slug}` takes a `variant`). An item with one variant
+ * keeps the item's name alone, as its one field always had.
  */
-export function priceSetsText(item: Pick<ItemView, 'variants'>): string | null {
-  if (item.variants.length < 2) return null;
-  return `Sets ${andList(item.variants.map((v) => v.label))} to the same price.`;
+export function priceFieldName(
+  item: Pick<ItemView, 'name' | 'variants'>,
+  variant: Pick<VariantView, 'label'>,
+): string {
+  return item.variants.length < 2 ? item.name : `${item.name}, ${variant.label}`;
+}
+
+/** What the editor says after a price is drafted: the variant's price, or the item's for one. */
+export function priceSaid(
+  item: Pick<ItemView, 'name' | 'variants'>,
+  variant: Pick<VariantView, 'label'>,
+  cents: number,
+): string {
+  return `${priceFieldName(item, variant)}: ${dollars(cents)} drafted. Publish to put it on sale.`;
+}
+
+/**
+ * The note under a variant's field: the price that waits for Publish when it differs from the
+ * published one, else null.
+ */
+export function waitingPriceText(published: number, draft: number | undefined): string | null {
+  return draft === undefined || draft === published
+    ? null
+    : `Waiting for publish: ${dollars(draft)}.`;
 }
 
 /**
@@ -126,22 +147,21 @@ export function taxRateSaid(bp: number, before: number | null, version: number):
 export interface Drafts {
   /** The slugs of every item with a draft, in slug order. */
   pending: string[];
-  /** The waiting price of each, by item slug. */
+  /** The draft price of every variant of those items, by variant slug. */
   prices: Record<string, number>;
 }
 
 /**
  * The editor's waiting prices from the drafts the server holds, so a draft made before a reload
- * is shown after it. The editor's one price goes on every variant, and no route drafts anything
- * else, so a draft's variants share one price. The Catalog's `EditItem` could give them different
- * ones; then the first variant's is shown, as the price field shows the first variant's published
- * price. An item with no variant has no price to show, but still counts as waiting.
+ * is shown after it. The drafts route gives each pending item's whole draft copy, every variant
+ * with its own price, so each variant's field shows its own (roadmap R86); a variant whose draft
+ * price is the published one has nothing waiting. An item with no variant has no price to show,
+ * but still counts as waiting.
  */
 export function draftsFrom(response: MenuDraftsResponse): Drafts {
   const prices: Record<string, number> = {};
   for (const draft of response.pending) {
-    const first = draft.variants[0];
-    if (first) prices[draft.slug] = first.price_cents;
+    for (const v of draft.variants) prices[v.slug] = v.price_cents;
   }
   return { pending: response.pending.map((d) => d.slug), prices };
 }

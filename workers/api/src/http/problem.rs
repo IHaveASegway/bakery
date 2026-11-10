@@ -485,6 +485,10 @@ pub fn menu(rule: &str) -> Failure {
         "out-of-order" => "The item is not in a state that change applies to.",
         "retired" => "The item is retired.",
         "empty-patch" => "Send a price_cents, a status, or both.",
+        "variant-without-price" => {
+            "A variant names whose price_cents this is, so send one with it."
+        }
+        "unknown-variant" => "The variant is not one of this item's variants.",
         "tax-rate-range" => "A tax rate is 0 to 3,000 basis points (0.00% to 30.00%).",
         _ => "The change does not fit the menu's rules.",
     };

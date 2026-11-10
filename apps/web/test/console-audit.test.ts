@@ -16,7 +16,14 @@ import { stateSays } from '../src/lib/crm';
 import { proposedSaid, report, routeCredit, sameStops } from '../src/lib/dispatch';
 import { countText } from '../src/lib/inbox';
 import { applyEvent, bakeLineText, EMPTY_BOARD, type Card } from '../src/lib/kitchen';
-import { andList, priceSetsText, statusSaid, waitingText } from '../src/lib/menu';
+import {
+  andList,
+  priceFieldName,
+  priceSaid,
+  statusSaid,
+  waitingPriceText,
+  waitingText,
+} from '../src/lib/menu';
 import { nextPollMs, POLL_MAX_MS, POLL_MS } from '../src/lib/use-poll';
 import { clockOfText, shortDate, shortWhen, timesIn, whenText } from '../src/lib/when';
 import { day, orderId, plan, stop } from './dispatch-support';
@@ -104,12 +111,19 @@ describe('the menu editor says what the Catalog does', () => {
     expect(waitingText(3)).toBe('3 items have prices waiting for Publish.');
   });
 
-  test('the price field says which variants it sets', () => {
+  test('each variant has its own price field, named for it (roadmap R86)', () => {
     const v = (label: string) => ({ label }) as never;
-    expect(priceSetsText({ variants: [v('Whole'), v('Half')] })).toBe(
-      'Sets Whole and Half to the same price.',
+    const loaf = { name: 'Fern loaf', variants: [v('Whole'), v('Half')] };
+    const tea = { name: 'Moss tea', variants: [v('Small')] };
+    expect(priceFieldName(loaf, v('Half'))).toBe('Fern loaf, Half');
+    // One variant: the item's name alone, as its one field always had.
+    expect(priceFieldName(tea, v('Small'))).toBe('Moss tea');
+    expect(priceSaid(loaf, v('Half'), 600)).toBe(
+      'Fern loaf, Half: $6.00 drafted. Publish to put it on sale.',
     );
-    expect(priceSetsText({ variants: [v('Whole')] })).toBeNull();
+    expect(waitingPriceText(550, undefined)).toBeNull();
+    expect(waitingPriceText(550, 550)).toBeNull();
+    expect(waitingPriceText(550, 600)).toBe('Waiting for publish: $6.00.');
     expect(andList(['Small', 'Medium', 'Large'])).toBe('Small, Medium and Large');
   });
 });

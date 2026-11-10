@@ -1726,7 +1726,7 @@
       },
       "MenuItemPatch": {
         "additionalProperties": false,
-        "description": "`PATCH /v1/sandboxes/{id}/menu/items/{slug}`, signed-in sessions only. A price is a draft,\nset on every variant of the item, until `POST .../menu/publish`; a pause or a resume\npublishes that one item at once.",
+        "description": "`PATCH /v1/sandboxes/{id}/menu/items/{slug}`, signed-in sessions only. A price is a draft\nuntil `POST .../menu/publish`: with `variant`, that variant's price; without it, every variant\nof the item gets the one price, as before `variant` was added. A pause or a resume publishes\nthat one item at once.",
         "properties": {
           "price_cents": {
             "default": null,
@@ -1746,6 +1746,14 @@
               }
             ],
             "default": null
+          },
+          "variant": {
+            "default": null,
+            "description": "The one variant `price_cents` is for, by its slug, such as `country-loaf/half` (added\n2026-11-10, roadmap R86). It needs `price_cents` (422 `menu`, rule\n`variant-without-price`), and a slug that is not one of this item's variants is refused\n(422 `menu`, rule `unknown-variant`).",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "title": "MenuItemPatch",

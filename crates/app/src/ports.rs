@@ -1,25 +1,21 @@
-//! The ports: one minimal method set each, which later pull requests extend.
-//!
-//! Storage ports are synchronous because a Durable Object's SQLite calls are; the ports that
-//! cross the network are `async`. Futures need not be `Send`: the Worker is single-threaded.
+//! The ports: the two seams the Worker implements, `Clock` (`workers/api/src/clock.rs`) and
+//! `PaymentGateway` (`workers/api/src/stripe.rs`), each with a deterministic fake in
+//! `test_support` that the app's tests drive. The ports nothing implemented, `EventStore`,
+//! `Outbox`, `Mailbox` and `IdGen`, were removed on 2026-11-10 (roadmap R68): the objects write
+//! events and the outbox through `workers/api/src/objects/stream.rs`, and draw ids from
+//! `workers/api/src/random.rs`. The gateway crosses the network, so it is `async`; futures need
+//! not be `Send`, since the Worker is single-threaded.
 
 use std::fmt;
 
 use bakery_domain::billing::Purpose;
 use bakery_domain::order::RefundReason;
-use bakery_domain::{BakeryDate, BusinessTime, Cents, Envelope, Ulid, WallTime};
+use bakery_domain::{BakeryDate, BusinessTime, Cents, Ulid, WallTime};
 use thiserror::Error;
 
 /// Why an adapter could not do what a port asked.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum PortError {
-    /// An optimistic write found the stream at another `seq`: someone else wrote first.
-    #[error("stream {stream} is at seq {actual}, not {expected}")]
-    Conflict {
-        stream: String,
-        expected: u64,
-        actual: u64,
-    },
     /// The platform or the third party refused or could not be reached; retry later.
     #[error("unavailable: {0}")]
     Unavailable(String),
@@ -33,31 +29,6 @@ pub trait Clock {
     fn now_wall(&self) -> WallTime;
     /// Wall time plus the sandbox's offset (docs/architecture.md, "Time travel").
     fn now_business(&self) -> BusinessTime;
-}
-
-/// The only source of identifiers.
-pub trait IdGen {
-    /// A fresh ULID: its time part from the wall clock, its random part from the adapter.
-    fn ulid(&self) -> Ulid;
-}
-
-/// One object's append-only event log, the `events` table.
-pub trait EventStore {
-    /// Appends `events` after `expected_seq`, the stream's last `seq` as the caller read it, and
-    /// returns the new last `seq`. Refuses with [`PortError::Conflict`] if the stream moved.
-    fn append(&self, expected_seq: u64, events: &[Envelope]) -> Result<u64, PortError>;
-    /// The events with `seq` greater than `after_seq`, in order.
-    fn read_after(&self, after_seq: u64) -> Result<Vec<Envelope>, PortError>;
-}
-
-/// The transactional outbox: envelopes committed with their events, relayed to the Queue after.
-pub trait Outbox {
-    /// Records envelopes for the relay, in the same transaction as the events they copy.
-    fn enqueue(&self, envelopes: &[Envelope]) -> Result<(), PortError>;
-    /// Up to `limit` unsent rows, oldest first, as `(seq, envelope)`.
-    fn pending(&self, limit: usize) -> Result<Vec<(u64, Envelope)>, PortError>;
-    /// Deletes rows the Queue accepted.
-    fn mark_sent(&self, seqs: &[u64]) -> Result<(), PortError>;
 }
 
 /// A payment intent to create at the provider (ADR 0007, decision 3). Everything here goes to
@@ -289,69 +260,4 @@ pub trait PaymentGateway {
         invoice: &str,
         idempotency_key: &str,
     ) -> Result<InvoiceSnapshot, PortError>;
-}
-
-/// Who a [`Note`] is for: one customer of one sandbox, by their ids, and nothing else.
-///
-/// There is no address type in this port and no string a recipient could be made from: the
-/// fields are private and [`Recipient::new`] takes two ULIDs. So no `Mailbox` implementation can
-/// be handed a visitor's address, and none can address a recipient outside its own sandbox
-/// without [`Mailbox::admits`] seeing it (docs/product.md, Q22: the system holds no addresses).
-///
-/// ```compile_fail,E0277
-/// use bakery_app::ports::Recipient;
-/// // A recipient cannot be built from text, of any shape.
-/// let to = Recipient::from("someone");
-/// ```
-///
-/// ```compile_fail,E0451
-/// use bakery_app::ports::Recipient;
-/// use bakery_domain::Ulid;
-/// // Nor assembled field by field from outside the port.
-/// let id = Ulid::from_parts(0, 1);
-/// let to = Recipient { sandbox: id, customer: id };
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Recipient {
-    sandbox: Ulid,
-    customer: Ulid,
-}
-
-impl Recipient {
-    pub fn new(sandbox: Ulid, customer: Ulid) -> Recipient {
-        Recipient { sandbox, customer }
-    }
-
-    pub fn sandbox(self) -> Ulid {
-        self.sandbox
-    }
-
-    pub fn customer(self) -> Ulid {
-        self.customer
-    }
-}
-
-/// A message for one sandbox customer: a subject and a body from the Inbox's fixed templates.
-/// Visitors never get email. The Inbox adapter lands it in the sandbox's inbox; the real-send
-/// adapter, later and off by default (Q22), also sends a copy to the operator's own verified
-/// address, which is that adapter's configuration and never part of this port.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Note {
-    pub to: Recipient,
-    pub subject: String,
-    pub body: String,
-}
-
-#[allow(async_fn_in_trait)]
-pub trait Mailbox {
-    /// The one sandbox this mailbox delivers into.
-    fn sandbox(&self) -> Ulid;
-
-    /// Whether `to` is inside this mailbox's sandbox. Every implementation refuses a note that
-    /// fails it with [`PortError::Rejected`], before anything is sent.
-    fn admits(&self, to: Recipient) -> bool {
-        to.sandbox() == self.sandbox()
-    }
-
-    async fn send(&self, note: Note) -> Result<(), PortError>;
 }

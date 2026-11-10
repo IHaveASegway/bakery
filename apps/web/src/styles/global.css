@@ -1759,6 +1759,49 @@ progress::-moz-progress-bar {
   font-weight: 500;
 }
 
+/* An item with several variants (roadmap R86): its name and Pause on one line, then a row a
+   variant, each its label, its own field and its own Set price, in the columns the one-variant
+   rows use. */
+.panel .editor li.editor-variants {
+  display: block;
+}
+
+.editor-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+}
+
+.editor-head p {
+  margin: 0;
+}
+
+.price-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 13rem) auto;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+  margin-top: var(--space-2);
+}
+
+.panel .editor .price-row label {
+  color: var(--text);
+  font-size: var(--type-13);
+}
+
+.price-row label .hint {
+  display: block;
+  font-weight: 400;
+}
+
+.price-row > .problem,
+.price-row > p.hint {
+  grid-column: 2 / -1;
+  margin: 0;
+}
+
 .publish-bar {
   position: sticky;
   z-index: 2;
@@ -1801,6 +1844,17 @@ progress::-moz-progress-bar {
 @media (max-width: 40rem) {
   .panel .editor li {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* On a phone a variant keeps one line: its label, a narrow field and Set price. */
+  .price-row {
+    grid-template-columns: 5.5rem minmax(0, 1fr) auto;
+    gap: var(--space-1) var(--space-2);
+  }
+
+  .price-row > .problem,
+  .price-row > p.hint {
+    grid-column: 1 / -1;
   }
 }
 
