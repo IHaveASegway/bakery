@@ -922,6 +922,10 @@
             "description": "The event's ULID: the key a redrive sends it again with.",
             "type": "string"
           },
+          "made_while_off": {
+            "description": "Made while the bakery was `off`, or within two minutes of the flag's last change (added\n2026-11-10): such a letter is kept and not counted on the status page. It says when the\nmessage died, not why: a real fault while `off` is marked too (docs/operations.md, \"Breaker\ntripped\"). A redrive works the same either way.",
+            "type": "boolean"
+          },
           "seq": {
             "format": "uint64",
             "minimum": 0,
@@ -942,7 +946,8 @@
           "stream",
           "seq",
           "error",
-          "at"
+          "at",
+          "made_while_off"
         ],
         "title": "DeadLetter",
         "type": "object"
@@ -8541,7 +8546,7 @@
                 }
               }
             },
-            "description": "an array of dead letters"
+            "description": "an array of dead letters, each with `made_while_off` (kept while the bakery was `off`, not counted)"
           },
           "400": {
             "content": {
@@ -8664,7 +8669,7 @@
                 }
               }
             },
-            "description": "the dead letter sent again, its row removed",
+            "description": "the dead letter sent again, its row removed; a letter made while `off` is redriven the same way",
             "headers": {
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"

@@ -316,7 +316,14 @@ deposit's, balance's or invoice's `ref` names, and the `Schedule` day a catering
 names) and acks when all answered 2xx; after 3 retries the message moves to `bakery-events-dlq`,
 whose consumer writes it into the Sandbox's dead letters. Locally, `wrangler dev` runs both queues:
 the log shows each failed delivery (`delivery_failed`), Wrangler's own line moving the message to
-the DLQ, and `dlq` when the Sandbox keeps it.
+the DLQ, and `dlq` when the Sandbox keeps it, with `while_off` and `counted`. Since 2026-11-10
+(roadmap R67) a dead letter that arrives while the flag is `off`, or within two minutes of the
+flag's last change, is kept with `made_while_off: true` on the dead-letter list and its redrive,
+and writes no `dlq` point (`"counted":false`): at `off` the consumer retries everything, so those
+messages died of the switch. The dead-letter queue's consumer asks `Control` for the flag and its
+`changed_at` once a batch (`bakery_app::dead_letters`). The mark says when, not why: a real fault
+while `off` is marked too. A marked letter redrives as any other. `scripts/smoke-breaker.sh`
+proves both a marked and a counted one.
 
 ## The kitchen socket
 

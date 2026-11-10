@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { DeadLetter } from '../contracts';
 import { getDeadLetters, redrive } from '../lib/api';
+import { redriveSaid, whileOffNote } from '../lib/dead-letters';
 import { describeError, type Message as Text } from '../lib/messages';
 import { whenText } from '../lib/when';
 import GuestNote from './GuestNote';
@@ -41,7 +42,7 @@ export default function DeadLetters({
     setError(null);
     try {
       await redrive(sandboxId, letter.id);
-      setSaid(`Redrove ${letter.type} for ${letter.stream}. It was sent to the queue again.`);
+      setSaid(redriveSaid(letter));
       await refresh();
     } catch (e) {
       setError(describeError(e));
@@ -74,6 +75,7 @@ export default function DeadLetters({
               <p>
                 Error: <code>{letter.error}</code>
               </p>
+              {whileOffNote(letter) !== null && <p className="hint">{whileOffNote(letter)}</p>}
               <p className="hint">
                 <time dateTime={letter.at}>{whenText(letter.at, { seconds: true })}</time>
               </p>
