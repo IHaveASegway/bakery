@@ -51,8 +51,15 @@
   background: var(--tone-ready-solid);
 }
 
-.topbar-spacer {
-  flex: 1 1 auto;
+.topbar-status,
+.topbar-account {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.topbar-account {
+  margin-left: auto;
 }
 
 .topbar-who {
@@ -267,19 +274,63 @@
 
 /* A phone: the sidebar becomes a tab bar at the foot of the window, four tabs and "More". */
 @media (max-width: 60rem) {
+  /* Two rows: the mark, the shop and Sign out; then the sandbox, the clock and traffic, short. */
+  .topbar {
+    gap: var(--space-2);
+  }
+
   .topbar-live {
-    flex-wrap: wrap;
+    display: contents;
+  }
+
+  .topbar .site-name {
+    order: 1;
+    margin-right: auto;
+  }
+
+  .topbar .site-name span,
+  .long-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .topbar-nav {
+    order: 2;
+  }
+
+  .topbar-account {
     order: 3;
+    margin-left: 0;
+  }
+
+  .topbar-guide {
+    order: 4;
+    margin-left: 0;
+  }
+
+  .topbar-status {
+    order: 5;
     flex-basis: 100%;
   }
 
-  .topbar-spacer,
   .topbar-who {
     display: none;
   }
 
-  .topbar-live > :last-child {
-    margin-left: auto;
+  /* A popover opens under the bar across the screen's width, not off its edge. */
+  .popover {
+    position: static;
+  }
+
+  .popover-panel {
+    top: 100%;
+    right: var(--space-4);
+    left: var(--space-4);
+    width: auto;
   }
 
   .topbar-guide {

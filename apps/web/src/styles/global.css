@@ -410,7 +410,7 @@ main:focus {
 /* A phone or a narrow window: the top bar wraps, the panels take the full width. */
 @media (max-width: 60rem) {
   .topbar {
-    position: static;
+    position: relative;
     flex-wrap: wrap;
     height: auto;
     min-height: var(--topbar-height);

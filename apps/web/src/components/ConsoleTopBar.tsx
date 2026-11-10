@@ -5,7 +5,7 @@ import { getTraffic, startTraffic, stopTraffic } from '../lib/api';
 import { businessNowMs } from '../lib/clock';
 import type { WorkspaceId } from '../lib/console-sections';
 import { roughCountdown, utcClock, utcStamp } from '../lib/countdown';
-import { shortWhen, whenText } from '../lib/when';
+import { clockOfText, shortDate, whenText } from '../lib/when';
 import ClockControl from './ClockControl';
 
 const KINDS: Record<SessionResponse['kind'], string> = {
@@ -62,79 +62,96 @@ function Controls({
   }, []);
   const live = sandbox !== null && sandbox.state !== 'seeding';
 
+  const business = new Date(businessNowMs(wall, sandbox?.clock_offset_s ?? 0)).toISOString();
+  const [weekday, ...date] = shortDate(business).split(' ');
   return (
     <>
-      {sandbox !== null && (
-        <Popover
-          id="topbar-sandbox"
-          buttonClass="btn btn-quiet btn-sm topbar-chip"
-          label={
-            <>
-              Sandbox <code>{sandbox.id.slice(-6)}</code>
-              <span className="topbar-muted">
-                {' '}
-                · wiped in {roughCountdown(new Date(sandbox.wipe_at).getTime() - wall)}
-              </span>
-            </>
-          }
-          panelLabel="Your sandbox"
-        >
-          <dl className="topbar-facts">
-            <dt>Sandbox</dt>
-            <dd>
-              <code>{sandbox.id}</code>
-            </dd>
-            <dt>Born</dt>
-            <dd>{utcStamp(sandbox.born)}</dd>
-            <dt>Wiped</dt>
-            <dd>at {utcClock(sandbox.wipe_at)}</dd>
-          </dl>
-          <p className="actions">
-            <button
-              type="button"
-              className="btn btn-danger btn-sm"
-              disabled={busy}
-              onClick={onWipe}
-            >
-              Wipe now
-            </button>
-            {!isGuest && (
+      <div className="topbar-status">
+        {sandbox !== null && (
+          <Popover
+            id="topbar-sandbox"
+            buttonClass="btn btn-quiet btn-sm topbar-chip"
+            label={
+              <>
+                <span className="long-only">Sandbox </span>
+                <code>{sandbox.id.slice(-6)}</code>
+                <span className="topbar-muted">
+                  {' '}
+                  · <span className="long-only">wiped in </span>
+                  {roughCountdown(new Date(sandbox.wipe_at).getTime() - wall)}
+                </span>
+              </>
+            }
+            panelLabel="Your sandbox"
+          >
+            <dl className="topbar-facts">
+              <dt>Sandbox</dt>
+              <dd>
+                <code>{sandbox.id}</code>
+              </dd>
+              <dt>Born</dt>
+              <dd>{utcStamp(sandbox.born)}</dd>
+              <dt>Wiped</dt>
+              <dd>at {utcClock(sandbox.wipe_at)}</dd>
+            </dl>
+            <p className="actions">
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
+                className="btn btn-danger btn-sm"
                 disabled={busy}
-                onClick={onReplace}
+                onClick={onWipe}
               >
-                New sandbox
+                Wipe now
               </button>
-            )}
-          </p>
-        </Popover>
-      )}
-      {live && (
-        <Popover
-          id="topbar-clock"
-          buttonClass="btn btn-quiet btn-sm topbar-chip"
-          ariaLabel={`Business clock: ${shortWhen(new Date(businessNowMs(wall, sandbox.clock_offset_s)).toISOString())}`}
-          title={whenText(new Date(businessNowMs(wall, sandbox.clock_offset_s)).toISOString())}
-          label={shortWhen(new Date(businessNowMs(wall, sandbox.clock_offset_s)).toISOString())}
-          panelLabel="Business clock"
+              {!isGuest && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={busy}
+                  onClick={onReplace}
+                >
+                  New sandbox
+                </button>
+              )}
+            </p>
+          </Popover>
+        )}
+        {live && (
+          <Popover
+            id="topbar-clock"
+            buttonClass="btn btn-quiet btn-sm topbar-chip"
+            title={whenText(business)}
+            label={
+              <>
+                <span className="sr-only">Business clock: </span>
+                {weekday}
+                <span className="long-only"> {date.join(' ')},</span> {clockOfText(business)}
+              </>
+            }
+            panelLabel="Business clock"
+          >
+            <ClockControl
+              variant="popover"
+              sandboxId={sandbox.id}
+              offsetSeconds={sandbox.clock_offset_s}
+              isGuest={isGuest}
+              onAdvanced={onAdvanced}
+            />
+          </Popover>
+        )}
+        {live && <TrafficSwitch sandboxId={sandbox.id} isGuest={isGuest} />}
+      </div>
+      <div className="topbar-account">
+        <h2 className="topbar-who">{KINDS[kind]}</h2>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          disabled={busy}
+          onClick={onLeave}
         >
-          <ClockControl
-            variant="popover"
-            sandboxId={sandbox.id}
-            offsetSeconds={sandbox.clock_offset_s}
-            isGuest={isGuest}
-            onAdvanced={onAdvanced}
-          />
-        </Popover>
-      )}
-      {live && <TrafficSwitch sandboxId={sandbox.id} isGuest={isGuest} />}
-      <span className="topbar-spacer" />
-      <h2 className="topbar-who">{KINDS[kind]}</h2>
-      <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={onLeave}>
-        Sign out
-      </button>
+          Sign out
+        </button>
+      </div>
     </>
   );
 }
@@ -229,7 +246,8 @@ function Popover({
         title={title}
         onClick={() => setOpen((o) => !o)}
       >
-        {label}
+        {/* One span, so the button's flex gap does not space the label's words apart. */}
+        <span>{label}</span>
       </button>
       {open && (
         <div id={id} className="menu-panel popover-panel" role="group" aria-label={panelLabel}>
