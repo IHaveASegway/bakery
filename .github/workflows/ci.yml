@@ -251,6 +251,8 @@ jobs:
         run: node scripts/image-metadata.mjs --tracked
       - name: Every relative link in the docs reaches its file and heading (scripts/check-doc-links.mjs)
         run: node scripts/check-doc-links.mjs
+      - name: The Lighthouse step retries a tool error and nothing else (scripts/lighthouse-pages.test.sh)
+        run: bash scripts/lighthouse-pages.test.sh
       - name: No Workers Cache in any wrangler.jsonc (it bills every asset request)
         run: |
           bad=0
@@ -602,19 +604,18 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Lighthouse against the preview's pages
         working-directory: apps/web
-        # The container's default shell is sh, which has no arrays: the first run, 2026-11-06, died
-        # on `urls=()` with "Syntax error: ( unexpected" before Lighthouse started.
+        # The container's default shell is sh. The first run, 2026-11-06, died there on a bash array
+        # with "Syntax error: ( unexpected" before Lighthouse started, so the step names bash. The
+        # pages are now arguments to scripts/lighthouse-pages.sh, which is bash too.
         shell: bash
         env:
           URL: ${{ needs.preview.outputs.url }}
         run: |
           CHROME_PATH="$(find /ms-playwright -path '*/chrome-linux*/chrome' -type f | head -n 1)"
           export CHROME_PATH
-          urls=()
-          for page in / /menu/ /catering/ /checkout/ /privacy/ /signin/ /about/ /how-its-built/ /how-its-built/single-writer/ /how-its-built/outbox/ /how-its-built/cache/ /how-its-built/rebuild/ /how-its-built/routes/ /how-its-built/idempotency/ /how-its-built/sagas/ /how-its-built/leases/ /how-its-built/admission/ /how-its-built/time-travel/ /how-its-built/lag/ /how-its-built/sandbox/ /how-its-built/api/ /how-its-built/breaker/ /status/ /docs/api/; do
-            urls+=("--collect.url=${URL%/}$page")
-          done
-          ../../tools/lighthouse/node_modules/.bin/lhci autorun --config=lighthouserc.json "${urls[@]}"
+          PATH="$PWD/../../tools/lighthouse/node_modules/.bin:$PATH"
+          export PATH
+          ../../scripts/lighthouse-pages.sh "${URL%/}" / /menu/ /catering/ /checkout/ /privacy/ /signin/ /about/ /how-its-built/ /how-its-built/single-writer/ /how-its-built/outbox/ /how-its-built/cache/ /how-its-built/rebuild/ /how-its-built/routes/ /how-its-built/idempotency/ /how-its-built/sagas/ /how-its-built/leases/ /how-its-built/admission/ /how-its-built/time-travel/ /how-its-built/lag/ /how-its-built/sandbox/ /how-its-built/api/ /how-its-built/breaker/ /status/ /docs/api/
       - name: Keep the reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

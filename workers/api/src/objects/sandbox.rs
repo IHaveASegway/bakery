@@ -87,7 +87,7 @@ use super::sql::{
 };
 use super::stream::{self, OUTBOX};
 use super::{
-    billing, catalog, catering, crm, customer, dispatch, inbox, kitchen, order, simulator,
+    billing, catalog, catering, crm, customer, dispatch, inbox, kitchen, order, recorder, simulator,
 };
 use crate::clock::{SystemClock, alarm_time, business, business_at};
 use crate::random;
@@ -109,6 +109,7 @@ const DISPATCH: &[(&str, &str)] = &[
     (crm::CLASS, crm::BINDING),
     (inbox::CLASS, inbox::BINDING),
     (dispatch::CLASS, dispatch::BINDING),
+    (recorder::CLASS, recorder::BINDING),
 ];
 
 const WIPE: &str = "wipe";
@@ -116,11 +117,13 @@ const BACKSTOP: &str = "backstop";
 const SEED: &str = "seed";
 const CLOCK: &str = "clock";
 
-/// Children seeded per alarm run: the Catalog, the Kitchen, Billing, Crm, the Inbox, the 7
-/// Schedule days, today's Dispatch, the 12 open orders, the 8 catering events and their 3 days,
-/// 36 in all (PR 9 added the Dispatch), take six runs, each far inside the 1,000 subrequests a Free invocation may make (Workers limits,
+/// Children seeded per alarm run: the Catalog, the Kitchen, Billing, Crm, the Inbox, the
+/// Recorder, the 7 Schedule days, today's Dispatch, the 12 open orders, the 8 catering events and
+/// their 3 days, 37 in all (PR 9 added the Dispatch, 2026-11-09 the Recorder), take six runs,
+/// each far inside the 1,000 subrequests a Free invocation may make (Workers limits,
 /// https://developers.cloudflare.com/workers/platform/limits/, as of 2026-11-05): a run's
-/// largest, the one with the catering events, makes 7 seeds, 7 log reads and 14 hand-overs.
+/// largest, the one with the catering events, makes at most 7 seeds, 7 log reads and 14
+/// hand-overs.
 const SEED_BATCH: usize = 7;
 /// The pause between seeding runs, so a run's subrequests have finished.
 const SEED_GAP_MS: i64 = 100;
@@ -1959,9 +1962,10 @@ struct SeedChild {
     catering_day: Option<usize>,
 }
 
-/// The Catalog, the Kitchen, Billing, Crm, the Inbox, the seed's 7 Schedule days, today's
-/// Dispatch, its 12 open orders, its 8 catering events and the 3 days that hold the accepted and
-/// confirmed events' places: 36 children. The days and the Dispatch go before the orders, so an
+/// The Catalog, the Kitchen, Billing, Crm, the Inbox, the Recorder, the seed's 7 Schedule days,
+/// today's Dispatch, its 12 open orders, its 8 catering events and the 3 days that hold the
+/// accepted and confirmed events' places: 37 children. The Recorder goes before every child that
+/// writes events, so the flight recorder holds the seeded orders' hops too. The days and the Dispatch go before the orders, so an
 /// order's events find its day and its stop already there; Crm
 /// and the Inbox go before the orders too, so the seeded orders' events, which their outboxes
 /// relay, find both born (and a seeded paid order's points find Crm), and before the catering
@@ -2006,6 +2010,7 @@ fn seed_plan(g: &Generated, sandbox: Ulid) -> Vec<SeedChild> {
         },
         plain(crm::CLASS, crm::BINDING, crm::name(sandbox)),
         plain(inbox::CLASS, inbox::BINDING, inbox::name(sandbox)),
+        plain(recorder::CLASS, recorder::BINDING, recorder::name(sandbox)),
     ];
     plan.extend(g.schedule.iter().enumerate().map(|(i, d)| SeedChild {
         class: schedule::CLASS,
@@ -2207,6 +2212,9 @@ impl SeedChild {
                     .collect(),
                 envelopes: bakery_seed::history_envelopes(g, meta.sandbox()?),
             })?,
+            None if self.class == recorder::CLASS => {
+                serde_json::to_value(recorder::SeedRecorder { birth })?
+            }
             None if self.class == inbox::CLASS => serde_json::to_value(inbox::SeedInbox {
                 birth,
                 seed: g.seed.0,
@@ -2393,12 +2401,12 @@ mod tests {
     }
 
     #[test]
-    fn the_plan_is_thirty_six_children_catalog_kitchen_billing_crm_inbox_the_days_and_dispatch_first()
+    fn the_plan_is_thirty_seven_children_catalog_kitchen_billing_crm_inbox_recorder_the_days_and_dispatch_first()
      {
         let g = generated();
         let sandbox = Ulid::from_parts(1, 1);
         let plan = seed_plan(&g, sandbox);
-        assert_eq!(plan.len(), 36);
+        assert_eq!(plan.len(), 37);
         assert_eq!(plan[0].name, format!("catalog:{sandbox}"));
         assert_eq!(plan[1].name, format!("kitchen:{sandbox}"));
         assert_eq!(plan[2].name, format!("billing:{sandbox}"));
@@ -2410,25 +2418,30 @@ mod tests {
             (plan[4].class, plan[4].name.clone()),
             ("Inbox", format!("inbox:{sandbox}"))
         );
-        assert!(plan[5..12].iter().all(|c| c.class == "Schedule"
+        // The flight recorder, before every child whose events the consumer delivers.
+        assert_eq!(
+            (plan[5].class, plan[5].name.clone()),
+            ("Recorder", format!("recorder:{sandbox}"))
+        );
+        assert!(plan[6..13].iter().all(|c| c.class == "Schedule"
             && c.name.starts_with(&format!("schedule:{sandbox}:"))
             && schedule::date_of(&c.name).is_some()));
         // Today's Dispatch, before the orders whose stops it holds.
         assert_eq!(
-            (plan[12].class, plan[12].name.clone()),
+            (plan[13].class, plan[13].name.clone()),
             ("Dispatch", format!("dispatch:{sandbox}:2026-11-07"))
         );
         assert!(
-            plan[13..25]
+            plan[14..26]
                 .iter()
                 .all(|c| c.class == "Order" && c.name.starts_with(&format!("order:{sandbox}:")))
         );
         assert!(
-            plan[25..33].iter().all(|c| c.class == "CateringEvent"
+            plan[26..34].iter().all(|c| c.class == "CateringEvent"
                 && c.name.starts_with(&format!("catering:{sandbox}:")))
         );
         // The accepted and the two confirmed events' days, none of them a seeded week day.
-        assert!(plan[33..].iter().all(|c| c.class == "Schedule"));
+        assert!(plan[34..].iter().all(|c| c.class == "Schedule"));
         let names: std::collections::BTreeSet<&str> =
             plan.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names.len(), plan.len(), "no child twice");

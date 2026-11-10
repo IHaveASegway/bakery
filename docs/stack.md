@@ -163,6 +163,7 @@ What the code does today, checked against the tree at `main` c80b97f on 2026-11-
 | 47 | Deterministic Inbox message ids | `crates/domain/src/inbox.rs` (`message_id`) | A redelivered event makes the same message | Keeps the cause's time part and mixes 80 bits from the cause and the recipient | [domain.md](domain.md#identifiers) |
 | 48 | Randomness through `crypto.getRandomValues` | `workers/api/src/random.rs` | One source for every minted id, seed and salt | Reached through `Reflect`, because workers-rs binds no `crypto` for a Worker; `bakery-app` takes random bytes as arguments and draws none itself, which keeps it testable | this table |
 | 49 | Colour maths for the token contrast test | `apps/web/src/lib/tokens.ts`; `apps/web/test/tokens.test.ts` | Every token pair meets its contrast ratio | `culori` 4.0.2, exact (as of 2026-11-09) | [The stack](#the-stack) |
+| 50 | The flight recorder: a lossy ring per sandbox, fed by the Queue's consumer after each batch | `workers/api/src/objects/recorder.rs`; `workers/api/src/queue.rs` (`record`); `workers/api/src/http/trace.rs` | The guide shows who consumed an event, on which attempt, how long after it was written | Sent under `wait_until` after the acks, so nothing waits for it; no event `data`; the attempt is the Recorder's own count, since `worker` 0.8.7 exposes none (2026-11-09) | [architecture.md](architecture.md#the-flight-recorder), [ADR 0015](adr/0015-a-lossy-flight-recorder-beside-the-event-path.md) |
 
 ## Patterns and further reading
 
