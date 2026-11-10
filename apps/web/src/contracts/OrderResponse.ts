@@ -57,6 +57,7 @@ export interface OrderResponse {
    */
   slot: string;
   status: OrderStatus;
+  step_times?: OrderStepTimes;
   subtotal_cents: number;
   tax_cents: number;
   total_cents: number;
@@ -70,4 +71,17 @@ export interface OrderLineResponse {
   qty: number;
   unit_cents: number;
   variant: string;
+}
+/**
+ * When each step of the order happened, a business time as `placed_at` is, read from the
+ * order's own events; `null` for a step it has not taken (added 2026-11-10, roadmap R94).
+ */
+export interface OrderStepTimes {
+  delivered?: string | null;
+  in_production?: string | null;
+  out_for_delivery?: string | null;
+  paid?: string | null;
+  picked_up?: string | null;
+  placed?: string | null;
+  ready?: string | null;
 }

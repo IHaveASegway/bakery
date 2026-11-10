@@ -137,13 +137,42 @@ export interface Track {
   heard: { type: string; at: string } | null;
 }
 
-/** A track from a fresh read of the order. */
+const STAGES: Stage[] = [
+  'placed',
+  'paid',
+  'in_production',
+  'ready',
+  'picked_up',
+  'out_for_delivery',
+  'delivered',
+];
+
+/**
+ * When each step happened, from the order's own answer (`step_times`, since 2026-11-10, roadmap
+ * R94): the order's events and their business times, so "Paid" has its time on the first load and
+ * after a reload, though no tab heard the payment. An answer from before the field gives
+ * `placed_at` alone.
+ */
+export function timesOf(order: OrderResponse): Track['times'] {
+  const times: Track['times'] = { placed: order.placed_at };
+  for (const stage of STAGES) {
+    const at = order.step_times?.[stage];
+    if (typeof at === 'string' && at !== '') times[stage] = at;
+  }
+  return times;
+}
+
+/**
+ * A track from a fresh read of the order. The page reads the times from this answer first; an
+ * event heard on the socket afterwards adds its own (`withEvent`). The socket's snapshot carries
+ * no times, only each card's state and `seq`.
+ */
 export function trackFrom(order: OrderResponse): Track {
   return {
     order,
     status: order.status,
     seq: order.events_seq,
-    times: { placed: order.placed_at },
+    times: timesOf(order),
     heard: null,
   };
 }
@@ -156,7 +185,7 @@ export function withOrder(track: Track, order: OrderResponse): Track {
     order,
     status: order.status,
     seq: order.events_seq,
-    times: { ...track.times, placed: order.placed_at },
+    times: { ...track.times, ...timesOf(order) },
   };
 }
 
