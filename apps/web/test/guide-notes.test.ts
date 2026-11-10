@@ -556,6 +556,14 @@ describe('what the recorder showed, in plain words', () => {
       ]),
     ).toEqual(['MenuItemChanged']);
     expect(unfollowable([write('PATCH', '/v1/sandboxes/sb1/menu/items/country-loaf')])).toBeNull();
+    // The same draft sent with no key: its events name a cause the page never saw.
+    const keyless = trace({
+      method: 'PATCH',
+      path: '/v1/sandboxes/sb1/menu/items/country-loaf',
+      key: null,
+    });
+    expect(expectedFor(entry('controls-menu-edit'), [keyless])).toEqual([]);
+    expect(unfollowable([keyless])).toContain('no Idempotency-Key');
   });
 
   test('the recorder’s own explanation is short, and judged as every entry is', () => {

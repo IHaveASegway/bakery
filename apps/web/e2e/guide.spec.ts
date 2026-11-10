@@ -598,7 +598,8 @@ test('after a fresh sandbox, a price draft and a move, no row of a note is left 
   await expect(fresh.locator('[data-state="expected"]')).toHaveCount(0);
   await page.keyboard.press('Escape');
 
-  // A price draft: MenuItemChanged arrives on the recorder.
+  // A price draft: the page sends it with no Idempotency-Key, so the server names its own and its
+  // MenuItemChanged cannot be tied to the press; the note says so and waits for nothing.
   await page.goto('/app/menu/');
   const field = page.getByRole('textbox', { name: /^Price of Country loaf, Whole/ });
   await expect(field).toBeVisible();
@@ -606,10 +607,7 @@ test('after a fresh sandbox, a price draft and a move, no row of a note is left 
   await page.getByRole('button', { name: /^Set the price of Country loaf, Whole/ }).click();
   const draft = page.locator('#guide-live');
   await expect(draft).toBeVisible();
-  await draft.getByRole('button', { name: 'Keep this note open' }).click();
-  await expect(
-    draft.locator('[data-state="observed"]', { hasText: 'MenuItemChanged' }),
-  ).toBeVisible({ timeout: 35_000 });
+  await expect(draft).toContainText('no Idempotency-Key');
   await expect(draft.locator('[data-state="expected"]')).toHaveCount(0);
 
   // A board move: its one event comes back over the socket.

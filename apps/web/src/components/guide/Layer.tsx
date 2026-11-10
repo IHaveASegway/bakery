@@ -250,18 +250,42 @@ export default function Layer({
     const pressed = traces.anchorOf(live.gesture);
     if (pressed instanceof Element && pressed.isConnected) return false;
     if (group[0]?.transport === 'socket') return false;
-    // The page says what came of it: the note stays open by that, the least in the way (G2).
+    // Not before the answer: a refund's card leaves the board on the socket's news before the
+    // answer lands and the page writes its result line.
+    if (group[0]?.outcome === 'pending') return false;
+    // The page says what came of it: the note stays open by that, the least in the way (G2). The
+    // page writes its result line as the answer lands, a frame or two after the trace has it, so
+    // the fold is judged once the page has drawn the answer; the note keeps its place till then.
     if (resultInPage(liveEntry?.target ?? null) !== null) return false;
-    setLineFor(live.gesture);
-    setStoryOpen(false);
-    return true;
+    const gesture = live.gesture;
+    const target = liveEntry?.target ?? null;
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (resultInPage(target) !== null) return;
+        const now = traces.anchorOf(gesture);
+        if (now instanceof Element && now.isConnected) return;
+        setLineFor(gesture);
+        setStoryOpen(false);
+      }),
+    );
+    return false;
   }, [live, group, liveEntry]);
   // What the live note must never cover (audit G3): the control that was pressed, the thing that
   // shows the result (the card where it is now, the readout that changed, the line that appeared:
   // the note's anchor and any data-guide-result), and what a visitor presses next (the same control
   // again, the same control on the next card of its column, the control the page put the focus on).
-  const keepClear = useCallback((): Box[] => {
+  const keepClear = useCallback((): Box[] | null => {
     if (live === null) return [];
+    // A note by a fallback (its pressed control gone, no result line on the page: the checkout's
+    // gate, replaced by the steps) keeps clear of every control, else waits as its line: null.
+    const pressedNow = traces.anchorOf(live.gesture);
+    if (
+      group[0]?.transport === 'http' &&
+      !(pressedNow instanceof Element && pressedNow.isConnected) &&
+      resultInPage(liveEntry?.target ?? null) === null
+    ) {
+      return null;
+    }
     const els = new Set<Element>();
     const pressed = traces.anchorOf(live.gesture);
     const anchorEl = liveAnchor();
@@ -305,16 +329,7 @@ export default function Layer({
       const r = el.getBoundingClientRect();
       return { top: r.top, left: r.left, width: r.width, height: r.height };
     });
-  }, [live, liveAnchor]);
-  // A note by a fallback (its pressed control gone, no result line on the page: the checkout's
-  // gate, replaced by the steps) keeps clear of every control, else waits as its line; one by its
-  // control, its card, or the page's result line keeps clear of what matters to the press.
-  const pressedNow = live === null ? null : traces.anchorOf(live.gesture);
-  const byFallback =
-    group[0]?.transport === 'http' &&
-    !(pressedNow instanceof Element && pressedNow.isConnected) &&
-    resultInPage(liveEntry?.target ?? null) === null;
-  const keepFor = byFallback ? undefined : keepClear;
+  }, [live, liveAnchor, group, liveEntry]);
   const foldLive = useCallback(() => {
     if (live === null) return;
     setLineFor(live.gesture);
@@ -636,7 +651,7 @@ export default function Layer({
               // (the checkout's gate, replaced by the steps) waits as its line. One by a control
               // still there stays beside it, the least in the way, as a board's move does.
               onCrowded={asLine ? undefined : foldIfGone}
-              keepClear={keepFor}
+              keepClear={keepClear}
             >
               <NoteHead
                 eyebrow="Under the hood · just now"

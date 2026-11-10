@@ -77,6 +77,9 @@ export function expectedFor(entry: GuideEntry | null, group: readonly Trace[]): 
   if (first !== undefined && first.transport !== 'socket') {
     const bare = first.path.split('?')[0] ?? first.path;
     if (/^\/v1\/sandboxes\/[^/]+$/.test(bare) || sandboxIn(bare) === null) return [];
+    // A write sent with no Idempotency-Key (a price draft's PATCH): the server makes its own key,
+    // so the recorder's events name a cause this page never saw and cannot be tied to it here.
+    if (first.key === null) return [];
     const route = routeIdOf(first);
     const writes = route === null ? undefined : ROUTE_WRITES[route];
     if (writes !== undefined) return [...writes];
@@ -94,6 +97,9 @@ export function unfollowable(group: readonly Trace[]): string | null {
   const bare = first.path.split('?')[0] ?? first.path;
   if (/^\/v1\/sandboxes\/[^/]+$/.test(bare)) {
     return 'The recorder is the sandbox’s own, so it goes with the sandbox: no event of this is shown here.';
+  }
+  if (first.key === null && first.method !== 'GET' && sandboxIn(bare) !== null) {
+    return 'This call carries no Idempotency-Key, so the server named its own and the events it wrote cannot be tied to it here; the Recorder panel lists them as they arrive.';
   }
   if (sandboxIn(bare) === null && first.method !== 'GET') {
     return 'The recorder is read by sandbox and this call names none, so its events are not followed here; the Recorder panel shows them once the sandbox is yours.';
