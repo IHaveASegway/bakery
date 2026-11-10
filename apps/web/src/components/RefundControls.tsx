@@ -97,6 +97,13 @@ export default function RefundControls({
 
   return (
     <div className="refunds" data-tour="kitchen-refund">
+      {/* What the second press does, said above the two buttons it explains (F21, 2026-11-10). */}
+      {asking !== null && (
+        <p id={`${field}-asking`} className="refund-asking" role="status">
+          Press Refund all to refund everything left of order {label}’s{' '}
+          {dollars(asking.total_cents)}. This cannot be undone, and the card leaves the board.
+        </p>
+      )}
       {/* Busy is aria-disabled, not disabled, so the keyboard's focus stays where it was. */}
       <p className="actions">
         <button
@@ -118,14 +125,21 @@ export default function RefundControls({
           {asking === null ? 'Refund' : 'Refund all'}
         </button>
         {asking !== null && (
-          <button type="button" className="btn btn-quiet btn-sm" onClick={() => setAsking(null)}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setAsking(null)}
+          >
             Keep the order
           </button>
         )}
+      </p>
+      {/* A part refund is a different action from the whole one: its own row, under a rule. */}
+      <p className="actions refund-part">
         <button
           ref={toggle}
           type="button"
-          className="btn btn-secondary btn-sm"
+          className="btn btn-quiet btn-sm"
           aria-disabled={busy || undefined}
           aria-expanded={part}
           aria-controls={field + '-form'}
@@ -136,15 +150,9 @@ export default function RefundControls({
             setPart((p) => !p);
           }}
         >
-          Refund part
+          Refund part…
         </button>
       </p>
-      {asking !== null && (
-        <p id={`${field}-asking`} className="hint refund-asking" role="status">
-          Press Refund all to refund everything left of order {label}’s{' '}
-          {dollars(asking.total_cents)}. This cannot be undone, and the card leaves the board.
-        </p>
-      )}
       {part && (
         <form
           id={field + '-form'}
