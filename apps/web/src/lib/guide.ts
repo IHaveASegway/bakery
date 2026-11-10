@@ -302,16 +302,26 @@ export const overlaps = (a: Box, b: Box) =>
  * when the target has a heading, in that heading's own line, after its text (`line` is the box of
  * the heading's last line of text), so the mark reads as part of the line it explains. Never on
  * the target's edge where the gutter is too narrow: that is where it sat on a button or a word.
+ * For a target that is one paragraph, after its own last line of text (`tail`) comes before the
+ * heading's line: two paragraphs under one heading, such as the status page's breaker and kill
+ * switch, then each keep a mark by their own words, and opening a note never swaps them.
  */
 export function spotPlaces(
   target: Box,
   view: { width: number; height: number },
   line: Box | null,
-): { top: number; left: number; how: 'gutter' | 'line' }[] {
-  const places: { top: number; left: number; how: 'gutter' | 'line' }[] = [];
+  tail: Box | null = null,
+): { top: number; left: number; how: 'gutter' | 'line' | 'tail' }[] {
+  const places: { top: number; left: number; how: 'gutter' | 'line' | 'tail' }[] = [];
   const gutterLeft = target.left + target.width + CLEAR;
   if (gutterLeft + SPOT + CLEAR <= view.width) {
     places.push({ top: target.top, left: gutterLeft, how: 'gutter' });
+  }
+  if (tail !== null) {
+    const left = tail.left + tail.width + LINE_GAP;
+    if (left + SPOT + CLEAR <= view.width) {
+      places.push({ top: tail.top + (tail.height - SPOT) / 2, left, how: 'tail' });
+    }
   }
   if (line !== null) {
     const left = line.left + line.width + LINE_GAP;

@@ -361,6 +361,19 @@ describe('where a hotspot sits', () => {
     expect(spotPlaces(card, phone, { ...heading, width: 340 })).toEqual([]);
   });
 
+  test('for a paragraph, after its own last line before its heading’s, so two under one heading keep apart', () => {
+    // The status page's kill switch line on a phone: full width, under the breaker's heading.
+    const line = { top: 400, left: 16, width: 358, height: 72 };
+    const heading = { top: 300, left: 16, width: 120, height: 32 };
+    const end = { top: 448, left: 16, width: 180, height: 24 };
+    expect(spotPlaces(line, phone, heading, end)).toEqual([
+      { top: 446, left: 214, how: 'tail' },
+      { top: 302, left: 154, how: 'line' },
+    ]);
+    // A last line that runs to the edge leaves no room: no such place.
+    expect(spotPlaces(line, phone, null, { ...end, width: 340 })).toEqual([]);
+  });
+
   test('not drawn under the top bar, the masthead or past the window, never pushed onto a bar', () => {
     const at = (top: number) => ({ top, left: 708 });
     expect(spotFits(at(20), view, [topBar])).toBe(false);
