@@ -382,7 +382,7 @@ expect_status menu_1 200
 expect_header menu_1 etag '"v1"'
 expect_header menu_1 bakery-cache miss
 expect_header menu_1 cache-control 'private, no-cache'
-expect_header menu_1 access-control-expose-headers 'ETag, Location, Retry-After, Bakery-Cache'
+expect_header menu_1 access-control-expose-headers 'ETag, Location, Retry-After, Bakery-Cache, Bakery-Cause'
 expect_json menu_1 "b.version === 1 && b.categories.length === 5 && b.categories.flatMap(c => c.items).length === 24"
 get_as menu_2 G "/v1/sandboxes/$GID/menu"
 expect_header menu_2 bakery-cache hit
@@ -404,6 +404,9 @@ expect_header dmenu_1 bakery-cache miss
 ITEM="$(json_field dmenu_1 "b.categories[0].items[0].slug")"
 command_as price D 192.0.2.42 PATCH "/v1/sandboxes/$DID/menu/items/$ITEM" '{"price_cents":1234}'
 expect_status price 200
+# A PATCH sent without a key still names the cause its events carry (ADR 0013's postscript of
+# 2026-11-10): the key the API made for it, a ULID.
+check "price: a PATCH without a key names the API's own key in bakery-cause" "[[ '$(header_of price bakery-cause)' =~ ^[0-9A-HJKMNP-TV-Z]{26}\$ ]]"
 expect_json price "b.version === 1 && b.pending.includes('$ITEM')"
 # The drafts route lists what waits, so the console's editor shows it after a reload.
 get_as drafts_1 D "/v1/sandboxes/$DID/menu/drafts"
@@ -511,6 +514,7 @@ expect_status pause 200
 expect_json pause "b.version === 3"
 command_as paused_order D 192.0.2.42 POST "/v1/sandboxes/$DID/orders" "{\"kind\":\"pickup\",\"slot\":\"$DSLOT\",\"lines\":[{\"variant\":\"$DVARIANT\",\"qty\":1}]}"
 expect_problem paused_order 422 order
+check "paused_order: a refusal writes no event and names no bakery-cause" "[[ -z '$(header_of paused_order bakery-cause)' ]]"
 expect_json paused_order "b.detail.includes('item-paused')"
 
 # A retried placement whose place was given back (the hardening after PR 13). While the item is
@@ -542,6 +546,26 @@ expect_json resume "b.version === 4"
 # No room: the slot cut to the places it holds, and the retry is refused naming the lost hold.
 command_as lost_cut D 192.0.2.42 PATCH "/v1/sandboxes/$DID/schedule/$LOST_DAY/capacity" "{\"target\":\"slot:$LOST_HHMM\",\"capacity\":$LOST_TAKEN}"
 expect_status lost_cut 200
+# Follow this PATCH to its event: the answer's bakery-cause is `capacity:` and the key the API
+# made, and the day's CapacityChanged reaches the flight recorder under that cause.
+CUT_CAUSE="$(header_of lost_cut bakery-cause | tr -d '\r')"
+check "lost_cut: bakery-cause is capacity: and a ULID ($CUT_CAUSE)" "[[ '$CUT_CAUSE' =~ ^capacity:[0-9A-HJKMNP-TV-Z]{26}\$ ]]"
+# cut_hop: pages the trace from the start; true once a CapacityChanged hop carries $CUT_CAUSE.
+cut_hop() {
+  local after=0
+  for _ in $(seq 1 20); do
+    get_as cut_trace D "/v1/sandboxes/$DID/trace?after=$after"
+    [[ "$(status_of cut_trace)" == 200 ]] || return 1
+    node -e "
+      const b = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'));
+      if (!b.hops.some((h) => h.cause === process.argv[2] && h.type === 'CapacityChanged')) process.exit(1);" "$TMP/cut_trace.body" "$CUT_CAUSE" 2>/dev/null && return 0
+    [[ "$(json_field cut_trace b.more)" == true ]] || return 1
+    after="$(json_field cut_trace b.cursor)"
+  done
+  return 1
+}
+for _ in $(seq 1 80); do cut_hop && break; sleep 0.25; done
+check "lost_cut: its CapacityChanged hop on the trace carries the cause the answer named, within 20 s" "cut_hop"
 KEY="$FULL_KEY" command_as full_lost D 192.0.2.42 POST "/v1/sandboxes/$DID/orders" "$LOST_ORDER"
 expect_problem full_lost 409 hold-lost
 # The refusal names the first later start that had room on the day as read before the cut, and
@@ -929,6 +953,7 @@ KEY="$TRACE_KEY"
 command_as trace_order R 192.0.2.46 POST "/v1/sandboxes/$RID/orders" "{\"kind\":\"pickup\",\"slot\":\"$RSLOT\",\"lines\":[{\"variant\":\"$RVARIANT\",\"qty\":1}],\"note\":\"$TRACE_NOTE\"}"
 unset KEY
 expect_status trace_order 201
+expect_header trace_order bakery-cause "$TRACE_KEY"
 ROID="$(json_field trace_order b.id)"
 # Paid as the storefront pays: the payment step, then the Payment Element's confirm at the fake.
 KEY="$ROID"

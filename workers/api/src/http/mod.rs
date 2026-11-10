@@ -66,6 +66,8 @@ struct Note {
     bearer: bool,
     /// The token's id, for the log line; never the token.
     tid: Option<String>,
+    /// The `cause` this command's events are written under, for `Bakery-Cause`.
+    cause: Option<String>,
 }
 
 impl Cx {
@@ -81,6 +83,13 @@ impl Cx {
     /// The sandbox this request ends up naming, for the log line.
     pub fn sandbox(&self, id: Option<Ulid>) {
         self.note.borrow_mut().sandbox = id.map(|i| i.to_string());
+    }
+
+    /// The `cause` this command writes its events under, exactly as the object is given it
+    /// (the key, or the key with the route's prefix). A 2xx answer names it in `Bakery-Cause`,
+    /// so a caller can follow its own write on the flight recorder (ADR 0013's postscript).
+    pub fn caused(&self, cause: impl Into<String>) {
+        self.note.borrow_mut().cause = Some(cause.into());
     }
 
     /// The API token's id, for the log line: never the token.
@@ -156,6 +165,7 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
         }
     };
 
+    let cause = note.cause.take();
     let (mut res, reason) = match outcome {
         Ok(res) => (res, note.reason),
         Err(f) => {
@@ -168,6 +178,9 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
     if note.bearer {
         cors_origin = None;
         res.headers_mut().delete("Set-Cookie")?;
+    }
+    if let Some(cause) = cause_header(res.status_code(), cause.as_deref()) {
+        res.headers_mut().set(CAUSE_HEADER, cause)?;
     }
     headers::apply(
         &mut res,
@@ -433,6 +446,15 @@ async fn checked(
     }
 }
 
+/// The header a command's answer names its events' `cause` in.
+pub const CAUSE_HEADER: &str = "Bakery-Cause";
+
+/// The `Bakery-Cause` value for an answer: the cause the command recorded, on a success only,
+/// since a refusal writes no event.
+fn cause_header(status: u16, cause: Option<&str>) -> Option<&str> {
+    cause.filter(|c| (200..300).contains(&status) && !c.is_empty())
+}
+
 /// The rate-limit key for a request with no session: its IP hash, never the address.
 fn ip_key(ip_hash: Option<&str>) -> String {
     format!("ip:{}", ip_hash.unwrap_or("unknown"))
@@ -478,4 +500,23 @@ pub fn body_hash(text: &str) -> String {
 /// A JSON body for the visitor, with a status.
 pub fn json<T: serde::Serialize>(value: &T, status: u16) -> std::result::Result<Response, Failure> {
     Ok(Response::from_json(value)?.with_status(status))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cause_header;
+
+    #[test]
+    fn a_success_names_its_cause_and_a_refusal_names_none() {
+        assert_eq!(
+            cause_header(200, Some("capacity:01JC8Z6K3W9QF2N4T7XRB5M0HD")),
+            Some("capacity:01JC8Z6K3W9QF2N4T7XRB5M0HD")
+        );
+        assert_eq!(cause_header(201, Some("k")), Some("k"));
+        assert_eq!(cause_header(202, Some("k")), Some("k"));
+        assert_eq!(cause_header(422, Some("k")), None);
+        assert_eq!(cause_header(409, Some("k")), None);
+        assert_eq!(cause_header(200, None), None);
+        assert_eq!(cause_header(200, Some("")), None);
+    }
 }

@@ -122,6 +122,8 @@ pub async fn pay(cx: &Cx, id: Option<&str>, oid: Option<&str>) -> Answer {
     }
     let out: IntentOut =
         serde_json::from_str(&res.text().await?).map_err(|_| problem::internal())?;
+    // Billing writes the intent's events under the payment's id (objects/billing.rs, `intent`).
+    cx.caused(out.payment.to_string());
     json(
         &PaymentResponse {
             payment: out.payment.to_string(),
@@ -141,6 +143,7 @@ pub async fn refund(cx: &Cx, req: &mut Request, id: Option<&str>, oid: Option<&s
     not_revoked(cx, &claims).await?;
     guard(cx)?;
     let key = cx.key.ok_or_else(problem::idempotency_key)?;
+    cx.caused(key.to_string());
     let text = req.text().await.map_err(|_| problem::body())?;
     let body: RefundRequest = serde_json::from_str(&text).map_err(|_| problem::body())?;
     let name = registered(cx, id, oid).await?;

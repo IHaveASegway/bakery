@@ -143,6 +143,8 @@ pub async fn consent(cx: &Cx, req: &mut Request, id: Option<&str>, cid: Option<&
     }
     let text = req.text().await.map_err(|_| problem::body())?;
     let body: ConsentRequest = serde_json::from_str(&text).map_err(|_| problem::body())?;
+    let cause = format!("consent:{key}");
+    cx.caused(&cause);
     let mut res = call(
         &cx.env,
         sandbox::BINDING,
@@ -166,7 +168,7 @@ pub async fn consent(cx: &Cx, req: &mut Request, id: Option<&str>, cid: Option<&
         Method::Post,
         "/_command",
         Some(&customer::CommandIn {
-            key: format!("consent:{key}"),
+            key: cause,
             body_hash: body_hash(&text),
             birth: Some(Birth {
                 sandbox: id,
@@ -319,6 +321,8 @@ pub async fn create_campaign(cx: &Cx, req: &mut Request, id: Option<&str>) -> An
     let key = cx.key.ok_or_else(problem::idempotency_key)?;
     let text = req.text().await.map_err(|_| problem::body())?;
     let body = campaign_body(&text)?;
+    let cause = format!("draft:{key}");
+    cx.caused(&cause);
     let cmd = Cmd::Draft {
         campaign: key,
         subject: via_json(body.subject)?,
@@ -326,7 +330,7 @@ pub async fn create_campaign(cx: &Cx, req: &mut Request, id: Option<&str>) -> An
         segment: via_json(body.segment)?,
     };
     let body = CommandIn {
-        key: format!("draft:{key}"),
+        key: cause,
         body_hash: body_hash(&text),
         cmd,
     };
@@ -348,6 +352,8 @@ pub async fn edit_campaign(
         Some(k) => k,
         None => random::ulid(cx.now)?,
     };
+    let cause = format!("edit:{cid}:{key}");
+    cx.caused(&cause);
     let cmd = Cmd::Edit {
         campaign: cid,
         subject: via_json(body.subject)?,
@@ -355,7 +361,7 @@ pub async fn edit_campaign(
         segment: via_json(body.segment)?,
     };
     let body = CommandIn {
-        key: format!("edit:{cid}:{key}"),
+        key: cause,
         body_hash: body_hash(&text),
         cmd,
     };
@@ -375,8 +381,10 @@ pub async fn schedule_campaign(
     let text = req.text().await.map_err(|_| problem::body())?;
     let body: ScheduleRequest = serde_json::from_str(&text).map_err(|_| problem::body())?;
     let send_at: BusinessTime = body.send_at.parse().map_err(|_| problem::body())?;
+    let cause = format!("schedule:{cid}:{key}");
+    cx.caused(&cause);
     let body = CommandIn {
-        key: format!("schedule:{cid}:{key}"),
+        key: cause,
         body_hash: body_hash(&text),
         cmd: Cmd::Schedule {
             campaign: cid,
@@ -391,8 +399,10 @@ pub async fn cancel_campaign(cx: &Cx, id: Option<&str>, cid: Option<&str>) -> An
     let id = sandbox_of(cx, id).await?;
     let cid = ulid_of(cid, "no-campaign")?;
     let key = cx.key.ok_or_else(problem::idempotency_key)?;
+    let cause = format!("cancel:{cid}:{key}");
+    cx.caused(&cause);
     let body = CommandIn {
-        key: format!("cancel:{cid}:{key}"),
+        key: cause,
         body_hash: String::new(),
         cmd: Cmd::Cancel { campaign: cid },
     };
