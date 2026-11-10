@@ -17,8 +17,10 @@ import {
   type ReadFacts,
   type HeardEvent,
   type Listening,
+  type ExpectedHop,
   type Reading,
   type Trace,
+  type TracedEvent,
 } from '../../lib/trace';
 import type { RecorderState } from '../../lib/recorder';
 import { useSandboxPhase } from '../../lib/use-session';
@@ -278,6 +280,51 @@ export function hopWait(reading: Reading): string {
   return reading === 'reading' ? 'waiting for the recorder' : 'on its way';
 }
 
+/** The day a stream is for, when its last part is one (`schedule:…:2026-11-10`), as "10 Nov". */
+export function dayOf(stream: string | null): string | null {
+  const last = stream?.split(':').at(-1) ?? '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(last)) return null;
+  return new Date(`${last}T12:00:00Z`).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  });
+}
+
+/** A chain's row: an event the action made, or several of one type it did not name, folded. */
+type ChainRow = ExpectedHop & { also: TracedEvent[] };
+
+/**
+ * The rows of a chain: each event the action makes, then the others the trace observed, with
+ * several of one type folded into one row (audit H9: Publish menu listed nine bare "CapsRefreshed
+ * seq 2 on Schedule" rows, one a day, without the day).
+ */
+export function chainRows(hops: readonly ExpectedHop[], expected: readonly string[]): ChainRow[] {
+  const rows: ChainRow[] = [];
+  for (const hop of hops) {
+    const fold =
+      !expected.includes(hop.type) &&
+      hop.event !== null &&
+      rows.find((r) => r.type === hop.type && !expected.includes(r.type));
+    if (fold && hop.event !== null) fold.also.push(hop.event);
+    else rows.push({ ...hop, also: [] });
+  }
+  return rows;
+}
+
+/** A folded row's words: how many, on which object, for which days when a stream names one. */
+export function foldedWords(events: readonly TracedEvent[]): string {
+  const object = objectOf(events[0]?.stream ?? null);
+  const days = [...new Set(events.map((e) => dayOf(e.stream)).filter((d) => d !== null))];
+  const span =
+    days.length === 0
+      ? ''
+      : days.length === 1
+        ? `, for ${days[0]}`
+        : `, one for each day from ${days[0]} to ${days.at(-1)}`;
+  return `${events.length} times${object === null ? '' : ` on ${object}`}${span}`;
+}
+
 /**
  * What the chain says of an observed event's subscribers: the classes the recorder saw take it, or,
  * when its hop named none, that nothing subscribes to it; nothing while only the socket has it.
@@ -352,8 +399,26 @@ export function TraceChain({
           </span>
         </li>
       )}
-      {hops.map((hop) => {
+      {chainRows(hops, expected).map((hop) => {
         const event = hop.event;
+        const all = event === null ? [] : [event, ...hop.also];
+        if (all.length > 1) {
+          // Several of one type the action did not name: one row, with the days they are for.
+          const ways = new Set(all.map((e) => takenWords(e.deliveries)));
+          const taken = ways.size === 1 ? [...ways][0] : null;
+          return (
+            <li key={`${hop.type}-folded`} className="guide-hop" data-state="observed">
+              <span className="guide-hop-kind">Event</span>
+              <span className="guide-hop-body">
+                <code className="guide-chip">{hop.type}</code>
+                <span className="guide-meta">{foldedWords(all)}</span>
+                {taken !== null && taken !== undefined && (
+                  <span className="guide-meta guide-deliveries">{taken}, each</span>
+                )}
+              </span>
+            </li>
+          );
+        }
         const taken = hop.state === 'observed' ? takenWords(event?.deliveries) : null;
         return (
           <li key={`${hop.type}-${event?.id ?? ''}`} className="guide-hop" data-state={hop.state}>
@@ -366,6 +431,7 @@ export function TraceChain({
                 <span className="guide-meta">
                   {event.seq !== null && <>seq {event.seq}</>}
                   {event.stream !== null && <> on {objectOf(event.stream)}</>}
+                  {dayOf(event.stream) !== null && <> for {dayOf(event.stream)}</>}
                   {event.lagMs !== undefined && (
                     <>, taken by the Queue’s consumer {event.lagMs} ms after it was written</>
                   )}

@@ -22,6 +22,7 @@ import {
 import {
   Observed,
   TraceChain,
+  dayOf,
   deliveryWords,
   WatchChain,
   WhyLines,
@@ -55,6 +56,7 @@ import {
   observations,
   type RecorderHop,
   type Trace,
+  type TracedEvent,
 } from '../src/lib/trace';
 import type { TraceHop } from '../src/contracts';
 
@@ -1106,5 +1108,43 @@ describe('a line of text is its line box, whatever the font', () => {
     expect(overlapsBy(a, { top: 9, left: 9, width: 10, height: 10 }, 0.5)).toBe(true);
     expect(overlapsBy(a, { top: 9.6, left: 0, width: 10, height: 10 }, 0.5)).toBe(false);
     expect(overlapsBy(a, { top: 10, left: 0, width: 10, height: 10 }, 0)).toBe(false);
+  });
+});
+
+describe('a chain folds an event it did not name when it comes many times (audit H9)', () => {
+  const caps = (seq: number, day: string): TracedEvent => ({
+    id: `caps-${day}`,
+    type: 'CapsRefreshed',
+    stream: `schedule:sbx-one:${day}`,
+    seq,
+    source: 'recorder',
+    at: T0,
+    cause: 'menu-published',
+    deliveries: [],
+  });
+  test('nine days of CapsRefreshed are one row naming the days', () => {
+    const days = ['2026-11-10', '2026-11-11', '2026-11-12'];
+    const html = renderToStaticMarkup(
+      createElement(TraceChain, {
+        traces: [trace({ events: days.map((d, i) => caps(i + 2, d)) })],
+        expected: [],
+        feed: [],
+      }),
+    );
+    expect(html.match(/CapsRefreshed/g)).toHaveLength(1);
+    expect(html).toContain('3 times on Schedule, one for each day from 10 Nov to 12 Nov');
+    expect(html).toContain('written; nothing subscribes to it, each');
+    expect(dayOf('schedule:sbx-one:2026-11-10')).toBe('10 Nov');
+    expect(dayOf('order:sbx-one:ord-one')).toBeNull();
+  });
+  test('one of them alone names its day', () => {
+    const html = renderToStaticMarkup(
+      createElement(TraceChain, {
+        traces: [trace({ events: [caps(2, '2026-11-11')] })],
+        expected: [],
+        feed: [],
+      }),
+    );
+    expect(html).toContain('seq 2 on Schedule for 11 Nov');
   });
 });

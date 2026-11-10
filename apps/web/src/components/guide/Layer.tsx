@@ -39,7 +39,7 @@ import {
   type WatchNews,
 } from './match';
 import { clearOfPage, headingLine, textEnd } from './clear';
-import { Note, around, barBoxes, resolveAnchor, topInset } from './Note';
+import { Note, around, barBoxes, flowPlace, resolveAnchor, topInset } from './Note';
 import Panel from './Panel';
 import {
   EntryBody,
@@ -176,6 +176,21 @@ export default function Layer({
   // page put the focus on; while the focus is elsewhere (the recorder), the last such element; and
   // only then the entry's own element.
   const lastFocused = useRef<Element | null>(null);
+  // The part of the page each press was made in (its card, row, form or panel), taken at the
+  // click: a control the page replaces with another (Schedule, which becomes Unschedule) leaves its
+  // note with the part it was in, not at the entry's whole element far away (audit H7).
+  const homes = useRef(new WeakMap<Element, Element>());
+  useEffect(() => {
+    const press = (event: MouseEvent) => {
+      const el = event.target instanceof Element ? event.target.closest('button, a[href]') : null;
+      const home = el?.parentElement?.closest('li, tr, article, form, fieldset, section, .panel');
+      if (el !== null && el !== undefined && home !== null && home !== undefined) {
+        homes.current.set(el, home);
+      }
+    };
+    document.addEventListener('click', press, { capture: true });
+    return () => document.removeEventListener('click', press, { capture: true });
+  }, []);
   const story =
     live !== null && group[0]?.read !== undefined && traces.anchorOf(live.gesture) === null;
   // A story read whose entry is another screen's (the order page reads the menu for its lines'
@@ -200,7 +215,9 @@ export default function Layer({
     const gone = !(pressed instanceof Element && pressed.isConnected);
     const result = () =>
       gone && group[0]?.transport === 'http' ? resultInPage(liveEntry?.target ?? null) : null;
-    return resolveAnchor(pressed, [result, () => focused, () => lastFocused.current, target]);
+    const home = () =>
+      pressed instanceof Element && gone ? (homes.current.get(pressed) ?? null) : null;
+    return resolveAnchor(pressed, [result, home, () => focused, () => lastFocused.current, target]);
   }, [live, liveEntry, story, group]);
   useEffect(() => {
     lastFocused.current = null;
@@ -359,6 +376,15 @@ export default function Layer({
       return { top: r.top, left: r.left, width: r.width, height: r.height };
     });
   }, [live, liveAnchor, group, liveEntry]);
+  // On the console's workspaces a live note goes in the page's flow under what it explains (D1).
+  const liveFlow = useCallback(
+    (anchorEl: Element | null) => {
+      if (live === null || story) return null;
+      const pressed = traces.anchorOf(live.gesture);
+      return flowPlace(anchorEl, pressed instanceof Element ? pressed : null);
+    },
+    [live, story],
+  );
   const foldLive = useCallback(() => {
     if (live === null) return;
     setLineFor(live.gesture);
@@ -700,6 +726,7 @@ export default function Layer({
               // still there stays beside it, the least in the way, as a board's move does.
               onCrowded={asLine ? undefined : foldIfGone}
               keepClear={keepClear}
+              flow={liveFlow}
             >
               <NoteHead
                 eyebrow="Under the hood · just now"

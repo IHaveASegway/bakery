@@ -1152,6 +1152,26 @@
   :root[data-guide-panel] body:not(.shell-app) > main {
     width: auto;
   }
+
+  /* The console's panels, two or three across on a wide page, take the narrowed page's full
+     width one under another, as they do on a narrow window. */
+  :root[data-guide-panel] .panel-grid > * {
+    grid-column: span 6;
+  }
+
+  :root[data-guide-panel] .dispatch-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: none;
+  }
+
+  :root[data-guide-panel] .dispatch-layout > * {
+    grid-area: auto;
+  }
+
+  /* The board's five columns wrap to as many as fit, each at least 11rem. */
+  :root[data-guide-panel] .board {
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  }
 }
 
 @media (max-width: 60rem) {
@@ -1238,4 +1258,96 @@
    gets out of its way: it never lies over the sheet's buttons, and comes back when it closes. */
 body:has(.cart[data-open], dialog[open], [aria-modal='true']) .guide-bar-dock {
   visibility: hidden;
+}
+
+/* ---- A note in the page's flow (D1, 2026-11-10) ----
+
+   On the console's workspaces a live note is drawn in the page, under what it explains: after the
+   moved card in its column, at the end of the panel pressed in, after a result line (Note.tsx,
+   flowPlace). It is a block of the page, not a layer over it: no position, no caret, no shadow,
+   the width it is given. It opens by growing and leaves by folding shut, each a fifth of a second,
+   so what is under it moves once and smoothly. */
+.guide-flow {
+  display: grid;
+  grid-template-rows: 1fr;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  transition:
+    grid-template-rows 200ms ease-out,
+    opacity 200ms ease-out;
+}
+
+/* A note in a list of the page's (the campaigns, the board's cards) takes none of its items' look:
+   the page's own rules style every li in their list, and the note's chain is a list too. */
+.guide-layer.guide-flow,
+.guide-layer.guide-flow li {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+:not(.cards) > li.guide-layer.guide-flow {
+  margin-bottom: var(--space-3, 12px);
+}
+
+.guide-flow[data-leaving] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+div.guide-flow,
+tr.guide-flow > td {
+  margin-top: var(--space-3, 12px);
+}
+
+.guide-flow > td {
+  padding: 8px 0;
+}
+
+.guide-flow .guide-note {
+  position: static;
+  z-index: auto;
+  width: auto;
+  max-width: none;
+  max-height: none;
+  min-height: 0;
+  overflow: hidden;
+  box-shadow: none;
+  container-type: inline-size;
+  animation: guide-grow 200ms ease-out;
+}
+
+.guide-flow .guide-note::before {
+  display: none;
+}
+
+/* In a narrow column (a board's), a hop's label sits above its body. */
+@container (max-width: 15rem) {
+  .guide-flow .guide-hop {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .guide-flow .guide-head {
+    flex-wrap: wrap;
+  }
+}
+
+@keyframes guide-grow {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-flow,
+  .guide-flow .guide-note {
+    transition: none;
+    animation: none;
+  }
 }
