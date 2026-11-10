@@ -17,6 +17,10 @@
 #   POST of SQL over bakery_events to the
 #   account's path with `Authorization: Bearer` and the expected token; the Worker's log holds
 #   neither the token nor the account id nor a query's text.
+# - The count of sandboxes past their wipe (2026-11-10): `sandboxes_past_wipe` is `null` before
+#   the first sweep, 0 after it and with a fresh sandbox, 1 once that sandbox's row in Control is
+#   made two days old (written into the local state with node:sqlite while the Worker is
+#   stopped, since Control reads the platform clock), and 0 again after the 10:00 UTC wipe.
 # - A failing fake (500) and a slow one (past the 5 s timeout): the old counters and
 #   `counters_as_of` stay, the state is `stale`, and `analytics_failed` names the status or
 #   `timeout`; a good refresh after makes it `live` again.
@@ -227,7 +231,8 @@ status none
 expect_status none 200
 expect_public_headers none
 expect_json none "b.counters === null && b.counters_as_of === null && b.counters_state === 'unavailable'"
-expect_json none "Object.keys(b).join(',') === 'day,sandboxes_today,sandbox_cap,guests_today,guest_cap,demo_accounts_today,demo_account_cap,counters,counters_as_of,counters_state,breaker,flag'"
+expect_json none "Object.keys(b).join(',') === 'day,sandboxes_today,sandbox_cap,guests_today,guest_cap,demo_accounts_today,demo_account_cap,counters,counters_as_of,counters_state,breaker,sandboxes_past_wipe,flag'"
+expect_json none "b.sandboxes_past_wipe === null"
 
 request preflight -X OPTIONS -H "Origin: $STOREFRONT" -H "Access-Control-Request-Method: GET" "$BASE/v1/status"
 expect_status preflight 204
@@ -242,6 +247,8 @@ ae requests_none GET "" /_requests
 check "the fake was sent nothing without a token" "[[ \"\$(json_field requests_none b.length)\" == 0 ]]"
 status none_after
 expect_json none_after "b.counters === null && b.counters_state === 'unavailable'"
+expect_json none_after "b.sandboxes_past_wipe === 0"
+check "the sweep logs its count" "log_has '\"event\":\"sweep\",\"rows\":0,\"past_wipe\":0}'"
 
 # The points' writes never fail what wrote them: a guest's admission (sandbox_created) and the
 # nightly wipe's end (wipe).
@@ -251,11 +258,29 @@ request guest -X POST -H "Origin: $STOREFRONT" -H "CF-Connecting-IP: 192.0.2.91"
 expect_status guest 201
 status admitted
 expect_json admitted "b.sandboxes_today === 1 && b.guests_today === 1"
+sweep cron_fresh
+status fresh
+expect_json fresh "b.sandboxes_past_wipe === 0"
+
+# Control reads the platform clock, so the sandbox is made overdue in its row: created two days
+# ago, its wipe is at least a day past. The Worker is stopped while the state is written.
+stop_worker
+backdated="$(node "$ROOT/scripts/smoke-status-backdate.mjs" "$STATE")"
+check "one sandbox row in Control was made two days old ($backdated)" "[[ '$backdated' == 1 ]]"
+start_worker
+status overdue_unswept
+expect_json overdue_unswept "b.sandboxes_past_wipe === 0"
+sweep cron_overdue
+status overdue
+expect_json overdue "b.sandboxes_past_wipe === 1"
 request cron_wipe "$WIPE_CRON"
 expect_status cron_wipe 200
 wait_log '"event":"wipe_point"'
 check "the wipe's end logs wipe_point with the one sandbox" "log_has '\"event\":\"wipe_point\",\"sandboxes\":1,'"
 check "no point write was refused or unbound" "! log_has '\"event\":\"metrics_error\"' && ! log_has '\"event\":\"metrics_unbound\"'"
+sweep cron_wiped
+status wiped
+expect_json wiped "b.sandboxes_past_wipe === 0"
 stop_worker
 
 # ---------- a refresh against the fake: live ----------

@@ -2982,7 +2982,7 @@
       },
       "StatusResponse": {
         "additionalProperties": false,
-        "description": "`GET /v1/status`: today's admission state, from the `Control` object.\n\nThe field order is fixed and is the wire order: the day and the sandbox count and cap\n(PR 2), then the guest and demo-account counts and caps (PR 3), then the status page's\ncounters with their time and state (PR 13), then the breaker's state (PR 17), then the flag.\nReaders go by name, so PR 2's smoke check still passes; a new field is added before `flag`.\n\nThe counters are a snapshot of the kept Analytics Engine queries that the 15-minute cron\nrefreshes, never a query per request (docs/operations.md, \"Observability\").",
+        "description": "`GET /v1/status`: today's admission state, from the `Control` object.\n\nThe field order is fixed and is the wire order: the day and the sandbox count and cap\n(PR 2), then the guest and demo-account counts and caps (PR 3), then the status page's\ncounters with their time and state (PR 13), then the breaker's state (PR 17), then the count\nof sandboxes past their wipe (2026-11-10), then the flag. Readers go by name, so PR 2's\nsmoke check still passes; a new field is added before `flag`.\n\nThe counters are a snapshot of the kept Analytics Engine queries that the 15-minute cron\nrefreshes, never a query per request (docs/operations.md, \"Observability\").",
         "properties": {
           "breaker": {
             "$ref": "#/components/schemas/BreakerStatus",
@@ -3048,6 +3048,15 @@
             "minimum": 0,
             "type": "integer"
           },
+          "sandboxes_past_wipe": {
+            "description": "Sandboxes not wiped more than 2 hours after their nightly wipe, the first 10:00 UTC after\neach was made (added 2026-11-10). A sandbox made after today's wipe is due at tomorrow's,\nso it is not counted. `Control` counts at each 15-minute sweep, so the route reads one\nstored number; `null` when the sweep has not counted in the last 20 minutes. Anything above\n0 means a wipe failed (docs/operations.md, \"The nightly wipe\").",
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "sandboxes_today": {
             "description": "Sandboxes admitted today, guests' included.",
             "format": "uint32",
@@ -3067,7 +3076,8 @@
           "breaker",
           "flag",
           "counters",
-          "counters_as_of"
+          "counters_as_of",
+          "sandboxes_past_wipe"
         ],
         "title": "StatusResponse",
         "type": "object"
@@ -14119,7 +14129,7 @@
                 }
               }
             },
-            "description": "today's sandboxes, guests and demo accounts with their caps, the last snapshot of the kept Analytics Engine queries with `counters_as_of` and `counters_state` (`live`, `stale` or `unavailable`), the breaker's state (`unconfigured`, `armed`, `read-only` or `off`) with its last run, and the flag"
+            "description": "today's sandboxes, guests and demo accounts with their caps, the last snapshot of the kept Analytics Engine queries with `counters_as_of` and `counters_state` (`live`, `stale` or `unavailable`), the breaker's state (`unconfigured`, `armed`, `read-only` or `off`) with its last run, `sandboxes_past_wipe` (sandboxes not wiped 2 hours after their nightly wipe; `null` when `Control` has not counted in the last 20 minutes), and the flag"
           }
         },
         "security": [],
