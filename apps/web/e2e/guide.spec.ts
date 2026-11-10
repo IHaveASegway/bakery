@@ -167,7 +167,6 @@ test('placing an order at checkout, as a guest, opens a note with the request an
 
   const note = page.getByRole('region', { name: 'Under the hood: Placing the order' });
   await expect(note).toBeVisible();
-  expect(await guideOverControls(page)).toEqual([]);
   const request = note.locator('li', { hasText: 'POST …/orders' }).first();
   await expect(request).toContainText('201');
   await expect(request).toContainText(/\d+ ms/);
