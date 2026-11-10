@@ -175,6 +175,18 @@ wait_live() {
   return 1
 }
 
+# wait_order NAME JAR SANDBOX ORDER STATUS [EXPR]: polls the order until it has that status (and
+# EXPR holds over it as `b`), up to 10 s; scripts/smoke-payments.sh has the same.
+wait_order() {
+  local name="$1" jar_name="$2" id="$3" oid="$4" want="$5" expr="${6:-true}"
+  for _ in $(seq 1 50); do
+    get_as "$name" "$jar_name" "/v1/sandboxes/$id/orders/$oid"
+    if node -e "const b = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); if (!(b.status === '$want' && ($expr))) process.exit(1)" "$TMP/$name.body" 2>/dev/null; then return 0; fi
+    sleep 0.2
+  done
+  return 1
+}
+
 # probe JAR ID [ws-probe options]: a socket on sandbox ID's board as the storefront opens it, with
 # the jar's cookies and the storefront's Origin. Prints the probe's JSON lines. In the background,
 # run `node "${PROBE[@]}" ...` after `probe_args`, so $! is the probe's own process.
@@ -651,6 +663,18 @@ cards_g="$(probe_field "$TMP/board_guest.out" cards.length)"
 cards_d="$(probe_field "$TMP/board_redriven.out" cards.length)"
 check "every seeded order reached a board: $cards_g and $cards_d cards, 24 or more across two sandboxes" "(( ${cards_g:-0} + ${cards_d:-0} >= 24 ))"
 
+# A guest moves its own board (roadmap R72, 2026-11-10): a confirmed card of the guest's sandbox
+# is started from the guest's socket, and the Order reads it back over HTTP. The hibernation
+# checks below send this command's id again after a wake.
+GCARD="$(probe_field "$TMP/board_guest.out" "((cards.find((c) => c.state === 'confirmed' && c.kind === 'pickup') || cards.find((c) => c.state === 'confirmed')) || {}).order")"
+check "the guest's board has a confirmed card to move" "[[ -n '$GCARD' ]]"
+get_as g_order_before G "/v1/sandboxes/$GID/orders/$GCARD"
+GSEQ="$(json_field g_order_before b.events_seq)"
+GC1="$(ulid)"
+probe G "$GID" --cmd "$GC1:$GCARD:start_production" --wait-evt OrderProductionStarted --evt-order "$GCARD" --timeout 10 > "$TMP/ws_guest_move.out" || true
+expect_probe "a guest's start_production is acked on its own board, and its socket hears the move" "$TMP/ws_guest_move.out" "frames.some((f) => f.t === 'ack' && f.id === '$GC1') && evts.some((e) => e.type === 'OrderProductionStarted' && e.cause === '$GC1')"
+check "the guest's move reads back over HTTP: in production, one event more ($GSEQ before)" "wait_order g_moved G '$GID' '$GCARD' in_production 'b.events_seq === ${GSEQ:-0} + 1'"
+
 # ---------- the kitchen socket ----------
 
 # Two more sessions on the demo sandbox (a second and third sign-in of its account), so no
@@ -716,16 +740,19 @@ expect_probe "socket a saw the card become ready and leave the board" "$TMP/ws_a
 check "the Kitchen logged each cmd with its id and outcome, nothing more" "grep -q '\"event\":\"kitchen_cmd\",\"instance\":\"[0-9a-f]*\",\"id\":\"$C4\",\"outcome\":\"nack\",\"rule\":\"out-of-order\"}' '$LOG'"
 
 # Hibernation: both sockets stay idle for 12 s. A guest's socket, accepted before the idle spell,
-# sends its cmd after it: the frame wakes the guest's Kitchen, which must still know the socket
-# is a guest's from its attachment alone.
-GCARD="$(probe_field "$TMP/board_guest.out" "cards[0].order")"
-GC="$(ulid)"
+# sends its frames after it, and the first wakes the guest's Kitchen. What must survive the wake
+# is in storage and on the socket, never in memory: the socket's attachment (a socket that lost
+# it is closed, so being answered at all is the proof), and the stored answers (the Kitchen's
+# commands table, and the Order's own key), so the id the guest sent before the spell gets its
+# first answer and is not applied again. A new move after the wake is acked, and the Order reads
+# both back over HTTP: two events more than before the guest's first move, not three.
+GC2="$(ulid)"
 probe_args G "$GID"
 # wrangler dev evicts an idle hibernatable object after about 10 s of quiet, but an alarm or a
 # delivery that lands in the window keeps it awake, so the idle spell is tried up to five times:
 # each try waits 12 s and then touches the staff Kitchen with a fresh socket, which is what wakes
 # an evicted object. The guest's frame goes out after the first spell either way.
-node "${PROBE[@]}" --delay 13 --cmd "$GC:$GCARD:mark_ready" --until nack --timeout 80 > "$TMP/ws_guest.out" &
+node "${PROBE[@]}" --delay 13 --cmd "$GC1:$GCARD:start_production" --cmd "$GC2:$GCARD:mark_ready" --wait-evt OrderReady --evt-order "$GCARD" --timeout 80 > "$TMP/ws_guest.out" &
 WS_G=$!
 sleep 1
 WAKE_FROM="$(wc -l < "$LOG")"
@@ -743,8 +770,10 @@ wait "$WS_G" || true
 tail -n "+$WAKE_FROM" "$LOG" > "$TMP/wake.log"
 check "an idle board hibernates: after an idle spell (try $IDLE_TRIES of 5, 12 s each) the Kitchen with 2 sockets open woke (kitchen_wake)" "[[ -n '$D_AFTER' ]]"
 check "the woken Kitchen is a new instance ($D_BEFORE, then $D_AFTER): memory did not survive, the sockets did" "[[ -n '$D_BEFORE' && -n '$D_AFTER' && '$D_BEFORE' != '$D_AFTER' ]]"
-expect_probe "after a wake, a guest's cmd is nacked guest-scope from the socket's attachment" "$TMP/ws_guest.out" "frames.some((f) => f.t === 'nack' && f.id === '$GC' && f.rule === 'guest-scope')"
 check "the guest's Kitchen woke for that frame" "grep '\"event\":\"kitchen_wake\"' '$TMP/wake.log' | grep -q '\"sockets\":1}'"
+expect_probe "after a wake, the guest's socket is still served and its repeated id gets its first answer, ack, with no second OrderProductionStarted" "$TMP/ws_guest.out" "frames.some((f) => f.t === 'ack' && f.id === '$GC1') && !evts.some((e) => e.type === 'OrderProductionStarted')"
+expect_probe "after a wake, the guest's mark_ready is acked and the card moves to ready" "$TMP/ws_guest.out" "frames.some((f) => f.t === 'ack' && f.id === '$GC2') && evts.some((e) => e.type === 'OrderReady' && e.cause === '$GC2') && board['$GCARD'] === 'ready'"
+check "the woken Kitchen applied the start once: the Order reads ready, two events more than before the guest's moves" "wait_order g_ready G '$GID' '$GCARD' ready 'b.events_seq === ${GSEQ:-0} + 2'"
 
 # A reconnect gets a snapshot equal to the board a socket that stayed open holds.
 kill -TERM "$WS_B" 2>/dev/null || true
