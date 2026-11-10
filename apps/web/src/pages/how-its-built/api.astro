@@ -161,7 +161,9 @@ const SOURCES = [
       <li>
         <strong>A promise.</strong> After acceptance a field is only added, never renamed or
         removed, until a <code>/v2/</code>, so a mistake in a name is carried (
-        <code>docs/adr/0013</code>).
+        <code>docs/adr/0013</code>). One change broke that promise on 2026-11-10: a delivery’s
+        <code>zone</code> became a claim the server checks, so naming another zone went from 201 to
+        422, as the record’s postscript says.
       </li>
       <li>
         <strong>Two tables by hand.</strong> The contract’s and the Worker’s are edited together,
