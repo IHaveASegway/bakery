@@ -11,6 +11,7 @@ import { sandboxOf } from '../src/lib/recorder';
 import {
   entryForTraces,
   expectedFor,
+  unfollowable,
   gesturesIn,
   newestWatchNews,
   noteToOpen,
@@ -34,6 +35,8 @@ import {
 } from '../src/components/guide/Views';
 import { ALL_ENTRIES, PATHS, ROUTE_SHAPES } from '../src/guide';
 import {
+  lineBoxOf,
+  overlapsBy,
   PATH_CLOSED,
   pathReduce,
   pickEntry,
@@ -347,7 +350,7 @@ describe('what a note says', () => {
     expect(html).toContain('>ack<');
     expect(html).toContain('by the Order object');
     expect(html).toMatch(/data-state="observed".*OrderProductionStarted.*seq 3/s);
-    expect(html).toMatch(/data-state="expected".*BakeListChanged.*expected/s);
+    expect(html).toMatch(/data-state="expected".*BakeListChanged.*on its way/s);
     expect(html).not.toContain('style=');
   });
 
@@ -511,17 +514,58 @@ describe('what the recorder showed, in plain words', () => {
         reading: 'done',
       }),
     );
-    expect(html).toContain('not seen yet: the recorder may have missed it');
-    const reading = renderToStaticMarkup(
-      createElement(TraceChain, {
-        traces: [trace()],
-        expected: ['OrderPlaced'],
-        feed: [],
-        reading: 'reading',
-      }),
+    expect(html).toContain('not seen on the recorder in 30 s; it may have missed it');
+    const draw = (reading: 'idle' | 'reading' | 'late') =>
+      renderToStaticMarkup(
+        createElement(TraceChain, {
+          traces: [trace()],
+          expected: ['OrderPlaced'],
+          feed: [],
+          reading,
+        }),
+      );
+    expect(draw('reading')).toContain('waiting for the recorder');
+    expect(draw('late')).toContain('not seen on the recorder yet; still listening');
+    expect(draw('idle')).toContain('on its way');
+    // The word "expected" is never shown: an event either came, is on its way, or was not seen.
+    for (const r of ['idle', 'reading', 'late'] as const) {
+      expect(draw(r).replace(/data-state="expected"/g, '')).not.toMatch(/>[^<]*expected/);
+    }
+  });
+
+  test('a write waits only for what it writes and the recorder can show (audit G4)', () => {
+    const write = (method: string, path: string) => trace({ method, path });
+    // A new sandbox and a demo account name no sandbox: nothing is followed, and the note says so.
+    expect(expectedFor(entry('controls-new-sandbox'), [write('POST', '/v1/sandboxes')])).toEqual(
+      [],
     );
-    expect(reading).toContain('expected');
-    expect(reading).not.toContain('not seen yet');
+    expect(unfollowable([write('POST', '/v1/sandboxes')])).toContain('names none');
+    // A wipe takes the recorder with it.
+    expect(expectedFor(entry('controls-wipe'), [write('DELETE', '/v1/sandboxes/sb1')])).toEqual([]);
+    expect(unfollowable([write('DELETE', '/v1/sandboxes/sb1')])).toContain('goes with the sandbox');
+    // Paying makes the intent; the webhook's events come after the card, another press.
+    expect(
+      expectedFor(entry('checkout-pay'), [write('POST', '/v1/sandboxes/sb1/orders/o1/payment')]),
+    ).toEqual(['PaymentIntentCreated']);
+    // Issuing a token at the same version writes nothing.
+    expect(expectedFor(entry('console-token'), [write('POST', '/v1/sandboxes/sb1/token')])).toEqual(
+      [],
+    );
+    // A price draft waits for its own event.
+    expect(
+      expectedFor(entry('controls-menu-edit'), [
+        write('PATCH', '/v1/sandboxes/sb1/menu/items/country-loaf'),
+      ]),
+    ).toEqual(['MenuItemChanged']);
+    expect(unfollowable([write('PATCH', '/v1/sandboxes/sb1/menu/items/country-loaf')])).toBeNull();
+    // The same draft sent with no key: its events name a cause the page never saw.
+    const keyless = trace({
+      method: 'PATCH',
+      path: '/v1/sandboxes/sb1/menu/items/country-loaf',
+      key: null,
+    });
+    expect(expectedFor(entry('controls-menu-edit'), [keyless])).toEqual([]);
+    expect(unfollowable([keyless])).toContain('no Idempotency-Key');
   });
 
   test('the recorder’s own explanation is short, and judged as every entry is', () => {
@@ -804,5 +848,56 @@ describe('a value the page read', () => {
     const zone = ALL_ENTRIES.find((e) => e.id === 'checkout-zone');
     expect(zone?.what).toContain('wrong-zone');
     expect(zone?.facts?.join(' ')).toContain('first breaking change');
+  });
+});
+
+describe('a line of text is its line box, whatever the font', () => {
+  // The catering gate's title at 390 px in the font GitHub's runner gives `system-ui`: an 18 px
+  // heading on a 21.6 px line, whose glyph box is 22 px tall, wrapped onto two lines.
+  const first = { top: 480.6, left: 41, width: 227.9, height: 22 };
+  const second = { top: 502.2, left: 41, width: 71.2, height: 22 };
+  const lineHeight = 21.6;
+  const phone = { width: 390, height: 844 };
+
+  test('two lines of one heading overlap as glyph boxes and only share an edge as line boxes', () => {
+    expect(first.top + first.height).toBeGreaterThan(second.top);
+    const a = lineBoxOf(first, lineHeight);
+    const b = lineBoxOf(second, lineHeight);
+    expect(a.height).toBe(lineHeight);
+    expect(a.top + a.height).toBeCloseTo(b.top, 6);
+    expect(overlapsBy(a, b, 0.5)).toBe(false);
+  });
+
+  test('a mark set level with the last line is not on the line above', () => {
+    const line = lineBoxOf(second, lineHeight);
+    const [place] = spotPlaces({ top: 456, left: 16, width: 358, height: 208 }, phone, line);
+    expect(place?.how).toBe('line');
+    const box = place === undefined ? null : spotBox(place);
+    expect(box).not.toBeNull();
+    if (box === null) return;
+    // The mark as drawn: its box less a 2 px margin all round (components/guide/clear.ts).
+    const drawn = {
+      top: box.top + 2,
+      left: box.left + 2,
+      width: box.width - 4,
+      height: box.height - 4,
+    };
+    expect(overlapsBy(lineBoxOf(first, lineHeight), drawn, 0.5)).toBe(false);
+    // The glyph boxes would have refused it: this is what the runner did.
+    expect(overlapsBy(first, { ...drawn, top: second.top }, 0)).toBe(true);
+  });
+
+  test('a line no taller than its line height, or one with no length for it, is left alone', () => {
+    const short = { top: 100, left: 0, width: 50, height: 21 };
+    expect(lineBoxOf(short, 21.6)).toBe(short);
+    expect(lineBoxOf(first, Number.NaN)).toBe(first);
+    expect(lineBoxOf(first, 0)).toBe(first);
+  });
+
+  test('boxes that overlap by more than the slack do meet', () => {
+    const a = { top: 0, left: 0, width: 10, height: 10 };
+    expect(overlapsBy(a, { top: 9, left: 9, width: 10, height: 10 }, 0.5)).toBe(true);
+    expect(overlapsBy(a, { top: 9.6, left: 0, width: 10, height: 10 }, 0.5)).toBe(false);
+    expect(overlapsBy(a, { top: 10, left: 0, width: 10, height: 10 }, 0)).toBe(false);
   });
 });

@@ -9,6 +9,16 @@ const apiPort = Number(process.env.E2E_API_PORT || 8798);
 // A Chromium binary to launch instead of the one the lockfile's Playwright downloads, for a
 // machine that has another build (e2e/run.mjs's header). Unset in CI: its image has the match.
 const chromiumPath = process.env.E2E_CHROMIUM_PATH || undefined;
+// A fontconfig file for the browser, for a machine that wants another set of system fonts than
+// its own (docs/delivery.md, "The runner's font"). Unset in CI: its image's fonts are the point.
+const fontconfig = process.env.E2E_FONTCONFIG || undefined;
+/** The environment as the browser's launch takes it: the variables that are set. */
+const definedEnv = (): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
+  );
 
 export default defineConfig({
   testDir: '.',
@@ -43,6 +53,10 @@ export default defineConfig({
     video: 'off',
     launchOptions: {
       ...(chromiumPath ? { executablePath: chromiumPath } : {}),
+      // Another set of system fonts for the browser alone: E2E_FONTCONFIG names a fontconfig file,
+      // which is how a machine renders as GitHub's runner does (docs/delivery.md, "The runner's
+      // font"). Unset, the browser has the machine's own.
+      ...(fontconfig ? { env: { ...definedEnv(), FONTCONFIG_FILE: fontconfig } } : {}),
       args: [
         // Never a proxy, even when the environment names one: a proxy resolves names itself, so
         // the rules below would not apply and a page could reach the real hostnames.

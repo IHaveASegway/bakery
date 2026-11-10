@@ -1,18 +1,21 @@
 // What a hotspot must not sit on, read from the page: its controls and its lines of text. The
 // placing itself is pure (lib/guide.ts, spotPlaces and spotFits); this is the part only the page
 // can answer.
-import type { Box } from '../../lib/guide';
+import { lineBoxOf, overlapsBy, type Box } from '../../lib/guide';
 
 const HEADINGS = 'h1, h2, h3, h4';
 export const CONTROLS =
   'a[href], button, input, select, textarea, summary, label, [role="button"], [role="switch"], [tabindex]:not([tabindex="-1"])';
 
 const boxOf = (r: DOMRect): Box => ({ top: r.top, left: r.left, width: r.width, height: r.height });
-const meets = (a: Box, b: Box) =>
-  a.left < b.left + b.width &&
-  a.left + a.width > b.left &&
-  a.top < b.top + b.height &&
-  a.top + a.height > b.top;
+/** An element's line height in pixels, or NaN when it is `normal`. */
+const lineHeightOf = (element: Element | null): number =>
+  element === null ? Number.NaN : Number.parseFloat(getComputedStyle(element).lineHeight);
+/** A line of an element's text as its line box (lib/guide.ts, lineBoxOf). */
+const lineOf = (r: DOMRect, element: Element | null): Box =>
+  lineBoxOf(boxOf(r), lineHeightOf(element));
+/** How far a mark may reach into a line of text before it counts as lying on it, in pixels. */
+const SLACK = 0.5;
 
 /**
  * The heading a target is explained under: the target itself when it is one, its first heading,
@@ -51,7 +54,7 @@ export function headingLine(target: Element): Box | null {
         : best,
     null,
   );
-  return last === null ? null : boxOf(last);
+  return last === null ? null : lineOf(last, heading);
 }
 
 /**
@@ -61,6 +64,7 @@ export function headingLine(target: Element): Box | null {
  */
 export function textEnd(target: Element): Box | null {
   let last: DOMRect | null = null;
+  let within: Element | null = null;
   const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
   for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
     if ((n.textContent ?? '').trim() === '') continue;
@@ -74,10 +78,11 @@ export function textEnd(target: Element): Box | null {
         (r.bottom === last.bottom && r.right > last.right)
       ) {
         last = r;
+        within = n.parentElement;
       }
     }
   }
-  return last === null ? null : boxOf(last);
+  return last === null ? null : lineOf(last, within);
 }
 
 /** The boxes of an element's own lines of text: its direct text, not its children's. */
@@ -87,7 +92,7 @@ function ownLines(element: Element): Box[] {
     if (node.nodeType !== Node.TEXT_NODE || (node.textContent ?? '').trim() === '') continue;
     const range = document.createRange();
     range.selectNodeContents(node);
-    for (const r of range.getClientRects()) lines.push(boxOf(r));
+    for (const r of range.getClientRects()) lines.push(lineOf(r, element));
   }
   return lines;
 }
@@ -113,7 +118,16 @@ export function clearOfPage(box: Box): boolean {
       continue;
     }
     if (under.closest(CONTROLS) !== null) return false;
-    if (ownLines(under).some((line) => meets(line, box))) return false;
+    // The mark as drawn, inside its box's margin, against the lines of text: a wrapped heading's
+    // first line ends a pixel or two into the margin of a mark set after its last line. Each line
+    // is its line box, and a mark that only shares an edge with one is not on it.
+    const drawn = {
+      top: box.top + inset,
+      left: box.left + inset,
+      width: box.width - 2 * inset,
+      height: box.height - 2 * inset,
+    };
+    if (ownLines(under).some((line) => overlapsBy(line, drawn, SLACK))) return false;
   }
   return true;
 }

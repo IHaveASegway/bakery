@@ -320,9 +320,33 @@ export function placeNote(
 
 /** A hotspot's size, with the ring drawn around it, and the clear margin it keeps. */
 const SPOT = 28;
+/** The mark as drawn, inside its box. */
+const DRAWN = 24;
 const CLEAR = 8;
 /** After a heading's text, room for the mark's pulse (it grows to about 14 px past the mark). */
 const LINE_GAP = 18;
+
+/**
+ * A line of text as its line box, not its glyph box. A font whose glyph box is taller than the
+ * line (many CJK faces at a line height of 1.2; Playwright's image on GitHub's runner renders
+ * `system-ui` in one, WenQuanYi Zen Hei) reports rectangles that reach into the lines above and
+ * below, so the two lines of one wrapped heading overlap by the difference, and a mark set level
+ * with the second was refused as lying over the first. Trimmed to the line's height about its
+ * middle, a line ends where the next begins, whatever the font. A line height that is not a
+ * length (`normal`) is never shorter than the glyph box, so nothing is trimmed.
+ */
+export function lineBoxOf(rect: Box, lineHeight: number): Box {
+  if (!Number.isFinite(lineHeight) || lineHeight <= 0 || rect.height <= lineHeight) return rect;
+  return { ...rect, top: rect.top + (rect.height - lineHeight) / 2, height: lineHeight };
+}
+
+/**
+ * Whether two boxes overlap by more than `slack` pixels each way: two lines that share an edge, or
+ * meet by a rounding's worth, do not.
+ */
+export const overlapsBy = (a: Box, b: Box, slack: number) =>
+  Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left) > slack &&
+  Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top) > slack;
 
 /** Whether two boxes overlap. */
 export const overlaps = (a: Box, b: Box) =>
@@ -340,6 +364,15 @@ export const overlaps = (a: Box, b: Box) =>
  * and a clear margin there. Never on the target's edge: that is where it sat on a border, a button
  * or a word.
  */
+/**
+ * The top of a mark set after a line of text: centred on it, or, on a line shorter than the mark,
+ * with the drawn mark's top at the line's top, so it never reaches into the line above (a heading
+ * that wraps on a phone, the gate's title at 390 px, where a centred mark touched the first line
+ * and was refused).
+ */
+const levelWith = (line: Box) =>
+  line.height >= SPOT ? line.top + (line.height - SPOT) / 2 : line.top - (SPOT - DRAWN) / 2;
+
 export function spotPlaces(
   target: Box,
   view: { width: number; height: number },
@@ -350,13 +383,13 @@ export function spotPlaces(
   if (tail !== null) {
     const left = tail.left + tail.width + LINE_GAP;
     if (left + SPOT + CLEAR <= view.width) {
-      places.push({ top: tail.top + (tail.height - SPOT) / 2, left, how: 'tail' });
+      places.push({ top: levelWith(tail), left, how: 'tail' });
     }
   }
   if (line !== null) {
     const left = line.left + line.width + LINE_GAP;
     if (left + SPOT + CLEAR <= view.width) {
-      places.push({ top: line.top + (line.height - SPOT) / 2, left, how: 'line' });
+      places.push({ top: levelWith(line), left, how: 'line' });
     }
   }
   const gutterLeft = target.left + target.width + CLEAR;

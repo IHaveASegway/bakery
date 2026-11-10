@@ -72,6 +72,9 @@ interface Fixtures {
   guard: void;
 }
 
+/** The face the pages render in instead of system-ui, or '' for the machine's own. */
+const FONT = process.env.E2E_FONT?.trim() ?? '';
+
 export const test = base.extend<Options & Fixtures>({
   allowedStatuses: [[], { option: true }],
   // Playwright reads a fixture's dependencies from its first argument's pattern, so it must be one.
@@ -90,6 +93,26 @@ export const test = base.extend<Options & Fixtures>({
         violations.push(report);
       });
       await context.addInitScript(CSP_REPORTER);
+      // E2E_FONT="DejaVu Sans" renders the pages in that face instead of the machine's system-ui:
+      // Playwright's image on GitHub's runner maps system-ui to DejaVu Sans, wider than Inter, and
+      // the placement of the guide's marks and notes depends on where lines end (2026-11-10, pull
+      // request #143). Set through the CSSOM before any page script runs, which the CSP allows;
+      // unset, nothing changes.
+      if (FONT !== '') {
+        await context.addInitScript((face: string) => {
+          // The script can run before the document has its root element: set it once it does.
+          const set = () =>
+            document.documentElement.style.setProperty('--font-ui', `"${face}", sans-serif`);
+          if (document.documentElement !== null) set();
+          else {
+            new MutationObserver((_, watcher) => {
+              if (document.documentElement === null) return;
+              set();
+              watcher.disconnect();
+            }).observe(document, { childList: true });
+          }
+        }, FONT);
+      }
       await context.route('https://challenges.cloudflare.com/turnstile/v0/api.js*', (route) =>
         route.fulfill({ status: 200, contentType: 'text/javascript', body: TURNSTILE_STUB }),
       );
@@ -564,54 +587,7 @@ async function withoutViewportCovers(
       continue;
     }
     const selectors = v.nodes.map((n) => String(n.target[0]));
-    const measured = await page.evaluate((sels) => {
-      const height = window.innerHeight;
-      type R = { top: number; bottom: number; left: number; right: number };
-      const box = (el: Element): R => {
-        const r = el.getBoundingClientRect();
-        return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
-      };
-      const meets = (a: R, b: R) =>
-        a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-      const tops: R[] = [];
-      const foots: R[] = [];
-      for (const el of document.querySelectorAll('body *')) {
-        const position = getComputedStyle(el).position;
-        if (position !== 'sticky' && position !== 'fixed') continue;
-        if (el.closest('[data-guide-root]') !== null) continue;
-        const r = box(el);
-        if (r.right - r.left === 0 || r.bottom - r.top === 0 || r.bottom - r.top > height / 2) {
-          continue;
-        }
-        if (r.top <= 1) tops.push(r);
-        else if (r.bottom >= height - 1) foots.push(r);
-      }
-      const guide = [
-        ...document.querySelectorAll(
-          '.guide-note, .guide-spot, .guide-bar, .guide-panel, .guide-line, .guide-full[data-open]',
-        ),
-      ]
-        .map(box)
-        .filter((r) => r.right - r.left > 0 && r.bottom - r.top > 0);
-      return {
-        bands: {
-          top: Math.max(0, ...tops.map((r) => r.bottom)),
-          bottom: Math.min(height, ...foots.map((r) => r.top)),
-        },
-        maxScroll: Math.max(0, document.documentElement.scrollHeight - height),
-        nodes: sels.map((sel) => {
-          const el = document.querySelector(sel);
-          if (el === null) return null;
-          const r = box(el);
-          return {
-            docTop: r.top + window.scrollY,
-            docBottom: r.bottom + window.scrollY,
-            underBar: [...tops, ...foots].some((b) => meets(r, b)),
-            underGuide: guide.some((b) => meets(r, b)),
-          };
-        }),
-      };
-    }, selectors);
+    const measured = await coversOf(page, selectors);
     const nodes = v.nodes.filter((_, i) => {
       const m = measured.nodes[i];
       if (m === null || m === undefined) return true;
@@ -622,4 +598,69 @@ async function withoutViewportCovers(
     if (nodes.length > 0) out.push({ ...v, nodes });
   }
   return out;
+}
+
+/** What covers each control named by `selectors` at this scroll position, as the helper reads it. */
+export interface Covers {
+  /** The window's bands the page's own bars hold, along its top and foot (e2e/cover.ts). */
+  bands: { top: number; bottom: number };
+  /** How far the page scrolls. */
+  maxScroll: number;
+  /** Each control's place in the document and what lies over it, or null when it is not found. */
+  nodes: ({ docTop: number; docBottom: number; underBar: boolean; underGuide: boolean } | null)[];
+}
+
+/**
+ * Measures, without scrolling, what lies over each control: one of the page's own sticky or fixed
+ * bars (by computed position; the guide's layer is not one) or the guide's layer.
+ */
+export function coversOf(page: Page, selectors: string[]): Promise<Covers> {
+  return page.evaluate((sels) => {
+    const height = window.innerHeight;
+    type R = { top: number; bottom: number; left: number; right: number };
+    const box = (el: Element): R => {
+      const r = el.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+    };
+    const meets = (a: R, b: R) =>
+      a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+    const tops: R[] = [];
+    const foots: R[] = [];
+    for (const el of document.querySelectorAll('body *')) {
+      const position = getComputedStyle(el).position;
+      if (position !== 'sticky' && position !== 'fixed') continue;
+      if (el.closest('[data-guide-root]') !== null) continue;
+      const r = box(el);
+      if (r.right - r.left === 0 || r.bottom - r.top === 0 || r.bottom - r.top > height / 2) {
+        continue;
+      }
+      if (r.top <= 1) tops.push(r);
+      else if (r.bottom >= height - 1) foots.push(r);
+    }
+    const guide = [
+      ...document.querySelectorAll(
+        '.guide-note, .guide-spot, .guide-bar, .guide-panel, .guide-line, .guide-full[data-open]',
+      ),
+    ]
+      .map(box)
+      .filter((r) => r.right - r.left > 0 && r.bottom - r.top > 0);
+    return {
+      bands: {
+        top: Math.max(0, ...tops.map((r) => r.bottom)),
+        bottom: Math.min(height, ...foots.map((r) => r.top)),
+      },
+      maxScroll: Math.max(0, document.documentElement.scrollHeight - height),
+      nodes: sels.map((sel) => {
+        const el = document.querySelector(sel);
+        if (el === null) return null;
+        const r = box(el);
+        return {
+          docTop: r.top + window.scrollY,
+          docBottom: r.bottom + window.scrollY,
+          underBar: [...tops, ...foots].some((b) => meets(r, b)),
+          underGuide: guide.some((b) => meets(r, b)),
+        };
+      }),
+    };
+  }, selectors);
 }
