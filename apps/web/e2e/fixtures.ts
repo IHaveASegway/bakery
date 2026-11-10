@@ -433,14 +433,89 @@ export function listObjects() {
  * it stands. Call it once the page has settled (its data loaded, its islands mounted). The failure
  * lists each violation: rule id, impact, the first target selector and the rule's help text.
  * `exclude` skips named rules for one page; give each a comment naming the violation and "R47".
+ * Answers how many reads it took: one, unless something started to move while axe was reading.
  */
-export async function expectNoAxeViolations(page: Page, options: { exclude?: string[] } = {}) {
-  // A board card that just arrived fades in (global.css, card-in), and axe reads its text's
-  // contrast against the half-faded card. Let running animations finish first; none loops.
+export async function expectNoAxeViolations(
+  page: Page,
+  options: { exclude?: string[] } = {},
+): Promise<number> {
+  let builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']);
+  if (options.exclude?.length) builder = builder.disableRules(options.exclude);
+  // A read is of the page at rest, and only that. A card that arrives fades in (components.css,
+  // card-in), and axe reads its muted text against the half-faded card. Waiting before the read
+  // covers a card already there. It cannot cover one whose data arrives while axe is reading: on
+  // 2026-11-10 the Customers page's segment cards did, in pull request #148's run, and all five
+  // failed contrast at once. So the page counts each animation that starts, the read is taken at
+  // rest, and a read during which one started, or after which one still runs, is taken again:
+  // three reads at most, and the last one stands. A real finding is there on every read.
+  const readOnce = async () => {
+    const before = await atRest(page);
+    const { violations } = await builder.analyze();
+    const after = await page.evaluate(movement);
+    return { violations, moved: after.started !== before || after.running };
+  };
+  let read = await readOnce();
+  let reads = 1;
+  for (; read.moved && reads < 3; reads += 1) read = await readOnce();
+  const counted = await withoutViewportCovers(page, read.violations);
+  // Every node of every violation, so a failure names all of them, not the first.
+  const lines = counted.map(
+    (v) =>
+      `${v.id} (${v.impact ?? 'unrated'}) at ${v.nodes.map((n) => String(n.target[0])).join(', ')}: ${v.help}`,
+  );
+  expect(lines, 'no axe violation').toEqual([]);
+  return reads;
+}
+
+type AxeViolation = Awaited<ReturnType<AxeBuilder['analyze']>>['violations'][number];
+
+/**
+ * What the page says about motion, asked inside it: how many CSS animations have started since the
+ * count began, and whether an animation or transition that ends is running now. One that loops (a
+ * skeleton's pulse) never ends and is not waited for. The first call starts the count.
+ */
+function movement(): { started: number; running: boolean } {
+  const w = window as Window & { __axeStarted?: number };
+  if (w.__axeStarted === undefined) {
+    w.__axeStarted = 0;
+    document.addEventListener(
+      'animationstart',
+      () => {
+        w.__axeStarted = (w.__axeStarted ?? 0) + 1;
+      },
+      true,
+    );
+  }
+  const running = document
+    .getAnimations()
+    .some(
+      (a) =>
+        a.playState === 'running' &&
+        Number.isFinite(Number(a.effect?.getComputedTiming().endTime ?? 0)),
+    );
+  return { started: w.__axeStarted, running };
+}
+
+/**
+ * Waits until the page is at rest and answers the count of animations started by then, read in the
+ * same frame that found it at rest, so nothing can start between the two unseen.
+ */
+async function atRest(page: Page): Promise<number> {
+  await page.evaluate(movement);
+  // Let what is moving finish first: a card that just arrived is still fading in.
   await page
-    .waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'), null, {
-      timeout: 5_000,
-    })
+    .waitForFunction(
+      () =>
+        document
+          .getAnimations()
+          .every(
+            (a) =>
+              a.playState !== 'running' ||
+              !Number.isFinite(Number(a.effect?.getComputedTiming().endTime ?? 0)),
+          ),
+      null,
+      { timeout: 5_000 },
+    )
     .catch(() => undefined);
   // The page must be at rest too: a step of the guide's short path scrolls its element into view
   // smoothly, and axe read the board mid-scroll, while the guide's marks were being placed again
@@ -448,30 +523,21 @@ export async function expectNoAxeViolations(page: Page, options: { exclude?: str
   // is an opaque dark disc, so one read at its old place over a card's muted id made that text
   // fail against it. Wait until the scroll has stopped and the marks stand where the layout puts
   // them: two animation frames at the same scroll position with the marks settled.
-  await page.waitForFunction(
+  const rest = await page.waitForFunction(
     () => {
-      const w = window as Window & { __axeY?: number };
+      const w = window as Window & { __axeY?: number; __axeStarted?: number };
       const still = w.__axeY === window.scrollY;
       w.__axeY = window.scrollY;
       const marks = document.documentElement.dataset.guideMarks;
-      return still && (marks === undefined || marks === 'settled');
+      return still && (marks === undefined || marks === 'settled')
+        ? { started: w.__axeStarted ?? 0 }
+        : false;
     },
     null,
     { polling: 'raf', timeout: 10_000 },
   );
-  let builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']);
-  if (options.exclude?.length) builder = builder.disableRules(options.exclude);
-  const { violations } = await builder.analyze();
-  const counted = await withoutViewportCovers(page, violations);
-  // Every node of every violation, so a failure names all of them, not the first.
-  const lines = counted.map(
-    (v) =>
-      `${v.id} (${v.impact ?? 'unrated'}) at ${v.nodes.map((n) => String(n.target[0])).join(', ')}: ${v.help}`,
-  );
-  expect(lines, 'no axe violation').toEqual([]);
+  return ((await rest.jsonValue()) as { started: number }).started;
 }
-
-type AxeViolation = Awaited<ReturnType<AxeBuilder['analyze']>>['violations'][number];
 
 /**
  * The one kind of finding the helper drops (2026-11-10, from a run of pull request #140): a
