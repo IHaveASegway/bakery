@@ -502,3 +502,25 @@ details.how > summary:hover {
 .editor-note {
   margin: var(--space-3) 0 0;
 }
+
+/* The catering queue's cards: each value beside its term, the list no wider than it reads, and
+   the quote's total a field of its own width. */
+.queue .totals {
+  grid-template-columns: 9rem minmax(0, 1fr);
+  max-width: 34rem;
+}
+
+.queue .totals dd {
+  text-align: left;
+}
+
+.queue input[type='text'] {
+  display: block;
+  width: 16ch;
+}
+
+@media (max-width: 40rem) {
+  .queue .totals {
+    grid-template-columns: 7rem minmax(0, 1fr);
+  }
+}
