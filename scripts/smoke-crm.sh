@@ -446,9 +446,9 @@ signup b E 192.0.2.83
 expect_status sandbox_b 201
 BID="$SID"
 check "guest: seeding reaches live" "wait_live guest_live G '$GID'"
-expect_json guest_live "b.state === 'live' && b.children >= 36 && b.seed === $SEED"
+expect_json guest_live "b.state === 'live' && b.children >= 37 && b.seed === $SEED"
 check "a: seeding reaches live" "wait_live a_live D '$AID'"
-expect_json a_live "b.children >= 36 && b.seed === $SEED"
+expect_json a_live "b.children >= 37 && b.seed === $SEED"
 check "b: seeding reaches live" "wait_live b_live E '$BID'"
 expect_json b_live "b.seed === $SEED"
 PERSONA="$(json_field a_live b.persona)"

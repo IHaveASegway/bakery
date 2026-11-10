@@ -75,6 +75,12 @@ Two-way behind the port. Swapping PaymentIntents for Checkout Sessions, or Strip
 
 As built, 2026-11-09: the Stripe adapter is `workers/api/src/stripe.rs`, and the request builders are in `crates/app/src/stripe/`, not `workers/api/src/stripe/`. Besides the Worker's key guard and CI's, the storefront's build refuses a publishable key that does not start `pk_test_` (`checkPublishableKey`, `apps/web/astro.config.mjs`).
 
+## Postscript 2026-11-10
+
+Corrected on 2026-11-10 by the session, under the owner's delegation of 2026-11-09; revisable. Each line names a sentence above that the build or a later record contradicts, and gives what is true, with its source. The decision text above is not rewritten.
+
+- Decision 3 says the `Idempotency-Key` is "derived from the command id". As built, the key is `<sandbox>:<ref>:<purpose>:<attempt>`, and calls other than the intent add a suffix such as `-refund` (`crates/app/src/stripe/request.rs`, as of 2026-11-10).
+
 ## Patterns and further reading
 
 - Idempotent receiver: *Enterprise Integration Patterns* (book, 2003), ["Idempotent Receiver"](https://www.enterpriseintegrationpatterns.com/patterns/messaging/IdempotentReceiver.html).

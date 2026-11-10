@@ -3,7 +3,7 @@
 {
   "name": "bakery-api",
   "main": "build/worker/shim.mjs", // worker-build's output
-  // The newest date the workerd inside Wrangler 4.152.0 accepts; 2026-11-04 fails to start there.
+  // Wrangler 4.152.0's workerd refused this date (its newest was 2026-10-26); 4.157.0's and later accept it (docs/delivery.md, "compatibility_date").
   "compatibility_date": "2026-11-04",
   "build": { "command": "worker-build --release" },
 
@@ -11,7 +11,7 @@
   "routes": [{ "pattern": "api.bakery.ihaveasegway.com", "custom_domain": true }],
   "workers_dev": false, // the zone, with its WAF rule, is the only way in
   "preview_urls": false, // a Worker with a Durable Object gets no Version URLs anyway
-  "limits": { "cpu_ms": 300 }, // twice the planned argon2id hash; applies on Workers Paid (PR 11)
+  "limits": { "cpu_ms": 300 }, // a ceiling with headroom over an estimated argon2id hash, not a measurement (docs/cost.md); applies on Workers Paid
   "observability": { "enabled": true, "logs": { "invocation_logs": false } }, // invocation logs record location fields
 
   "durable_objects": {
