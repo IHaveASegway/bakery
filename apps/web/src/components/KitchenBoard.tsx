@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   actionFor,
   bakeListsByDate,
@@ -29,49 +29,49 @@ const RULES: Record<string, string> = {
   'read-only': 'the demo is read-only for now, so the board can be watched but not moved',
 };
 
+/** The board's open card menus, which the listeners below close. */
+const openMenus = () => [
+  ...document.querySelectorAll<HTMLDetailsElement>('.board details.menu[open]'),
+];
+
+let menuListeners = false;
+
 /**
- * The card menu that is open on this board, as the way to close it: opening another closes it, so
- * two are never open at once (F15, 2026-11-10).
+ * The listeners every card menu shares, installed once for the page: Escape closes the open menu
+ * and puts focus back on its button, and a press outside a menu closes it.
  */
-let openCardMenu: (() => void) | null = null;
+function listenForMenus() {
+  if (menuListeners) return;
+  menuListeners = true;
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    for (const menu of openMenus()) {
+      menu.open = false;
+      menu.querySelector('summary')?.focus();
+    }
+  });
+  document.addEventListener('mousedown', (e) => {
+    for (const menu of openMenus()) if (!menu.contains(e.target as Node)) menu.open = false;
+  });
+}
 
 /**
  * A card's "…" menu, a <details>, with the manners of the top bar's popovers (ConsoleTopBar.tsx,
- * Popover): Escape closes it and puts focus back on its button, a press outside closes it, and
- * opening one closes the one that was open.
+ * Popover; F15, 2026-11-10): Escape closes it and puts focus back on its button, a press outside
+ * closes it, and opening one closes the one that was open, so two are never open at once.
  */
 function useCardMenu() {
-  const menu = useRef<HTMLDetailsElement>(null);
-  const summary = useRef<HTMLElement>(null);
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    if (!open) return;
-    const close = () => {
-      if (menu.current) menu.current.open = false;
+  // A callback ref, so a menu that appears later (a card paid while on screen) is wired too.
+  return useCallback((details: HTMLDetailsElement | null) => {
+    if (details === null) return;
+    listenForMenus();
+    const toggled = () => {
+      if (!details.open) return;
+      for (const other of openMenus()) if (other !== details) other.open = false;
     };
-    if (openCardMenu !== null && openCardMenu !== close) openCardMenu();
-    openCardMenu = close;
-    const away = (e: MouseEvent) => {
-      if (!menu.current?.contains(e.target as Node)) close();
-    };
-    const key = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      close();
-      summary.current?.focus();
-    };
-    document.addEventListener('mousedown', away);
-    document.addEventListener('keydown', key);
-    return () => {
-      if (openCardMenu === close) openCardMenu = null;
-      document.removeEventListener('mousedown', away);
-      document.removeEventListener('keydown', key);
-    };
-  }, [open]);
-  return {
-    menu,
-    summary,
-    onToggle: () => setOpen(menu.current?.open ?? false),
-  };
+    details.addEventListener('toggle', toggled);
+    return () => details.removeEventListener('toggle', toggled);
+  }, []);
 }
 
 /** `country-loaf/whole` as "country loaf, whole". */
@@ -240,9 +240,8 @@ export function CardView({
           {/* A pending card is unpaid, so there is nothing to refund yet. Refunds are destructive,
               so they wait in the card's overflow menu, never beside the next step. */}
           {refundable && (
-            <details className="menu" ref={more.menu} onToggle={more.onToggle}>
+            <details className="menu" ref={more}>
               <summary
-                ref={more.summary}
                 className="btn btn-quiet btn-sm btn-icon"
                 aria-label={`More for order ${shortId(card.order)}`}
                 title="More: refunds"

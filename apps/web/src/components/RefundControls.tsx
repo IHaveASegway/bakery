@@ -119,7 +119,7 @@ export default function RefundControls({
         </button>
         {asking !== null && (
           <button type="button" className="btn btn-quiet btn-sm" onClick={() => setAsking(null)}>
-            Cancel
+            Keep the order
           </button>
         )}
         <button

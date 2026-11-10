@@ -41,7 +41,8 @@ test('a card’s menu closes on Escape with focus back on its button, and one op
   await liveSandbox(page);
   await page.goto('/app/');
   await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
-  const buttons = page.getByRole('button', { name: /^More for order / });
+  // A <summary> is a disclosure, not a button, to the accessibility tree; its name says what it is.
+  const buttons = page.locator('.board details.menu > summary[aria-label^="More for order "]');
   await expect.poll(() => buttons.count()).toBeGreaterThan(1);
   const first = buttons.nth(0);
   const second = buttons.nth(1);
@@ -60,7 +61,7 @@ test('a card’s menu closes on Escape with focus back on its button, and one op
   await expect(open).toHaveCount(0);
   await expect(second).toBeFocused();
 
-  // Refund's first press asks, in words, with the amount; Cancel takes it back.
+  // Refund's first press asks, in words, with the amount; Keep the order takes it back.
   await second.click();
   const panel = open.locator('.menu-panel');
   await panel.getByRole('button', { name: /^Refund order / }).click();
@@ -69,7 +70,7 @@ test('a card’s menu closes on Escape with focus back on its button, and one op
   );
   await expect(panel.getByRole('button', { name: /^Refund all that is left of \$/ })).toBeVisible();
   await expectNoAxeViolations(page);
-  await panel.getByRole('button', { name: 'Cancel' }).click();
+  await panel.getByRole('button', { name: 'Keep the order' }).click();
   await expect(panel.getByRole('status')).toHaveCount(0);
   // The panel sits inside its card's column: its edges are the card's.
   const card = await open.locator('xpath=ancestor::li[contains(@class,"card")]').boundingBox();
