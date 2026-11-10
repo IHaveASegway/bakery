@@ -408,3 +408,92 @@ details.how > summary:hover {
 .how-body p {
   margin: var(--space-2) 0 0;
 }
+
+/* The capacity card: compact tables of the day's places, each with a thin bar of how full. */
+.capacity-table {
+  margin: var(--space-3) 0 0;
+  font-size: var(--type-13);
+}
+
+.capacity-table caption {
+  margin-bottom: var(--space-1);
+  font-size: var(--type-13);
+  font-weight: 600;
+  text-align: left;
+}
+
+.capacity-table th,
+.capacity-table td {
+  padding-block: 3px;
+}
+
+.capacity-table th[scope='row'] {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.capacity-table td:last-child {
+  width: 30%;
+  vertical-align: middle;
+}
+
+.hint-inline {
+  color: var(--text-muted);
+  font-size: var(--type-12);
+  font-weight: 400;
+}
+
+.bar-track {
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--surface-sunken);
+}
+
+.bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--tone-confirmed-solid);
+}
+
+.bar-0 {
+  width: 0;
+}
+.bar-1 {
+  width: 10%;
+}
+.bar-2 {
+  width: 20%;
+}
+.bar-3 {
+  width: 30%;
+}
+.bar-4 {
+  width: 40%;
+}
+.bar-5 {
+  width: 50%;
+}
+.bar-6 {
+  width: 60%;
+}
+.bar-7 {
+  width: 70%;
+}
+.bar-8 {
+  width: 80%;
+}
+.bar-9 {
+  width: 90%;
+}
+.bar-10 {
+  width: 100%;
+  background: var(--tone-problem-solid);
+}
+
+.capacity-catering {
+  margin: var(--space-3) 0;
+  font-size: var(--type-13);
+}

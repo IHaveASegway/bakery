@@ -27,8 +27,22 @@ function slotWords(start: string): string {
   return clockLabel(l.hour * 60 + l.minute);
 }
 
-/** The day's places and caps as the Schedule reports them, with the counts that matter. */
-function Day({ schedule }: { schedule: ScheduleResponse }) {
+/**
+ * How full a place is, as a thin bar: a tenth's step of taken over capacity, drawn by one of
+ * eleven classes (console.css), since the page policy allows no style attribute. The numbers
+ * beside it say the same, so the bar is hidden from assistive technology.
+ */
+function Fill({ taken, capacity }: { taken: number; capacity: number }) {
+  const tenths = capacity <= 0 ? 10 : Math.min(10, Math.round((taken / capacity) * 10));
+  return (
+    <span className="bar-track" aria-hidden="true">
+      <span className={`bar-fill bar-${tenths}`} />
+    </span>
+  );
+}
+
+/** The day's places and caps as the Schedule reports them, as compact tables. */
+export function Day({ schedule }: { schedule: ScheduleResponse }) {
   return (
     <>
       <p className="hint">
@@ -37,42 +51,108 @@ function Day({ schedule }: { schedule: ScheduleResponse }) {
           : 'The bakery is closed this day: it refuses every hold.'}{' '}
         Menu version {schedule.menu_version} set the item caps.
       </p>
-      <h5>Pickup slots</h5>
-      <ul className="choices">
-        {schedule.slots.map((s) => (
-          <li key={s.start}>
-            <strong>{slotWords(s.start)}</strong>: {s.taken} of {s.capacity} taken, {s.free} free
-          </li>
-        ))}
-      </ul>
-      <h5>Delivery zones</h5>
-      <ul className="choices">
-        {schedule.zones.map((z) => (
-          <li key={z.zone}>
-            <strong>Zone {z.zone.slice(1)}</strong>: {z.taken} of {z.capacity} stops taken, {z.free}{' '}
-            free, in {z.windows.length} windows
-          </li>
-        ))}
-      </ul>
-      <h5>Item caps</h5>
+      <table className="table capacity-table">
+        <caption>Pickup slots</caption>
+        <thead>
+          <tr>
+            <th scope="col">Time</th>
+            <th scope="col" className="num">
+              Taken
+            </th>
+            <th scope="col" className="num">
+              Free
+            </th>
+            <th scope="col">
+              <span className="sr-only">How full</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {schedule.slots.map((s) => (
+            <tr key={s.start}>
+              <th scope="row">{slotWords(s.start)}</th>
+              <td className="num">
+                {s.taken} of {s.capacity}
+              </td>
+              <td className="num">{s.free}</td>
+              <td>
+                <Fill taken={s.taken} capacity={s.capacity} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <table className="table capacity-table">
+        <caption>Delivery zones</caption>
+        <thead>
+          <tr>
+            <th scope="col">Zone</th>
+            <th scope="col" className="num">
+              Stops taken
+            </th>
+            <th scope="col" className="num">
+              Free
+            </th>
+            <th scope="col">
+              <span className="sr-only">How full</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {schedule.zones.map((z) => (
+            <tr key={z.zone}>
+              <th scope="row">
+                Zone {z.zone.slice(1)}{' '}
+                <span className="hint-inline">{z.windows.length} windows</span>
+              </th>
+              <td className="num">
+                {z.taken} of {z.capacity}
+              </td>
+              <td className="num">{z.free}</td>
+              <td>
+                <Fill taken={z.taken} capacity={z.capacity} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
       {schedule.items.length === 0 ? (
         <p className="hint">No item has a cap or a use this day.</p>
       ) : (
-        <ul className="choices">
-          {schedule.items.map((i) => (
-            <li key={i.item}>
-              <strong>{itemWords(i.item)}</strong>:{' '}
-              {i.daily_cap === null || i.daily_cap === undefined
-                ? `${i.used} used, no cap`
-                : `${i.used} of ${i.daily_cap} used, ${Math.max(0, i.daily_cap - i.used)} free`}
-            </li>
-          ))}
-        </ul>
+        <table className="table capacity-table">
+          <caption>Item caps</caption>
+          <thead>
+            <tr>
+              <th scope="col">Item</th>
+              <th scope="col" className="num">
+                Used
+              </th>
+              <th scope="col" className="num">
+                Free
+              </th>
+              <th scope="col">
+                <span className="sr-only">How full</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {schedule.items.map((i) => {
+              const cap = i.daily_cap ?? null;
+              return (
+                <tr key={i.item}>
+                  <th scope="row">{itemWords(i.item)}</th>
+                  <td className="num">{cap === null ? i.used : `${i.used} of ${cap}`}</td>
+                  <td className="num">{cap === null ? 'no cap' : Math.max(0, cap - i.used)}</td>
+                  <td>{cap !== null && <Fill taken={i.used} capacity={cap} />}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       )}
-      <h5>Catering</h5>
-      <p>
-        {schedule.catering.taken} of {schedule.catering.capacity} events taken,{' '}
-        {Math.max(0, schedule.catering.capacity - schedule.catering.taken)} free.
+      <p className="capacity-catering">
+        <strong>Catering:</strong> {schedule.catering.taken} of {schedule.catering.capacity} events
+        taken, {Math.max(0, schedule.catering.capacity - schedule.catering.taken)} free.
       </p>
     </>
   );
