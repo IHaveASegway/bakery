@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { ApiError, NetworkError } from '../src/lib/api';
 import { attemptFor, keepKeyAfter } from '../src/lib/attempt';
 import { describeOrderError, ruleOf } from '../src/lib/order-errors';
+import { parseProblem } from '../src/lib/problem';
 
 const problem = (status: number, detail: string | null = null) =>
   new ApiError(
@@ -63,6 +64,38 @@ describe('the 422 shown as a sentence', () => {
       expect(message.detail).not.toContain(rule);
     },
   );
+
+  test('a command the demo’s flag refused shows the API’s sentence (roadmap R85)', () => {
+    // The 503s the router answers at read-only and off, as parsed from the wire.
+    for (const [slug, title, detail] of [
+      [
+        'read-only',
+        'The demo is read-only',
+        'The demo is read-only for now: sandboxes can be looked at, not changed.',
+      ],
+      [
+        'off',
+        'The demo is switched off',
+        "The demo is off for now. The storefront's pages and the status page still work.",
+      ],
+    ] as const) {
+      const refused = new ApiError(
+        parseProblem(
+          503,
+          JSON.stringify({
+            type: `https://bakery.ihaveasegway.com/problems/${slug}`,
+            title,
+            status: 503,
+            detail,
+          }),
+        ),
+        null,
+      );
+      const message = describeOrderError(refused);
+      expect(message.title).toBe(title);
+      expect(message.detail).toBe(detail);
+    }
+  });
 
   test('another status gets the general words', () => {
     expect(describeOrderError(problem(503)).title).toBe('Order');

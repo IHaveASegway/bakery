@@ -32,12 +32,21 @@
 # - A rejected token (401): every meter unread with status 401, `breaker_failed`.
 # - The forced trip of the launch checklist (item 6): a Worker with BREAKER_CEILING_USD=0 trips on
 #   quiet usage.
-# - Dead letters while `off` (roadmap R67, 2026-11-10): in a demo sandbox, an order placed with
-#   the `kitchen` fault on dies of the fault while `live` and is kept unmarked and counted; after a
-#   loop window trips `off`, an order's event dies of the switch (the consumer retries everything
-#   at `off`) and is kept with `made_while_off`, logged with `"counted":false`, so no `dlq` point
-#   is written; its redrive answers 200 as any other. The fake Turnstile (scripts/fake-providers.mjs)
+# - Dead letters while `off` (roadmap R67, 2026-11-10): a new demo sandbox's seeding resumed at
+#   `off` (the flag written into the stopped Worker's state by scripts/smoke-flag.mjs) has its
+#   events die of the switch (the consumer retries everything at `off`); each is kept with
+#   `made_while_off`, logged with `"counted":false`, so no `dlq` point is written, and its
+#   redrive answers 200 as any other; back at `live`, an order placed with the `kitchen` fault on
+#   dies of the fault and is kept unmarked and counted. The fake Turnstile (scripts/fake-providers.mjs)
 #   runs for this phase only, on SMOKE_FAKE_PORT.
+# - The flag stops writes (roadmap R85, 2026-11-10): at `read-only`, once the isolate's 60 s copy
+#   of the flag has expired, a command answers 503 `read-only`, a read 200, health and status
+#   200, and the Kitchen's socket answers a command `nack` with the rule `read-only`; at `off` a
+#   read answers 503 `off`, health and status 200, a socket opened before the trip gets `bye`
+#   `off` and close 1013 at its next frame, which the Kitchen logs as `demo-off`, and the 10:00 UTC wipe still runs; the flag set back
+#   to `live` (written into the stopped Worker's state by scripts/smoke-flag.mjs, as Data Studio
+#   does) restores commands and reads. Each wait for the copy is 62 s, so the phase takes about
+#   four minutes.
 #
 # It prints ok or FAIL per check as scripts/smoke-status.sh does, and exits non-zero on any
 # failure. Usage: scripts/smoke-breaker.sh   (from anywhere; needs cargo, worker-build, pnpm,
@@ -203,14 +212,19 @@ class_count() { cf requests GET "" /_requests; json_field requests "b.filter((r)
 
 if [[ -n "${WRANGLER:-}" ]]; then run_wrangler=(npx --yes "$WRANGLER"); else run_wrangler=(pnpm exec wrangler); fi
 
+# The keys stay the same across the script's restarts, so a session survives a Worker stopped and
+# started on the same state (the phases that write the flag into the state, R67 and R85).
+SESSION_KEY="$(random_text 48)"
+ACCOUNT_KEY="$(random_text 48)"
+
 # write_dev_vars MODE [EXTRA...]: MODE is none (no breaker secrets), token (the token only),
 # badzone (an ill-shaped zone id), badtoken (a token the fake rejects) or full.
 write_dev_vars() {
   local mode="$1"; shift
   {
     echo "# Written by scripts/smoke-breaker.sh for one run; removed when it ends. Never committed."
-    echo "SESSION_HMAC_KEY=$(random_text 48)"
-    echo "ACCOUNT_HMAC_KEY=$(random_text 48)"
+    echo "SESSION_HMAC_KEY=$SESSION_KEY"
+    echo "ACCOUNT_HMAC_KEY=$ACCOUNT_KEY"
     echo "TURNSTILE_SECRET=1x0000000000000000000000000000000AA"
     echo "TURNSTILE_SITEVERIFY_URL=${SITEVERIFY_URL:-http://127.0.0.1:1/turnstile/siteverify}"
     echo "ALLOWED_ORIGIN=$STOREFRONT"
@@ -593,15 +607,43 @@ dead_for() {
 }
 demo signup POST /v1/auth/demo "{\"password\":\"$(random_text 24)\",\"turnstile_token\":\"pass-1\"}"
 expect_status signup 201
+# Since R85 (2026-11-10) the flag refuses commands, so an event that dies of the switch is one
+# made while `off` by something no request starts: here the new sandbox's seeding, which runs by
+# alarm and relays the seed's events. The Worker is stopped right after the creation, the flag
+# set to `off` in its state as Data Studio would, and started again: the seeding resumes at
+# `off`, the consumer retries every event and they reach the dead-letter queue.
 demo sandbox POST /v1/sandboxes '{"replace":false}'
 expect_status sandbox 201
 DSB="$(json_field sandbox b.id)"
-for _ in $(seq 1 100); do
+stop_worker
+FLAG_ROWS="$(node "$ROOT/scripts/smoke-flag.mjs" "$STATE" off)"
+check "the flag row was set to off ($FLAG_ROWS)" "[[ '$FLAG_ROWS' == 1 ]]"
+start_worker full
+mark
+for _ in $(seq 1 300); do ev_has dlq '"while_off":true' && break; sleep 0.2; done
+settle
+check "off: the seeding's events die of the switch, kept, marked and not counted (no dlq point)" "ev_has dlq '\"outcome\":\"kept\"' '\"while_off\":true' '\"counted\":false' && ! ev_has dlq '\"outcome\":\"kept\"' '\"counted\":true'"
+check "off: the consumer retried at off" "ev_has queue_batch '\"off\":true'"
+# Live again, its change ten minutes old so the window after a change marks nothing below.
+stop_worker
+FLAG_ROWS="$(node "$ROOT/scripts/smoke-flag.mjs" "$STATE" live 10)"
+check "the flag row was set back to live, changed ten minutes ago ($FLAG_ROWS)" "[[ '$FLAG_ROWS' == 1 ]]"
+start_worker full
+for _ in $(seq 1 150); do
   demo sandbox_state GET "/v1/sandboxes/$DSB"
   [[ "$(json_field sandbox_state b.state)" == live ]] && break
   sleep 0.2
 done
 expect_json sandbox_state "b.state === 'live'"
+demo off_dead GET "/v1/sandboxes/$DSB/dead-letters"
+expect_json off_dead "b.length > 0 && b.every(d => d.made_while_off === true)"
+OFF_EVENT="$(json_field off_dead "(b[0] || {}).id")"
+demo redrive_off POST "/v1/sandboxes/$DSB/dead-letters/$OFF_EVENT/redrive"
+expect_status redrive_off 200
+expect_json redrive_off "b.id === '$OFF_EVENT' && b.made_while_off === true"
+demo after_redrive GET "/v1/sandboxes/$DSB/dead-letters"
+expect_json after_redrive "!b.some(d => d.id === '$OFF_EVENT')"
+
 demo menu GET "/v1/sandboxes/$DSB/menu"
 PICK="$(pick menu 60)"
 VARIANT="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).variant)" "$PICK")"
@@ -621,31 +663,114 @@ settle
 check "live: the dead letter is kept and counted" "ev_has dlq '\"outcome\":\"kept\"' '\"while_off\":false' '\"counted\":true'"
 demo fault_off POST "/v1/sandboxes/$DSB/faults" '{"fault":"kitchen","on":false}'
 expect_json fault_off "b.faults.kitchen === false"
+stop_pid "$FAKE_PID"; FAKE_PID=""
+SITEVERIFY_URL=""
 
-# The switch: a loop window trips straight to off, and the consumer retries everything.
-cf usage_off POST '{"rows_written":4320000}' /_usage
-run_cron cron_off_dlq
-status off_dlq
-expect_json off_dlq "b.flag === 'off'"
-# A consumer isolate keeps its copy of the flag for 60 s (FLAG_CACHE_MS in queue.rs), so it reads
-# `off` only once its copy of `live` from the order above has expired.
+# ---------- the flag stops writes: read-only, off, live again (R85) ----------
+
+echo "--- starting the fake Turnstile on $FAKE again"
+set -m
+node "$ROOT/scripts/fake-providers.mjs" --port "$FAKE_PORT" > "$TMP/fake2.log" 2>&1 < /dev/null &
+FAKE_PID=$!
+set +m
+for _ in $(seq 1 50); do curl -s -o /dev/null "$FAKE/_health" && break; sleep 0.1; done
+SITEVERIFY_URL="$FAKE/turnstile/siteverify"
+phase full
+JAR="$TMP/flag.jar"
+: > "$JAR"
+WS="ws://127.0.0.1:${PORT}"
+probe_ws() { node "$ROOT/scripts/ws-probe.mjs" --url "$WS/v1/sandboxes/$DSB/kitchen/ws" --jar "$JAR" --origin "$STOREFRONT" "$@"; }
+probe_has() { node -e "const lines = require('fs').readFileSync(process.argv[1], 'utf8').split('\\n').filter(Boolean).map((l) => JSON.parse(l)); const frames = lines.filter((l) => l.frame).map((l) => l.frame); const closed = (lines.find((l) => l.closed) || {}).closed; if (!($2)) process.exit(1)" "$1"; }
+demo f_signup POST /v1/auth/demo "{\"password\":\"$(random_text 24)\",\"turnstile_token\":\"pass-1\"}"
+expect_status f_signup 201
+demo f_sandbox POST /v1/sandboxes '{"replace":false}'
+expect_status f_sandbox 201
+DSB="$(json_field f_sandbox b.id)"
+for _ in $(seq 1 100); do
+  demo f_state GET "/v1/sandboxes/$DSB"
+  [[ "$(json_field f_state b.state)" == live ]] && break
+  sleep 0.2
+done
+demo f_menu GET "/v1/sandboxes/$DSB/menu"
+expect_status f_menu 200
+PICK="$(pick f_menu 60)"
+VARIANT="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).variant)" "$PICK")"
+SLOT="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).slot)" "$PICK")"
+ORDER_BODY="{\"kind\":\"pickup\",\"slot\":\"$SLOT\",\"lines\":[{\"variant\":\"$VARIANT\",\"qty\":1}]}"
+demo f_order POST "/v1/sandboxes/$DSB/orders" "$ORDER_BODY"
+expect_status f_order 201
+FORDER="$(json_field f_order b.id)"
+demo f_fault POST "/v1/sandboxes/$DSB/faults" '{"fault":"inbox","on":false}'
+expect_status f_fault 200
+
+# Read-only: 70,000 rows written is over the rows line and under the burst, so the run trips
+# read-only and not off (as in the phase above).
+cf usage_ro POST '{"rows_written":70000}' /_usage
+run_cron cron_ro_flag
+status ro_flag
+expect_json ro_flag "b.flag === 'read-only'"
 sleep 62
+demo ro_command POST "/v1/sandboxes/$DSB/faults" '{"fault":"inbox","on":false}'
+expect_status ro_command 503
+expect_json ro_command "b.type.endsWith('/read-only') && b.status === 503"
+demo ro_order POST "/v1/sandboxes/$DSB/orders" "$ORDER_BODY"
+expect_status ro_order 503
+demo ro_read GET "/v1/sandboxes/$DSB/menu"
+expect_status ro_read 200
+request ro_health "$BASE/v1/health"
+expect_status ro_health 200
+status ro_status
+expect_status ro_status 200
+probe_ws --cmd "$(ulid):$FORDER:start_production" --until nack --timeout 15 > "$TMP/ro_socket.out" || true
+check "read-only: the board's command gets nack read-only" "probe_has '$TMP/ro_socket.out' \"frames.some((f) => f.t === 'snapshot') && frames.some((f) => f.t === 'nack' && f.rule === 'read-only')\""
+check "read-only: the refusals are logged with the flag's slug" "grep -q '\"reason\":\"read-only\"' '$LOG'"
+
+# A socket opened now sends its next frame after the trip to off and the copy's expiry.
+probe_ws --delay 75 --cmd "$(ulid):$FORDER:start_production" --timeout 110 > "$TMP/off_socket.out" 2>&1 &
+OFF_PROBE=$!
+sleep 3
+run_cron cron_off_flag
+status off_flag
+expect_json off_flag "b.flag === 'off'"
+sleep 62
+demo off_read GET "/v1/sandboxes/$DSB/menu"
+expect_status off_read 503
+expect_json off_read "b.type.endsWith('/off')"
+request off_health "$BASE/v1/health"
+expect_status off_health 200
+status off_status
+expect_status off_status 200
+wait "$OFF_PROBE" || true
+# The probe waits for the close frame after `bye`, so it prints the code; the Kitchen's own line
+# names the close too (`demo-off`, objects/kitchen.rs, `Closing::Off`).
+check "off: the open socket gets bye off and close 1013 at its next frame" "probe_has '$TMP/off_socket.out' \"frames.some((f) => f.t === 'bye' && f.reason === 'off') && closed && closed.code === 1013\""
+check "off: the Kitchen closed it as demo-off (1013)" "grep -q '\"event\":\"kitchen_socket_refused\",\"instance\":\"[0-9a-f]*\",\"reason\":\"demo-off\"' '$LOG'"
+# The nightly wipe runs at off.
 mark
-demo off_order POST "/v1/sandboxes/$DSB/orders" "$ORDER_BODY"
-expect_status off_order 201
-OFF="$(json_field off_order b.id)"
-check "off: the order's OrderPlaced reaches the dead-letter list" "dead_for off_dead '$OFF'"
-expect_json off_dead "b.find(d => d.stream.endsWith(':$OFF')).made_while_off === true"
-expect_json off_dead "b.find(d => d.stream.endsWith(':$REAL')).made_while_off === false"
-settle
-check "off: the dead letter is kept, marked and not counted (no dlq point)" "ev_has dlq '\"outcome\":\"kept\"' '\"while_off\":true' '\"counted\":false' && ! ev_has dlq '\"outcome\":\"kept\"' '\"counted\":true'"
-check "off: the consumer retried at off" "ev_has queue_batch '\"off\":true'"
-OFF_EVENT="$(json_field off_dead "(b.find(d => d.stream.endsWith(':$OFF')) || {}).id")"
-demo redrive_off POST "/v1/sandboxes/$DSB/dead-letters/$OFF_EVENT/redrive"
-expect_status redrive_off 200
-expect_json redrive_off "b.id === '$OFF_EVENT' && b.made_while_off === true"
-demo after_redrive GET "/v1/sandboxes/$DSB/dead-letters"
-expect_json after_redrive "!b.some(d => d.id === '$OFF_EVENT') || b.find(d => d.id === '$OFF_EVENT').made_while_off === true"
+request off_wipe "$BASE/cdn-cgi/local/scheduled?cron=0+10+*+*+*"
+expect_status off_wipe 200
+for _ in $(seq 1 100); do log_has '"event":"wipe_point"' && break; sleep 0.2; done
+check "off: the 10:00 UTC wipe still runs and ends the sandbox" "ev_has wipe_point '\"sandboxes\":1,'"
+
+# Live again, as an operator sets it in Data Studio.
+stop_worker
+FLAG_ROWS="$(node "$ROOT/scripts/smoke-flag.mjs" "$STATE" live)"
+check "the flag row was set back to live ($FLAG_ROWS)" "[[ '$FLAG_ROWS' == 1 ]]"
+start_worker full
+status live_again
+expect_json live_again "b.flag === 'live'"
+demo live_sandbox POST /v1/sandboxes '{"replace":true}'
+expect_status live_sandbox 201
+DSB="$(json_field live_sandbox b.id)"
+for _ in $(seq 1 100); do
+  demo live_state GET "/v1/sandboxes/$DSB"
+  [[ "$(json_field live_state b.state)" == live ]] && break
+  sleep 0.2
+done
+demo live_read GET "/v1/sandboxes/$DSB/menu"
+expect_status live_read 200
+demo live_command POST "/v1/sandboxes/$DSB/faults" '{"fault":"inbox","on":false}'
+expect_status live_command 200
 stop_pid "$FAKE_PID"; FAKE_PID=""
 SITEVERIFY_URL=""
 

@@ -25,6 +25,8 @@ const RULES: Record<string, string> = {
   'out-of-order': 'the order is not in the right state for that',
   // The sandbox's command budget, 60 at once then one a second (objects/kitchen.rs).
   'rate-limit': 'too many moves at once; wait a moment and press it again',
+  // The demo's flag (roadmap R85): the board can be watched but not moved.
+  'read-only': 'the demo is read-only for now, so the board can be watched but not moved',
 };
 
 /** `country-loaf/whole` as "country loaf, whole". */

@@ -223,6 +223,10 @@ describe('dist', () => {
         expect(cells, entry.id).toContain(entry.why.replaceAll('’', '’'));
         expect(cells, entry.id).toContain(entry.whenNot.replaceAll('’', '’'));
         expect(cells, entry.id).toContain(`href="${entry.principle.essay?.url}"`);
+        // On a phone the rows stack: each cell names its column, as the tools page labels its lines.
+        expect(cells, entry.id).toContain('data-label="Why here"');
+        expect(cells, entry.id).toContain('data-label="When it is the wrong tool"');
+        expect(cells, entry.id).toContain('data-label="The essay"');
       }
       expect(text).not.toContain('<script');
     });

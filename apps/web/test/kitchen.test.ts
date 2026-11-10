@@ -339,6 +339,9 @@ describe('a delivery’s van and stop', () => {
     expect(commandText({ ...base, rule: 'out-of-order' })).toContain(
       'the order is not in the right state for that',
     );
+    expect(commandText({ ...base, rule: 'read-only' })).toBe(
+      `Mark ready for ${ORDER.slice(-6)}: refused, the demo is read-only for now, so the board can be watched but not moved.`,
+    );
     expect(commandText({ ...base, rule: 'something-new' })).toContain('refused, something-new.');
   });
 

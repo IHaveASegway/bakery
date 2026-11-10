@@ -69,9 +69,9 @@ const groups = (['lab', 'new', 'demo'] as const).map((group) => ({
               <th scope="row">
                 <a href={`#${d.principle.id}`}>{d.principle.name}</a>
               </th>
-              <td>{d.why}</td>
-              <td>{d.whenNot}</td>
-              <td>
+              <td data-label="Why here">{d.why}</td>
+              <td data-label="When it is the wrong tool">{d.whenNot}</td>
+              <td data-label="The essay">
                 {d.principle.essay && <a href={d.principle.essay.url}>{d.principle.essay.title}</a>}
               </td>
             </tr>

@@ -473,6 +473,19 @@ counted early. The sweep runs whether or not the analytics secrets are set, and 
 carries the count (`"event":"sweep","rows":0,"past_wipe":0`). The morning check fails when the
 count is above 0 (docs/operations.md, "The nightly wipe").
 
+## The flag
+
+Since 2026-11-10 (roadmap R85) every route reads `Control`'s flag, from the isolate's copy that
+lasts 60 s (`src/flag.rs`; the rule is `bakery_app::flag_gate`). At `read-only` a command answers
+503 `read-only`; reads, signing in, "Wipe now" and Stripe's webhook still work. At `off` every route
+answers 503 `off` but `GET /v1/health`, `GET /v1/status` and the webhook. The board's socket answers
+a command `nack` with the rule `read-only`, and at `off` ends at its next frame with `bye` `off` and
+close 1013; the Simulator stops at its next tick with `read_only` or `off`. A change reaches an
+isolate within about a minute. A refresh that fails keeps the last flag read and waits 5 s before
+the next; only an isolate that has never read the flag falls back to `live`. Until that date only admission read the flag, so a `read-only` or
+`off` bakery kept writing. `../../scripts/smoke-breaker.sh` proves it on `wrangler dev`, the 10:00
+UTC wipe at `off` included.
+
 ## Notes
 
 - `compatibility_date` is 2026-11-04. The date a config may carry is bounded by the workerd inside the Wrangler the lockfile resolves: 4.152.0's refused it (its newest was 2026-10-26) and 4.157.0's accepts it (docs/delivery.md, compatibility_date). The lockfile resolves 4.158.0 as of 2026-11-09.
