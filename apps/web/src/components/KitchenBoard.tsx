@@ -184,7 +184,14 @@ export function CardView({
   const refundable = canRefund && card.state !== 'pending';
   const more = useCardMenu();
   return (
-    <li className="card" ref={item} tabIndex={-1} data-yours={yours || undefined}>
+    <li
+      className="card"
+      ref={item}
+      tabIndex={-1}
+      data-yours={yours || undefined}
+      // The order the card is, so the guide finds the card a move was for (components/guide/Layer.tsx).
+      data-order={card.order}
+    >
       <p className="card-head">
         <span className="badge" data-tone="kind">
           {card.kind === 'pickup' ? 'Pickup' : 'Delivery'}

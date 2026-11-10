@@ -1,6 +1,7 @@
 // Which route a trace was and which entry explains it: shared by the live note and the recorder.
 import { ALL_ENTRIES, ROUTE_SHAPES } from '../../guide';
 import { pickEntry, routeMatcher, type GuideEntry, type ScreenId } from '../../lib/guide';
+import { sandboxOf } from '../../lib/recorder';
 import { traces, type HeardEvent, type Listening, type Trace } from '../../lib/trace';
 
 const routeOf = routeMatcher(ROUTE_SHAPES);
@@ -58,7 +59,7 @@ export const COMMAND_EVENT: Record<string, string> = {
 };
 
 /**
- * What a route's write writes by itself, where it is less than its entry's events (audit G4,
+ * What a route's write writes by itself, where it is less than its entry's events (since
  * 2026-11-10): the rest comes later, from another hand. Paying makes a payment intent; Stripe's
  * webhook pays it after the card is confirmed, which is another press. Issuing a token at the same
  * version writes nothing; rotating it writes ApiTokenRotated. Starting traffic writes
@@ -93,7 +94,7 @@ const sandboxIn = (path: string) =>
 
 /**
  * The events a note waits for after what the visitor did, each one the action writes and the
- * recorder can show (audit G4). A board command makes its one event; a read makes none. A write
+ * recorder can show. A board command makes its one event; a read makes none. A write
  * that names no sandbox (a new sandbox, a demo account) or is the sandbox's own wipe cannot be
  * followed on the recorder, which is read by sandbox and goes with it: it waits for none. Any other
  * write waits for what its route writes (ROUTE_WRITES), else its entry's events.
@@ -129,14 +130,39 @@ export function unfollowable(group: readonly Trace[]): string | null {
     return 'The recorder is the sandbox’s own, so it goes with the sandbox: no event of this is shown here.';
   }
   if (first.key === null && first.method !== 'GET' && sandboxIn(bare) !== null) {
-    return first.method === 'PATCH' || first.method === 'PUT'
-      ? 'Setting a value twice leaves it as setting it once does, so this call needs no key to be safe to repeat. Its answer named no cause, so its events are not followed here; the Recorder panel lists them as they arrive.'
-      : 'Its answer named no cause, so its events are not followed here; the Recorder panel lists them as they arrive.';
+    const set = first.method === 'PATCH' || first.method === 'PUT';
+    return `${set ? 'Setting a value twice leaves it as setting it once does, so this call needs no key to be safe to repeat. ' : ''}Its answer named no cause, so its events are not followed here; the Recorder panel lists them as they arrive.`;
   }
   if (sandboxIn(bare) === null && first.method !== 'GET') {
     return 'The recorder is read by sandbox and this call names none, so its events are not followed here; the Recorder panel shows them once the sandbox is yours.';
   }
   return null;
+}
+
+/**
+ * Which of the visitor's writes to follow on the recorder now: each click's first request, once
+ * answered, once. An answered write that is not a 2xx, a read, a socket command or a write to the
+ * sandbox itself (its wipe, which takes the recorder with it) is marked done and not followed.
+ * `followed` holds the clicks already decided and is updated in place.
+ */
+export function writesToFollow(
+  traces: readonly Trace[],
+  followed: Set<number>,
+): { group: Trace[]; sandbox: string }[] {
+  const out: { group: Trace[]; sandbox: string }[] = [];
+  // Every click's, however many came after it: an old write answered late is followed too.
+  for (const group of byGesture(traces)) {
+    const head = group[0];
+    if (head === undefined || head.gesture === null || followed.has(head.gesture)) continue;
+    if (head.transport !== 'http' || head.read !== undefined || head.outcome === 'pending')
+      continue;
+    followed.add(head.gesture);
+    if (head.outcome !== 'ok') continue;
+    const sandbox = sandboxOf(head.path);
+    if (sandbox === null || /^\/v1\/sandboxes\/[^/?]+$/.test(head.path)) continue;
+    out.push({ group, sandbox });
+  }
+  return out;
 }
 
 /**

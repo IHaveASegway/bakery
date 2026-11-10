@@ -98,7 +98,7 @@ test('a card’s button on the board opens a note: the frame, the event and its 
   await expect(note).toContainText('When not');
   await expect(note).toContainText('that needs a projection');
   // Beside the card where there is room, else docked: never over the moved card, its next button
-  // or the next card's Start (audit G3; this check replaced "beside" on 2026-11-10).
+  // or the next card's Start (this check replaced "beside" on 2026-11-10).
   await expect(page.locator('html')).toHaveAttribute('data-guide-marks', 'settled');
   expect(await overWhatMatters(page, 'Start production')).toEqual([]);
 
@@ -530,7 +530,7 @@ test.describe('a stranger at the gate', () => {
 });
 
 /**
- * The guide's open note and floating line against what matters to the visitor's press (audit G3):
+ * The guide's open note and floating line against what matters to the visitor's press:
  * the control pressed (`pressed`, a name without its order), every control of that name, the
  * result (the ringed element and anything marked data-guide-result) and the control the page put
  * the focus on. Each that one covers, named.
@@ -570,7 +570,7 @@ async function overWhatMatters(page: Page, pressed: string): Promise<string[]> {
 }
 
 for (const width of [1280, 1440]) {
-  test(`at ${width} px a move's note covers neither the moved card, its next button nor the next Start (G3)`, async ({
+  test(`at ${width} px a move's note covers neither the moved card, its next button nor the next Start`, async ({
     page,
   }) => {
     await demoAccount(page);
@@ -589,7 +589,7 @@ for (const width of [1280, 1440]) {
     expect(await overWhatMatters(page, 'Start production')).toEqual([]);
   });
 
-  test(`at ${width} px the clock's note covers neither the readout it changed nor its buttons (G3)`, async ({
+  test(`at ${width} px the clock's note covers neither the readout it changed nor its buttons`, async ({
     page,
   }) => {
     await demoAccount(page);
@@ -611,7 +611,7 @@ for (const width of [1280, 1440]) {
   });
 }
 
-test('the refund’s note opens in full, inside the window, with no line on it and only the refund ringed (G2)', async ({
+test('the refund’s note opens in full, inside the window, with no line on it and only the refund ringed', async ({
   page,
 }) => {
   await demoAccount(page);
@@ -632,18 +632,25 @@ test('the refund’s note opens in full, inside the window, with no line on it a
   const note = page.getByRole('region', { name: 'Under the hood: Refunding an order' });
   // In full, by itself: the answer to a deliberate two-press action.
   await expect(note).toBeVisible();
-  // In the page's flow under the result line on the console: its top and the line it explains
-  // are in the window, and the page scrolls to the rest. (A floating note would stay inside the
-  // window's height, scrolling inside itself.)
+  // In the page's flow, right after the refund's result line, which stays in view: the page
+  // scrolls to the rest of the note.
+  const placed = await note.evaluate((n) => {
+    const slot = n.closest('.guide-flow');
+    const before = slot?.previousElementSibling ?? null;
+    return {
+      inFlow: slot !== null,
+      afterTheResult:
+        before !== null &&
+        (before.matches('[data-guide-result]') ||
+          before.querySelector('[data-guide-result]') !== null),
+    };
+  });
+  expect(placed).toEqual({ inFlow: true, afterTheResult: true });
   const box = await note.boundingBox();
-  if (await note.evaluate((n) => n.closest('.guide-flow') !== null)) {
-    expect(box?.y ?? 900).toBeLessThan(800);
-    const line = await said.boundingBox();
-    expect(line?.y ?? -1).toBeGreaterThanOrEqual(0);
-    expect((line?.y ?? 900) + (line?.height ?? 0)).toBeLessThanOrEqual(800);
-  } else {
-    expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(800);
-  }
+  expect(box?.y ?? 900).toBeLessThan(800);
+  const line = await said.boundingBox();
+  expect(line?.y ?? -1).toBeGreaterThanOrEqual(0);
+  expect((line?.y ?? 900) + (line?.height ?? 0)).toBeLessThanOrEqual(800);
   // Its folded line is not shown while it is open.
   await expect(page.locator('.guide-layer:not(.guide-line-docked) > .guide-line')).toHaveCount(0);
   // Only the refund's sentence is ringed, and the note is not over it.
@@ -652,7 +659,7 @@ test('the refund’s note opens in full, inside the window, with no line on it a
   expect(await overWhatMatters(page, 'Refund all')).toEqual([]);
 });
 
-test('after a fresh sandbox, a price draft and a move, no row of a note is left waiting at rest (G4)', async ({
+test('after a fresh sandbox, a price draft and a move, no row of a note is left waiting at rest', async ({
   page,
 }) => {
   test.setTimeout(150_000);
@@ -660,7 +667,7 @@ test('after a fresh sandbox, a price draft and a move, no row of a note is left 
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/app/');
   // A fresh sandbox from the console's own button: nothing on this page to sit beside once the
-  // board replaces the button, so it waits as its line (F6), over no control.
+  // board replaces the button, so it waits as its line, over no control.
   await page.getByRole('button', { name: 'New sandbox' }).first().click();
   await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible({
     timeout: 60_000,
@@ -768,34 +775,105 @@ test('with the recorder open on Dispatch, Propose is pressed beside it, and its 
   await expectNoAxeViolations(page);
 });
 
+/** A new sandbox's board at 1280 px (or `width`), live, with its pages's frames counted. */
+async function liveBoard(page: Page, width = 1280, height = 900) {
+  await demoAccount(page);
+  await liveSandbox(page);
+  await page.setViewportSize({ width, height });
+  await page.goto('/app/');
+  await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+}
+
+/** Presses Start on the first confirmed card and waits for its note in the page's flow. */
+async function startFirst(page: Page): Promise<Locator> {
+  await page
+    .locator('section[aria-labelledby="board-confirmed"]')
+    .getByRole('button', { name: /^Start production for order / })
+    .first()
+    .click();
+  const note = page.locator('.guide-flow #guide-live');
+  await expect(note).toContainText('OrderProductionStarted');
+  // Under the card in its new column (when the ack comes before the event, the note is first
+  // under the card where it was, and follows it), and past the moment it may still settle.
+  await expect(
+    page.locator('section[aria-labelledby="board-in_production"] .guide-flow'),
+  ).toHaveCount(1);
+  await page.waitForTimeout(400);
+  return note;
+}
+
+/** Waits `n` of the page's frames. */
+const frames = (page: Page, n: number) =>
+  page.evaluate(
+    (count) =>
+      new Promise<void>((done) => {
+        let left = count;
+        const next = () => (--left <= 0 ? done() : requestAnimationFrame(next));
+        requestAnimationFrame(next);
+      }),
+    n,
+  );
+
+/** Keeps, in the page, the card the note sits under now and every change of its column's children. */
+const watchSlot = (page: Page) =>
+  page.evaluate(() => {
+    const w = window as unknown as { card: Element | null; changes: number; y: number };
+    const slot = document.querySelector('.guide-flow');
+    w.card = slot?.previousElementSibling ?? null;
+    w.changes = 0;
+    w.y = window.scrollY;
+    new MutationObserver((records) => {
+      for (const r of records) w.changes += r.addedNodes.length + r.removedNodes.length;
+    }).observe(slot?.parentElement ?? document.body, { childList: true });
+  });
+
+/** Where the note sits now against what watchSlot kept. */
+const slotState = (page: Page) =>
+  page.evaluate(() => {
+    const w = window as unknown as { card: Element | null; changes: number; y: number };
+    const slot = document.querySelector('.guide-flow');
+    return {
+      underTheMovedCard: slot !== null && slot.previousElementSibling === w.card,
+      childrenChanged: w.changes,
+      ringOnTheCard: w.card?.hasAttribute('data-guide-anchor') ?? false,
+      scrolled: Math.round(window.scrollY - w.y),
+    };
+  });
+
 test('on the console a move’s note is drawn under its card, in the page, and the next button does not move', async ({
   page,
 }) => {
-  await demoAccount(page);
-  await liveSandbox(page);
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto('/app/');
-  await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+  await liveBoard(page, 1280, 800);
+  // Layout shift, both ways: every entry, and those with no recent input (a press is input for
+  // half a second, so the note's arrival counts only in the first sum).
   await page.evaluate(() => {
-    (window as unknown as { shifts: number[] }).shifts = [];
+    const w = window as unknown as { shiftAll: number; shiftQuiet: number };
+    w.shiftAll = 0;
+    w.shiftQuiet = 0;
     new PerformanceObserver((list) => {
       for (const e of list.getEntries() as unknown as {
         value: number;
         hadRecentInput: boolean;
       }[]) {
-        if (!e.hadRecentInput) (window as unknown as { shifts: number[] }).shifts.push(e.value);
+        w.shiftAll += e.value;
+        if (!e.hadRecentInput) w.shiftQuiet += e.value;
       }
     }).observe({ type: 'layout-shift', buffered: false });
   });
-  const confirmed = page.locator('section[aria-labelledby="board-confirmed"]');
-  await confirmed
-    .getByRole('button', { name: /^Start production for order / })
-    .first()
-    .click();
+  // Where every card is before the press, in the page.
+  const cardsAt = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('.board .column')].map((column) => ({
+        state: column.getAttribute('data-state'),
+        cards: [...column.querySelectorAll('.cards > li.card')].map((c) => ({
+          id: c.querySelector('.card-id')?.textContent ?? '',
+          y: Math.round(c.getBoundingClientRect().top + window.scrollY),
+        })),
+      })),
+    );
+  const note = await startFirst(page);
   const next = page.locator('section[aria-labelledby="board-in_production"] button:focus');
   await expect(next).toBeVisible();
-  const note = page.locator('#guide-live');
-  await expect(note).toContainText('OrderProductionStarted');
   // In the page's flow, right under the moved card, in its column; not floating, not docked.
   const placed = await note.evaluate((n) => {
     const slot = n.closest('.guide-flow');
@@ -812,45 +890,367 @@ test('on the console a move’s note is drawn under its card, in the page, and t
   // a name wraps only between its words (start_ production, Order Production Started).
   expect(await brokenWords(page)).toEqual([]);
   expect(await overWhatMatters(page, 'Start production')).toEqual([]);
-  // Measured in the page, not the window: the page may scroll to show the note, and the note
-  // opens and leaves below the next button, so neither moves it.
+  // Measured in the page, not the window: the note opens and leaves below the next button.
   const pageY = () => next.evaluate((b) => b.getBoundingClientRect().top + window.scrollY);
   const shown = await pageY();
-  // Layout shift with no recent input, after the note arrived and once it leaves by itself.
+  // The honest half: a card below the note in its column moves down by the note's height, and
+  // no card in another column moves at all.
+  const height = await note.evaluate((n) => {
+    const slot = n.closest('.guide-flow') as HTMLElement;
+    const style = getComputedStyle(slot);
+    // The note's own height, its margins, and the gap its list puts between two items.
+    const gap = parseFloat(getComputedStyle(slot.parentElement as Element).rowGap) || 0;
+    return (
+      slot.getBoundingClientRect().height +
+      parseFloat(style.marginTop) +
+      parseFloat(style.marginBottom) +
+      gap
+    );
+  });
+  const below = await note.evaluate((n) => {
+    const after = n.closest('.guide-flow')?.nextElementSibling;
+    return after === null || after === undefined
+      ? null
+      : {
+          id: after.querySelector('.card-id')?.textContent ?? '',
+          y: Math.round(after.getBoundingClientRect().top + window.scrollY),
+        };
+  });
+  const during = await cardsAt();
   await expect(note).toHaveCount(0, { timeout: 15_000 });
+  // No card in another column moved for the note: where each was while it showed is where it is
+  // once it has gone. (The board's own status line, written above the columns on the answer,
+  // moves every column alike, before the note is measured.)
+  const gone = await cardsAt();
+  const others = (cols: typeof during) =>
+    cols
+      .filter((c) => c.state !== 'in_production')
+      .flatMap((c) => c.cards.map((card) => `${c.state} ${card.id} ${card.y}`));
+  expect(others(gone)).toEqual(others(during));
   expect(Math.abs((await pageY()) - shown)).toBeLessThanOrEqual(1);
-  const cls = await page.evaluate(() =>
-    (window as unknown as { shifts: number[] }).shifts.reduce((a, b) => a + b, 0),
+  if (below !== null) {
+    const now = gone.flatMap((c) => c.cards).find((c) => c.id === below.id);
+    // While the note showed, the card under it sat lower by the note's height; now it is back up.
+    expect(Math.abs((now?.y ?? 0) + height - below.y)).toBeLessThanOrEqual(1);
+  }
+  const shift = await page.evaluate(() => {
+    const w = window as unknown as { shiftAll: number; shiftQuiet: number };
+    return { all: w.shiftAll, quiet: w.shiftQuiet };
+  });
+  console.log(
+    `layout shift, board move note in flow: every entry ${shift.all.toFixed(4)}, no recent input ${shift.quiet.toFixed(4)}`,
   );
-  console.log(`layout shift, board move note in flow: ${cls.toFixed(4)}`);
-  expect(cls).toBeLessThan(0.1);
+  expect(shift.all).toBeLessThan(0.25);
+  expect(shift.quiet).toBeLessThan(0.05);
 });
 
-test('at the narrowest window that shows the board’s five columns, a move’s note waits as its line', async ({
+test('at the narrowest window that shows the board’s five columns, a card is under 150 px and a move’s note waits as its line', async ({
   page,
 }) => {
-  await demoAccount(page);
-  await liveSandbox(page);
   // The board shows five columns above 72rem (global.css): 1153 px is the narrowest such window.
-  await page.setViewportSize({ width: 1153, height: 900 });
-  await page.goto('/app/');
-  await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
-  const card = page.locator('.board .cards > li').first();
-  const width = (await card.boundingBox())?.width ?? 0;
+  await liveBoard(page, 1153, 900);
+  const width = (await page.locator('.board .cards > li').first().boundingBox())?.width ?? 0;
+  expect(width).toBeLessThan(150);
   await page
     .locator('section[aria-labelledby="board-confirmed"]')
     .getByRole('button', { name: /^Start production for order / })
     .first()
     .click();
   const line = page.locator('.guide-layer:not(.guide-line-docked) > .guide-line');
-  if (width < 150) {
-    await expect(line).toContainText('The kitchen board');
-    await expect(page.locator('.guide-flow')).toHaveCount(0);
-  } else {
-    await expect(page.locator('.guide-flow #guide-live')).toBeVisible();
-    expect(await brokenWords(page)).toEqual([]);
-  }
+  await expect(line).toContainText('The kitchen board');
+  await expect(page.locator('.guide-flow')).toHaveCount(0);
   expect(await overWhatMatters(page, 'Start production')).toEqual([]);
+});
+
+for (const [column, side] of [
+  [168, 'wide'],
+  [160, 'narrow'],
+] as const) {
+  test(`with the board’s columns forced to ${column} px, a move’s note is ${side === 'wide' ? 'drawn in its column, every word whole' : 'its line'}`, async ({
+    page,
+  }) => {
+    await liveBoard(page, 1440, 900);
+    // The measure forced: five columns of a set width, set through the style object.
+    await page.evaluate((px) => {
+      const board = document.querySelector<HTMLElement>('.board');
+      if (board !== null) board.style.gridTemplateColumns = `repeat(5, ${px}px)`;
+    }, column);
+    const width = (await page.locator('.board .cards > li').first().boundingBox())?.width ?? 0;
+    if (side === 'wide') expect(width).toBeGreaterThanOrEqual(150);
+    else expect(width).toBeLessThan(150);
+    await page
+      .locator('section[aria-labelledby="board-confirmed"]')
+      .getByRole('button', { name: /^Start production for order / })
+      .first()
+      .click();
+    if (side === 'wide') {
+      await expect(page.locator('.guide-flow #guide-live')).toContainText('OrderProductionStarted');
+      expect(await brokenWords(page)).toEqual([]);
+    } else {
+      const line = page.locator('.guide-layer:not(.guide-line-docked) > .guide-line');
+      await expect(line).toContainText('The kitchen board');
+      await expect(page.locator('.guide-flow')).toHaveCount(0);
+    }
+  });
+}
+
+test('a press on a note’s own Pin, or a Tab through it, leaves the note under its card', async ({
+  page,
+}) => {
+  await liveBoard(page);
+  const note = await startFirst(page);
+  await frames(page, 10);
+  await watchSlot(page);
+  const pin = note.getByRole('button', { name: 'Keep this note open' });
+  await pin.click();
+  await frames(page, 30);
+  expect(await slotState(page)).toEqual({
+    underTheMovedCard: true,
+    childrenChanged: 0,
+    ringOnTheCard: true,
+    scrolled: 0,
+  });
+  await expect(pin).toBeFocused();
+  // Tab through the note's own controls: the same.
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press('Tab');
+    await frames(page, 10);
+    const inside = await note.evaluate((n) => n.contains(document.activeElement));
+    if (!inside) break;
+    // The browser may scroll a focused link low in the note into view; the note itself stays.
+    expect(await slotState(page)).toMatchObject({
+      underTheMovedCard: true,
+      childrenChanged: 0,
+      ringOnTheCard: true,
+    });
+  }
+});
+
+test('a move’s note stays with the moved card while the focus goes elsewhere on the board', async ({
+  page,
+}) => {
+  await liveBoard(page);
+  await startFirst(page);
+  await frames(page, 10);
+  await watchSlot(page);
+  // Another column's card menu, then a Tab across three cards.
+  const menu = page
+    .locator('section[aria-labelledby="board-confirmed"] details.menu > summary')
+    .first();
+  await menu.click();
+  await frames(page, 5);
+  expect(await slotState(page)).toMatchObject({ underTheMovedCard: true, scrolled: 0 });
+  await page.keyboard.press('Escape');
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press('Tab');
+    await frames(page, 10);
+    expect(await slotState(page), `after Tab ${i + 1}`).toMatchObject({
+      underTheMovedCard: true,
+      scrolled: 0,
+    });
+  }
+});
+
+test('a note in the page arrives at full contrast', async ({ page }) => {
+  await liveBoard(page);
+  // From the frame the note is put in the page and for five frames after, its opacity is 1.
+  await page.evaluate(() => {
+    const w = window as unknown as { seen: number[] };
+    w.seen = [];
+    new MutationObserver(() => {
+      const note = document.querySelector('.guide-flow .guide-note');
+      if (note === null || w.seen.length > 0) return;
+      const look = (left: number) => {
+        w.seen.push(Number(getComputedStyle(note).opacity));
+        if (left > 0) requestAnimationFrame(() => look(left - 1));
+      };
+      look(5);
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  await startFirst(page);
+  await frames(page, 10);
+  const seen = await page.evaluate(() => (window as unknown as { seen: number[] }).seen);
+  expect(seen.length).toBeGreaterThanOrEqual(6);
+  expect(seen.filter((o) => o !== 1)).toEqual([]);
+});
+
+test('a note folding away takes no pointer or focus, and none is left folded in the page', async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await liveBoard(page);
+  const note = await startFirst(page);
+  // The moment it starts to fold, the pointer comes to where it is.
+  await page.waitForFunction(
+    () => document.querySelector('.guide-flow[data-leaving]') !== null,
+    null,
+    {
+      timeout: 15_000,
+      polling: 'raf',
+    },
+  );
+  const folding = await page.evaluate(() => {
+    const slot = document.querySelector<HTMLElement>('.guide-flow[data-leaving]');
+    return slot?.inert ?? false;
+  });
+  expect(folding).toBe(true);
+  const box = await note.boundingBox();
+  await page.mouse.move((box?.x ?? 0) + 20, (box?.y ?? 0) + 10);
+  await page.waitForTimeout(1_000);
+  // Gone, or whole again: never folded to nothing and still in the page.
+  await expect(page.locator('.guide-flow[data-leaving]')).toHaveCount(0);
+  if ((await note.count()) > 0)
+    expect((await note.boundingBox())?.height ?? 0).toBeGreaterThan(100);
+});
+
+test('a pointer below the note in its column holds it, until the pointer leaves the window', async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await liveBoard(page, 1280, 1500);
+  const note = await startFirst(page);
+  const spot = await note.evaluate((n) => {
+    const slot = n.closest('.guide-flow') as Element;
+    const column = (slot.closest('.column') ?? slot.parentElement)?.getBoundingClientRect();
+    const r = slot.getBoundingClientRect();
+    // Midway between the note's foot and its column's, inside the window.
+    const foot = Math.min(column?.bottom ?? r.bottom, window.innerHeight - 4);
+    return { x: (column?.left ?? 0) + 20, y: Math.round((r.bottom + foot) / 2) };
+  });
+  await page.mouse.move(spot.x, spot.y);
+  // Past the note's own time and the first wait.
+  await page.waitForTimeout(12_000);
+  await expect(note).toBeVisible();
+  // The pointer leaves through the window's edge: the note no longer waits on it.
+  await page.evaluate(() =>
+    document.documentElement.dispatchEvent(
+      new PointerEvent('pointerleave', { pointerType: 'mouse' }),
+    ),
+  );
+  await expect(note).toHaveCount(0, { timeout: 5_000 });
+});
+
+test('Publish menu’s note opens just above the stuck bar, short, over neither the bar nor the version line', async ({
+  page,
+}) => {
+  await demoAccount(page);
+  await liveSandbox(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/app/menu/');
+  // A price to publish first: with nothing drafted, Publish is refused.
+  const field = page.getByRole('textbox', { name: /^Price of Country loaf, Whole/ });
+  await field.fill('9.75');
+  await page.getByRole('button', { name: /^Set the price of Country loaf, Whole/ }).click();
+  await expect(page.locator('#guide-live')).toContainText('MenuItemChanged', { timeout: 10_000 });
+  await page.keyboard.press('Escape');
+  const publish = page.getByRole('button', { name: 'Publish menu' });
+  await expect(publish).toBeVisible();
+  await publish.click();
+  const note = page.locator('#guide-live');
+  await expect(note).toContainText('MenuPublished', { timeout: 10_000 });
+  await frames(page, 30);
+  const read = await page.evaluate(() => {
+    const n = document.querySelector('#guide-live') as HTMLElement;
+    const r = n.getBoundingClientRect();
+    const bar = document.querySelector('.publish-bar')?.getBoundingClientRect();
+    const version = [...document.querySelectorAll('main p')].find((p) =>
+      /Version \d+ is published/.test(p.textContent ?? ''),
+    );
+    const v = version?.getBoundingClientRect();
+    const meets = (a: DOMRect | undefined) =>
+      a !== undefined &&
+      a.left < r.right &&
+      a.right > r.left &&
+      a.top < r.bottom &&
+      a.bottom > r.top;
+    const versionInView = v !== undefined && v.bottom > 0 && v.top < window.innerHeight;
+    return {
+      overBar: meets(bar),
+      overVersion: versionInView && meets(v),
+      inWindow: r.top >= 0 && r.bottom <= window.innerHeight,
+      ownScroll: n.scrollHeight > n.clientHeight + 1,
+      halfOrLess: r.height <= window.innerHeight / 2,
+      aboveBar: bar === undefined ? null : Math.round(bar.top - r.bottom),
+      height: Math.round(r.height),
+    };
+  });
+  console.log(`Publish note: ${read.height} px tall, ${read.aboveBar} px above the bar`);
+  expect(read).toMatchObject({
+    overBar: false,
+    overVersion: false,
+    inWindow: true,
+    ownScroll: false,
+    halfOrLess: true,
+  });
+  expect(read.aboveBar).toBeGreaterThanOrEqual(0);
+  expect(read.aboveBar).toBeLessThanOrEqual(16);
+});
+
+test('Save draft’s note goes under the new draft card, which does not move as it comes and goes', async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await demoAccount(page);
+  await liveSandbox(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/app/customers/');
+  const save = page.getByRole('button', { name: 'Save draft' });
+  await expect(save).toBeVisible();
+  await save.click();
+  const note = page.locator('#guide-live');
+  await expect(note).toContainText('CampaignDrafted');
+  const schedule = page.getByRole('button', { name: 'Schedule', exact: true }).first();
+  await expect(schedule).toBeVisible();
+  const at = () =>
+    schedule.evaluate((b) => {
+      const card = b.closest('li');
+      const y = (e: Element | null | undefined) =>
+        e === null || e === undefined
+          ? -1
+          : Math.round(e.getBoundingClientRect().top + window.scrollY);
+      return { card: y(card), schedule: y(b) };
+    });
+  const shown = await at();
+  await expect(note).toHaveCount(0, { timeout: 15_000 });
+  expect(await at()).toEqual(shown);
+});
+
+test('two tabs press Start on one order: the second note says its move was a repeat, and nothing waits', async ({
+  page,
+}) => {
+  await liveBoard(page);
+  const other = await page.context().newPage();
+  await other.setViewportSize({ width: 1280, height: 900 });
+  await other.goto('/app/');
+  await expect(other.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+  const first = page
+    .locator('section[aria-labelledby="board-confirmed"]')
+    .getByRole('button', { name: /^Start production for order / })
+    .first();
+  const name = (await first.getAttribute('aria-label')) ?? '';
+  await expect(other.getByRole('button', { name, exact: true })).toBeVisible();
+  // Both tabs press the same order's Start in the same moment, before either board has heard the
+  // other's move: a click dispatched in each page, as a press is.
+  const press = (p: Page) =>
+    p.evaluate((label) => {
+      document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)?.click();
+    }, name);
+  await Promise.all([press(page), press(other)]);
+  const notes = [page.locator('#guide-live'), other.locator('#guide-live')];
+  for (const n of notes) await expect(n).toContainText('OrderProductionStarted');
+  const states = await Promise.all(
+    notes.map((n) =>
+      n.evaluate((el) =>
+        [...el.querySelectorAll('.guide-hop')]
+          .filter((h) => h.textContent?.includes('OrderProductionStarted'))
+          .map((h) => h.getAttribute('data-state')),
+      ),
+    ),
+  );
+  // One tab's move made the event; the other's is the repeat, written nothing.
+  expect(states.flat().sort()).toEqual(['noop', 'observed']);
+  for (const n of notes) await expect(n.locator('[data-state="expected"]')).toHaveCount(0);
+  await other.close();
 });
 
 /**
@@ -932,7 +1332,7 @@ test.describe('a keyboard on the menu', () => {
   // The first look at the session, before there is one, is a 401 that Chromium logs.
   test.use({ allowedStatuses: [401] });
 
-  test('on the menu a keyboard meets the nav, the page, the footer, then the guide; never a mark (G10)', async ({
+  test('on the menu a keyboard meets the nav, the page, the footer, then the guide; never a mark', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });

@@ -1,4 +1,12 @@
-import { Fragment, useMemo, useState, useSyncExternalStore } from 'react';
+import {
+  createContext,
+  Fragment,
+  useContext,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import { apiOrigin } from '../../lib/api';
 import {
   curlText,
@@ -190,9 +198,19 @@ export function deliveryWords(deliveries: readonly Delivery[]): string {
 
 // ---- Views ----
 
-/** What the recorder could not promise for this note, when it matters: a ring that moved on, a wipe. */
-export function RecorderSays({ state }: { state: Pick<RecorderState, 'missed' | 'wiped'> }) {
-  if (state.wiped) {
+/**
+ * What the recorder could not promise for this note, when it matters: a ring that moved on, or its
+ * own sandbox wiped (another sandbox's wipe is not this note's news).
+ */
+export function RecorderSays({
+  state,
+  sandbox,
+}: {
+  state: Pick<RecorderState, 'missed' | 'wiped'>;
+  /** The sandbox this note's write was to, or null. */
+  sandbox: string | null;
+}) {
+  if (sandbox !== null && state.wiped.includes(sandbox)) {
     return <p className="guide-meta">The sandbox was wiped: there is nothing more to read.</p>;
   }
   if (state.missed) {
@@ -306,10 +324,12 @@ export function ReadStory({ trace }: { trace: Trace }) {
 }
 
 /**
- * What an event the note waits for says before it is seen (audit G4): waiting for the recorder at
- * first; after about 3 s, late and still listened for; after about 30 s, not seen, in words.
+ * What an event the note waits for says before it is seen: waiting for the recorder at first;
+ * after about 3 s, late and still listened for; after about 30 s, not seen, in words; and, when
+ * its sandbox was wiped before the event showed, that, never a claim about 30 s.
  */
 export function hopWait(reading: Reading): string {
+  if (reading === 'wiped') return 'not seen: the sandbox was wiped before the recorder showed it';
   if (reading === 'late') return 'not seen on the recorder yet; still listening';
   if (reading === 'done') return 'not seen on the recorder in 30 s; it may have missed it';
   return reading === 'reading' ? 'waiting for the recorder' : 'on its way';
@@ -350,7 +370,15 @@ export function chainRows(hops: readonly ExpectedHop[], expected: readonly strin
 /** A folded row's words: how many, on which object, for which days when a stream names one. */
 export function foldedWords(events: readonly TracedEvent[]): string {
   const object = objectOf(events[0]?.stream ?? null);
-  const days = [...new Set(events.map((e) => dayOf(e.stream)).filter((d) => d !== null))];
+  // Earliest to latest by date, whatever order the events arrived in.
+  const dated = [
+    ...new Set(
+      events
+        .map((e) => e.stream?.split(':').at(-1) ?? '')
+        .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)),
+    ),
+  ].sort();
+  const days = dated.map((d) => dayOf(`:${d}`) as string);
   const span =
     days.length === 0
       ? ''
@@ -363,20 +391,21 @@ export function foldedWords(events: readonly TracedEvent[]): string {
 /**
  * What the chain says of an observed event's subscribers: the classes the recorder saw take it, or,
  * when its hop named none, that nothing subscribes to it; nothing while only the socket has it.
+ * When the row already says when the Queue's consumer took it (`lagKnown`), "written" would be said
+ * twice, so the line is only "nothing subscribes to it".
  */
-export function takenWords(deliveries: readonly Delivery[] | undefined): string | null {
+export function takenWords(
+  deliveries: readonly Delivery[] | undefined,
+  lagKnown = false,
+): string | null {
   if (deliveries === undefined) return null;
-  return deliveries.length === 0 ? 'written; nothing subscribes to it' : deliveryWords(deliveries);
+  if (deliveries.length > 0) return deliveryWords(deliveries);
+  return lagKnown ? 'nothing subscribes to it' : 'written; nothing subscribes to it';
 }
 
-/**
- * The chain of hops for the visitor's action: each request (or socket command) with its answer,
- * time and cause; the object that decided it, once an event names it; then each event the action
- * makes, observed with its sequence number, seen in the activity feed, or not yet seen; and the
- * subscribers the server's recorder saw take it. The live note and the recorder panel both draw
- * it from the same traces, whose reading state is the store's (lib/trace.ts), so they say the
- * same of every event.
- */
+/** How many event rows a chain shows; the rest are named as a count, on the recorder. */
+export const CHAIN_ROWS = 10;
+
 /**
  * A board move answered ack whose event this page already saw for the same order under another
  * command (another tab, or an earlier press): the Order took the repeat as a no-op and wrote
@@ -398,6 +427,37 @@ export function madeBefore(
     ) ?? null
   );
 }
+
+/**
+ * The chain of hops for the visitor's action: each request (or socket command) with its answer,
+ * time and cause; the object that decided it, once an event names it; then each event the action
+ * makes, observed with its sequence number, seen in the activity feed, or not yet seen; and the
+ * subscribers the server's recorder saw take it. The live note and the recorder panel both draw
+ * it from the same traces, whose reading state is the store's (lib/trace.ts), so they say the
+ * same of every event. Past CHAIN_ROWS event rows the rest are a count, never dropped from the
+ * store.
+ */
+/** One row of a chain: its state, a word for its kind, and its body. */
+function Row({ state, kind, children }: { state: string; kind: ReactNode; children: ReactNode }) {
+  return (
+    <li className="guide-hop" data-state={state}>
+      <span className="guide-hop-kind">{kind}</span>
+      <span className="guide-hop-body">{children}</span>
+    </li>
+  );
+}
+
+/** An event type in a chip, breakable between its words. */
+const Chip = ({ name }: { name: string }) => (
+  <code className="guide-chip">
+    <Breakable text={name} />
+  </code>
+);
+
+/** A line of the chain's quieter words. */
+const Meta = ({ children }: { children: ReactNode }) => (
+  <span className="guide-meta">{children}</span>
+);
 
 export function TraceChain({
   traces,
@@ -423,122 +483,107 @@ export function TraceChain({
     feed,
   );
   const decider = objectOf(hops.find((h) => h.event !== null)?.event?.stream ?? null);
+  // Every row the action makes is shown; others past CHAIN_ROWS are counted, not drawn.
+  const rows = chainRows(hops, expected);
+  const extra = rows.filter((r) => !expected.includes(r.type));
+  const cut = extra.slice(Math.max(0, CHAIN_ROWS - (rows.length - extra.length)));
+  const more = cut.reduce((n, r) => n + 1 + r.also.length, 0);
   return (
     <ol className="guide-chain">
       {traces.map((trace) => {
         const { sent, answer } = requestText(trace);
         const bad = trace.outcome === 'refused' || trace.outcome === 'failed';
         return (
-          <li
+          <Row
             key={trace.id}
-            className="guide-hop"
-            data-state={trace.outcome === 'pending' ? 'expected' : 'observed'}
+            state={trace.outcome === 'pending' ? 'expected' : 'observed'}
+            kind={trace.transport === 'socket' ? 'Sent' : requestLabel(trace)}
           >
-            <span className="guide-hop-kind">
-              {trace.transport === 'socket' ? 'Sent' : requestLabel(trace)}
-            </span>
-            <span className="guide-hop-body">
-              <code className="guide-chip">
-                <Breakable text={sent} />
-              </code>
-              <code className={bad ? 'guide-chip guide-chip-bad' : 'guide-chip'}>{answer}</code>
-              {trace.ms !== null && <span className="guide-meta">{trace.ms} ms</span>}
-              {trace.key !== null && (
-                <span className="guide-meta" title={trace.key}>
-                  {trace.transport === 'socket' ? 'id' : 'cause'} <code>{shortId(trace.key)}</code>
-                </span>
-              )}
-              {trace.read !== undefined && <ReadHeaders read={trace.read} />}
-            </span>
-          </li>
+            <Chip name={sent} />
+            <code className={bad ? 'guide-chip guide-chip-bad' : 'guide-chip'}>{answer}</code>
+            {trace.ms !== null && <Meta>{trace.ms} ms</Meta>}
+            {trace.key !== null && (
+              <span className="guide-meta" title={trace.key}>
+                {trace.transport === 'socket' ? 'id' : 'cause'} <code>{shortId(trace.key)}</code>
+              </span>
+            )}
+            {trace.read !== undefined && <ReadHeaders read={trace.read} />}
+          </Row>
         );
       })}
       {decider !== null && (
-        <li className="guide-hop" data-state="observed">
-          <span className="guide-hop-kind">Decided</span>
-          <span className="guide-hop-body">
-            <span>by the {decider} object</span>
-          </span>
-        </li>
+        <Row state="observed" kind="Decided">
+          <span>by the {decider} object</span>
+        </Row>
       )}
-      {chainRows(hops, expected).map((hop) => {
-        const event = hop.event;
-        const all = event === null ? [] : [event, ...hop.also];
-        if (all.length > 1) {
-          // Several of one type the action did not name: one row, with the days they are for.
-          const ways = new Set(all.map((e) => takenWords(e.deliveries)));
-          const taken = ways.size === 1 ? [...ways][0] : null;
-          return (
-            <li key={`${hop.type}-folded`} className="guide-hop" data-state="observed">
-              <span className="guide-hop-kind">Event</span>
-              <span className="guide-hop-body">
-                <code className="guide-chip">
-                  <Breakable text={hop.type} />
-                </code>
-                <span className="guide-meta">{foldedWords(all)}</span>
-                {taken !== null && taken !== undefined && (
-                  <span className="guide-meta guide-deliveries">{taken}, each</span>
-                )}
-              </span>
-            </li>
-          );
-        }
-        const taken = hop.state === 'observed' ? takenWords(event?.deliveries) : null;
-        const before = hop.state === 'observed' ? null : madeBefore(first, hop.type, seen);
-        if (before !== null) {
-          return (
-            <li key={`${hop.type}-before`} className="guide-hop" data-state="noop">
-              <span className="guide-hop-kind">Event</span>
-              <span className="guide-hop-body">
-                <code className="guide-chip">
-                  <Breakable text={hop.type} />
-                </code>
-                <span className="guide-meta">
+      {rows
+        .filter((r) => !cut.includes(r))
+        .map((hop) => {
+          const event = hop.event;
+          const all = event === null ? [] : [event, ...hop.also];
+          const key = `${hop.type}-${event?.id ?? ''}`;
+          if (all.length > 1) {
+            // Several of one type the action did not name: one row, with the days they are for.
+            const ways = new Set(all.map((e) => takenWords(e.deliveries)));
+            const taken = ways.size === 1 ? [...ways][0] : null;
+            return (
+              <Row key={key} state="observed" kind="Event">
+                <Chip name={hop.type} />
+                <Meta>{foldedWords(all)}</Meta>
+                {taken && <span className="guide-meta guide-deliveries">{taken}, each</span>}
+              </Row>
+            );
+          }
+          if (hop.state !== 'observed' && madeBefore(first, hop.type, seen) !== null) {
+            return (
+              <Row key={key} state="noop" kind="Event">
+                <Chip name={hop.type} />
+                <Meta>
                   already made for this order under another command (another screen, or an earlier
                   press): the Order took this one as a repeat and wrote nothing new
-                </span>
-              </span>
-            </li>
-          );
-        }
-        return (
-          <li key={`${hop.type}-${event?.id ?? ''}`} className="guide-hop" data-state={hop.state}>
-            <span className="guide-hop-kind">
-              {hop.state === 'observed' && event?.source === 'socket' ? 'Came back' : 'Event'}
-            </span>
-            <span className="guide-hop-body">
-              <code className="guide-chip">
-                <Breakable text={hop.type} />
-              </code>
+                </Meta>
+              </Row>
+            );
+          }
+          const taken =
+            hop.state === 'observed'
+              ? takenWords(event?.deliveries, event?.lagMs !== undefined)
+              : null;
+          return (
+            <Row
+              key={key}
+              state={hop.state}
+              kind={hop.state === 'observed' && event?.source === 'socket' ? 'Came back' : 'Event'}
+            >
+              <Chip name={hop.type} />
               {hop.state === 'observed' && event !== null ? (
-                <span className="guide-meta">
+                <Meta>
                   {event.seq !== null && <>seq {event.seq}</>}
                   {event.stream !== null && <> on {objectOf(event.stream)}</>}
                   {dayOf(event.stream) !== null && <> for {dayOf(event.stream)}</>}
                   {event.lagMs !== undefined && (
                     <>, taken by the Queue’s consumer {event.lagMs} ms after it was written</>
                   )}
-                </span>
+                </Meta>
               ) : (
-                <span className="guide-meta">
+                <Meta>
                   {hop.state === 'seen-in-feed' ? 'in the activity feed' : hopWait(reading)}
-                </span>
+                </Meta>
               )}
               {taken !== null && <span className="guide-meta guide-deliveries">{taken}</span>}
-            </span>
-          </li>
-        );
-      })}
+            </Row>
+          );
+        })}
+      {more > 0 && (
+        <Row state="observed" kind="Event">
+          <Meta>and {more} more on the recorder, in the Recorder panel</Meta>
+        </Row>
+      )}
       {later !== undefined && !hops.some((h) => h.type === later.type) && (
-        <li className="guide-hop" data-state="later">
-          <span className="guide-hop-kind">Later</span>
-          <span className="guide-hop-body">
-            <code className="guide-chip">
-              <Breakable text={later.type} />
-            </code>
-            <span className="guide-meta">{later.when}</span>
-          </span>
-        </li>
+        <Row state="later" kind="Later">
+          <Chip name={later.type} />
+          <Meta>{later.when}</Meta>
+        </Row>
       )}
     </ol>
   );
@@ -571,11 +616,15 @@ export function WhyLines({
 }
 
 /**
- * The reasons once per entry in a visit (audit G12, 2026-11-10): the first note of an entry shows
+ * The reasons once per entry in a visit (since 2026-11-10): the first note of an entry shows
  * why this tool and when not; a later one of the same entry shows its trace and one line that
  * opens them, since the second move teaches nothing new. Kept in this page's memory only.
  */
 const reasonsShown = new Map<string, number>();
+
+/** Whether the note being drawn is narrow: a block of the page's flow under 15rem (Note.tsx). */
+export const Narrow = createContext(false);
+
 export function ReasonsOnce({
   entry,
   note,
@@ -584,23 +633,11 @@ export function ReasonsOnce({
   /** The note's own key (its gesture): the note that first showed an entry keeps showing it. */
   note: number;
 }) {
+  const narrow = useContext(Narrow);
   const first = reasonsShown.get(entry.id) ?? note;
   if (!reasonsShown.has(entry.id)) reasonsShown.set(entry.id, note);
-  // In a narrow note (a board column's) the reasons stay behind their line even the first time;
-  // CSS shows one of the two by the note's width (guide.css, the in-flow note).
-  if (first === note) {
-    return (
-      <>
-        <div className="guide-wide-only">
-          <WhyLines entry={entry} />
-        </div>
-        <details className="guide-reasons guide-narrow-only">
-          <summary>Why this tool, and when not</summary>
-          <WhyLines entry={entry} />
-        </details>
-      </>
-    );
-  }
+  // A narrow note (a board column's) keeps the reasons behind their line even the first time.
+  if (first === note && !narrow) return <WhyLines entry={entry} />;
   return (
     <details className="guide-reasons">
       <summary>Why this tool, and when not</summary>

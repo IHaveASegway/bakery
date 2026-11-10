@@ -679,7 +679,7 @@
    screen, where the page has its own bottom bar (the menu's cart bar), the button sits at that
    bar's left end, in the same row, so the column of Add buttons never passes under it. On a phone
    (48rem and under) it is a labelled button in a row of the masthead's own, the same place on
-   every page, cart bar or not (audit G6, 2026-11-10). */
+   every page, cart bar or not (since 2026-11-10). */
 @media (min-width: 48.01rem) and (max-width: 60rem) {
   body:has(.cart-bar) .guide-bar-dock {
     padding: 0;
@@ -962,7 +962,7 @@
   padding-inline-end: 48px;
 }
 
-/* An entry's reasons after its first note in a visit: one line that opens them (G12). */
+/* An entry's reasons after its first note in a visit: one line that opens them. */
 .guide-reasons {
   margin-top: 8px;
   padding-top: 8px;
@@ -1019,7 +1019,7 @@
 
 /* On the console the guide sits in the top bar, not at the window's foot: the line waits under
    the top bar's right end, over the page's headings and live words, not over the foot of the
-   board's columns and their buttons (F6, 2026-11-10). */
+   board's columns and their buttons (since 2026-11-10). */
 @media (min-width: 60.01rem) {
   .shell-app .guide-layer:not(.guide-line-docked) > .guide-line {
     top: calc(var(--guide-top, 56px) + 8px);
@@ -1254,10 +1254,11 @@ body:has(.cart[data-open], dialog[open], [aria-modal='true']) .guide-bar-dock {
 /* ---- A note in the page's flow (2026-11-10) ----
 
    On the console's workspaces a live note is drawn in the page, under what it explains: after the
-   moved card in its column, at the end of the panel pressed in, after a result line (Note.tsx,
-   flowPlace). It is a block of the page, not a layer over it: no position, no caret, no shadow,
-   the width it is given. It opens by growing and leaves by folding shut, each a fifth of a second,
-   so what is under it moves once and smoothly. */
+   moved card in its column, after what the press made or its result line, at the end of the
+   panel pressed in (Note.tsx, flowPlace). It is a block of the page, not a layer over it: no
+   position, no caret, no shadow, the width it is given. Its space opens at once and it arrives at
+   full contrast, with no fade; it leaves by folding shut in a fifth of a second, inert meanwhile,
+   so what is under it in its column rises smoothly. */
 .guide-flow {
   display: grid;
   grid-template-rows: 1fr;
@@ -1308,7 +1309,7 @@ div.guide-layer.guide-flow {
   overflow: hidden;
   box-shadow: none;
   container-type: inline-size;
-  animation: guide-grow 200ms ease-out;
+  animation: none;
 }
 
 .guide-flow .guide-note::before {
@@ -1324,11 +1325,6 @@ div.guide-layer.guide-flow {
   word-break: normal;
 }
 
-/* The reasons in full where the note is wide enough, behind their line where it is not. */
-.guide-narrow-only {
-  display: none;
-}
-
 /* In a narrow column (a board's), a hop's label sits above its body. */
 @container (max-width: 15rem) {
   .guide-flow .guide-hop {
@@ -1339,20 +1335,6 @@ div.guide-layer.guide-flow {
   .guide-flow .guide-head {
     flex-wrap: wrap;
   }
-
-  .guide-flow .guide-wide-only {
-    display: none;
-  }
-
-  .guide-flow .guide-narrow-only {
-    display: block;
-  }
-}
-
-@keyframes guide-grow {
-  from {
-    opacity: 0;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1360,5 +1342,32 @@ div.guide-layer.guide-flow {
   .guide-flow .guide-note {
     transition: none;
     animation: none;
+  }
+}
+
+/* A note just above a bar that sticks to the window (the menu's Publish bar) is as wide as the bar
+   and short: its rows sit closer, and wide enough, its why and when not sit side by side. */
+.guide-note[data-bar] {
+  container-type: inline-size;
+}
+
+.guide-note[data-bar] .guide-chain {
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.guide-note[data-bar] .guide-why {
+  padding-top: 6px;
+}
+
+@container (min-width: 34rem) {
+  .guide-note[data-bar] .guide-why {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 16px;
+  }
+
+  .guide-note[data-bar] .guide-why .guide-read {
+    grid-column: 1 / -1;
   }
 }

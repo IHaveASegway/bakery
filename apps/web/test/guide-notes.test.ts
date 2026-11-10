@@ -9,11 +9,20 @@ const renderToStaticMarkup = (...args: Parameters<typeof markup>) =>
   markup(...args).replaceAll('<wbr/>', '');
 import { describe, expect, test } from 'vitest';
 import { Note, resolveAnchor } from '../src/components/guide/Note';
-import { byGesture, hopLines, hopWords } from '../src/components/guide/Panel';
+import { hopLines, hopWords } from '../src/components/guide/Panel';
 import { RECORDER } from '../src/guide/recorder';
 import { BOARD_MOVES } from '../src/guide/kitchen';
 import { sandboxOf } from '../src/lib/recorder';
 import {
+  choosePlace,
+  regionBelow,
+  remakeSlot,
+  slotTag,
+  type PlaceFacts,
+} from '../src/components/guide/place';
+import {
+  byGesture,
+  writesToFollow,
   entryForTraces,
   expectedFor,
   unfollowable,
@@ -28,7 +37,9 @@ import {
   Observed,
   TraceChain,
   Breakable,
+  Narrow,
   ReasonsOnce,
+  takenWords,
   nameParts,
   dayOf,
   madeBefore,
@@ -522,8 +533,8 @@ describe('what the recorder showed, in plain words', () => {
     expect(hopWords({ deliveries: [{ to: 'Kitchen', outcome: 'dead', attempt: 3 }] })).toBe(
       'Dead-lettered for Kitchen after attempt 3,',
     );
-    // A hop that named no class: the event was written and nothing subscribes to it.
-    expect(hopWords({ deliveries: [] })).toBe('Written; nothing subscribes to it;');
+    // A hop that named no class: nothing subscribes to it (the line then says when it was written).
+    expect(hopWords({ deliveries: [] })).toBe('Nothing subscribes to it;');
   });
 
   test('a note whose reads are done says an unseen event was not seen, never that it did not happen', () => {
@@ -1042,8 +1053,10 @@ describe('a note and the recorder panel never disagree', () => {
         feed: [],
       }),
     );
-    expect(html).toContain('written; nothing subscribes to it');
-    expect(hopWords(snap.hops[0] as RecorderHop)).toBe('Written; nothing subscribes to it;');
+    // The row already says when the consumer took it, so "written" is not said twice.
+    expect(html).toContain('nothing subscribes to it');
+    expect(html).not.toContain('written; nothing subscribes');
+    expect(hopWords(snap.hops[0] as RecorderHop)).toBe('Nothing subscribes to it;');
     expect(disagreements(store)).toEqual([]);
   });
 
@@ -1131,8 +1144,19 @@ describe('a chain folds an event it did not name when it comes many times', () =
     cause: 'menu-published',
     deliveries: [],
   });
-  test('nine days of CapsRefreshed are one row naming the days', () => {
-    const days = ['2026-11-10', '2026-11-11', '2026-11-12'];
+  test('nine days of CapsRefreshed are one row naming the days, earliest to latest', () => {
+    // Nine open days, arriving in no order of date.
+    const days = [
+      '2026-11-12',
+      '2026-11-10',
+      '2026-11-18',
+      '2026-11-11',
+      '2026-11-14',
+      '2026-11-13',
+      '2026-11-17',
+      '2026-11-19',
+      '2026-11-16',
+    ];
     const html = renderToStaticMarkup(
       createElement(TraceChain, {
         traces: [trace({ events: days.map((d, i) => caps(i + 2, d)) })],
@@ -1141,7 +1165,7 @@ describe('a chain folds an event it did not name when it comes many times', () =
       }),
     );
     expect(html.match(/CapsRefreshed/g)).toHaveLength(1);
-    expect(html).toContain('3 times on Schedule, for 3 days between 10 Nov and 12 Nov');
+    expect(html).toContain('9 times on Schedule, for 9 days between 10 Nov and 19 Nov');
     expect(html).toContain('written; nothing subscribes to it, each');
     expect(dayOf('schedule:sbx-one:2026-11-10')).toBe('10 Nov');
     expect(dayOf('order:sbx-one:ord-one')).toBeNull();
@@ -1216,11 +1240,94 @@ describe('a name breaks only between its words', () => {
     ]);
     expect(markup(createElement(Breakable, { text: 'OrderReady' }))).toBe('Order<wbr/>Ready');
   });
-  test('the reasons are drawn twice the first time, in full and folded, for CSS to choose by width', () => {
-    const html = renderToStaticMarkup(
-      createElement(ReasonsOnce, { entry: entry('kitchen-board'), note: 9_001 }),
+  test('a narrow note keeps the reasons behind their line even the first time; a wide one shows them once', () => {
+    const narrow = renderToStaticMarkup(
+      createElement(
+        Narrow.Provider,
+        { value: true },
+        createElement(ReasonsOnce, { entry: entry('kitchen-board'), note: 9_001 }),
+      ),
     );
-    expect(html).toContain('guide-wide-only');
-    expect(html).toContain('guide-narrow-only');
+    expect(narrow).toContain('<details');
+    expect(narrow.match(/Why this tool/g)).toHaveLength(2);
+    const wide = renderToStaticMarkup(
+      createElement(ReasonsOnce, { entry: entry('kitchen-rate-limit'), note: 9_002 }),
+    );
+    expect(wide).not.toContain('<details');
+    expect(wide.match(/Why this tool/g)).toHaveLength(1);
+  });
+  test('a row that says when the consumer took an event does not say "written" twice', () => {
+    expect(takenWords([], true)).toBe('nothing subscribes to it');
+    expect(takenWords([], false)).toBe('written; nothing subscribes to it');
+    expect(takenWords(undefined, true)).toBeNull();
+  });
+});
+
+describe('every answered write is followed', () => {
+  test('four clicks, the oldest answered last, are all followed, each once', () => {
+    const at = (n: number, over: Partial<Trace> = {}) =>
+      trace({
+        id: `req-${n}`,
+        key: `cause-${n}`,
+        gesture: n,
+        method: 'POST',
+        path: `/v1/sandboxes/sbx-one/campaigns`,
+        startedAt: T0 + n,
+        ...over,
+      });
+    const followed = new Set<number>();
+    // The oldest is still waiting for its answer while three newer ones are answered.
+    const first = [at(4), at(3), at(2), at(1, { outcome: 'pending', status: null })];
+    expect(writesToFollow(first, followed).map((w) => w.group[0]?.gesture)).toEqual([4, 3, 2]);
+    // A story read the page made by itself takes a click's number too, and is not followed.
+    const read = at(5, { method: 'GET', path: '/v1/sandboxes/sbx-one/menu', read: {} as never });
+    const later = [read, at(4), at(3), at(2), at(1)];
+    expect(writesToFollow(later, followed).map((w) => w.group[0]?.gesture)).toEqual([1]);
+    expect(writesToFollow(later, followed)).toEqual([]);
+  });
+});
+
+describe('where a note goes in the page’s flow', () => {
+  const facts = (over: Partial<PlaceFacts<string>> = {}): PlaceFacts<string> => ({
+    anchor: 'anchor',
+    item: false,
+    itemsInARow: false,
+    sticky: false,
+    result: null,
+    resultInView: false,
+    made: null,
+    region: null,
+    regionBelow: Infinity,
+    reach: 400,
+    block: 'block',
+    ...over,
+  });
+  test('an item of a row of controls, or one in a sticking bar, is not followed by a slot in it', () => {
+    expect(choosePlace(facts({ item: true, itemsInARow: true }))).toEqual({ after: 'block' });
+    expect(choosePlace(facts({ item: true, sticky: true }))).toBeNull();
+    expect(choosePlace(facts({ item: true }))).toEqual({ after: 'anchor' });
+  });
+  test('a control in a sticking bar floats, result line or not: the bar’s place in the flow is off the screen', () => {
+    expect(choosePlace(facts({ sticky: true, result: 'line', resultInView: true }))).toBeNull();
+    expect(choosePlace(facts({ sticky: true }))).toBeNull();
+  });
+  test('what the press made comes before the note: it goes after the last of it', () => {
+    expect(choosePlace(facts({ result: 'line', made: 'new card' }))).toEqual({ after: 'new card' });
+  });
+  test('a slot is made anew when it would not fit where it goes', () => {
+    expect(remakeSlot('tr', 'div')).toBe(true);
+    expect(remakeSlot('li', 'div')).toBe(true);
+    expect(remakeSlot('div', 'div')).toBe(false);
+    expect(slotTag('table', 'tr', false)).toBe('tr');
+    expect(slotTag('div', 'p', false)).toBe('div');
+  });
+  test('a region is measured without the note in it, so a placed note stays put', () => {
+    // A region that ends 300 px below the anchor, with a 450 px note at its end.
+    expect(regionBelow(1_000, 250, 450)).toBe(300);
+    expect(
+      choosePlace(facts({ region: 'panel', regionBelow: regionBelow(1_000, 250, 450) })),
+    ).toEqual({
+      inside: 'panel',
+    });
   });
 });

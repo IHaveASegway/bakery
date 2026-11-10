@@ -45,10 +45,10 @@ export interface ReadFacts {
 
 /**
  * How far the recorder's reads for a write have got (lib/recorder.ts, followWrite): none yet, under
- * way, past the first three (late), or finished. Kept on the trace, so a note and the recorder
+ * way, past the first three (late), finished, or stopped because the sandbox was wiped. Kept on the trace, so a note and the recorder
  * panel say the same of an event not yet seen.
  */
-export type Reading = 'idle' | 'reading' | 'late' | 'done';
+export type Reading = 'idle' | 'reading' | 'late' | 'done' | 'wiped';
 
 /** One piece of evidence, whichever source saw it. Times are wall-clock milliseconds. */
 export type Evidence =
@@ -311,8 +311,13 @@ export const GESTURE_MS = 2_000;
 export const SKEW_MS = 5;
 /** How many traces and orphan events are kept. */
 export const KEEP_TRACES = 20;
-/** How many events one trace keeps: its own, then their reactions. */
-export const KEEP_EVENTS = 12;
+/**
+ * How many events one trace keeps: its own, then their reactions. Generous, so the events an
+ * action is waited on for are never cut by its reactions (a published menu's CapsRefreshed, one a
+ * day): the view folds and cuts rows (Views.tsx), the store does not. Past it an event is not the
+ * trace's at all, so the panel never calls an event the trace's that its note cannot show.
+ */
+export const KEEP_EVENTS = 60;
 const KEEP_ORPHANS = 100;
 const KEEP_FEED = 50;
 /** How many of the recorder's hops are kept for the panel, one an event. */
@@ -425,13 +430,17 @@ export function createTraceStore(
       ...(event.lagMs === undefined ? {} : { lagMs: event.lagMs }),
       ...(event.deliveries === undefined ? {} : { deliveries: event.deliveries }),
     };
+    let kept = true;
     update(traceId, (trace) => {
       // The same event from a second source (the socket, then the recorder) is one event,
       // with what each source knew.
       const same = trace.events.findIndex((e) => e.id !== null && e.id === event.id);
       if (same < 0) {
         // A chain is kept short: the action's events and their reactions, up to a fixed number.
-        if (trace.events.length >= KEEP_EVENTS) return trace;
+        if (trace.events.length >= KEEP_EVENTS) {
+          kept = false;
+          return trace;
+        }
         return { ...trace, events: [...trace.events, traced] };
       }
       return {
@@ -448,6 +457,7 @@ export function createTraceStore(
         }),
       };
     });
+    if (!kept) return false;
     if (event.id !== null) {
       owner.set(event.id, traceId);
       const waiting = orphans.filter((o) => o.cause === event.id);

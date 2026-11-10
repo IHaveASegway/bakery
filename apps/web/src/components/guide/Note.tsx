@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { createPortal } from 'react-dom';
 import { placeNote, type Box } from '../../lib/guide';
 import { controlBoxes } from './clear';
+import { Narrow } from './Views';
+import { choosePlace, regionBelow, remakeSlot, slotTag, type FlowPlace as Place } from './place';
 
 /** Below this width a note is a sheet over the lower third of the window, placed by CSS alone. */
 const PHONE = '(max-width: 40rem)';
@@ -52,7 +54,7 @@ export const LINGER_MS = 8_000;
  * column: elsewhere a note floats beside its anchor, as before. `pressed` is the control pressed,
  * while it is in the page.
  */
-export type FlowPlace = { after: Element } | { inside: Element };
+export type FlowPlace = Place<Element>;
 
 const REGION = 'form, fieldset, section, article, .panel';
 const RESULT = '[data-guide-result], .messages';
@@ -83,19 +85,17 @@ function blockOf(el: Element, main: Element): Element {
   return block;
 }
 
-export function flowPlace(anchor: Element | null, pressed: Element | null): FlowPlace | null {
+export function flowPlace(
+  anchor: Element | null,
+  pressed: Element | null,
+  made: readonly Element[] = [],
+): FlowPlace | null {
   if (anchor === null || typeof document === 'undefined') return null;
   if (!document.body.classList.contains('shell-app')) return null;
   if (window.matchMedia(PHONE).matches) return null;
   const main = anchor.closest('main');
   if (main === null || anchor === main) return null;
-  if (anchor.matches('li, tr')) return { after: anchor };
-  // A control in a bar that sticks to the window (the menu's Publish bar) has its place in the
-  // flow far from where it is seen: its note floats beside it instead.
-  for (let el: Element | null = anchor; el !== null && el !== main; el = el.parentElement) {
-    const position = getComputedStyle(el).position;
-    if (position === 'sticky' || position === 'fixed') return null;
-  }
+  const sticky = stickyBarOf(anchor) !== null;
   const from = pressed !== null && pressed.isConnected && main.contains(pressed) ? pressed : anchor;
   const reach = 0.5 * window.innerHeight;
   const bottom = anchor.getBoundingClientRect().bottom;
@@ -103,25 +103,62 @@ export function flowPlace(anchor: Element | null, pressed: Element | null): Flow
   // with something said.
   const part = from.closest('section, article, .panel');
   const scope = part !== null && main.contains(part) ? part : main;
+  let result: Element | null = null;
   for (const line of scope.querySelectorAll(RESULT)) {
     const after =
       line === anchor ||
       (anchor.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
     if (!after || line.contains(anchor) || (line.textContent ?? '').trim() === '') continue;
     if (line.getBoundingClientRect().top - bottom > reach) break;
-    return { after: blockOf(line, main) };
+    result = blockOf(line, main);
+    break;
   }
-  const region = from.closest(REGION);
-  if (region !== null && region !== main && main.contains(region) && !isRow(region)) {
-    if (region.getBoundingClientRect().bottom - bottom <= reach) return { inside: region };
+  // The last thing the press made near the anchor, in its part of the page, after it: what the
+  // press produced comes first, and the note below it.
+  let last: Element | null = null;
+  for (const el of made) {
+    if (!el.isConnected || el.closest('[data-guide-root]') !== null || !scope.contains(el))
+      continue;
+    if (anchor.contains(el) || el.contains(anchor)) continue;
+    if ((anchor.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) === 0) continue;
+    if (el.getBoundingClientRect().top - bottom > reach) continue;
+    if (
+      last === null ||
+      (last.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+    ) {
+      last = el;
+    }
   }
-  return { after: blockOf(anchor, main) };
+  const inView = (el: Element | null) => {
+    const r = el?.getBoundingClientRect();
+    return r !== undefined && r.bottom > topInset() && r.top < window.innerHeight;
+  };
+  const found = from.closest(REGION);
+  const region =
+    found !== null && found !== main && main.contains(found) && !isRow(found) ? found : null;
+  const noteIn = region?.querySelector(':scope > .guide-flow')?.getBoundingClientRect().height ?? 0;
+  return choosePlace<Element>({
+    anchor,
+    item: anchor.matches('li, tr'),
+    itemsInARow: anchor.parentElement !== null && isRow(anchor.parentElement),
+    sticky,
+    result,
+    resultInView: inView(result),
+    made: last === null ? null : blockOf(last, main),
+    region,
+    regionBelow:
+      region === null
+        ? Infinity
+        : regionBelow(region.getBoundingClientRect().bottom, bottom, noteIn),
+    reach,
+    block: blockOf(anchor, main),
+  });
 }
 
 /** The element a note in the flow is drawn into: a list item, a table row's cell, or a block. */
 function makeSlot(host: Element, inside: boolean): { slot: HTMLElement; content: HTMLElement } {
   const parent = inside ? host : host.parentElement;
-  const tag = parent?.matches('ul, ol') ? 'li' : host.matches('tr') && !inside ? 'tr' : 'div';
+  const tag = slotTag(parent?.localName ?? '', host.localName, inside);
   const slot = document.createElement(tag);
   slot.className = 'guide-layer guide-flow';
   slot.setAttribute('data-guide-root', '');
@@ -132,14 +169,43 @@ function makeSlot(host: Element, inside: boolean): { slot: HTMLElement; content:
   return { slot, content: cell };
 }
 
-/** Puts the slot where `place` says, moving it only when it is not there already. */
+/**
+ * Puts the slot where `place` says, moving it only when it is not there already, and never
+ * relative to itself or to anything inside it.
+ */
 function putSlot(slot: HTMLElement, place: FlowPlace): void {
+  const host = 'after' in place ? place.after : place.inside;
+  if (host === slot || slot.contains(host)) return;
   if ('after' in place) {
     if (slot.previousElementSibling !== place.after) place.after.after(slot);
   } else if (place.inside.lastElementChild !== slot) {
     place.inside.append(slot);
   }
 }
+
+/** The tag a slot needs where `place` puts it. */
+function tagFor(place: FlowPlace): string {
+  const host = 'after' in place ? place.after : place.inside;
+  const inside = 'inside' in place;
+  const parent = inside ? host : host.parentElement;
+  return slotTag(parent?.localName ?? '', host.localName, inside);
+}
+
+/** The bar that sticks to the window an element is in, below the page's main column, if any. */
+function stickyBarOf(el: Element): Element | null {
+  for (let at: Element | null = el; at !== null && at.localName !== 'main'; at = at.parentElement) {
+    const position = getComputedStyle(at).position;
+    if (position === 'sticky' || position === 'fixed') return at;
+  }
+  return null;
+}
+
+/** How long after its arrival a note in the flow may still take a better place: what the press
+ * made (a new card, a table) is drawn by the page a frame or two after the note. */
+const SETTLE_MS = 300;
+
+/** Under this width a note in the flow is narrow: 15rem. */
+const NARROW_PX = 240;
 
 /**
  * The anchor a note sits beside, at the moment it is drawn: the element itself while it is in the
@@ -149,10 +215,14 @@ function putSlot(slot: HTMLElement, place: FlowPlace): void {
  */
 export function resolveAnchor(first: unknown, fallbacks: (() => Element | null)[]): Element | null {
   if (typeof Element === 'undefined') return null;
-  if (first instanceof Element && first.isConnected) return around(first);
+  // Nothing of the guide's own is ever an anchor: a note's Pin pressed, or a Tab into the note,
+  // would otherwise anchor the note to itself.
+  const usable = (el: unknown): el is Element =>
+    el instanceof Element && el.isConnected && el.closest('[data-guide-root]') === null;
+  if (usable(first)) return around(first);
   for (const next of fallbacks) {
     const found = next();
-    if (found !== null && found.isConnected) return around(found);
+    if (usable(found)) return around(found);
   }
   return null;
 }
@@ -224,6 +294,10 @@ export function Note({
   const slotRef = useRef(slot);
   slotRef.current = slot;
   const scrolledFor = useRef<Element | null>(null);
+  const [narrow, setNarrow] = useState(false);
+  // The place chosen for the anchor the note arrived at, kept while that anchor and its host are
+  // in the page: a placed note stays put.
+  const chosen = useRef<{ target: Element; where: FlowPlace; at: number } | null>(null);
   // Whether the note has a place by the element it is beside now; a new element (the pressed
   // control gone, a fallback in its place) is a new arrival, judged afresh.
   const arrived = useRef<Element | null>(null);
@@ -250,10 +324,32 @@ export function Note({
       ring(target);
       // In the page's flow: the slot goes where flowPlace says, and the page shows the note by
       // scrolling only as far as it must, never past the anchor's top.
-      const where = flowRef.current?.(target) ?? null;
+      const kept = chosen.current;
+      const keptHost =
+        kept === null ? null : 'after' in kept.where ? kept.where.after : kept.where.inside;
+      const stays =
+        kept !== null &&
+        target !== null &&
+        kept.target === target &&
+        keptHost !== null &&
+        keptHost.isConnected &&
+        performance.now() - kept.at > SETTLE_MS;
+      const where = stays ? kept.where : (flowRef.current?.(target) ?? null);
+      if (!stays) {
+        chosen.current =
+          where === null || target === null
+            ? null
+            : { target, where, at: kept?.target === target ? kept.at : performance.now() };
+      }
       const held = slotRef.current;
       if (where !== null) {
         const host = 'after' in where ? where.after : where.inside;
+        // A slot always fits its parent: one of another kind is made anew (never a tr outside a
+        // table, never an li outside a list).
+        if (held !== null && remakeSlot(held.slot.localName, tagFor(where))) {
+          setSlot(makeSlot(host, 'inside' in where));
+          return;
+        }
         const made = held ?? makeSlot(host, 'inside' in where);
         putSlot(made.slot, where);
         if (held === null) {
@@ -265,6 +361,7 @@ export function Note({
         note.style.removeProperty('max-height');
         note.removeAttribute('data-side');
         setCorner(false);
+        setNarrow(note.getBoundingClientRect().width < NARROW_PX);
         if (target !== null && scrolledFor.current !== target) {
           scrolledFor.current = target;
           // Only as far as brings the note's head into view (its title and first rows), at once
@@ -285,7 +382,7 @@ export function Note({
         return;
       }
       // The element it sat by has gone and nothing stands in for it (a button the page replaced):
-      // the caller may fold it to its line rather than leave it in a corner over the page (F6).
+      // the caller may fold it to its line rather than leave it in a corner over the page.
       // With nothing to sit by at all, from the start or since, its caller may fold it to its
       // line rather than dock it in a corner over the page.
       if (target === null && crowded.current?.() === true) {
@@ -349,6 +446,26 @@ export function Note({
         else note.removeAttribute('data-sheet');
         return;
       }
+      // By a bar that sticks to the window (the menu's Publish bar), the note opens just above the
+      // bar and as wide as it, up to 40rem, so its chain reads in its wide form and the note is
+      // short; it never covers the bar.
+      const bar = window.matchMedia(PHONE).matches ? null : stickyBarOf(target);
+      if (bar !== null) {
+        const b = bar.getBoundingClientRect();
+        const width = Math.min(b.width, 640);
+        note.style.width = `${Math.round(width)}px`;
+        note.style.maxHeight = `${Math.max(160, Math.round(b.top - topInset() - 16))}px`;
+        const height = note.offsetHeight;
+        note.style.top = `${Math.round(Math.max(topInset() + 8, b.top - 8 - height))}px`;
+        note.style.left = `${Math.round(b.left)}px`;
+        note.removeAttribute('data-side');
+        note.setAttribute('data-bar', '');
+        setCorner(false);
+        arrived.current = target;
+        return;
+      }
+      note.removeAttribute('data-bar');
+      note.style.removeProperty('width');
       // A note never runs past the window's foot: taller than the room, it scrolls inside itself.
       note.style.maxHeight = `${Math.max(160, window.innerHeight - BAR_ROOM - topInset() - 16)}px`;
       const rect = target.getBoundingClientRect();
@@ -360,7 +477,7 @@ export function Note({
         top: topInset(),
       };
       // Best, clear of every control on the page; else clear of what matters to this press (the
-      // pressed control, its result, what is pressed next: audit G3), beside the anchor or, with
+      // pressed control, its result, what is pressed next), beside the anchor or, with
       // no room there, docked in the first corner clear of them, the same each time on a page.
       // null: keep clear of every control (a note by a fallback), else of what matters to the press.
       const asked = keep.current?.();
@@ -451,14 +568,29 @@ export function Note({
   // Where the pointer is, so a note in the flow never leaves from under it: what is below the
   // note would move up into the place the pointer is.
   const pointer = useRef<{ x: number; y: number } | null>(null);
-  // A layout effect, so a pointer that moves in the task that draws the note is heard.
+  // A layout effect, so a pointer that moves in the task that draws the note is heard. Only a
+  // mouse or a pen rests: a finger's last place holds nothing. A pointer that leaves the window,
+  // or a window that loses the focus, is forgotten.
   useLayoutEffect(() => {
     if (slot === null) return;
     const track = (event: PointerEvent) => {
-      pointer.current = { x: event.clientX, y: event.clientY };
+      pointer.current =
+        event.pointerType === 'mouse' || event.pointerType === 'pen'
+          ? { x: event.clientX, y: event.clientY }
+          : null;
     };
+    const forget = () => {
+      pointer.current = null;
+    };
+    const root = document.documentElement;
     document.addEventListener('pointermove', track, { passive: true });
-    return () => document.removeEventListener('pointermove', track);
+    root.addEventListener('pointerleave', forget);
+    window.addEventListener('blur', forget);
+    return () => {
+      document.removeEventListener('pointermove', track);
+      root.removeEventListener('pointerleave', forget);
+      window.removeEventListener('blur', forget);
+    };
   }, [slot]);
 
   // Close after a while, unless pinned or in use. A note in the flow folds shut over a fifth of a
@@ -473,7 +605,11 @@ export function Note({
         onClose();
         return;
       }
-      const box = held.slot.parentElement?.getBoundingClientRect();
+      // Its column or panel: what is below it there would rise when it goes.
+      const box = (
+        held.slot.parentElement?.closest('.column, .panel, section, form') ??
+        held.slot.parentElement
+      )?.getBoundingClientRect();
       const at = pointer.current;
       const top = held.slot.getBoundingClientRect().top;
       if (box !== undefined && at !== null && at.y > top && at.y < box.bottom) {
@@ -490,10 +626,16 @@ export function Note({
       timer = window.setTimeout(onClose, 220);
     };
     timer = window.setTimeout(leave, LINGER_MS);
-    return () => window.clearTimeout(timer);
+    // Cleared before it fired (the note's evidence changed while it folded): it is not leaving.
+    return () => {
+      window.clearTimeout(timer);
+      setLeaving(false);
+    };
   }, [pinned, inside, changed, onClose]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (slot === null) return;
+    // While it folds it takes no focus and no pointer.
+    slot.slot.inert = leaving;
     if (leaving) slot.slot.setAttribute('data-leaving', '');
     else slot.slot.removeAttribute('data-leaving');
   }, [slot, leaving]);
@@ -513,7 +655,7 @@ export function Note({
         }
       }}
     >
-      {children}
+      <Narrow.Provider value={slot !== null && narrow}>{children}</Narrow.Provider>
     </section>
   );
   return slot === null ? section : createPortal(section, slot.content);

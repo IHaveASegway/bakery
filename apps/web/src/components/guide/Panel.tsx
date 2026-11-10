@@ -41,8 +41,8 @@ export interface HopLine {
  * The recorder's hops as the panel lists them, newest first: a run of the same type with the same
  * deliveries and the same owner is one line with a count ("MessageDelivered, 8 times"), so a burst
  * of replies never pushes the visitor's own hop out; at most HOP_LINES lines, and a line holding a
- * hop of the visitor's newest action (`keep`) is never cut (audit, Step 4: the hop a note cited at
- * 220 ms had left the list).
+ * hop of the visitor's newest action (`keep`) is never cut (on 2026-11-10 eight replies had pushed
+ * out the hop a note cited at 220 ms).
  */
 export function hopLines(hops: readonly RecorderHop[], keep: string | null): HopLine[] {
   const lines: HopLine[] = [];
@@ -63,8 +63,6 @@ export function hopLines(hops: readonly RecorderHop[], keep: string | null): Hop
   const kept = lines.slice(HOP_LINES).filter((l) => keep !== null && l.trace === keep);
   return [...shown, ...kept];
 }
-
-export { byGesture };
 
 /**
  * The recorder: the keyboard's and the screen reader's way to everything a note shows. It lists
@@ -213,7 +211,7 @@ export default function Panel({
         <>
           <h3 className="guide-section">Hops, as they arrive</h3>
           <p className="guide-meta" role="status">
-            {recorder.wiped
+            {recorder.wiped.includes(sandboxId)
               ? 'The sandbox was wiped: there is nothing more to read.'
               : recorder.panel === 'socket'
                 ? 'Live, on the recorder’s socket: each batch the Queue’s consumer delivers appears here.'
@@ -297,7 +295,8 @@ export default function Panel({
  * reached, on which attempt, a retry or a dead letter; or that nothing subscribes to it.
  */
 export function hopWords(hop: { deliveries: readonly Delivery[] }): string {
-  if (hop.deliveries.length === 0) return 'Written; nothing subscribes to it;';
+  // The line goes on to say when it was written, so it is not said twice.
+  if (hop.deliveries.length === 0) return 'Nothing subscribes to it;';
   const said = deliveryWords(hop.deliveries);
   return `${said.charAt(0).toUpperCase()}${said.slice(1)},`;
 }
