@@ -404,6 +404,8 @@ The author's own code is the likelier culprit. In both five-figure Cloudflare bi
 
 Both reports rest on the developers' own posts. The bakery holds both shapes, alarms in every aggregate and a Queue between them, and at 600 runs a second one object makes 51.8 million calls before a daily alert can arrive. The guard bounds each object, the missing producer removes the second loop, batching removes the multiplier, and the breaker bounds the rest.
 
+The kitchen socket's commands were one more path, found in the review of 2026-11-10 ([security.md](security.md#sandbox-isolation), R72). Until that day they passed no rate limit but the socket's own, 10 frames a second on each of 4 sockets, so 40 commands a second a sandbox, each an Order request and rows written. Since 2026-11-10 a sandbox's commands reach its Orders 60 at once and then one a second, about $0.56 a sandbox a day at most as read from the statements and [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) that day; production's breaker, which would bound the rest, read `unconfigured` on `GET /v1/status` at about 03:58 UTC on 2026-11-10.
+
 ## Patterns and further reading
 
 - Bulkhead (pages and the API on separate meters): Microsoft Azure Architecture Center, ["Bulkhead pattern"](https://learn.microsoft.com/en-us/azure/architecture/patterns/bulkhead).
