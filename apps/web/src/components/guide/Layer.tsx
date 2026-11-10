@@ -149,8 +149,10 @@ export default function Layer({
     group[0]?.transport === 'http' && group[0].outcome === 'ok' && group[0].read === undefined;
   useEffect(() => {
     if (!on || live === null || !writeDone || followed.current === live.gesture) return;
-    const sandbox = sandboxOf(group[0]?.path ?? '');
-    if (sandbox === null) return;
+    // A write to the sandbox itself (its wipe) leaves nothing to read: the recorder goes with it.
+    const path = group[0]?.path ?? '';
+    const sandbox = sandboxOf(path);
+    if (sandbox === null || /^\/v1\/sandboxes\/[^/?]+$/.test(path)) return;
     followed.current = live.gesture;
     const expected = expectedFor(liveEntry, group);
     const gesture = live.gesture;
@@ -244,9 +246,6 @@ export default function Layer({
     onClosePanel();
   }, [pathRun]);
   const pathStep = path.open ? steps[path.index] : undefined;
-  // A guest is never asked for what a guest cannot do: a signed-in step says so, and Next skips.
-  const phase = useSandboxPhase();
-  const guest = (phase.name === 'live' || phase.name === 'seeding') && phase.kind === 'guest';
   const pathEntry =
     pathStep === undefined ? null : (entries.find((e) => e.id === pathStep.entry) ?? null);
   // A step is done when the visitor's request is one of its triggers...
@@ -501,11 +500,7 @@ export default function Layer({
                 onClose={pathEnd}
               />
               <p className="guide-do">{pathStep.do}</p>
-              {pathStep.signedIn === true && guest && (
-                <p className="guide-meta guide-needs">
-                  {NEEDS_SIGN_IN} <a href="/signin/">Sign in</a>
-                </p>
-              )}
+              {pathStep.signedIn === true && <NeedsSignIn />}
               <p className="guide-meta">{pathEntry.what}</p>
               <p className="guide-actions">
                 <button
@@ -675,5 +670,21 @@ function Hotspots({
         </button>
       ))}
     </>
+  );
+}
+
+/**
+ * A guest is never asked for what a guest cannot do: on a step only a signed-in session may take,
+ * a guest reads that it needs a sign-in, and Next moves past it. The session is read only here,
+ * on such a step, so no other page asks for it on the guide's behalf.
+ */
+function NeedsSignIn() {
+  const phase = useSandboxPhase();
+  const guest = (phase.name === 'live' || phase.name === 'seeding') && phase.kind === 'guest';
+  if (!guest) return null;
+  return (
+    <p className="guide-meta guide-needs">
+      {NEEDS_SIGN_IN} <a href="/signin/">Sign in</a>
+    </p>
   );
 }
