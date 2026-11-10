@@ -29,7 +29,7 @@ bakery/
 ├── apps/web/            Astro 7 + React 19 islands → assets-only Worker "bakery-web" (wrangler.jsonc, src/, public/, e2e/, test/)
 ├── workers/api/         Rust Worker "bakery-api": Cargo.toml, wrangler.jsonc, src/{lib.rs, http/, objects/, queue.rs, cron.rs, auth/, stripe/}
 ├── crates/domain/       pure Rust: aggregates (decide/evolve), events, value objects, state machines; no platform dependency; cargo test
-├── crates/app/          use cases and ports (traits): Clock, EventStore, Outbox, PaymentGateway, Mailbox, IdGen
+├── crates/app/          use cases and ports (traits): Clock, PaymentGateway
 ├── crates/seed/         deterministic synthetic data: personas, menu, 90 days of history, venues, the 64 Salt Lake City places (from PR 9)
 ├── crates/contracts/    API types shared with the web app (serde, schemars → JSON Schema → TypeScript types at build)
 ├── tools/route-data/    the Salt Lake City data build (PR 9): osmium and a self-hosted openrouteservice, Node 22 with no dependencies; offline, output committed
