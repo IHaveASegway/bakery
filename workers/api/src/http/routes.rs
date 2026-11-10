@@ -2,6 +2,8 @@
 //! the 405's `Allow`, the Origin exemptions and the scopes cannot drift apart. Plain data, tested
 //! natively, and held to the contract table in crates/contracts in both directions.
 
+use bakery_app::flag_gate::RouteKind;
+
 /// Who may call a route.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scope {
@@ -148,6 +150,26 @@ impl Route {
     /// Whether an API token may stand in for the cookie here.
     pub fn takes_bearer(&self) -> bool {
         self.bearer == Bearer::Yes
+    }
+
+    /// What the route is for `Control`'s flag (roadmap R85, `bakery_app::flag_gate`): the two
+    /// probes, the webhook, signing in and out, "Wipe now", and otherwise a read for a `GET` and
+    /// a command for anything else. A `GET` that births a day or a customer on first touch is
+    /// still a read: it writes no visitor's data.
+    pub fn kind(&self) -> RouteKind {
+        match self.id {
+            RouteId::Health | RouteId::Status => RouteKind::Probe,
+            RouteId::StripeWebhook => RouteKind::Webhook,
+            RouteId::GoogleStart
+            | RouteId::GoogleCallback
+            | RouteId::GithubStart
+            | RouteId::GithubCallback
+            | RouteId::DemoSignin
+            | RouteId::Signout => RouteKind::SignIn,
+            RouteId::WipeSandbox => RouteKind::Wipe,
+            _ if self.method == "GET" => RouteKind::Read,
+            _ => RouteKind::Command,
+        }
     }
 }
 
@@ -880,6 +902,36 @@ pub fn allow(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn every_route_has_a_kind_for_the_flag() {
+        use bakery_app::flag_gate::RouteKind as K;
+        let kinds: Vec<(RouteId, K)> = ROUTES.iter().map(|r| (r.id, r.kind())).collect();
+        let of = |k: K| -> Vec<RouteId> {
+            kinds
+                .iter()
+                .filter(|(_, x)| *x == k)
+                .map(|(id, _)| *id)
+                .collect()
+        };
+        assert_eq!(of(K::Probe), [RouteId::Health, RouteId::Status]);
+        assert_eq!(of(K::Webhook), [RouteId::StripeWebhook]);
+        assert_eq!(of(K::Wipe), [RouteId::WipeSandbox]);
+        assert_eq!(of(K::SignIn).len(), 6);
+        for r in ROUTES {
+            match r.kind() {
+                K::Read => assert_eq!(r.method, "GET", "{:?}", r.id),
+                K::Command => assert_ne!(r.method, "GET", "{:?}", r.id),
+                _ => {}
+            }
+        }
+        // Creating a sandbox or a demo account is a command, as admission already treats it.
+        let kind = |id: RouteId| ROUTES.iter().find(|r| r.id == id).unwrap().kind();
+        assert_eq!(kind(RouteId::CreateSandbox), K::Command);
+        assert_eq!(kind(RouteId::DemoSignup), K::Command);
+        assert_eq!(kind(RouteId::KitchenSocket), K::Read);
+        assert_eq!(kind(RouteId::PlaceOrder), K::Command);
+    }
     use super::*;
 
     fn id_of(m: Matched) -> Option<(RouteId, Option<String>)> {

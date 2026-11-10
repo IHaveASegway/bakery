@@ -42,12 +42,17 @@
 //! also carries `bake_list`, that day as the board holds it after the event, so the client sets
 //! the day's plan and reserved count rather than adjusting them), and for the Sandbox's
 //! `ClockAdvanced`, which reaches the Kitchen with its `/_clock`; `{t: "presence", v: 1, sockets}` when a socket
-//! opens or closes; `{t: "bye", v: 1, reason: "wiped" | "limit"}` before the server closes;
+//! opens or closes; `{t: "bye", v: 1, reason: "wiped" | "limit" | "off"}` before the server
+//! closes (`off` since 2026-11-10, roadmap R85: the demo's flag is `off`, close 1013);
 //! `{t: "ack", v: 1, id}` or `{t: "nack", v: 1, id, rule}` for a command. Client to server:
 //! `{t: "cmd", v: 1, id: <ULID>, order: <ULID>, action: "start_production" | "mark_ready" |
 //! "mark_picked_up"}`, forwarded to the Order's `/_command` with `id` as the idempotency key.
 //! `{"t":"ping","v":1}` is answered `{"t":"pong","v":1}` by the platform's auto-response, which
 //! does not wake the object.
+//!
+//! The demo's flag (roadmap R85, `bakery_app::flag_gate::socket_frame`), read from the isolate's
+//! copy at each frame: at `read-only` a command is answered `nack` with the rule `read-only`
+//! before it spends the budget, and at `off` any frame ends the socket with `bye` `off`.
 //!
 //! Limits (docs/security.md, "Denial of service against the kitchen socket"): 4 open sockets a
 //! sandbox (a fifth is accepted outside hibernation, gets `bye` `limit` and close 1008); frames of
@@ -58,6 +63,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
 use bakery_app::Clock;
+use bakery_app::flag_gate::{SocketFrame, socket_frame};
 use bakery_domain::kitchen::{BakeList, Board, BoardChange, BoardError, Card, Ignored};
 use bakery_domain::{BakeryDate, Envelope, Ulid, WallTime};
 use serde::{Deserialize, Serialize};
@@ -187,6 +193,10 @@ pub enum Closing {
     TooBig,
     /// A binary frame: 1003, unsupported data.
     Binary,
+    /// The demo's flag is `off` (roadmap R85): 1013, try again later, at the socket's next
+    /// frame. The status code is the IANA WebSocket registry's "Try Again Later"
+    /// (https://www.iana.org/assignments/websocket/websocket.xhtml, read on 2026-11-10).
+    Off,
 }
 
 impl Closing {
@@ -196,6 +206,7 @@ impl Closing {
             Closing::TooMany | Closing::TooFast => 1008,
             Closing::TooBig => 1009,
             Closing::Binary => 1003,
+            Closing::Off => 1013,
         }
     }
 
@@ -204,6 +215,7 @@ impl Closing {
     pub fn bye(self) -> &'static str {
         match self {
             Closing::Wiped => "wiped",
+            Closing::Off => "off",
             _ => "limit",
         }
     }
@@ -216,6 +228,7 @@ impl Closing {
             Closing::TooFast => "too-many-frames",
             Closing::TooBig => "frame-too-big",
             Closing::Binary => "text-only",
+            Closing::Off => "demo-off",
         }
     }
 }
@@ -569,12 +582,23 @@ impl DurableObject for Kitchen {
             close(&ws, Closing::Wiped);
             return Ok(());
         }
-        let (id, answer) = match read_frame(&text) {
-            Ok(cmd) => {
+        let frame = read_frame(&text);
+        // The demo's flag (roadmap R85), from the isolate's copy: at `off` any frame ends the
+        // socket, at `read-only` a command is refused before it spends the budget.
+        let flag = crate::flag::current(&self.env).await;
+        let (id, answer) = match (socket_frame(flag, frame.is_ok()), frame) {
+            (SocketFrame::Close, _) => {
+                self.refuse_socket(&ws, &tag, Closing::Off);
+                return Ok(());
+            }
+            (SocketFrame::RefuseCommand, Ok(cmd)) => {
+                (cmd.id.to_string(), Answer::nack("read-only"))
+            }
+            (_, Ok(cmd)) => {
                 let answer = self.command(&cmd, now_ms).await?;
                 (cmd.id.to_string(), answer)
             }
-            Err((id, rule)) => (id, Answer::nack(rule)),
+            (_, Err((id, rule))) => (id, Answer::nack(rule)),
         };
         // A run of `rate-limit` refusals logs its first only, so a flood is one line.
         let limited = answer.rule.as_deref() == Some(RATE_LIMIT);

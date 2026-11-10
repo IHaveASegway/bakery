@@ -178,7 +178,7 @@ Isolation is a database per tenant per aggregate, not row-level security over a 
 
 | Class | One per | Holds | Who writes | Lifetime | Cleanup alarm |
 |---|---|---|---|---|---|
-| `Control` | account, `control` | flags `live`, `read-only`, `off`; daily ledger; kill switch; the daily IP salt, in memory only, never stored | router, cron (the breaker raises the flag, never lowers it), Joseph (flags and the breaker's reset, in Data Studio) | long-lived | prunes ledger rows past 35 days |
+| `Control` | account, `control` | flags `live`, `read-only`, `off`; daily ledger; kill switch; the daily IP salt, in memory only, never stored | router (since 2026-11-10 every route reads the flag, from an isolate's copy at most 60 s old; roadmap R85), cron (the breaker raises the flag, never lowers it), Joseph (flags and the breaker's reset, in Data Studio) | long-lived | prunes ledger rows past 35 days |
 | `Account` | identity | demo password hash, current sandbox id, created day | router | 30 days after last sign-in (Q23 · Q-auth) | 30 days idle, then `delete_all` |
 | `Sandbox` | sandbox | lifecycle, seed, child registry, clock offset, API token version, fault switches, dead letters | router; its alarms | to the next wipe | next 10:00 UTC; 36 h |
 | `Catalog` | sandbox | items, variants, prices, availability rules, menu version | staff; seed | to the wipe | 36 h |
