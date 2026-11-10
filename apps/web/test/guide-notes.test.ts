@@ -11,6 +11,7 @@ import { sandboxOf } from '../src/lib/recorder';
 import {
   entryForTraces,
   expectedFor,
+  unfollowable,
   gesturesIn,
   newestWatchNews,
   noteToOpen,
@@ -347,7 +348,7 @@ describe('what a note says', () => {
     expect(html).toContain('>ack<');
     expect(html).toContain('by the Order object');
     expect(html).toMatch(/data-state="observed".*OrderProductionStarted.*seq 3/s);
-    expect(html).toMatch(/data-state="expected".*BakeListChanged.*expected/s);
+    expect(html).toMatch(/data-state="expected".*BakeListChanged.*on its way/s);
     expect(html).not.toContain('style=');
   });
 
@@ -511,17 +512,50 @@ describe('what the recorder showed, in plain words', () => {
         reading: 'done',
       }),
     );
-    expect(html).toContain('not seen yet: the recorder may have missed it');
-    const reading = renderToStaticMarkup(
-      createElement(TraceChain, {
-        traces: [trace()],
-        expected: ['OrderPlaced'],
-        feed: [],
-        reading: 'reading',
-      }),
+    expect(html).toContain('not seen on the recorder in 30 s; it may have missed it');
+    const draw = (reading: 'idle' | 'reading' | 'late') =>
+      renderToStaticMarkup(
+        createElement(TraceChain, {
+          traces: [trace()],
+          expected: ['OrderPlaced'],
+          feed: [],
+          reading,
+        }),
+      );
+    expect(draw('reading')).toContain('waiting for the recorder');
+    expect(draw('late')).toContain('not seen on the recorder yet; still listening');
+    expect(draw('idle')).toContain('on its way');
+    // The word "expected" is never shown: an event either came, is on its way, or was not seen.
+    for (const r of ['idle', 'reading', 'late'] as const) {
+      expect(draw(r).replace(/data-state="expected"/g, '')).not.toMatch(/>[^<]*expected/);
+    }
+  });
+
+  test('a write waits only for what it writes and the recorder can show (audit G4)', () => {
+    const write = (method: string, path: string) => trace({ method, path });
+    // A new sandbox and a demo account name no sandbox: nothing is followed, and the note says so.
+    expect(expectedFor(entry('controls-new-sandbox'), [write('POST', '/v1/sandboxes')])).toEqual(
+      [],
     );
-    expect(reading).toContain('expected');
-    expect(reading).not.toContain('not seen yet');
+    expect(unfollowable([write('POST', '/v1/sandboxes')])).toContain('names none');
+    // A wipe takes the recorder with it.
+    expect(expectedFor(entry('controls-wipe'), [write('DELETE', '/v1/sandboxes/sb1')])).toEqual([]);
+    expect(unfollowable([write('DELETE', '/v1/sandboxes/sb1')])).toContain('goes with the sandbox');
+    // Paying makes the intent; the webhook's events come after the card, another press.
+    expect(
+      expectedFor(entry('checkout-pay'), [write('POST', '/v1/sandboxes/sb1/orders/o1/payment')]),
+    ).toEqual(['PaymentIntentCreated']);
+    // Issuing a token at the same version writes nothing.
+    expect(expectedFor(entry('console-token'), [write('POST', '/v1/sandboxes/sb1/token')])).toEqual(
+      [],
+    );
+    // A price draft waits for its own event.
+    expect(
+      expectedFor(entry('controls-menu-edit'), [
+        write('PATCH', '/v1/sandboxes/sb1/menu/items/country-loaf'),
+      ]),
+    ).toEqual(['MenuItemChanged']);
+    expect(unfollowable([write('PATCH', '/v1/sandboxes/sb1/menu/items/country-loaf')])).toBeNull();
   });
 
   test('the recorder’s own explanation is short, and judged as every entry is', () => {

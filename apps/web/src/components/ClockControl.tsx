@@ -79,7 +79,7 @@ export default function ClockControl({
           Clock
         </h3>
       )}
-      <p>
+      <p data-guide-result="">
         Business time is{' '}
         <strong className="whitespace-nowrap">
           <time dateTime={now.iso}>{now.text}</time>

@@ -521,7 +521,8 @@
   display: inline;
 }
 
-.guide-curl summary {
+.guide-curl summary,
+.guide-reasons summary {
   min-height: 24px;
   color: var(--guide-accent);
   font-weight: 600;
@@ -660,13 +661,14 @@
   outline-offset: 3px;
 }
 
-/* ---- A narrow screen: the dock is one 48 px button, never over the page's primary column ----
+/* ---- A narrow screen: the dock is one button, never over the page's primary column ----
 
-   It shows the switch's state and opens the whole control on a tap. Where the page has its own
-   bottom bar (the menu's cart bar), the button sits at that bar's left end, in the same row, so
-   the column of Add buttons at the right never passes under it; where it has none, the button
-   sits in the masthead's first row and scrolls away with it, over nothing. */
-@media (max-width: 60rem) {
+   It shows the switch's state and opens the whole control on a tap. Between a phone and a wide
+   screen, where the page has its own bottom bar (the menu's cart bar), the button sits at that
+   bar's left end, in the same row, so the column of Add buttons never passes under it. On a phone
+   (48rem and under) it is a labelled button in a row of the masthead's own, the same place on
+   every page, cart bar or not (audit G6, 2026-11-10). */
+@media (min-width: 48.01rem) and (max-width: 60rem) {
   body:has(.cart-bar) .guide-bar-dock {
     padding: 0;
     border: 0;
@@ -824,29 +826,48 @@
     text-align: left;
   }
 
-  /* In the nav's row, left of the session link, in the row's flow: nothing touches it. */
-  body:not(:has(.cart-bar)) .masthead-guide {
+  /* A row of its own under the masthead's links, in the page's flow: nothing touches it, and it
+     reads "Under the hood" beside its switch, so a stranger finds it without pressing anything. */
+  .masthead-guide {
     display: block;
-    flex: none;
-    margin-left: 8px;
+    flex: 1 1 100%;
+    order: 4;
   }
 
-  body:not(:has(.cart-bar)) .guide-layer .guide-bar-dock .guide-compact {
-    width: 44px;
-    height: 44px;
+  .guide-layer .guide-bar-dock .guide-compact {
+    display: inline-flex;
+    gap: 8px;
+    width: auto;
+    height: 40px;
+    padding: 0 12px 0 10px;
+    box-shadow: none;
   }
 
-  body:not(:has(.cart-bar)) .guide-bar-dock {
+  .guide-compact-text {
+    color: var(--guide-text);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .guide-bar-dock {
     position: relative;
     right: auto;
     bottom: auto;
+    left: auto;
     z-index: 30;
   }
 
-  body:not(:has(.cart-bar)) .guide-bar-dock .guide-full[data-open] {
+  .guide-bar-dock .guide-full[data-open] {
     top: calc(100% + 8px);
-    right: 0;
+    left: 0;
   }
+}
+
+/* An entry's reasons after its first note in a visit: one line that opens them (G12). */
+.guide-reasons {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--guide-border);
 }
 
 /* ---- A note the page caused by itself, folded to one line ----

@@ -34,15 +34,39 @@ export const targetOf = (target: string) =>
   document.querySelector<HTMLElement>(`[data-tour="${CSS.escape(target)}"]`);
 
 /** The one event each of the board's commands makes, when the Order object accepts it. */
-const COMMAND_EVENT: Record<string, string> = {
+export const COMMAND_EVENT: Record<string, string> = {
   start_production: 'OrderProductionStarted',
   mark_ready: 'OrderReady',
   mark_picked_up: 'OrderPickedUp',
 };
 
 /**
- * The events a note expects for what the visitor did: a board command makes its one event; a story
- * read makes none; any other action makes the entry's events.
+ * What a route's write writes by itself, where it is less than its entry's events (audit G4,
+ * 2026-11-10): the rest comes later, from another hand. Paying makes a payment intent; Stripe's
+ * webhook pays it after the card is confirmed, which is another press. Issuing a token at the same
+ * version writes nothing; rotating it writes ApiTokenRotated. Starting traffic writes
+ * TrafficStarted; its orders come a minute or more later. Scheduling a campaign writes
+ * CampaignScheduled; it is sent at its time.
+ */
+export const ROUTE_WRITES: Record<string, readonly string[]> = {
+  pay: ['PaymentIntentCreated'],
+  'catering-deposit': ['PaymentIntentCreated'],
+  'issue-token': [],
+  'rotate-token': ['ApiTokenRotated'],
+  'start-traffic': ['TrafficStarted'],
+  'schedule-campaign': ['CampaignScheduled'],
+};
+
+/** The sandbox a write names in its path, or null (`/v1/sandboxes` itself, the auth routes). */
+const sandboxIn = (path: string) =>
+  /^\/v1\/sandboxes\/([^/?]+)\//.exec(path.split('?')[0] + '/')?.[1] ?? null;
+
+/**
+ * The events a note waits for after what the visitor did, each one the action writes and the
+ * recorder can show (audit G4). A board command makes its one event; a read makes none. A write
+ * that names no sandbox (a new sandbox, a demo account) or is the sandbox's own wipe cannot be
+ * followed on the recorder, which is read by sandbox and goes with it: it waits for none. Any other
+ * write waits for what its route writes (ROUTE_WRITES), else its entry's events.
  */
 export function expectedFor(entry: GuideEntry | null, group: readonly Trace[]): string[] {
   const first = group[0];
@@ -50,7 +74,31 @@ export function expectedFor(entry: GuideEntry | null, group: readonly Trace[]): 
   if (first?.read !== undefined) return [];
   const one = first?.transport === 'socket' ? COMMAND_EVENT[first.action ?? ''] : undefined;
   if (one !== undefined) return [one];
+  if (first !== undefined && first.transport !== 'socket') {
+    const bare = first.path.split('?')[0] ?? first.path;
+    if (/^\/v1\/sandboxes\/[^/]+$/.test(bare) || sandboxIn(bare) === null) return [];
+    const route = routeIdOf(first);
+    const writes = route === null ? undefined : ROUTE_WRITES[route];
+    if (writes !== undefined) return [...writes];
+  }
   return entry?.events ?? [];
+}
+
+/**
+ * Why a write's note waits for no event, in words, when it is one the recorder cannot follow; null
+ * otherwise.
+ */
+export function unfollowable(group: readonly Trace[]): string | null {
+  const first = group[0];
+  if (first === undefined || first.transport === 'socket' || first.read !== undefined) return null;
+  const bare = first.path.split('?')[0] ?? first.path;
+  if (/^\/v1\/sandboxes\/[^/]+$/.test(bare)) {
+    return 'The recorder is the sandbox’s own, so it goes with the sandbox: no event of this is shown here.';
+  }
+  if (sandboxIn(bare) === null && first.method !== 'GET') {
+    return 'The recorder is read by sandbox and this call names none, so its events are not followed here; the Recorder panel shows them once the sandbox is yours.';
+  }
+  return null;
 }
 
 /**

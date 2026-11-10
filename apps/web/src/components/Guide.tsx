@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { PATHS } from '../guide/paths';
 import { SWITCH_KEY, switchOn, type PageId } from '../lib/guide';
 import '../styles/guide.css';
@@ -68,6 +69,20 @@ export default function Guide({
     setReady(true);
   }, []);
 
+  // On a wide screen the dock floats at the window's foot, so it is moved to the end of the page
+  // once the island has hydrated: a keyboard reaches it after the main content and the footer, and
+  // nothing of the guide stands between the page's nav and its main action (audit G10). On a phone
+  // it stays in the masthead's own row, where it is seen.
+  const [floating, setFloating] = useState(false);
+  useEffect(() => {
+    if (placement !== 'dock') return;
+    const wide = window.matchMedia('(min-width: 48.01rem)');
+    const update = () => setFloating(wide.matches);
+    update();
+    wide.addEventListener('change', update);
+    return () => wide.removeEventListener('change', update);
+  }, [placement]);
+
   // The control's menu closes on Escape and on a press anywhere outside the control, as a menu
   // does; Escape gives the focus back to the button that opened it.
   const bar = useRef<HTMLDivElement>(null);
@@ -115,7 +130,7 @@ export default function Guide({
     else compactButton.current?.focus();
   }, []);
 
-  return (
+  const control = (
     <div className="guide-layer" data-guide-root="">
       <div
         ref={bar}
@@ -137,6 +152,10 @@ export default function Guide({
           >
             <span className="guide-switch-track" aria-hidden="true">
               <span className="guide-switch-thumb" />
+            </span>
+            {/* Words a stranger reads without pressing anything (audit G6). */}
+            <span className="guide-compact-text" aria-hidden="true">
+              Under the hood
             </span>
           </button>
         )}
@@ -223,4 +242,5 @@ export default function Guide({
       )}
     </div>
   );
+  return floating ? createPortal(control, document.body) : control;
 }

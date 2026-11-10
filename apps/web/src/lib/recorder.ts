@@ -22,8 +22,14 @@ import type { TraceFrame, TraceResponse } from '../contracts';
 import { ApiError, getTrace, traceSocketUrl } from './api';
 import { fromHop, recorderSource } from './trace';
 
-/** The gaps between a note's reads of the recorder, after its write is answered. */
-export const NOTE_READS_MS = [400, 800, 1_800] as const;
+/**
+ * The gaps between a note's reads of the recorder, after its write is answered: three in the first
+ * 3 s, when an event usually shows, then more spaced out until about 30 s (audit G4, 2026-11-10).
+ * An event not seen after the first three is said to be late, and listened for until the last.
+ */
+export const NOTE_READS_MS = [400, 800, 1_800, 3_000, 5_000, 8_000, 12_000] as const;
+/** After this many reads an event not yet seen is late: about 3 s after the answer. */
+export const NOTE_READS_ON_TIME = 3;
 /** A follow-on page when a read says `more`, at most this many a read. */
 const MORE_PAGES = 2;
 /** The panel's read when its socket is refused. */
@@ -31,7 +37,7 @@ export const PANEL_POLL_MS = 5_000;
 
 export interface RecorderState {
   /** A note's reads: none yet, under way, or done (what was not seen by then stays expected). */
-  reading: 'idle' | 'reading' | 'done';
+  reading: 'idle' | 'reading' | 'late' | 'done';
   /** Older hops left the ring between two reads: what they held is not known. */
   missed: boolean;
   /** The sandbox is wiped: nothing more is read. */
@@ -138,19 +144,21 @@ export function sandboxOf(path: string): string | null {
 let follow = 0;
 
 /**
- * After the visitor's write is answered: read the recorder at most NOTE_READS_MS.length times,
+ * After the visitor's write is answered: read the recorder at most NOTE_READS_MS.length times (late
+ * after NOTE_READS_ON_TIME of them),
  * stopping as soon as `seen` says every expected event is observed, or the tab is hidden, or a
  * newer note's reads begin.
  */
 export async function followWrite(sandboxId: string, seen: () => boolean): Promise<void> {
   const mine = ++follow;
   set({ reading: 'reading', missed: false });
-  for (const gap of NOTE_READS_MS) {
+  for (const [i, gap] of NOTE_READS_MS.entries()) {
     await new Promise((done) => setTimeout(done, gap));
     if (mine !== follow || state.wiped) return;
     if (typeof document !== 'undefined' && document.hidden) break;
     if (!(await readOnce(sandboxId))) return;
     if (seen()) break;
+    if (i + 1 === NOTE_READS_ON_TIME) set({ reading: 'late' });
   }
   if (mine === follow) set({ reading: 'done' });
 }

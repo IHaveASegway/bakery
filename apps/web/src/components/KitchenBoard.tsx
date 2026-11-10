@@ -380,7 +380,7 @@ export default function KitchenBoard({
         )}
         <div aria-live="polite" className="messages">
           {refunded !== null && (
-            <p className="hint" ref={refundLine} tabIndex={-1}>
+            <p className="hint" ref={refundLine} tabIndex={-1} data-guide-result="">
               {refunded.said}
             </p>
           )}

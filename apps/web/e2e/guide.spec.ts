@@ -442,6 +442,203 @@ test.describe('a stranger at the gate', () => {
   });
 });
 
+/**
+ * The guide's open note and floating line against what matters to the visitor's press (audit G3):
+ * the control pressed (`pressed`, a name without its order), every control of that name, the
+ * result (the ringed element and anything marked data-guide-result) and the control the page put
+ * the focus on. Each that one covers, named.
+ */
+async function overWhatMatters(page: Page, pressed: string): Promise<string[]> {
+  return page.evaluate((name) => {
+    const strip = (s: string) => s.trim().replace(/\s+for order\s+\S+$/i, '');
+    const label = (el: Element) => strip(el.getAttribute('aria-label') ?? el.textContent ?? '');
+    const guide = [
+      ...document.querySelectorAll(
+        '.guide-note, .guide-layer:not(.guide-line-docked) > .guide-line',
+      ),
+    ].map((n) => n.getBoundingClientRect());
+    const matters = new Map<Element, string>();
+    for (const el of document.querySelectorAll('main button, main a[href], main summary')) {
+      if (label(el) === name) matters.set(el, `the control "${name}"`);
+    }
+    for (const el of document.querySelectorAll('[data-guide-anchor], [data-guide-result]')) {
+      matters.set(el, `the result "${(el.textContent ?? '').trim().slice(0, 30)}"`);
+    }
+    const active = document.activeElement;
+    if (active instanceof Element && active.closest('main') !== null) {
+      matters.set(active, `the next control "${label(active).slice(0, 30)}"`);
+    }
+    const hits: string[] = [];
+    for (const [el, what] of matters) {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      for (const b of guide) {
+        if (r.left < b.right && r.right > b.left && r.top < b.bottom && r.bottom > b.top) {
+          hits.push(what);
+        }
+      }
+    }
+    return hits;
+  }, pressed);
+}
+
+for (const width of [1280, 1440]) {
+  test(`at ${width} px a move's note covers neither the moved card, its next button nor the next Start (G3)`, async ({
+    page,
+  }) => {
+    await demoAccount(page);
+    await liveSandbox(page);
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/app/');
+    await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+    const confirmed = page.locator('section[aria-labelledby="board-confirmed"]');
+    const start = confirmed.getByRole('button', { name: /^Start production for order / }).first();
+    await expect(start).toBeVisible();
+    await start.click();
+    const note = page.locator('#guide-live, .guide-layer:not(.guide-line-docked) > .guide-line');
+    await expect(note.first()).toBeVisible();
+    await expect(page.locator('#guide-live')).toContainText('OrderProductionStarted');
+    await expect(page.locator('html')).toHaveAttribute('data-guide-marks', 'settled');
+    expect(await overWhatMatters(page, 'Start production')).toEqual([]);
+  });
+
+  test(`at ${width} px the clock's note covers neither the readout it changed nor its buttons (G3)`, async ({
+    page,
+  }) => {
+    await demoAccount(page);
+    await liveSandbox(page);
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/app/system/');
+    const day = page.getByRole('button', { name: /^Advance 1 day/ }).first();
+    await expect(day).toBeVisible();
+    const name = ((await day.getAttribute('aria-label')) ?? (await day.textContent()) ?? '').trim();
+    await day.click();
+    await expect(page.locator('#guide-live')).toContainText('The clock');
+    expect(await overWhatMatters(page, name)).toEqual([]);
+    // The clock's other buttons, pressed next, are not under it either.
+    for (const next of ['15 minutes', '1 hour']) {
+      const other = page.getByRole('button', { name: new RegExp(`^Advance ${next}`) }).first();
+      const label = ((await other.getAttribute('aria-label')) ?? '').trim();
+      expect(await overWhatMatters(page, label), next).toEqual([]);
+    }
+  });
+}
+
+test('the refund’s note opens in full, inside the window, with no line on it and only the refund ringed (G2)', async ({
+  page,
+}) => {
+  await demoAccount(page);
+  await liveSandbox(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/app/');
+  await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+  const menu = page
+    .locator('section[aria-labelledby="board-confirmed"] details.menu > summary')
+    .first();
+  await menu.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await menu.click();
+  const panel = page.locator('.board details.menu[open] .menu-panel');
+  await panel.getByRole('button', { name: /^Refund order / }).click();
+  await panel.getByRole('button', { name: /^Refund all that is left of \$/ }).click();
+  const said = page.locator('[data-guide-result]', { hasText: /^Refunded \$/ });
+  await expect(said).toBeVisible();
+  const note = page.getByRole('region', { name: 'Under the hood: Refunding an order' });
+  // In full, by itself: the answer to a deliberate two-press action.
+  await expect(note).toBeVisible();
+  // Inside the window's height, scrolling inside itself if it must.
+  const box = await note.boundingBox();
+  expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(800);
+  // Its folded line is not shown while it is open.
+  await expect(page.locator('.guide-layer:not(.guide-line-docked) > .guide-line')).toHaveCount(0);
+  // Only the refund's sentence is ringed, and the note is not over it.
+  const ringed = page.locator('[data-guide-anchor]');
+  if ((await ringed.count()) > 0) await expect(ringed).toHaveAttribute('data-guide-result', '');
+  expect(await overWhatMatters(page, 'Refund all')).toEqual([]);
+});
+
+test('after a fresh sandbox, a price draft and a move, no row of a note is left waiting at rest (G4)', async ({
+  page,
+}) => {
+  test.setTimeout(150_000);
+  await demoAccount(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/app/');
+  // A fresh sandbox from the console's own button: nothing on this page to sit beside once the
+  // board replaces the button, so it waits as its line (F6), over no control.
+  await page.getByRole('button', { name: 'New sandbox' }).first().click();
+  await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible({
+    timeout: 60_000,
+  });
+  const line = page.locator('.guide-layer:not(.guide-line-docked) > .guide-line');
+  await expect(line).toContainText('A fresh sandbox');
+  await expect(page.locator('#guide-live')).toHaveCount(0);
+  expect(await guideOverControls(page)).toEqual([]);
+  await line.getByRole('button', { name: /A fresh sandbox/ }).click();
+  const fresh = page.locator('#guide-live');
+  await expect(fresh).toContainText('names none');
+  await expect(fresh.locator('[data-state="expected"]')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  // A price draft: MenuItemChanged arrives on the recorder.
+  await page.goto('/app/menu/');
+  const field = page.getByRole('textbox').nth(1);
+  await expect(field).toBeVisible();
+  await field.fill('9.75');
+  await page
+    .getByRole('button', { name: /^Set price/ })
+    .first()
+    .click();
+  const draft = page.locator('#guide-live');
+  await expect(draft).toBeVisible();
+  await draft.getByRole('button', { name: 'Keep this note open' }).click();
+  await expect(
+    draft.locator('[data-state="observed"]', { hasText: 'MenuItemChanged' }),
+  ).toBeVisible({ timeout: 35_000 });
+  await expect(draft.locator('[data-state="expected"]')).toHaveCount(0);
+
+  // A board move: its one event comes back over the socket.
+  await page.goto('/app/');
+  const start = page
+    .locator('section[aria-labelledby="board-confirmed"]')
+    .getByRole('button', { name: /^Start production for order / })
+    .first();
+  await start.click();
+  const move = page.locator('#guide-live');
+  await expect(
+    move.locator('[data-state="observed"]', { hasText: 'OrderProductionStarted' }),
+  ).toBeVisible();
+  await expect(move.locator('[data-state="expected"]')).toHaveCount(0);
+});
+
+test('on the menu a keyboard meets the nav, the page, the footer, then the guide; never a mark (G10)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/menu/');
+  await expect(page.locator('.guide-spot').first()).toBeVisible();
+  const order: string[] = [];
+  for (let i = 0; i < 80; i += 1) {
+    await page.keyboard.press('Tab');
+    const where = await page.evaluate(() => {
+      const el = document.activeElement;
+      if (el === null || el === document.body) return 'body';
+      if (el.closest('.guide-spot')) return 'mark';
+      if (el.closest('[data-guide-root]')) return 'guide';
+      if (el.closest('header')) return 'header';
+      if (el.closest('main')) return 'main';
+      if (el.closest('footer')) return 'footer';
+      return 'other';
+    });
+    if (order.at(-1) !== where) order.push(where);
+    if (where === 'guide' && order.includes('footer')) break;
+  }
+  expect(order).not.toContain('mark');
+  const guide = order.indexOf('guide');
+  expect(guide).toBeGreaterThan(order.indexOf('main'));
+  expect(guide).toBeGreaterThan(order.indexOf('footer'));
+  expect(order.indexOf('main')).toBeGreaterThan(order.indexOf('header'));
+});
+
 test('one press of Show me around shows step 1, with the menu’s line showing', async ({ page }) => {
   await demoAccount(page);
   await liveSandbox(page);
@@ -802,7 +999,7 @@ test.describe('on a phone', () => {
     }
   });
 
-  test('the guide’s control is one button that never sits over an Add button or a checkout step control', async ({
+  test('the guide’s control reads “Under the hood” in one place on every page, over no link or control', async ({
     page,
   }) => {
     await demoAccount(page);
@@ -813,58 +1010,13 @@ test.describe('on a phone', () => {
       `/v1/sandboxes/${sandbox.id}/menu`,
     );
     const want = pickupOrder(menu.body, sandbox.clock_offset_s ?? 0, 2);
-    const underIt = (selector: string) =>
-      page.evaluate(async (sel) => {
-        const hits: string[] = [];
-        const control = document.querySelector('.guide-bar-dock');
-        if (control === null) return ['no guide control'];
-        const frame = () =>
-          new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
-        const end = document.documentElement.scrollHeight - window.innerHeight;
-        for (let y = 0; ; y = Math.min(end, y + 120)) {
-          window.scrollTo(0, y);
-          await frame();
-          const c = control.getBoundingClientRect();
-          for (const el of document.querySelectorAll(sel)) {
-            const r = el.getBoundingClientRect();
-            if (
-              r.width > 0 &&
-              r.left < c.right &&
-              r.right > c.left &&
-              r.top < c.bottom &&
-              r.bottom > c.top
-            ) {
-              hits.push(
-                `at ${y}: ${(el.textContent ?? el.getAttribute('aria-label') ?? '').trim().slice(0, 40)}`,
-              );
-            }
-          }
-          if (y >= end) break;
-        }
-        return hits;
-      }, selector);
-
-    await page.goto('/menu/');
-    const compact = page.getByRole('button', { name: /^Under the hood, (on|off)$/ });
-    await expect(compact).toBeVisible();
-    const box = await compact.boundingBox();
-    expect(box?.width).toBeGreaterThanOrEqual(44);
-    expect(box?.height).toBeGreaterThanOrEqual(44);
-    const close = page.getByRole('button', { name: 'Close this note' });
-    if (await close.isVisible()) await close.click();
-    // It sits at the cart bar's left end, in the same row, never over the column of Add buttons.
-    const bar = await page.locator('.cart-bar').boundingBox();
-    expect(
-      Math.abs((bar?.y ?? 0) + (bar?.height ?? 0) - ((box?.y ?? 0) + (box?.height ?? 0))),
-    ).toBeLessThanOrEqual(1);
-    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(bar?.x ?? 0);
-    expect(await underIt('button[aria-label^="Add "]')).toEqual([]);
-    // A tap opens the whole control: the switch, the short path and the recorder.
-    await compact.click();
-    await expect(page.getByRole('switch', { name: 'Under the hood' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Recorder' })).toBeVisible();
-    await compact.click();
-
+    const order = await api<{ id: string }>(
+      page,
+      'POST',
+      `/v1/sandboxes/${sandbox.id}/orders`,
+      want,
+    );
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
     await page.evaluate((cart) => sessionStorage.setItem('bakery.cart.v1', JSON.stringify(cart)), {
       lines: want.lines,
       note: '',
@@ -872,10 +1024,65 @@ test.describe('on a phone', () => {
       zone: 'z1',
       slot: '',
     });
-    await page.goto('/checkout/');
-    await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
-    // No cart bar here: the control sits in the masthead's first row and scrolls away with it.
-    expect(await underIt('form button, form input, form select, form label')).toEqual([]);
+    // Where the control is, from the masthead's top-left, and what it covers there.
+    const where = () =>
+      page.evaluate(() => {
+        const control = document.querySelector('.guide-compact');
+        const masthead = document.querySelector('.masthead');
+        if (control === null || masthead === null) return null;
+        const c = control.getBoundingClientRect();
+        const m = masthead.getBoundingClientRect();
+        const over = [
+          ...document.querySelectorAll('a[href], button, input, select, textarea, label'),
+        ]
+          .filter((el) => !control.contains(el) && el.closest('[data-guide-root]') === null)
+          .filter((el) => {
+            const r = el.getBoundingClientRect();
+            return (
+              r.width > 0 &&
+              r.left < c.right &&
+              r.right > c.left &&
+              r.top < c.bottom &&
+              r.bottom > c.top
+            );
+          })
+          .map((el) => (el.textContent ?? '').trim().slice(0, 30));
+        return {
+          left: Math.round(c.left - m.left),
+          fromLinks: Math.round(
+            c.top -
+              (document.querySelector('.site-nav-links')?.getBoundingClientRect().bottom ?? 0),
+          ),
+          text: (control.textContent ?? '').trim(),
+          over,
+        };
+      });
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      const seen: { left: number; fromLinks: number }[] = [];
+      for (const path of ['/', '/menu/', '/checkout/', `/order/?id=${order.body.id}`]) {
+        await page.goto(path);
+        const compact = page.getByRole('button', { name: /^Under the hood, (on|off)$/ });
+        await expect(compact).toBeVisible();
+        // Words a stranger reads without pressing anything.
+        await expect(compact).toContainText('Under the hood');
+        const at = await where();
+        expect(at, path).not.toBeNull();
+        if (at === null) continue;
+        expect(at.over, `${width} ${path}`).toEqual([]);
+        seen.push({ left: at.left, fromLinks: at.fromLinks });
+      }
+      // The same place on each: the same distance from the masthead's edge and from its links.
+      for (const at of seen) expect(at).toEqual(seen[0]);
+    }
+    // A tap opens the whole control: the switch, the short path and the recorder.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/menu/');
+    const compact = page.getByRole('button', { name: /^Under the hood, (on|off)$/ });
+    await compact.click();
+    await expect(page.getByRole('switch', { name: 'Under the hood' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Recorder' })).toBeVisible();
+    await compact.click();
     await expectNoAxeViolations(page);
   });
 
