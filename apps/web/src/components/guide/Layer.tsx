@@ -435,10 +435,13 @@ export default function Layer({
   // An open note folds back to its line when the visitor goes on with the page: a press outside
   // it, or a scroll (a wheel or a finger; the page moving by itself is not the visitor). On a
   // phone every live note's sheet does, so it never stays over what the visitor wants next; a
-  // note the visitor pinned stays.
+  // note the visitor pinned stays. The listener goes on in the commit that draws the note (a
+  // layout effect, here and for the two notes below), so a note on the screen always hears the
+  // page: a passive effect runs a moment after the note is drawn, and a wheel in that moment
+  // went unheard, which left the sheet over the page until its time ran out.
   const phone = () => window.matchMedia('(max-width: 40rem)').matches;
   const liveOpen = live !== null && (asLine ? storyOpen : phone());
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!liveOpen || live?.pinned === true) return;
     return onGoingOn(() => {
       if (asLine) setStoryOpen(false);
@@ -463,7 +466,7 @@ export default function Layer({
     if (!on || panel) setWatch(null);
   }, [on, panel]);
   const closeWatch = useCallback(() => setWatch(null), []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (watch === null || watch.pinned || !phone()) return;
     return onGoingOn(closeWatch);
   }, [watch, closeWatch]);
@@ -481,7 +484,7 @@ export default function Layer({
   // ---- Hotspots and the standing note ----
   const [standing, setStanding] = useState<Standing | null>(null);
   const closeStanding = useCallback(() => setStanding(null), []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (standing === null || standing.held === true || !phone()) return;
     return onGoingOn(closeStanding);
   }, [standing, closeStanding]);

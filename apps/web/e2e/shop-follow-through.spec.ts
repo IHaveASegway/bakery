@@ -73,6 +73,8 @@ for (const width of WIDTHS) {
     await expect(subjects.first()).toBeVisible();
     const count = await subjects.count();
     expect(count, 'the seed fills the list').toBeGreaterThan(10);
+    // Whose names the "To" column holds is said above the list, in view's reach, at both widths.
+    await expect(page.getByTestId('inbox-to')).toContainText('made-up customers, never to you');
 
     // The first, a middle and the last message listed, whatever they are.
     const picks: [string, Locator][] = [
@@ -96,6 +98,7 @@ for (const width of WIDTHS) {
       const at = await opened(page, id);
       expect(at.heading, which).toBe(name);
       expect(at.open, `${which}: one message open`).toBe(1);
+      await expect(page.locator('#inbox-open .hint').first()).toContainText('a made-up customer,');
       expect(at.underItsRow, `${which}: directly under its own row`).toBe(true);
       expect(at.headingTop, `${which}: the heading's top in view`).toBeGreaterThanOrEqual(0);
       expect(at.headingBottom, `${which}: the heading's foot in view`).toBeLessThanOrEqual(

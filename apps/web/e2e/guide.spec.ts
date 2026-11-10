@@ -471,7 +471,10 @@ test.describe('a stranger at the gate', () => {
     // box is taller than a 1.2 line. There the two lines of this title overlapped by 0.4 px, and
     // the mark set level with the second was refused as lying on the first (pull request #143's
     // run of 2026-11-10). Any font does the same once its lines are tighter than its glyph box, so
-    // the lines are tightened here, through the style object, and the mark must stay.
+    // the lines are tightened here, through the style object, and the mark must stay. A tighter
+    // title is also a shorter one, which would bring the sentence under it up beneath the mark,
+    // and a mark is rightly refused on another element's words: the title's bottom margin grows by
+    // what its lines lost, so that sentence stays where it was and only the title's lines change.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/catering/');
     const mark = page.locator('[data-guide-target="start-here"]');
@@ -479,7 +482,11 @@ test.describe('a stranger at the gate', () => {
     const before = await mark.boundingBox();
     const title = page.locator('[data-tour="start-here"] .start-title');
     const overlap = await title.evaluate((element) => {
+      const tall = element.getBoundingClientRect().height;
       (element as HTMLElement).style.lineHeight = '1';
+      const lost = tall - element.getBoundingClientRect().height;
+      const margin = Number.parseFloat(getComputedStyle(element).marginBottom);
+      (element as HTMLElement).style.marginBottom = `${margin + lost}px`;
       window.dispatchEvent(new Event('resize'));
       const range = document.createRange();
       range.selectNodeContents(element);
@@ -1577,6 +1584,34 @@ test.describe('on a phone', () => {
     await expect(line).toContainText('The clock');
     await line.getByRole('button', { name: /The clock/ }).click();
     await expect(note).toBeVisible();
+  });
+
+  /**
+   * A sheet on the screen hears the page from its first moment. The page sends the wheel itself,
+   * in the very task that draws the note: a wheel the suite sends arrives some milliseconds later,
+   * which hid the gap until one run on the runner (2026-11-10) sent its wheel 23 ms after the note
+   * showed. The listener was then attached in a passive effect, a moment after the note was drawn;
+   * that wheel went unheard, and the sheet stayed over the page until its time ran out.
+   */
+  test('a note’s sheet hears a wheel in the task that draws it', async ({ page }) => {
+    await demoAccount(page);
+    await liveSandbox(page);
+    await page.goto('/app/system/');
+    await page.evaluate(() => {
+      const drawn = new MutationObserver(() => {
+        if (document.getElementById('guide-live') === null) return;
+        drawn.disconnect();
+        const beneath = document.querySelector('main') ?? document.body;
+        beneath.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 200 }));
+      });
+      drawn.observe(document.body, { childList: true, subtree: true });
+    });
+    await page
+      .getByRole('button', { name: /^Advance 15 minutes/ })
+      .first()
+      .click();
+    await expect(page.locator('.guide-line')).toContainText('The clock');
+    await expect(page.getByRole('region', { name: 'Under the hood: The clock' })).toHaveCount(0);
   });
 
   test('a live note opened by a control low on the screen does not cover that control', async ({
