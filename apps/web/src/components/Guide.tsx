@@ -4,9 +4,9 @@ import { PATHS } from '../guide/paths';
 import { SWITCH_KEY, switchOn, type PageId } from '../lib/guide';
 import '../styles/guide.css';
 
-// The layer (notes, hotspots, the recorder panel, the short path) and the entries it reads are
-// loaded after the island mounts, so a page's first paint never waits for them, and only while the
-// guide is on or the recorder is open.
+// The layer (notes, hotspots, the short path, and the recorder panel, itself loaded when it is
+// opened) and the entries it reads are loaded after the island mounts, so a page's first paint
+// never waits for them, and only while the guide is on or the recorder is open.
 const Layer = lazy(() => import('./guide/Layer'));
 
 /** sessionStorage may be missing, full or blocked: the guide is then on, and forgets nothing. */
