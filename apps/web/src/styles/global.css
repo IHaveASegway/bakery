@@ -1571,14 +1571,10 @@ html.tour-open {
 .panel .editor li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 13rem) auto;
-  align-items: start;
+  align-items: center;
   gap: var(--space-1) var(--space-4);
   margin-bottom: var(--space-2);
   padding: var(--space-3);
-}
-
-.panel .editor li > p.actions {
-  padding-top: 20px;
 }
 
 .panel .editor .hint {
@@ -1666,10 +1662,6 @@ html.tour-open {
 @media (max-width: 40rem) {
   .panel .editor li {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .panel .editor li > p.actions {
-    padding-top: 0;
   }
 }
 

@@ -248,6 +248,11 @@ export default function MenuEditor({
           </button>
         </p>
       </section>
+      {menu !== null && (
+        <p className="hint editor-note">
+          Prices are in dollars, and one price sets every variant of an item.
+        </p>
+      )}
       {menu?.categories.map((category) => (
         <section key={category.slug} aria-labelledby={`edit-${category.slug}`}>
           <h4 id={`edit-${category.slug}`}>{category.name}</h4>
@@ -282,9 +287,9 @@ export default function MenuEditor({
                     </span>
                   </p>
                   <p>
-                    <label htmlFor={id}>Price for every variant, in dollars</label>
                     <input
                       id={id}
+                      aria-label={`Price of ${item.name}, in dollars`}
                       type="text"
                       inputMode="decimal"
                       value={field}
@@ -294,7 +299,7 @@ export default function MenuEditor({
                       onChange={(e) => setFields((f) => ({ ...f, [item.slug]: e.target.value }))}
                     />
                     {sets && (
-                      <span id={`${id}-sets`} className="hint">
+                      <span id={`${id}-sets`} className="sr-only">
                         {sets}
                       </span>
                     )}

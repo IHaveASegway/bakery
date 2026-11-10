@@ -14,7 +14,10 @@ test('a price drafted in another tab is shown on focus, and Publish stops for it
   const other = await context.newPage();
   await other.goto('/app/menu/');
   await expect(other.getByText('No item waits for Publish.')).toBeVisible();
-  await other.getByLabel('Price for every variant, in dollars').first().fill('7.77');
+  await other
+    .getByLabel(/^Price of .*, in dollars$/)
+    .first()
+    .fill('7.77');
   await other
     .getByRole('button', { name: /^Set the price of/ })
     .first()
@@ -46,7 +49,10 @@ test('Publish stops for a draft the page had not shown', async ({ page, context 
   const other = await context.newPage();
   await other.goto('/app/menu/');
   await expect(other.getByText('No item waits for Publish.')).toBeVisible();
-  await other.getByLabel('Price for every variant, in dollars').first().fill('8.88');
+  await other
+    .getByLabel(/^Price of .*, in dollars$/)
+    .first()
+    .fill('8.88');
   await other
     .getByRole('button', { name: /^Set the price of/ })
     .first()
