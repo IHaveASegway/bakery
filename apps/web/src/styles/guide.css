@@ -1290,6 +1290,10 @@ body:has(.cart[data-open], dialog[open], [aria-modal='true']) .guide-bar-dock {
   box-shadow: none;
 }
 
+div.guide-layer.guide-flow {
+  margin-top: var(--space-3, 12px);
+}
+
 :not(.cards) > li.guide-layer.guide-flow {
   margin-bottom: var(--space-3, 12px);
 }
@@ -1297,11 +1301,6 @@ body:has(.cart[data-open], dialog[open], [aria-modal='true']) .guide-bar-dock {
 .guide-flow[data-leaving] {
   grid-template-rows: 0fr;
   opacity: 0;
-}
-
-div.guide-flow,
-tr.guide-flow > td {
-  margin-top: var(--space-3, 12px);
 }
 
 .guide-flow > td {
@@ -1340,7 +1339,6 @@ tr.guide-flow > td {
 @keyframes guide-grow {
   from {
     opacity: 0;
-    transform: translateY(-4px);
   }
 }
 

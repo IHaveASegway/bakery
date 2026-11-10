@@ -85,7 +85,7 @@ export function flowPlace(anchor: Element | null, pressed: Element | null): Flow
   if (!document.body.classList.contains('shell-app')) return null;
   if (window.matchMedia(PHONE).matches) return null;
   const main = anchor.closest('main');
-  if (main === null) return null;
+  if (main === null || anchor === main) return null;
   if (anchor.matches('li, tr')) return { after: anchor };
   // A control in a bar that sticks to the window (the menu's Publish bar) has its place in the
   // flow far from where it is seen: its note floats beside it instead.

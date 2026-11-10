@@ -191,7 +191,8 @@ test('placing an order at checkout, as a guest, opens a note with the request an
   const request = note.locator('li', { hasText: 'POST …/orders' }).first();
   await expect(request).toContainText('201');
   await expect(request).toContainText(/\d+ ms/);
-  await expect(request).toContainText('key');
+  // The cause its events carry, which the API names in Bakery-Cause: here, the key it sent.
+  await expect(request).toContainText('cause');
   await expect(note).toContainText('Each attempt carries its own Idempotency-Key');
   await expect(note).toContainText('When not');
   // No socket on this page, but the flight recorder: a few reads after the answer, OrderPlaced is
@@ -657,8 +658,9 @@ test('after a fresh sandbox, a price draft and a move, no row of a note is left 
   await expect(fresh.locator('[data-state="expected"]')).toHaveCount(0);
   await page.keyboard.press('Escape');
 
-  // A price draft: the page sends it with no Idempotency-Key, so the server names its own and its
-  // MenuItemChanged cannot be tied to the press; the note says so and waits for nothing.
+  // A price draft: the page sends its PATCH with no Idempotency-Key, and the API names the cause
+  // it wrote under in Bakery-Cause (ADR 0013's postscript of 2026-11-10), so the note follows its
+  // MenuItemChanged to the recorder like any write (audit H4).
   await page.goto('/app/menu/');
   const field = page.getByRole('textbox', { name: /^Price of Country loaf, Whole/ });
   await expect(field).toBeVisible();
@@ -666,7 +668,11 @@ test('after a fresh sandbox, a price draft and a move, no row of a note is left 
   await page.getByRole('button', { name: /^Set the price of Country loaf, Whole/ }).click();
   const draft = page.locator('#guide-live');
   await expect(draft).toBeVisible();
-  await expect(draft).toContainText('no Idempotency-Key');
+  await expect(draft).toContainText('cause');
+  await expect(draft).not.toContainText('cannot be tied');
+  await expect(
+    draft.locator('[data-state="observed"]', { hasText: 'MenuItemChanged' }),
+  ).toBeVisible({ timeout: 10_000 });
   await expect(draft.locator('[data-state="expected"]')).toHaveCount(0);
 
   // A board move: its one event comes back over the socket.
@@ -682,6 +688,126 @@ test('after a fresh sandbox, a price draft and a move, no row of a note is left 
   ).toBeVisible();
   await expect(move.locator('[data-state="expected"]')).toHaveCount(0);
 });
+
+test('with the recorder open on Dispatch, Propose is pressed beside it, and its row and its hops agree (H1, H2)', async ({
+  page,
+}) => {
+  await demoAccount(page);
+  await liveSandbox(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/app/dispatch/');
+  const form = page.getByRole('form', { name: 'Propose a plan' });
+  await expect(form).toBeVisible();
+  await (await recorderButton(page)).click();
+  const panel = page.getByRole('region', { name: 'Recorder' });
+  await expect(panel).toContainText('Live, on the recorder’s socket');
+  // A column of the page: nothing of the page's main column is under it.
+  const under = await page.evaluate(() => {
+    const p = document.querySelector('.guide-panel')?.getBoundingClientRect();
+    if (p === undefined) return ['no panel'];
+    return [...document.querySelectorAll('main button, main a[href], main input, main select')]
+      .map((c) => ({ c, r: c.getBoundingClientRect() }))
+      .filter(
+        ({ r }) =>
+          r.width > 0 &&
+          r.left < p.right &&
+          r.right > p.left &&
+          r.top < p.bottom &&
+          r.bottom > p.top,
+      )
+      .map(({ c }) => (c.textContent ?? '').trim().slice(0, 30));
+  });
+  expect(under).toEqual([]);
+  // A plain click, no force: the panel is not over it.
+  await form.getByRole('button', { name: 'Propose' }).click();
+  await expect(page.getByText(/^Proposed a plan that uses/)).toBeVisible();
+  const row = panel.locator('[data-guide-trace]').first();
+  await row.getByRole('button').click();
+  // RouteProposed is tied by the cause the API named (Bakery-Cause), in the row and in the hops.
+  await expect(row.locator('[data-state="observed"]', { hasText: 'RouteProposed' })).toBeVisible({
+    timeout: 10_000,
+  });
+  const trace = await row.getAttribute('data-guide-trace');
+  await expect(
+    panel.locator(`[data-guide-hop-of="${trace}"]`, { hasText: 'RouteProposed' }),
+  ).toBeVisible();
+  // Every hop the panel calls this action's is an observed row of the action, and no row of it
+  // says an event is on its way while the panel lists that event as delivered.
+  const disagree = await page.evaluate(() => {
+    const out: string[] = [];
+    for (const hop of document.querySelectorAll('.guide-panel [data-guide-hop-of]')) {
+      const id = hop.getAttribute('data-guide-hop-of') ?? '';
+      const type = hop.querySelector('code')?.textContent ?? '';
+      const rows = document.querySelector(`.guide-panel [data-guide-trace="${CSS.escape(id)}"]`);
+      if (rows === null || rows.querySelector('.guide-chain') === null) continue;
+      const states = [...rows.querySelectorAll('.guide-hop')]
+        .filter((h) => h.querySelector('code')?.textContent === type)
+        .map((h) => h.getAttribute('data-state'));
+      if (!states.includes('observed')) out.push(`${type}: ${states.join(',') || 'no row'}`);
+    }
+    return out;
+  });
+  expect(disagree).toEqual([]);
+  await expectNoAxeViolations(page);
+});
+
+test('on the console a move’s note is drawn under its card, in the page, and the next button does not move (D1)', async ({
+  page,
+}) => {
+  await demoAccount(page);
+  await liveSandbox(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/app/');
+  await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+  await page.evaluate(() => {
+    (window as unknown as { shifts: number[] }).shifts = [];
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries() as unknown as {
+        value: number;
+        hadRecentInput: boolean;
+      }[]) {
+        if (!e.hadRecentInput) (window as unknown as { shifts: number[] }).shifts.push(e.value);
+      }
+    }).observe({ type: 'layout-shift', buffered: false });
+  });
+  const confirmed = page.locator('section[aria-labelledby="board-confirmed"]');
+  await confirmed
+    .getByRole('button', { name: /^Start production for order / })
+    .first()
+    .click();
+  const next = page.locator('section[aria-labelledby="board-in_production"] button:focus');
+  await expect(next).toBeVisible();
+  const note = page.locator('#guide-live');
+  await expect(note).toContainText('OrderProductionStarted');
+  // In the page's flow, right under the moved card, in its column; not floating, not docked.
+  const placed = await note.evaluate((n) => {
+    const slot = n.closest('.guide-flow');
+    const card = slot?.previousElementSibling;
+    return {
+      inFlow: slot !== null,
+      underCard: card?.contains(document.activeElement) ?? false,
+      position: getComputedStyle(n).position,
+    };
+  });
+  expect(placed).toEqual({ inFlow: true, underCard: true, position: 'static' });
+  await expect(note).toContainText(BOARD_LINE_START);
+  expect(await overWhatMatters(page, 'Start production')).toEqual([]);
+  // Measured in the page, not the window: the page may scroll to show the note, and the note
+  // opens and leaves below the next button, so neither moves it.
+  const pageY = () => next.evaluate((b) => b.getBoundingClientRect().top + window.scrollY);
+  const shown = await pageY();
+  // Layout shift with no recent input, after the note arrived and once it leaves by itself.
+  await expect(note).toHaveCount(0, { timeout: 15_000 });
+  expect(Math.abs((await pageY()) - shown)).toBeLessThanOrEqual(1);
+  const cls = await page.evaluate(() =>
+    (window as unknown as { shifts: number[] }).shifts.reduce((a, b) => a + b, 0),
+  );
+  console.log(`layout shift, board move note in flow: ${cls.toFixed(4)}`);
+  expect(cls).toBeLessThan(0.1);
+});
+
+/** The opening of the board's Start line (src/guide/kitchen.ts, BOARD_MOVES). */
+const BOARD_LINE_START = 'OrderProductionStarted reaches the board on every screen';
 
 test.describe('a keyboard on the menu', () => {
   // The first look at the session, before there is one, is a 401 that Chromium logs.

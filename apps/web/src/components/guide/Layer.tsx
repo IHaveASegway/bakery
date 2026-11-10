@@ -185,7 +185,9 @@ export default function Layer({
     const press = (event: MouseEvent) => {
       const el = event.target instanceof Element ? event.target.closest('button, a[href]') : null;
       const home = el?.parentElement?.closest('li, tr, article, form, fieldset, section, .panel');
-      if (el !== null && el !== undefined && home !== null && home !== undefined) {
+      // Only a part of the page's main column: a control in the top bar or a menu over the page
+      // has no part of the page to sit in.
+      if (el && home && home.closest('main') !== null) {
         homes.current.set(el, home);
       }
     };
@@ -380,9 +382,15 @@ export default function Layer({
   // On the console's workspaces a live note goes in the page's flow under what it explains (D1).
   const liveFlow = useCallback(
     (anchorEl: Element | null) => {
-      if (live === null || story) return null;
+      if (live === null || story || anchorEl === null) return null;
       const pressed = traces.anchorOf(live.gesture);
-      return flowPlace(anchorEl, pressed instanceof Element ? pressed : null);
+      const there = pressed instanceof Element && pressed.isConnected;
+      // With the pressed control gone, only a part of the page that says what came of it (its
+      // result line, the moved card, the card or row it was pressed in) takes the note into its
+      // flow; a fallback such as the page's main column does not, and the note floats or waits as
+      // its line as before.
+      if (!there && !anchorEl.matches('[data-guide-result], li, tr')) return null;
+      return flowPlace(anchorEl, there ? pressed : null);
     },
     [live, story],
   );
@@ -588,6 +596,13 @@ export default function Layer({
     () => false,
   );
   const showLive = on && live !== null && group.length > 0 && !offStory;
+  // What restarts the live note's timer: its own traces changing, not every event the page sees.
+  const liveChanged = group
+    .map(
+      (t) =>
+        `${t.outcome}:${t.events.length}:${t.reading}:${t.events.map((e) => e.deliveries?.length ?? -1).join(',')}`,
+    )
+    .join('|');
   const folded = showLive && asLine && !storyOpen;
   // The line stays while its note is open (the page does not jump under the visitor's finger).
   const lined = showLive && asLine;
@@ -694,7 +709,7 @@ export default function Layer({
               anchor={watchAnchor}
               label={`Under the hood: ${watchEntry.title}`}
               pinned={watch.pinned}
-              changed={snapshot.version}
+              changed={`${snapshot.heard[0]?.id ?? ''}|${snapshot.listening?.how ?? ''}`}
               onClose={closeWatch}
             >
               <NoteHead
@@ -720,7 +735,7 @@ export default function Layer({
               anchor={liveAnchor}
               label={`Under the hood: ${liveEntry?.title ?? 'your last action'}`}
               pinned={live.pinned}
-              changed={snapshot.version}
+              changed={liveChanged}
               onClose={closeLive}
               // With no place clear of the page's controls, a note whose pressed control has gone
               // (the checkout's gate, replaced by the steps) waits as its line. One by a control
