@@ -554,8 +554,9 @@ export const TOOLS: Tool[] = [
     version: 'four namespaces (`workers/api/wrangler.jsonc`)',
     doesHere: 'Cheap refusals per IP hash, session or token before any object is asked.',
     whyHere: 'Cheap refusals before an object is asked.',
-    whenNot: 'Never as a budget: it counts approximately and per location.',
-    records: [{ adr: '0010' }],
+    whenNot:
+      'Not for one object’s frames, such as the kitchen board’s moves: a count kept in that object is exact, while the binding’s limits are approximate and kept per location, which suits requests that land anywhere.',
+    records: [{ adr: '0010' }, { doc: 'security' }],
     essays: ['admission'],
   },
   {
