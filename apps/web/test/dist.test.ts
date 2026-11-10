@@ -570,17 +570,17 @@ describe('dist', () => {
   //
   // Since the guide replaced the tour (2026-11-09) these budgets hold the first load only: the
   // guide's bar and the trace store. With the guide on, the default, the page then loads the
-  // deferred layer (the test after these holds it, at 27,590 B to 28,357 B), so a page with the
+  // deferred layer (the test after these holds it, at 27,616 B to 28,383 B), so a page with the
   // guide on costs more than it did with the tour. Per class, first load / with the guide on /
-  // the tour's total it replaces, as main last measured it: guide only 81,822 / 110,179 / 94,187;
-  // API reference 82,075 / 110,432 / 94,440; status 84,595 / 112,952 / 96,960; storefront
-  // 93,680 / 121,490 / 103,417; checkout 111,921 / 139,731 / 122,775 (its three steps, #101);
-  // console screens 111,204 / 139,014 / 122,232 (the kitchen as its own page). The first load is
+  // the tour's total it replaces, as main last measured it: guide only 81,822 / 110,205 / 94,187;
+  // API reference 82,075 / 110,458 / 94,440; status 84,595 / 112,978 / 96,960; storefront
+  // 93,680 / 121,516 / 103,417; checkout 111,921 / 139,757 / 122,775 (its three steps, #101);
+  // console screens 111,204 / 139,040 / 122,232 (the kitchen as its own page). The first load is
   // smaller than the tour's by 9,737 B to 12,365 B; with the guide on the page is larger, by
-  // 15,992 B to 18,073 B. The tour's totals were taken before the shop's and the console's later
+  // 16,018 B to 18,099 B. The tour's totals were taken before the shop's and the console's later
   // changes merged, so part of each gap is theirs, not the guide's. The order's status page
   // (/order/, #101) had no tour, at 97,911 B; with the guide's bar it is 105,495 B first and
-  // 133,305 B with the guide on, which buys the order's read, its watch on the kitchen socket, the
+  // 133,331 B with the guide on, which buys the order's read, its watch on the kitchen socket, the
   // tracker and the guide there. A visitor who turns the guide off loads the first load alone on
   // later pages.
   describe('JavaScript per page', () => {
@@ -658,7 +658,7 @@ describe('dist', () => {
     // The guide's deferred load (components/Guide.tsx): the Layer chunk that a dynamic import brings
     // once the island has mounted and the guide is on or the recorder is open, with every chunk it
     // imports statically that the page's first load does not already carry, gzipped the same way.
-    // Measured 2026-11-10: 27,590 B to 28,357 B (the light pages carry less React in their first
+    // Measured 2026-11-10: 27,616 B to 28,383 B (the light pages carry less React in their first
     // load, so their deferred load is the larger). The budget is the largest plus a quarter,
     // rounded up to the next 1,000 B. The bytes buy the 72 entries with the facts the pages' own
     // paragraphs once said, the notes, the hotspots, the recorder panel, the short path, the order
