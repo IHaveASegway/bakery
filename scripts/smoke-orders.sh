@@ -783,7 +783,8 @@ if [[ -n "$D_AFTER" ]] && (( IDLE_TRIES > 1 )); then
 fi
 check "an idle board hibernates: after an idle spell of $IDLE_S s, try $IDLE_TRIES of 6, the Kitchen with 2 sockets open woke (kitchen_wake)" "[[ -n '$D_AFTER' ]]"
 check "the woken Kitchen is a new instance ($D_BEFORE, then $D_AFTER): memory did not survive, the sockets did" "[[ -n '$D_BEFORE' && -n '$D_AFTER' && '$D_BEFORE' != '$D_AFTER' ]]"
-check "the guest's Kitchen woke for that frame" "grep '\"event\":\"kitchen_wake\"' '$TMP/wake.log' | grep -q '\"sockets\":1}'"
+# No `grep -q` at a pipe's end: under pipefail the feeding grep can die of SIGPIPE (smoke-auth.sh).
+check "the guest's Kitchen woke for that frame" "grep '\"event\":\"kitchen_wake\"' '$TMP/wake.log' | grep '\"sockets\":1}' > /dev/null"
 expect_probe "after a wake, the guest's socket is still served and its repeated id gets its first answer, ack, with no second OrderProductionStarted" "$TMP/ws_guest.out" "frames.some((f) => f.t === 'ack' && f.id === '$GC1') && !evts.some((e) => e.type === 'OrderProductionStarted')"
 expect_probe "after a wake, the guest's mark_ready is acked and the card moves to ready" "$TMP/ws_guest.out" "frames.some((f) => f.t === 'ack' && f.id === '$GC2') && evts.some((e) => e.type === 'OrderReady' && e.cause === '$GC2') && board['$GCARD'] === 'ready'"
 check "the woken Kitchen applied the start once: the Order reads ready, two events more than before the guest's moves" "wait_order g_ready G '$GID' '$GCARD' ready 'b.events_seq === ${GSEQ:-0} + 2'"
@@ -814,6 +815,17 @@ check "the budget: 70 fresh commands from two guest sockets in $BURST_S s, $acke
 for s in a b; do
   expect_probe "socket $s: still open after its refusals, which are nacks and no bye" "$TMP/ws_burst_$s.out" "!frames.some((f) => f.t === 'bye')"
 done
+# The guest's session opened several sockets in the last minute (the hibernation and the budget
+# checks above), and UPGRADE_LIMIT allows 6 a minute a session: a socket refused that way never
+# opens, so each probe below is tried again every 10 s, for up to a minute, until it opens.
+probe_open() {
+  local out="$1"; shift
+  for _ in 1 2 3 4 5 6 7; do
+    probe G "$GID" "$@" > "$out" || true
+    probe_ok "$out" "snapshot" && return 0
+    sleep 10
+  done
+}
 # While the budget is spent: three fresh ids, then an id the burst had acked, then three more.
 # At most two tokens come back in the probe's second, so the first three hold a refusal, and the
 # replay is answered from the Kitchen's commands table without a token.
@@ -824,7 +836,9 @@ probe G "$GID" --pace 120 --cmd "${BURST_IDS[70]}:$GCARD:mark_ready" --cmd "${BU
 expect_probe "while the budget is spent, a fresh id is refused rate-limit and an id the burst acked is acked again from storage" "$TMP/ws_spent.out" "['${BURST_IDS[70]}', '${BURST_IDS[71]}', '${BURST_IDS[72]}'].some((id) => frames.some((f) => f.t === 'nack' && f.id === id && f.rule === 'rate-limit')) && frames.some((f) => f.t === 'ack' && f.id === '$LAST_ACK')"
 REFUSED="$(probe_field "$TMP/ws_spent.out" "(frames.find((f) => f.t === 'nack' && f.rule === 'rate-limit') || {}).id")"
 sleep 2
-probe G "$GID" --cmd "$REFUSED:$GCARD:mark_ready" --until ack --timeout 5 > "$TMP/ws_after.out" || true
+# Tried again as the frame-limit probes are: a refused upgrade was seen here on 2026-11-10, and a
+# later try only gives the budget more time to refill, which this check waits for anyway.
+probe_open "$TMP/ws_after.out" --cmd "$REFUSED:$GCARD:mark_ready" --until ack --timeout 5
 expect_probe "a refused id is acked once a token is back: a refusal stored nothing" "$TMP/ws_after.out" "frames.some((f) => f.t === 'ack' && f.id === '$REFUSED')"
 tail -n "+$LIMIT_FROM" "$LOG" > "$TMP/limit.log"
 limit_lines="$(grep -c '"rule":"rate-limit"' "$TMP/limit.log" || true)"
@@ -864,17 +878,7 @@ for pid in "${WS_L[@]}"; do kill -TERM "$pid" 2>/dev/null || true; wait "$pid" |
 # counts frames by calendar second (the wall clock's, workers/api/src/objects/kitchen.rs), so the
 # probe sends the eleven just after a second begins: sent near a second's end they could be split
 # across two seconds, neither over 10, and no bye would come (one run in two on 2026-11-09).
-# The guest's session opened several sockets in the last minute (the hibernation and the budget
-# checks above), and UPGRADE_LIMIT allows 6 a minute a session: a socket refused that way never
-# opens, so each probe below is tried again every 10 s, for up to a minute, until it opens.
-probe_open() {
-  local out="$1"; shift
-  for _ in 1 2 3 4 5 6 7; do
-    probe G "$GID" "$@" > "$out" || true
-    probe_ok "$out" "snapshot" && return 0
-    sleep 10
-  done
-}
+# Tried again until the socket opens (probe_open, above the budget's last checks).
 probe_open "$TMP/ws_flood.out" --flood 11 --at-second-start --timeout 5
 expect_probe "11 frames in a second: 10 answered, then bye limit and close 1008" "$TMP/ws_flood.out" "frames.filter((f) => f.t === 'nack' && f.rule === 'id').length === 10 && frames.some((f) => f.t === 'bye' && f.reason === 'limit') && closed && closed.code === 1008"
 BIG="$(node -e "process.stdout.write(JSON.stringify({ t: 'cmd', v: 1, id: '', pad: 'x'.repeat(5000) }))")"
