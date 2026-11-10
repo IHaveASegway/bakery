@@ -24,6 +24,8 @@ const EXCLUDED: Record<string, string> = {
   '/app/menu/': 'The console needs a staff session, which the job does not have.',
   '/app/money/': 'The console needs a staff session, which the job does not have.',
   '/app/system/': 'The console needs a staff session, which the job does not have.',
+  '/app/start/':
+    'The sign-in’s landing: it needs a session, and without one it goes on to the sign-in page.',
   '/inbox/': 'The inbox shows one sandbox’s messages, so it needs a session to show anything.',
   '/order/': 'The order’s status page is noindex and shows one order, which needs a session.',
 };

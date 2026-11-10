@@ -34,6 +34,7 @@ export const offlineFor = (here: NextPath | null): string =>
 export default function StatusLine({
   phase,
   signedOut,
+  signedOutNext,
   live,
   tour,
 }: {
@@ -42,6 +43,11 @@ export default function StatusLine({
   tour?: string;
   /** The sentence for a visitor with no sandbox, for a screen where "ordering is off" is not the point. */
   signedOut?: React.ReactNode;
+  /**
+   * What follows that sentence in place of the sign-in link, where the way on is another page: the
+   * inbox sends a visitor with no sandbox to the menu, which starts one in place (2026-11-10).
+   */
+  signedOutNext?: React.ReactNode;
   /**
    * The sentence once the sandbox is live, where the page has more to say that is true of it: the
    * menu and the checkout say orders placed there go to it (2026-11-10: the catering page and the
@@ -74,7 +80,11 @@ export default function StatusLine({
         <>
           {signedOut ??
             'You have no sandbox yet, so this is the demo’s seed menu and ordering is off.'}{' '}
-          <a href={signinFor(here)}>Sign in or try it as a guest</a>.
+          {signedOutNext ?? (
+            <>
+              <a href={signinFor(here)}>Sign in or try it as a guest</a>.
+            </>
+          )}
         </>
       );
       break;

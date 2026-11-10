@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'vitest';
+import type { MessageKind } from '../src/contracts';
 import { apiOrigin, getMessage, listInbox } from '../src/lib/api';
 import {
   ALL_KINDS,
@@ -8,6 +9,8 @@ import {
   filterOf,
   kindLabel,
   namesOf,
+  receiptOf,
+  receiptOrder,
   recipientName,
 } from '../src/lib/inbox';
 import { fakeFetch, json } from './support';
@@ -98,5 +101,29 @@ describe('names and words', () => {
     expect(countText(1, 1)).toBe('1 message.');
     expect(countText(50, 50)).toBe('50 messages.');
     expect(countText(50, 240)).toBe('Showing the newest 50 of 240 messages.');
+  });
+});
+
+describe('the order page’s link to its receipt (audit G1, 2026-11-10)', () => {
+  const ORDER = '01JC8YV2D4QK7S1M9E3PZ6W8OR';
+  const OTHER = '01JC8YV2D4QK7S1M9E3PZ6W8XY';
+  const message = (id: string, kind: MessageKind, ref: string) => ({ message: id, kind, ref });
+
+  test('reads the order from ?receipt=, and nothing from a blank or missing one', () => {
+    expect(receiptOrder(`?receipt=${ORDER}`)).toBe(ORDER);
+    expect(receiptOrder(`?receipt=%20${ORDER}%20`)).toBe(ORDER);
+    expect(receiptOrder('?receipt=')).toBeNull();
+    expect(receiptOrder('')).toBeNull();
+  });
+
+  test('finds the receipt whose ref is the order, never another kind about it', () => {
+    const list = [
+      message('M-READY', 'ready', ORDER),
+      message('M-OTHER', 'receipt', OTHER),
+      message('M-RECEIPT', 'receipt', ORDER),
+    ];
+    expect(receiptOf(list, ORDER)).toBe('M-RECEIPT');
+    expect(receiptOf([message('M-READY', 'ready', ORDER)], ORDER)).toBeNull();
+    expect(receiptOf(list, 'NO-SUCH-ORDER')).toBeNull();
   });
 });

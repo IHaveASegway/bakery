@@ -31,6 +31,17 @@ describe('StatusLine signed out', () => {
     expect(out).toContain('Sign in or try it as a guest');
   });
 
+  test('a screen whose way on is another page names it in place of the sign-in link', () => {
+    const out = html({
+      phase: { name: 'nosession' },
+      signedOut: 'You have no sandbox yet, so the inbox is empty.',
+      signedOutNext: createElement('a', { href: '/menu/' }, 'Start at the menu'),
+    });
+    expect(out).toContain('href="/menu/"');
+    expect(out).not.toContain('Sign in or try it as a guest');
+    expect(out).not.toContain('/signin/');
+  });
+
   test('the sentence is not used for other phases', () => {
     expect(html({ phase: { name: 'loading' }, signedOut: 'x' })).not.toContain('>x');
   });

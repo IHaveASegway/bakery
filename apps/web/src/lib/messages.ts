@@ -21,8 +21,11 @@ export function describeError(error: unknown): Message {
     };
   }
   if (error instanceof ApiError) {
-    const retry = error.retryAfter === null ? '' : ` Try again in ${wait(error.retryAfter)}.`;
     const detail = error.detail ?? '';
+    // The API's own detail may already say when (the rate limit's does), and the sentence is said
+    // once (2026-11-10: "Try again in a minute. Try again in a minute." on the sign-in page).
+    const again = ` Try again in ${error.retryAfter === null ? '' : wait(error.retryAfter)}.`;
+    const retry = error.retryAfter === null || detail.includes(again.trim()) ? '' : again;
     return { title: error.title, detail: `${detail}${retry}`.trim() || null };
   }
   return { title: 'Something went wrong', detail: 'Reload the page and try again.' };
