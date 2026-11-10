@@ -578,7 +578,10 @@ impl Generator {
                 // The zone was drawn until 2026-11-10; the draw stays, so every later value of
                 // the seed is as it was, and the zone is now the place's (roadmap R69).
                 let _drawn_zone = self.below(ZONES.len());
-                let place = format!("p{}", 1 + self.below(PLACE_COUNT));
+                // `p2` to `p64`: `p1` is the bakery's own square, the matrix's index 0, so a
+                // customer there would be a zero-minute stop (roadmap R65, 2026-11-10). One draw,
+                // as before, so the stream after it is unchanged.
+                let place = format!("p{}", 2 + self.below(PLACE_COUNT - 1));
                 let home_zone = zone_of_place(&place).expect("p1 to p64 is a city place");
                 let address = Address::synthetic(&place, i + 1);
                 Customer {
@@ -1160,7 +1163,7 @@ mod tests {
         );
     }
 
-    const PINNED_FIRST_ADDRESS: &str = "p9, unit 1 (synthetic)";
+    const PINNED_FIRST_ADDRESS: &str = "p59, unit 1 (synthetic)";
     const PINNED_FIRST_CUSTOMER: &str = "01M6TCX5C0VKKM7M86WYN7SBR2";
     const PINNED_HISTORY_LEN: usize = 722;
     const PINNED_FIRST_ORDER: &str = "01KZDX3BS0AHWTMASY3YGTFWD7";
@@ -1323,6 +1326,25 @@ mod tests {
             .and_then(|n| n.parse::<usize>().ok())
             .is_some_and(|n| (1..=PLACE_COUNT).contains(&n))
             && !p[1..].starts_with('0')
+    }
+
+    /// No persona lives at the bakery's own square, `p1` (roadmap R65): not the visitor's, the
+    /// first customer, nor any of the 60, over 250 seeds on each of two birth dates (500 sandboxes);
+    /// and every one of the 63 other places is drawn somewhere.
+    #[test]
+    fn no_persona_is_at_the_bakery_over_many_seeds() {
+        let mut drawn = HashSet::new();
+        for seed in 0..250u64 {
+            for date in [DATE, "2026-11-10"] {
+                let g = generate(seed, date);
+                for c in &g.customers {
+                    assert_ne!(c.place, "p1", "seed {seed}, {date}: {}", c.id);
+                    drawn.insert(c.place.clone());
+                }
+                assert!(!g.customers[0].address.line1.starts_with("p1,"));
+            }
+        }
+        assert_eq!(drawn.len(), PLACE_COUNT - 1, "p2 to p64, each drawn");
     }
 
     #[test]
