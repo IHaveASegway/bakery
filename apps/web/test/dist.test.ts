@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { SCREENS } from '../src/lib/guide';
+import { PAGES } from '../src/lib/guide';
 import { PRINCIPLE_TABLE, PRINCIPLES } from '../src/lib/how-its-built';
 import { decisionRows } from '../src/guide/decisions';
 import { ESSAYS, ESSAY_PAGES, HOW_PATH, SITE_LAB, adrUrl, labUrl } from '../src/lib/links';
@@ -87,22 +87,22 @@ describe('dist', () => {
     ['checkout/index.html', 'checkout'],
     ['order/index.html', 'order'],
     ['app/index.html', 'console'],
-    ['app/money/index.html', 'console'],
-    ['app/menu/index.html', 'console'],
-    ['app/catering/index.html', 'console'],
-    ['app/customers/index.html', 'console'],
-    ['app/system/index.html', 'console'],
+    ['app/money/index.html', 'console-money'],
+    ['app/menu/index.html', 'console-menu'],
+    ['app/catering/index.html', 'console-catering'],
+    ['app/customers/index.html', 'console-customers'],
+    ['app/system/index.html', 'console-system'],
     ['catering/index.html', 'catering'],
     ['inbox/index.html', 'inbox'],
     ['app/dispatch/index.html', 'dispatch'],
     ['docs/api/index.html', 'api'],
     ['privacy/index.html', 'privacy'],
   ])('%s carries the guide island for the %s screen, quiet', (file, screen) => {
-    expect(SCREENS).toContain(screen);
+    expect(PAGES).toContain(screen);
     const html = page(file);
     expect(html).toContain('Guide.');
     expect(html).toContain(`&quot;${screen}&quot;`);
-    expect(html).toContain('class="guide-bar"');
+    expect(html).toMatch(/class="guide-bar guide-bar-(dock|topbar)"/);
     expect(html).toMatch(/role="switch" aria-checked="true"/);
     expect(html).toContain('aria-expanded="false"');
     // Before anything is done the island draws no note, no mark and no ring, so the server HTML

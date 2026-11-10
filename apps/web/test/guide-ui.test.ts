@@ -120,8 +120,10 @@ describe('an entry’s standing body', () => {
   });
 
   test('names the events, shows the curl masked or with <your token>, and offers a copy', () => {
-    const html = body('menu', 0);
-    expect(body('menu', 1)).toContain('MenuPublished');
+    const cart = ENTRIES.menu.findIndex((e) => e.id === 'menu-cart');
+    const list = ENTRIES.menu.findIndex((e) => e.id === 'menu-list');
+    const html = body('menu', cart);
+    expect(body('menu', list)).toContain('MenuPublished');
     expect(html).toContain('curl -X POST');
     expect(html).toContain('Authorization: Bearer &lt;your token&gt;');
     expect(html).toContain('/v1/sandboxes/&lt;sandbox id&gt;/orders');
@@ -130,7 +132,8 @@ describe('an entry’s standing body', () => {
   });
 
   test('an entry that makes no event says so', () => {
-    expect(body('menu', 0)).toContain('This makes no event of its own');
+    const cart = ENTRIES.menu.findIndex((e) => e.id === 'menu-cart');
+    expect(body('menu', cart)).toContain('This makes no event of its own');
   });
 
   test('every entry of every screen draws', () => {

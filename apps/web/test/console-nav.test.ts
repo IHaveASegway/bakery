@@ -188,8 +188,14 @@ describe('the guide still reaches every console target', () => {
 });
 
 describe('the menu’s entries', () => {
-  test('the entries run in the page’s order: the cart, the list, where the menu came from', () => {
-    expect(ENTRIES.menu.map((s) => s.id)).toEqual(['menu-cart', 'menu-list', 'menu-how']);
+  test('the entries run in the page’s order: the start banner, the categories, the cart, the list, where the menu came from', () => {
+    expect(ENTRIES.menu.map((s) => s.id)).toEqual([
+      'menu-start',
+      'menu-categories',
+      'menu-cart',
+      'menu-list',
+      'menu-how',
+    ]);
   });
 
   test('the list entry anchors to one card, the first, and nothing taller than a screen', () => {

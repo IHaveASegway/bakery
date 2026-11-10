@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { GuideEntry, ScreenId } from '../../lib/guide';
 import type { FeedArrival, HeardEvent, Listening, Trace } from '../../lib/trace';
-import { entryForTraces, expectedFor, routeIdOf } from './match';
+import { entryForTraces, expectedFor, routeIdOf, targetOf } from './match';
 import { EntryBody, TraceChain, WhyLines, listeningText, objectOf, requestText } from './Views';
 
 /** The visitor's traces grouped by the click that made them, newest click first. */
@@ -42,6 +42,10 @@ export default function Panel({
   const heading = useRef<HTMLHeadingElement>(null);
   const [openRow, setOpenRow] = useState<string | null>(null);
   const groups = byGesture(traces);
+  // The console's pages share one set of entries: list those whose element this page shows, or all
+  // of them while none is drawn yet.
+  const here = entries.filter((entry) => targetOf(entry.target) !== null);
+  const listed = here.length > 0 ? here : entries;
 
   useEffect(() => {
     heading.current?.focus({ preventScroll: true });
@@ -125,7 +129,7 @@ export default function Panel({
 
       <h3 className="guide-section">On this screen</h3>
       <ul className="guide-rows">
-        {entries.map((entry) => {
+        {listed.map((entry) => {
           const id = `entry-${entry.id}`;
           return (
             <li key={id}>

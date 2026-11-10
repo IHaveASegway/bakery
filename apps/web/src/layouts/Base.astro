@@ -7,14 +7,14 @@ import SessionLink from '../components/SessionLink.astro';
 import Guide from '../components/Guide';
 import ConsoleNav from '../components/ConsoleNav';
 import { workspaceAt } from '../lib/console-sections';
-import type { ScreenId } from '../lib/guide';
+import type { PageId } from '../lib/guide';
 import { REPO, SITE_LAB } from '../lib/links';
 
 interface Props {
   title: string;
   description: string;
   /** The screen whose guide the page carries; a page with none (the 404) has no guide. */
-  screen?: ScreenId;
+  screen?: PageId;
   /** The shell, when the page's path does not say it (src/lib/shell.ts). */
   shell?: Shell;
   /** A page that is one visitor's own (an order's status): kept out of search and the sitemap. */
@@ -104,8 +104,10 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
               </li>
             </ul>
           </nav>
-          {/* Kept for the guide's switch, which the guide's own island puts here. */}
-          <div class="topbar-guide" data-guide-slot></div>
+          {/* The guide's switch: its island is mounted here, in the top bar, on the app shell. */}
+          <div class="topbar-guide" data-guide-slot>
+            {screen && <Guide screen={screen} placement="topbar" client:idle />}
+          </div>
         </header>
         <ConsoleNav here={workspaceAt(here)} />
       </>
@@ -162,7 +164,7 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
         <p>Everything here is made up: the bakery, its customers, their orders and their cards.</p>
       </div>
     </footer>
-    {screen && <Guide screen={screen} client:idle />}
+    {screen && shell !== 'app' && <Guide screen={screen} placement="dock" client:idle />}
     {(screen || session) && <SessionLink />}
   </body>
 </html>

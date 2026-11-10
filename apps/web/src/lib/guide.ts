@@ -24,6 +24,27 @@ export const SCREENS = [
 export type ScreenId = (typeof SCREENS)[number];
 
 /**
+ * The console's other pages (2026-11-09: the console is seven pages). They share the console's one
+ * set of entries, and a hotspot shows only where its target is on the page; each has an id of its
+ * own so it can have a short path of its own. The kitchen, /app/, is `console` itself.
+ */
+export const CONSOLE_PAGES = [
+  'console-money',
+  'console-menu',
+  'console-catering',
+  'console-customers',
+  'console-system',
+] as const;
+
+/** A page that carries the guide: a screen, or one of the console's other pages. */
+export type PageId = ScreenId | (typeof CONSOLE_PAGES)[number];
+export const PAGES: readonly PageId[] = [...SCREENS, ...CONSOLE_PAGES];
+
+/** The screen whose entries a page reads. */
+export const screenOf = (page: PageId): ScreenId =>
+  (CONSOLE_PAGES as readonly string[]).includes(page) ? 'console' : (page as ScreenId);
+
+/**
  * The principle an entry teaches, with where it is explained (Q32 · Q-links). One per section of
  * the How it's built page, which is where they are written (lib/how-its-built.ts); the URLs are
  * derived there from the lab's name and the ADR's number (lib/links.ts), never typed.

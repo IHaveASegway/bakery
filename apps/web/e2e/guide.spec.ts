@@ -104,7 +104,7 @@ test('a card’s button on the board opens a note: the frame, the event and its 
   await expect(note).toHaveCount(0);
 
   // The recorder: the same, by keyboard, and Escape puts the focus back on its button.
-  const recorder = page.getByRole('button', { name: 'Recorder' });
+  const recorder = await recorderButton(page);
   await recorder.focus();
   await page.keyboard.press('Enter');
   const panel = page.getByRole('region', { name: 'Recorder' });
@@ -119,7 +119,8 @@ test('a card’s button on the board opens a note: the frame, the event and its 
   await expectNoAxeViolations(page);
   await page.keyboard.press('Escape');
   await expect(panel).toHaveCount(0);
-  await expect(recorder).toBeFocused();
+  // In the top bar the Recorder sat in the guide's menu, which closed: the focus is on its button.
+  await expect(page.getByRole('button', { name: 'More of Under the hood' })).toBeFocused();
 });
 
 test('placing an order at checkout opens a note with the request, its status and its time', async ({
@@ -212,8 +213,7 @@ test('with the switch off, a press opens no note and the layer is not loaded; on
   await expect(page.locator('.guide-note')).toHaveCount(0);
   // Off, the page loaded no layer, and the recorder still opens (it loads the layer then).
   expect(await layerLoaded(page)).toBe(false);
-  const recorder = page.getByRole('button', { name: 'Recorder' });
-  await recorder.click();
+  await (await recorderButton(page)).click();
   const panel = page.getByRole('region', { name: 'Recorder' });
   await expect(panel).toBeVisible();
   await page.keyboard.press('Escape');
@@ -227,7 +227,7 @@ test('with the switch off, a press opens no note and the layer is not loaded; on
 
   // With the recorder open, a press is the panel's newest row and no note opens over it, then
   // or after the panel closes.
-  await recorder.click();
+  await (await recorderButton(page)).click();
   await expect(panel).toBeVisible();
   // The panel's rows for the visitor's presses of the clock (not its entry row of the same title).
   const clockRows = panel.locator('.guide-row', { hasText: 'POST …/clock' });
@@ -245,6 +245,16 @@ test('with the switch off, a press opens no note and the layer is not loaded; on
   await advance.click();
   await expect(page.getByRole('region', { name: 'Under the hood: The clock' })).toBeVisible();
 });
+
+/**
+ * The Recorder's button. In the app shell's top bar the guide is one pill and the Recorder sits in
+ * its "…" menu, so the menu is opened first; on the shop's dock it is in the bar.
+ */
+async function recorderButton(page: Page): Promise<Locator> {
+  const more = page.getByRole('button', { name: 'More of Under the hood' });
+  if (await more.isVisible()) await more.click();
+  return page.getByRole('button', { name: 'Recorder' });
+}
 
 /** Whether the page has fetched the guide's deferred layer (its chunk is named Layer.*.js). */
 async function layerLoaded(page: Page): Promise<boolean> {

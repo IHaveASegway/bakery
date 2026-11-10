@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { PATHS } from '../guide/paths';
-import { SWITCH_KEY, switchOn, type ScreenId } from '../lib/guide';
+import { SWITCH_KEY, switchOn, type PageId } from '../lib/guide';
 import '../styles/guide.css';
 
 // The layer (notes, hotspots, the recorder panel, the short path) and the entries it reads are
@@ -33,7 +33,14 @@ function writeSwitch(on: boolean): void {
  * opens a live note beside the thing they pressed, and the parts worth explaining carry a hotspot.
  * Nothing here is a dialog and nothing takes the focus but the panel the visitor opens.
  */
-export default function Guide({ screen }: { screen: ScreenId }) {
+export default function Guide({
+  screen,
+  placement = 'dock',
+}: {
+  screen: PageId;
+  /** A dock at the window's foot (the shop and prose shells), or in the app shell's top bar. */
+  placement?: 'dock' | 'topbar';
+}) {
   // The bar is drawn with the page but does nothing until the island has hydrated, so its buttons
   // are disabled until then and no press is lost.
   const [ready, setReady] = useState(false);
@@ -71,7 +78,7 @@ export default function Guide({ screen }: { screen: ScreenId }) {
 
   return (
     <div className="guide-layer" data-guide-root="">
-      <div className="guide-bar" role="group" aria-label="Under the hood">
+      <div className={`guide-bar guide-bar-${placement}`} role="group" aria-label="Under the hood">
         <button
           type="button"
           role="switch"
@@ -83,7 +90,7 @@ export default function Guide({ screen }: { screen: ScreenId }) {
           <span className="guide-switch-track" aria-hidden="true">
             <span className="guide-switch-thumb" />
           </span>
-          Under the hood
+          <span className="guide-switch-text">Under the hood</span>
         </button>
         <button
           ref={moreButton}

@@ -150,6 +150,53 @@
   border-color: var(--guide-accent);
 }
 
+/* ---- In the app shell's top bar: one compact pill in the flow, its menu opening below ---- */
+
+.topbar-guide:has(.guide-bar-topbar) {
+  width: auto;
+}
+
+.guide-layer .guide-bar.guide-bar-topbar {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  z-index: auto;
+  padding: 2px;
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+.guide-layer .guide-bar-topbar .guide-more {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  padding: 0;
+}
+
+.guide-layer .guide-bar-topbar .guide-extra {
+  display: none;
+}
+
+.guide-layer .guide-bar-topbar .guide-extra[data-open] {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  bottom: auto;
+  z-index: 60;
+  display: grid;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--guide-edge);
+  border-radius: 10px;
+  background: var(--guide-surface);
+  box-shadow: var(--shadow-raised);
+}
+
+.guide-bar-topbar .guide-extra .guide-quiet {
+  text-align: left;
+  white-space: nowrap;
+}
+
 /* ---- Hotspots ---- */
 
 .guide-layer .guide-spot {
@@ -622,6 +669,37 @@
     width: auto;
     max-width: none;
     height: 70vh;
+  }
+}
+
+/* The menu's cart bar (a phone) sits at the window's foot: the dock and a note's sheet go above it. */
+@media (max-width: 60rem) {
+  body:has(.cart-bar) .guide-bar-dock {
+    bottom: 80px;
+  }
+
+  /* The console's tab bar sits at the foot: a note's sheet and the recorder end above it. */
+  .shell-app .guide-note,
+  .shell-app .guide-note.guide-corner,
+  .shell-app .guide-panel {
+    bottom: 72px;
+  }
+}
+
+@media (max-width: 40rem) {
+  body:has(.cart-bar) .guide-note,
+  body:has(.cart-bar) .guide-note.guide-corner,
+  body:has(.cart-bar) .guide-panel {
+    bottom: 128px;
+  }
+
+  .guide-bar-topbar .guide-switch-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }
 

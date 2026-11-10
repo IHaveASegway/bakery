@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import {
   useCallback,
   useEffect,
@@ -9,7 +10,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { PATHS, entriesFor } from '../../guide';
-import { PATH_CLOSED, pathReduce, type GuideEntry, type ScreenId } from '../../lib/guide';
+import { PATH_CLOSED, pathReduce, screenOf, type GuideEntry, type PageId } from '../../lib/guide';
 import { traces } from '../../lib/trace';
 import {
   entryForTraces,
@@ -56,7 +57,7 @@ export default function Layer({
   pathRun,
   announce,
 }: {
-  screen: ScreenId;
+  screen: PageId;
   on: boolean;
   panel: boolean;
   onClosePanel: () => void;
@@ -65,7 +66,9 @@ export default function Layer({
   announce: (sentence: string) => void;
 }) {
   const snapshot = useSyncExternalStore(traces.subscribe, traces.getSnapshot, traces.getSnapshot);
-  const entries = entriesFor(screen);
+  // The console's pages share one set of entries; each page has its own short path.
+  const screenGroup = screenOf(screen);
+  const entries = entriesFor(screenGroup);
 
   // ---- The live note: the visitor's latest action, while the guide is on ----
   const [live, setLive] = useState<{ gesture: number; pinned: boolean } | null>(null);
@@ -96,9 +99,10 @@ export default function Layer({
     [snapshot, live],
   );
   const liveEntry = useMemo(
-    () => (live === null ? null : entryForTraces(group, screen, traces.anchorOf(live.gesture))),
+    () =>
+      live === null ? null : entryForTraces(group, screenGroup, traces.anchorOf(live.gesture)),
     // The entry is chosen once the first request is known; later evidence does not change it.
-    [live?.gesture, group[0]?.id, screen],
+    [live?.gesture, group[0]?.id, screenGroup],
   );
   // The pressed element; once it has gone (a card drawn again in its new column), the element the
   // page put the focus on; while the focus is elsewhere (the recorder), the last such element; and
@@ -238,8 +242,10 @@ export default function Layer({
   }, [live, standing, path.open, panel, pathEnd, onClosePanel]);
 
   const showLive = on && live !== null && group.length > 0;
-  return (
-    <>
+  // The layer lives in the body, so a note or a mark is placed against the page, wherever the
+  // guide's bar is (the app shell's top bar is sticky, and would hold them otherwise).
+  return createPortal(
+    <div className="guide-layer" data-guide-root="">
       {on && (
         <Hotspots
           entries={entries}
@@ -363,7 +369,7 @@ export default function Layer({
       )}
       {panel && (
         <Panel
-          screen={screen}
+          screen={screenGroup}
           entries={entries}
           traces={snapshot.traces.filter((t) => t.gesture !== null)}
           feed={snapshot.feed}
@@ -372,7 +378,8 @@ export default function Layer({
           onClose={onClosePanel}
         />
       )}
-    </>
+    </div>,
+    document.body,
   );
 }
 

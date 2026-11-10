@@ -12,11 +12,13 @@ import {
   curlText,
   fillPath,
   maskToken,
+  screenOf,
   sentenceCount,
   shellQuote,
   takesToken,
   type CurlContext,
   type GuideEntry,
+  type PageId,
 } from '../src/lib/guide';
 import { check, type Document, type Json, type Schema } from '../src/lib/schema-check';
 import { PRINCIPLES, PRINCIPLE_TABLE } from '../src/lib/how-its-built';
@@ -34,6 +36,7 @@ import {
 import { RAFT } from '../src/guide/principles';
 import { ALL_ENTRIES, CONSOLE_ORDER, ENTRIES, OTHER_WRITES, PATHS } from '../src/guide';
 import { DECISIONS, decisionRows } from '../src/guide/decisions';
+import { CONSOLE_PAGES, PAGES } from '../src/lib/guide';
 
 interface Operation {
   operationId: string;
@@ -516,7 +519,7 @@ describe('the console’s order and the short paths', () => {
     for (const [screen, steps] of Object.entries(PATHS)) {
       expect(steps.length, screen).toBeGreaterThan(0);
       expect(steps.length, screen).toBeLessThanOrEqual(5);
-      const ids = ENTRIES[screen as keyof typeof ENTRIES].map((e) => e.id);
+      const ids = ENTRIES[screenOf(screen as PageId)].map((e) => e.id);
       for (const step of steps) {
         expect(ids, `${screen}: ${step.entry}`).toContain(step.entry);
         expect(sentenceCount(step.do), step.entry).toBe(1);
@@ -573,5 +576,35 @@ describe('a hotspot’s name never contains a control’s', () => {
         .map((n) => `${entry.id} ~ ${n}`),
     );
     expect(hits).toEqual([]);
+  });
+});
+
+describe('the console’s seven pages', () => {
+  test('share the console’s one set of entries, and each other page has an id of its own', () => {
+    for (const page of CONSOLE_PAGES) expect(screenOf(page)).toBe('console');
+    expect(screenOf('console')).toBe('console');
+    expect(screenOf('menu')).toBe('menu');
+    expect(PAGES).toHaveLength(SCREENS.length + CONSOLE_PAGES.length);
+  });
+
+  test('the Kitchen, Menu and System pages each have a short path', () => {
+    expect(PATHS.console?.[0]?.entry).toBe('kitchen-board');
+    expect(PATHS['console-menu']?.map((s) => s.entry)).toContain('controls-menu-publish');
+    expect(PATHS['console-system']?.map((s) => s.entry)).toContain('controls-clock');
+  });
+
+  test('every console page passes its own id to the layout', () => {
+    const pages: Record<string, string> = {
+      '../src/pages/app/index.astro': 'console',
+      '../src/pages/app/money/index.astro': 'console-money',
+      '../src/pages/app/menu/index.astro': 'console-menu',
+      '../src/pages/app/catering/index.astro': 'console-catering',
+      '../src/pages/app/customers/index.astro': 'console-customers',
+      '../src/pages/app/system/index.astro': 'console-system',
+      '../src/pages/app/dispatch/index.astro': 'dispatch',
+    };
+    for (const [file, id] of Object.entries(pages)) {
+      expect(read(file), file).toContain(`screen="${id}"`);
+    }
   });
 });

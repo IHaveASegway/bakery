@@ -53,6 +53,30 @@ export const HOME: GuideEntry[] = [
       note: 'What the session cookie says about you, read without touching a sandbox. It takes the cookie only, so from a terminal it answers 401.',
     },
   },
+  {
+    id: 'home-path',
+    screen: 'home',
+    target: 'home-path',
+    title: 'The path of one click',
+    what: 'One order drawn as the path it takes: the browser, the API Worker, the order’s own object, the Queue and the kitchen board. Each part links to the essay that argues for it.',
+    why: 'Drawing the path shows the line the code keeps: a request stops at one object, and everything after it travels as an event.',
+    whenNot:
+      'Not a promise of timing: the Queue’s hop takes a moment, not a fixed delay, and the figure draws no retries.',
+    events: ['OrderPlaced', 'OrderPaid'],
+    principle: QUEUE,
+    api: {
+      routeId: 'place-order',
+      method: 'POST',
+      path: '/v1/sandboxes/{id}/orders',
+      body: {
+        kind: 'pickup',
+        slot: '2026-11-07T09:45:00-07:00',
+        lines: [{ variant: 'country-loaf/whole', qty: 1 }],
+      },
+      note: 'The click the figure follows, from a terminal.',
+    },
+    triggers: [],
+  },
 ];
 
 export const SIGNIN: GuideEntry[] = [
@@ -123,6 +147,45 @@ export const SIGNIN: GuideEntry[] = [
 // The entries run down the page: the cart, the list, then the note about where the menu came from.
 // The list's entry is anchored to the first card, since the whole list is thousands of pixels tall.
 export const MENU: GuideEntry[] = [
+  {
+    id: 'menu-start',
+    screen: 'menu',
+    target: 'menu-start',
+    title: 'Your own bakery first',
+    what: 'Ordering needs a sandbox of your own; until then this is the demo’s seed menu. A guest sandbox takes a few seconds and is wiped tonight.',
+    why: 'A sandbox per visitor means an order you place can never land in anyone else’s kitchen.',
+    whenNot:
+      'Not for a shop that must sell to a stranger at once: here a check that you are a person comes before the first order.',
+    events: ['SandboxSeeded'],
+    principle: SANDBOX,
+    api: {
+      routeId: 'create-sandbox',
+      method: 'POST',
+      path: '/v1/sandboxes',
+      body: { turnstile_token: '<the token Turnstile gives the page>', replace: false },
+      note: 'What the sign-in page’s guest button sends.',
+    },
+    triggers: [],
+  },
+  {
+    id: 'menu-categories',
+    screen: 'menu',
+    target: 'menu-categories',
+    title: 'One read for the whole menu',
+    what: 'These links jump down the one menu page and load nothing. The whole menu came in one read, cached by its version.',
+    why: 'One versioned read serves the whole page, so moving between categories costs no request.',
+    whenNot:
+      'Not for a catalogue of thousands of items: one read of everything would be too large, and it would be paged.',
+    events: [],
+    principle: CACHE,
+    api: {
+      routeId: 'get-menu',
+      method: 'GET',
+      path: '/v1/sandboxes/{id}/menu',
+      note: 'The one read this page makes for its menu.',
+    },
+    triggers: [],
+  },
   {
     id: 'menu-cart',
     screen: 'menu',
