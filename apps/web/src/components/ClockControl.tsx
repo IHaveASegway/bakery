@@ -10,7 +10,7 @@ import {
   remainingS,
 } from '../lib/clock';
 import { describeError, type Message as Text } from '../lib/messages';
-import { whenText } from '../lib/when';
+import { momentText } from '../lib/when';
 import GuestNote from './GuestNote';
 import Message from './Message';
 
@@ -57,7 +57,10 @@ export default function ClockControl({
       const clock = await clicks.current.click(sandboxId, step);
       setOffset(clock.clock_offset_s);
       setWall(Date.now());
-      setSaid(`Business time moved forward. It is now ${whenText(clock.business_now)}.`);
+      // The console's form, "Mon 16 Nov, 5:09 am", as every other date on the page (F18).
+      setSaid(
+        `Business time moved forward. It is now ${momentText(clock.business_now, { now: Date.parse(clock.business_now) })}.`,
+      );
       onAdvanced();
     } catch (e) {
       const refusal = clockRefusal(e);
@@ -85,8 +88,11 @@ export default function ClockControl({
           <time dateTime={now.iso}>{now.text}</time>
         </strong>{' '}
         (Mountain), <span className="whitespace-nowrap">{formatOffset(offset)}</span> ahead of the
-        wall clock, with <span className="whitespace-nowrap">{formatOffset(left)}</span> of{' '}
-        <span className="whitespace-nowrap">{formatOffset(MAX_OFFSET_S)}</span> left.
+        wall clock,{' '}
+        {/* One phrase that never breaks inside itself (F19): "with 14 d of 14 d left". */}
+        <span className="whitespace-nowrap" data-phrase="clock-left">
+          with {formatOffset(left)} of {formatOffset(MAX_OFFSET_S)} left.
+        </span>
       </p>
       <p className="actions">
         {STEPS.map(({ step, label, says }) => (

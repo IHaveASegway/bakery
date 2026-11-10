@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { formatCountdown, utcClock, utcStamp } from '../../lib/countdown';
+import { formatCountdown } from '../../lib/countdown';
 import ApiToken from '../ApiToken';
 import ClockControl from '../ClockControl';
-import { businessNowMs } from '../../lib/when';
+import { businessNowMs, utcMomentText, whenText } from '../../lib/when';
 import Console, { type WorkspaceProps } from '../Console';
 import DeadLetters from '../DeadLetters';
 import GuestNote from '../GuestNote';
@@ -24,6 +24,8 @@ export function SystemView({
   onReplace,
 }: WorkspaceProps) {
   const live = sandbox.state !== 'seeding';
+  // Business now, so a date says its year only when it is not the bakery's this year.
+  const now = businessNowMs(sandbox.clock_offset_s);
   return (
     <div className="workspace panel-grid">
       <div className="panel third">
@@ -42,10 +44,14 @@ export function SystemView({
             <code>{String(sandbox.seed)}</code>
           </dd>
           <dt>Born</dt>
-          <dd>{utcStamp(sandbox.born)}</dd>
+          <dd>
+            <time dateTime={sandbox.born} title={whenText(sandbox.born)}>
+              {utcMomentText(sandbox.born, { now })}
+            </time>
+          </dd>
           <dt>Deleted</dt>
           <dd>
-            <Countdown wipeAt={sandbox.wipe_at} onDue={onReload} />
+            <Countdown wipeAt={sandbox.wipe_at} onDue={onReload} now={now} />
           </dd>
         </dl>
         {!live && (
@@ -99,11 +105,7 @@ export function SystemView({
             {isGuest && <GuestNote />}
           </div>
           <div className="panel half">
-            <DeadLetters
-              sandboxId={sandbox.id}
-              isGuest={isGuest}
-              now={businessNowMs(sandbox.clock_offset_s)}
-            />
+            <DeadLetters sandboxId={sandbox.id} isGuest={isGuest} now={now} />
           </div>
         </>
       )}
@@ -127,9 +129,25 @@ export function SystemView({
   );
 }
 
-/** "deleted at 10:00 UTC, in 6 h 12 min", counting down; asks for a reload once it is due. */
-function Countdown({ wipeAt, onDue }: { wipeAt: string; onDue: () => void }) {
+/**
+ * "at Wed 11 Nov, 10:00 am UTC, in 6 h 12 min", counting down; asks for a reload once it is due.
+ * The wipe is set on the wall clock in UTC, so it says UTC (F18, 2026-11-10).
+ */
+function Countdown({
+  wipeAt,
+  onDue,
+  now: business,
+}: {
+  wipeAt: string;
+  onDue: () => void;
+  now: number;
+}) {
   const due = new Date(wipeAt).getTime();
+  // "Wed 11 Nov, " may wrap; "10:00 am UTC" stays together.
+  const text = utcMomentText(wipeAt, { now: business });
+  const cut = text.lastIndexOf(', ');
+  const day = cut < 0 ? '' : `${text.slice(0, cut + 1)} `;
+  const clock = cut < 0 ? text : text.slice(cut + 2);
   const [now, setNow] = useState(() => Date.now());
   const fired = useRef(false);
 
@@ -148,7 +166,8 @@ function Countdown({ wipeAt, onDue }: { wipeAt: string; onDue: () => void }) {
 
   return (
     <>
-      at {utcClock(wipeAt)},{' '}
+      at {day}
+      <span className="whitespace-nowrap">{clock}</span>,{' '}
       <time dateTime={wipeAt}>{due <= now ? 'now' : `in ${formatCountdown(due - now)}`}</time>
     </>
   );

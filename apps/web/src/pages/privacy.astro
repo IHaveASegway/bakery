@@ -134,6 +134,16 @@ import Base from '../layouts/Base.astro';
         </tr>
         <tr>
           <th scope="row" data-label="What">
+            Which orders you placed in this tab
+          </th>
+          <td data-label="Kept for">In this browser tab, until you close it</td>
+          <td data-label="Why">
+            So the kitchen board can mark them as yours. Order ids only, kept in the tab’s own
+            storage and never sent anywhere.
+          </td>
+        </tr>
+        <tr>
+          <th scope="row" data-label="What">
             Stripe sandbox objects, from the payments pull request (PR 5)
           </th>
           <td data-label="Kept for">
@@ -161,7 +171,7 @@ import Base from '../layouts/Base.astro';
   </p>
 
   <p class="asof">
-    As of 2026-11-05. The detail is in the{' '}
+    As of 2026-11-10. The detail is in the{' '}
     <a href="https://github.com/IHaveASegway/bakery/blob/main/docs/security.md">
       security document
     </a>

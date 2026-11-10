@@ -17,13 +17,6 @@ export function utcClock(wallTime: string): string {
   return `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())} UTC`;
 }
 
-/** "2026-11-05 14:03 UTC" for a WallTime string. */
-export function utcStamp(wallTime: string): string {
-  const date = new Date(wallTime);
-  if (Number.isNaN(date.getTime())) return wallTime;
-  return `${date.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
-}
-
 /** The top bar's countdown, in round words: "12 h", "40 min", "under a minute", "now". */
 export function roughCountdown(ms: number): string {
   if (ms <= 0) return 'now';

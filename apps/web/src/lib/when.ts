@@ -52,6 +52,9 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
  *   momentText  a time with its day         "Tue 10 Nov, 8:15 am" (with seconds: "8:15:07 am")
  *   clockOfText the clock alone, in a list that already names the day   "8:15 am"
  *
+ * A wall-clock moment that is set in UTC (the nightly wipe) keeps momentText's form and says so:
+ * utcMomentText, "Wed 11 Nov, 10:00 am UTC".
+ *
  * The long form, whenText ("8:15 am on Tuesday 2026-11-10"), goes in a `title` or a `<time>`'s
  * machine form, not in the text. "This year" is the bakery's year at `now`, the wall clock unless a
  * test passes its own.
@@ -103,6 +106,21 @@ export const shortDate = (value: string, options: { now?: number | undefined } =
  * knows the sandbox passes it as `now`, so "this year" is the bakery's, not the browser's.
  */
 export const businessNowMs = (offsetS: number = 0): number => Date.now() + offsetS * 1000;
+
+/**
+ * "Wed 11 Nov, 10:00 am UTC": a wall-clock moment that is set in UTC and must be said in it (the
+ * nightly wipe at 10:00 UTC), in `momentText`'s form with "UTC" after it (F18, 2026-11-10). The
+ * day is UTC's, and its year shows when it is not now's. The text itself when it is not a time.
+ */
+export function utcMomentText(value: string, options: { now?: number | undefined } = {}): string {
+  const ms = Date.parse(value);
+  if (Number.isNaN(ms) || !/T\d{2}:\d{2}/.test(value)) return value;
+  const d = new Date(ms);
+  const thisYear = new Date(options.now ?? Date.now()).getUTCFullYear();
+  const year = d.getUTCFullYear() === thisYear ? '' : ` ${d.getUTCFullYear()}`;
+  const day = `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}${year}`;
+  return `${day}, ${clockLabel(d.getUTCHours() * 60 + d.getUTCMinutes())} UTC`;
+}
 
 /** "8:15 am", the bakery's clock alone, for a list that already names the day. */
 export function clockOfText(value: string): string {

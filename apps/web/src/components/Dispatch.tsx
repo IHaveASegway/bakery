@@ -473,12 +473,7 @@ export default function Dispatch() {
               </>
             )}
           </div>
-          <div className="dispatch-side">
-            <div className="panel">
-              <h2>Stops</h2>
-              <DispatchStops day={day} data={ready?.data ?? null} />
-            </div>
-
+          <div className="dispatch-plans">
             <div className="panel">
               <h2>Server’s plan</h2>
               <p className="hint">
@@ -578,95 +573,100 @@ export default function Dispatch() {
                 <p className="hint">No browser plan yet for this day.</p>
               )}
             </div>
+          </div>
 
-            <div className="panel">
-              <h2>Comparison</h2>
-              <DispatchComparison report={rep} solver={solver} />
-            </div>
+          <div className="panel dispatch-stops">
+            <h2>Stops</h2>
+            <DispatchStops day={day} data={ready?.data ?? null} />
+          </div>
 
-            <div className="panel">
-              <h2>Publish</h2>
-              <p className="hint">
-                The published plan is the record drivers, the board and each order read.
-              </p>
-              <form
-                aria-label="Publish a plan"
-                data-tour="dispatch-publish"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  publishPlan();
-                }}
-              >
-                <fieldset>
-                  <legend>Which plan</legend>
-                  {(['proposed', 'submitted'] as const).map((p) => (
-                    <div key={p}>
-                      <label className="check">
-                        <input
-                          type="radio"
-                          name="dispatch-publish"
-                          value={p}
-                          checked={publish === p}
-                          disabled={!staff || busy !== null || !day[p]}
-                          onChange={() => setPublish(p)}
-                        />{' '}
-                        {SHOWN_NAMES[p]}
-                        {day[p] ? '' : ' (none yet)'}
-                      </label>
-                    </div>
-                  ))}
-                </fieldset>
-                {picked !== null && picked.unassigned.length > 0 && (
-                  <p className="hint">
-                    This plan leaves {picked.unassigned.length} stop out. The API will refuse to
-                    publish it.
-                  </p>
-                )}
-                <p>
-                  <button
-                    type="submit"
-                    className="btn btn-primary"
-                    disabled={!staff || busy !== null || picked === null}
-                  >
-                    {busy === 'publish' ? 'Publishing…' : 'Publish'}
-                  </button>
+          <div className="panel dispatch-compare">
+            <h2>Comparison</h2>
+            <DispatchComparison report={rep} solver={solver} />
+          </div>
+
+          <div className="panel dispatch-publish">
+            <h2>Publish</h2>
+            <p className="hint">
+              The published plan is the record drivers, the board and each order read.
+            </p>
+            <form
+              aria-label="Publish a plan"
+              data-tour="dispatch-publish"
+              onSubmit={(e) => {
+                e.preventDefault();
+                publishPlan();
+              }}
+            >
+              <fieldset>
+                <legend>Which plan</legend>
+                {(['proposed', 'submitted'] as const).map((p) => (
+                  <div key={p}>
+                    <label className="check">
+                      <input
+                        type="radio"
+                        name="dispatch-publish"
+                        value={p}
+                        checked={publish === p}
+                        disabled={!staff || busy !== null || !day[p]}
+                        onChange={() => setPublish(p)}
+                      />{' '}
+                      {SHOWN_NAMES[p]}
+                      {day[p] ? '' : ' (none yet)'}
+                    </label>
+                  </div>
+                ))}
+              </fieldset>
+              {picked !== null && picked.unassigned.length > 0 && (
+                <p className="hint">
+                  This plan leaves {picked.unassigned.length} stop out. The API will refuse to
+                  publish it.
                 </p>
-              </form>
-              {published !== null && (
-                <>
-                  <DispatchPlan
-                    plan={published}
-                    title={`Published plan, version ${published.plan_v}, made by the ${published.source}`}
-                  />
-                  <h3 data-tour="dispatch-complete" ref={completion} tabIndex={-1}>
-                    Stop completion
-                  </h3>
-                  {todo.length === 0 ? (
-                    <p className="hint">Every stop of the published plan is delivered.</p>
-                  ) : (
-                    <ul className="choices">
-                      {todo.map((row) => (
-                        <li key={row.order}>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            disabled={!staff}
-                            aria-disabled={busy !== null || undefined}
-                            onClick={() => complete(row.stop ?? 0)}
-                          >
-                            {busy === `complete-${row.stop}`
-                              ? 'Saving…'
-                              : `Stop ${row.stop} delivered`}
-                          </button>{' '}
-                          van {row.van}, order <code>{shortId(row.order)}</code>, window{' '}
-                          {windowText(row.window)}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
               )}
-            </div>
+              <p>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={!staff || busy !== null || picked === null}
+                >
+                  {busy === 'publish' ? 'Publishing…' : 'Publish'}
+                </button>
+              </p>
+            </form>
+            {published !== null && (
+              <>
+                <DispatchPlan
+                  plan={published}
+                  title={`Published plan, version ${published.plan_v}, made by the ${published.source}`}
+                />
+                <h3 data-tour="dispatch-complete" ref={completion} tabIndex={-1}>
+                  Stop completion
+                </h3>
+                {todo.length === 0 ? (
+                  <p className="hint">Every stop of the published plan is delivered.</p>
+                ) : (
+                  <ul className="choices">
+                    {todo.map((row) => (
+                      <li key={row.order}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          disabled={!staff}
+                          aria-disabled={busy !== null || undefined}
+                          onClick={() => complete(row.stop ?? 0)}
+                        >
+                          {busy === `complete-${row.stop}`
+                            ? 'Saving…'
+                            : `Stop ${row.stop} delivered`}
+                        </button>{' '}
+                        van {row.van}, order <code>{shortId(row.order)}</code>, window{' '}
+                        {windowText(row.window)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
           </div>
         </div>
       )}
