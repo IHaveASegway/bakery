@@ -39,6 +39,18 @@ export function horizonDates(nowMs: number, days: number = HORIZON_DAYS): string
   return Array.from({ length: days }, (_, i) => dateOf(mountainLocal(noon + i * 86_400_000)));
 }
 
+/** Whether the bakery opens on a date: every day but Monday (the Schedule's hours). */
+export const isOpenDate = (date: string): boolean =>
+  mountainLocal(mountainToMs(date, 12 * 60)).weekday !== 'mon';
+
+/**
+ * The first open day among `dates` (today first), as the checkout opens on: a screen that shows a
+ * day opens on this one, not on a closed today; the closed day stays selectable. The first date
+ * when none is open.
+ */
+export const firstOpenDate = (dates: readonly string[]): string =>
+  dates.find(isOpenDate) ?? dates[0] ?? '';
+
 /** The bakery date a business time falls on. */
 export function dateOfStart(start: string): string {
   const ms = Date.parse(start);

@@ -242,3 +242,15 @@ describe('a slot that filled first', () => {
     expect(full?.blocked).toBe('full');
   });
 });
+
+describe('a screen that shows a day opens on the first open one (F13, 2026-11-10)', () => {
+  test('a closed Monday is passed over, and stays a choice', async () => {
+    const { firstOpenDate, isOpenDate } = await import('../src/lib/schedule');
+    expect(isOpenDate('2026-11-09')).toBe(false);
+    expect(isOpenDate('2026-11-10')).toBe(true);
+    expect(firstOpenDate(['2026-11-09', '2026-11-10', '2026-11-11'])).toBe('2026-11-10');
+    expect(firstOpenDate(['2026-11-10', '2026-11-11'])).toBe('2026-11-10');
+    expect(firstOpenDate(['2026-11-09'])).toBe('2026-11-09');
+    expect(firstOpenDate([])).toBe('');
+  });
+});

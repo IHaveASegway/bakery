@@ -13,7 +13,7 @@ import {
   slotTime,
   type TargetKind,
 } from '../lib/capacity';
-import { dateLabel, horizonDates } from '../lib/schedule';
+import { dateLabel, firstOpenDate, horizonDates, isOpenDate } from '../lib/schedule';
 import { ZONES, clockLabel, mountainLocal } from '../lib/slots';
 import { useSchedule } from '../lib/use-schedule';
 import { type Message as Text } from '../lib/messages';
@@ -92,7 +92,7 @@ export function Day({ schedule }: { schedule: ScheduleResponse }) {
         wide={wide}
         line={`Pickup slots: ${sum(schedule.slots.map((s) => s.taken))} of ${sum(schedule.slots.map((s) => s.capacity))} taken`}
       >
-        <table className="table capacity-table">
+        <table className="table table-fits capacity-table">
           <caption className="sr-only">Pickup slots</caption>
           <thead>
             <tr>
@@ -128,7 +128,7 @@ export function Day({ schedule }: { schedule: ScheduleResponse }) {
         wide={wide}
         line={`Delivery zones: ${sum(schedule.zones.map((z) => z.taken))} of ${sum(schedule.zones.map((z) => z.capacity))} stops taken`}
       >
-        <table className="table capacity-table">
+        <table className="table table-fits capacity-table">
           <caption className="sr-only">Delivery zones</caption>
           <thead>
             <tr>
@@ -170,7 +170,7 @@ export function Day({ schedule }: { schedule: ScheduleResponse }) {
           wide={wide}
           line={`Item caps: ${sum(capped.map((i) => i.used))} of ${sum(capped.map((i) => i.daily_cap ?? 0))} used`}
         >
-          <table className="table capacity-table">
+          <table className="table table-fits capacity-table">
             <caption className="sr-only">Item caps</caption>
             <thead>
               <tr>
@@ -233,7 +233,8 @@ export default function CapacityEditor({
   // The editor looks at the bakery's days from business today on, like the checkout.
   const dates = useMemo(() => horizonDates(Date.now() + clockOffsetS * 1000), [clockOffsetS]);
   const [date, setDate] = useState('');
-  const day = dates.includes(date) ? date : (dates[0] ?? '');
+  // A closed today opens on the first open day, as the checkout does; the closed day stays a choice.
+  const day = dates.includes(date) ? date : firstOpenDate(dates);
   const live = useSchedule(sandboxId, day);
   const [kind, setKind] = useState<TargetKind>('slot');
   const [value, setValue] = useState('');
@@ -311,7 +312,7 @@ export default function CapacityEditor({
         <select id="capacity-day" value={day} onChange={(e) => setDate(e.target.value)}>
           {dates.map((d) => (
             <option key={d} value={d}>
-              {dateLabel(d)}
+              {`${dateLabel(d)}${isOpenDate(d) ? '' : ', closed'}`}
             </option>
           ))}
         </select>
