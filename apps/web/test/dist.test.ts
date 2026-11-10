@@ -580,9 +580,9 @@ describe('dist', () => {
   //
   // Measured 2026-11-10 with node's gzipSync at its default level, per class (the largest page of
   // the class), after the console's seven pages (#106) merged and the pages stopped explaining (the
-  // guide took their How this works words): guide only 81,831 B
-  // (home, privacy); API reference 82,084 B; status 84,604 B; storefront 93,689 B (menu, sign-in);
-  // checkout 111,930 B; the order's page 105,504 B; console screens 111,213 B (the kitchen; the
+  // guide took their How this works words): guide only 82,071 B
+  // (home, privacy); API reference 82,324 B; status 84,845 B; storefront 93,930 B (menu, sign-in);
+  // checkout 112,169 B; the order's page 105,748 B; console screens 111,447 B (the kitchen; the
   // console's seven pages, the shop's catering and the inbox). Each budget is the measured size
   // plus a quarter, rounded up to the next 1,000 B. The ADR's own numbers (5,000 B for a public
   // page, 120,000 B for an app screen or the checkout) are not met on the public pages: every
@@ -591,17 +591,17 @@ describe('dist', () => {
   //
   // Since the guide replaced the tour (2026-11-09) these budgets hold the first load only: the
   // guide's bar and the trace store. With the guide on, the default, the page then loads the
-  // deferred layer (the test after these holds it, at 28,108 B to 28,875 B), so a page with the
+  // deferred layer (the test after these holds it, at 30,192 B to 30,958 B), so a page with the
   // guide on costs more than it did with the tour. Per class, first load / with the guide on /
-  // the tour's total it replaces, as main last measured it: guide only 81,831 / 110,706 / 94,187;
-  // API reference 82,084 / 110,959 / 94,440; status 84,604 / 113,479 / 96,960; storefront
-  // 93,689 / 122,017 / 103,417; checkout 111,930 / 140,258 / 122,775 (its three steps, #101);
-  // console screens 111,213 / 139,541 / 122,232 (the kitchen as its own page). The first load is
-  // smaller than the tour's by 9,728 B to 12,356 B; with the guide on the page is larger, by
-  // 16,519 B to 18,600 B. The tour's totals were taken before the shop's and the console's later
+  // the tour's total it replaces, as main last measured it: guide only 82,071 / 113,029 / 94,187;
+  // API reference 82,324 / 113,282 / 94,440; status 84,845 / 115,803 / 96,960; storefront
+  // 93,930 / 124,342 / 103,417; checkout 112,169 / 142,581 / 122,775 (its three steps, #101);
+  // console screens 111,447 / 141,859 / 122,232 (the kitchen as its own page). The first load is
+  // smaller than the tour's by 9,487 B to 12,116 B; with the guide on the page is larger, by
+  // 18,842 B to 20,925 B. The tour's totals were taken before the shop's and the console's later
   // changes merged, so part of each gap is theirs, not the guide's. The order's status page
-  // (/order/, #101) had no tour, at 97,911 B; with the guide's bar it is 105,504 B first and
-  // 133,832 B with the guide on, which buys the order's read, its watch on the kitchen socket, the
+  // (/order/, #101) had no tour, at 97,911 B; with the guide's bar it is 105,748 B first and
+  // 136,160 B with the guide on, which buys the order's read, its watch on the kitchen socket, the
   // tracker and the guide there. A visitor who turns the guide off loads the first load alone on
   // later pages.
   describe('JavaScript per page', () => {
@@ -611,10 +611,10 @@ describe('dist', () => {
       none: { budget: 0, pages: ['how-its-built/tools/index.html'] },
       guide: { budget: 103 * KB, pages: ['index.html', 'privacy/index.html'] },
       api: { budget: 103 * KB, pages: ['docs/api/index.html'] },
-      status: { budget: 106 * KB, pages: ['status/index.html'] },
-      order: { budget: 132 * KB, pages: ['order/index.html'] },
+      status: { budget: 107 * KB, pages: ['status/index.html'] },
+      order: { budget: 133 * KB, pages: ['order/index.html'] },
       storefront: { budget: 118 * KB, pages: ['menu/index.html', 'signin/index.html'] },
-      checkout: { budget: 140 * KB, pages: ['checkout/index.html'] },
+      checkout: { budget: 141 * KB, pages: ['checkout/index.html'] },
       // The console became seven pages on 2026-11-09 (the largest, the kitchen, was 122,232 B with
       // the tour; it was 137,999 B as one page): each page loads its own workspace and the frame
       // they share, which reads the session and draws the top bar.
@@ -680,12 +680,13 @@ describe('dist', () => {
     // The guide's deferred load (components/Guide.tsx): the Layer chunk that a dynamic import brings
     // once the island has mounted and the guide is on or the recorder is open, with every chunk it
     // imports statically that the page's first load does not already carry, gzipped the same way.
-    // Measured 2026-11-10: 28,108 B to 28,875 B (the light pages carry less React in their first
+    // Measured 2026-11-10: 30,192 B to 30,958 B (the light pages carry less React in their first
     // load, so their deferred load is the larger). The budget is the largest plus a quarter,
     // rounded up to the next 1,000 B. The bytes buy the 72 entries with the facts the pages' own
     // paragraphs once said, the notes, the hotspots, the recorder panel, the short path, the order
-    // page's watch note and the menu's read note (both since 2026-11-10).
-    const DEFERRED_BUDGET = 37_000;
+    // page's watch note, the menu's read note and the flight recorder's hops in notes and the panel
+    // (all since 2026-11-10).
+    const DEFERRED_BUDGET = 39_000;
     const firstLoad = (html: string) => {
       const queue = [
         ...[...html.matchAll(/<script[^>]*\ssrc="\/_astro\/([^"]+)"/g)].map((m) => m[1]),
@@ -707,7 +708,7 @@ describe('dist', () => {
       return seen;
     };
 
-    test('the guide’s deferred load, the layer and what only it imports, is within 37,000 B gzipped on every island page', async () => {
+    test('the guide’s deferred load, the layer and what only it imports, is within 39,000 B gzipped on every island page', async () => {
       const { gzipSync } = await import('node:zlib');
       const pages = files.filter((f) => classOf(f) !== 'none');
       expect(pages.length).toBeGreaterThan(5);
