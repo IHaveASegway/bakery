@@ -43,7 +43,7 @@ interface Props {
   onAdd?: (variant: string, label: string) => void;
   /**
    * The variant whose Add was pressed last, and what takes the visitor to the cart from it: a link
-   * right after that one button, so the cart is one Tab away from the press (audit G10,
+   * right after that one button, so the cart is one Tab away from the press (the audit of
    * 2026-11-10: the cart comes before the list, and Check out was about 70 Tab presses back).
    */
   added?: string | null;

@@ -561,7 +561,7 @@ command_as refund_after D 192.0.2.52 POST "/v1/sandboxes/$DID/orders/$DOID/refun
 expect_problem refund_after 422 order
 
 # A seeded order was made paid by the seed, not through Stripe, so Billing refunds it alone
-# (the UI audit of 2026-11-08, second pass, N2): no Stripe call, a ledger line `seed:<refund>`,
+# (the UI audit of 2026-11-08, second pass): no Stripe call, a ledger line `seed:<refund>`,
 # and the order, the board and the inbox follow as for a Stripe refund.
 probe_args D "$DID"
 node "${PROBE[@]}" --until snapshot > "$TMP/board_d.out" || true

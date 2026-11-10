@@ -31,7 +31,7 @@ export default function RefundControls({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Text | null>(null);
   // The first press of Refund reads the order and asks, in words, what a second press does; the
-  // second refunds (F21, 2026-11-10). Null until asked.
+  // second refunds (the audit of 2026-11-10). Null until asked.
   const [asking, setAsking] = useState<{ total_cents: number } | null>(null);
   const field = `refund-amount-${order}`;
   // The part form closes on success, taking its button with it; focus goes back to its toggle.
@@ -97,7 +97,7 @@ export default function RefundControls({
 
   return (
     <div className="refunds" data-tour="kitchen-refund">
-      {/* What the second press does, said above the two buttons it explains (F21, 2026-11-10). */}
+      {/* What the second press does, said above the two buttons it explains (the audit of 2026-11-10). */}
       {asking !== null && (
         <p id={`${field}-asking`} className="refund-asking" role="status">
           Press Refund all to refund everything left of order {label}’s{' '}

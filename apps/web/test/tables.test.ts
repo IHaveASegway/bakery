@@ -1,4 +1,4 @@
-// The tables that stack on a phone (F9, 2026-11-10): global.css turns a table's rows into blocks
+// The tables that stack on a phone (the audit of 2026-11-10): global.css turns a table's rows into blocks
 // below 40rem, and each stacked cell names its column from its `data-label`, as the tools page
 // labels its lines. A table of a few short columns of figures keeps its grid with `table-fits`; the
 // API reference's two repeated shapes are labelled in global.css itself. This reads the source of

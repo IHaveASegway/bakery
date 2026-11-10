@@ -1,4 +1,4 @@
-// A price drafted in another tab is shown when the window is looked at again, and Publish stops for one it had not shown (audit N6); the capacity panel follows a publish (N10).
+// A price drafted in another tab is shown when the window is looked at again, and Publish stops for one it had not shown; the capacity panel follows a publish.
 import { demoAccount, expect, liveSandbox, test } from './fixtures';
 
 test('a price drafted in another tab is shown on focus, and Publish stops for it', async ({
@@ -31,7 +31,7 @@ test('a price drafted in another tab is shown on focus, and Publish stops for it
   await expect(page.getByText('1 item has a price waiting for Publish.')).toBeVisible();
   await expect(page.getByText('Waiting for publish: $7.77.')).toBeVisible();
 
-  // N10: a publish moves the capacity panel's version without a reload.
+  // A publish moves the capacity panel's version without a reload.
   await expect(page.getByText('Menu version 1 set the item caps.').first()).toBeVisible();
   await page.getByRole('button', { name: 'Publish menu' }).click();
   await expect(page.getByText('Menu published. It is now version 2.')).toBeVisible();

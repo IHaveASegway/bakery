@@ -34,7 +34,7 @@
 }
 
 /* A chip that opens a panel (the sandbox, the clock) is drawn as the bar's other buttons are, with
-   a chevron that turns when it is open, so it reads as something to press (audit F22). */
+   a chevron that turns when it is open, so it reads as something to press. */
 .chip-caret {
   flex: none;
   width: 12px;
@@ -651,7 +651,7 @@ details.capacity-group .capacity-table {
   margin-top: var(--space-1);
 }
 
-/* The sandbox's id on the System page: whole, on its own line under its label (F19, 2026-11-10). */
+/* The sandbox's id on the System page: whole, on its own line under its label (the audit of 2026-11-10). */
 .panel dl > dd.sandbox-id {
   grid-column: 1 / -1;
 }
@@ -662,7 +662,7 @@ details.capacity-group .capacity-table {
 }
 
 /* A card's "…" menu on the board opens under the card at the card's own width, so it never spills
-   over the next column (F21, 2026-11-10). */
+   over the next column (the audit of 2026-11-10). */
 .board .card {
   position: relative;
 }
@@ -693,7 +693,7 @@ details.capacity-group .capacity-table {
   border-top: 1px solid var(--border);
 }
 
-/* Dispatch (G5, 2026-11-10): the map with the two plans beside it, then the stops at the page's full
+/* Dispatch (the audit of 2026-11-10): the map with the two plans beside it, then the stops at the page's full
    width, so every column of the table reads without a sideways scroll at 1280 px, then the
    comparison beside Publish. The stops had been a narrow column beside the map: the table was cut
    at its right edge and that column ran far below the map, which left an empty block beside it.
@@ -751,7 +751,7 @@ details.capacity-group .capacity-table {
   }
 }
 
-/* The visitor's own order on the board (G7, 2026-11-10): "Yours" in words beside its kind, and the
+/* The visitor's own order on the board (the audit of 2026-11-10): "Yours" in words beside its kind, and the
    card drawn in the accent, so the order placed in this tab is found without its six characters. */
 .badge[data-tone='yours'] {
   --badge-solid: var(--accent);
@@ -789,7 +789,7 @@ details.capacity-group .capacity-table {
   hyphens: manual;
 }
 
-/* What a card with no button waits for: a ready delivery's van (G9). */
+/* What a card with no button waits for: a ready delivery's van. */
 .board .card .card-waits {
   margin-top: var(--space-2);
   color: var(--text-muted);

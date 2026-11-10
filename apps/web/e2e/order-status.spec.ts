@@ -244,7 +244,7 @@ test.describe('an order of another sandbox', () => {
   });
 });
 
-// R94 (the fourth audit, F17): a step done before the page opened still shows its time, on the
+// R94 (the fourth audit): a step done before the page opened still shows its time, on the
 // first load and after a reload, from the order's own answer; the tab keeps nothing.
 test('an order paid before its page opens shows when it was paid, after a reload too', async ({
   page,

@@ -1,4 +1,4 @@
-// The sitemap, the canonical link and the share tags (audit P6). Reads dist/, so build first.
+// The sitemap, the canonical link and the share tags. Reads dist/, so build first.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

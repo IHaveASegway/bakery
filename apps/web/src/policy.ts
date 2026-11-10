@@ -13,7 +13,7 @@
   are the challenge class: they add Turnstile's origin to script-src and frame-src, and nothing else.
   Since 2026-11-10 the menu (/menu/) is in the challenge class too, and the checkout is the payment
   class plus Turnstile (the checkout class): both start a guest sandbox in place with Start ordering
-  (audit F1, components/Guest.tsx), and load Turnstile's script only once that button is pressed, so
+  (components/Guest.tsx), and load Turnstile's script only once that button is pressed, so
   a visitor who only reads the menu still loads nothing from Cloudflare. Later the same day the
   catering page (/catering/) joined the checkout class: its gate, Start an inquiry, does the same. Pages with an island but no
   third party (/inbox/, and since the tour, now the guide, /privacy/ and /docs/api/, and since PR 13

@@ -597,7 +597,7 @@ async function atRest(page: Page): Promise<number> {
  * partly behind another focusable widget as too small; a card's Start scrolled up under the top
  * bar's clock is that, and no visitor sees it: the card is out of view. A finding still counts
  * when what covers the control is the guide's own layer (a note, a mark, its control, the
- * recorder: audit 4's G3 is exactly that), and when no scroll can free the control (the end of a
+ * recorder: the fourth audit found exactly that), and when no scroll can free the control (the end of a
  * page under a fixed bottom nav, a control taller than the room between the bars:
  * e2e/cover.ts, freeable). The page is not scrolled to find out: on a phone a scroll folds an open
  * note, and the test goes on afterwards.

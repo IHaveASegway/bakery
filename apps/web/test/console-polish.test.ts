@@ -1,7 +1,6 @@
 // The console's fourth-audit fixes (2026-11-10), the parts a unit can hold: the visitor's own card,
-// a card's event chip and what a ready delivery waits for (G7, G9), who recorded a ledger line
-// (G13), and the UTC form of a wall-clock moment on System (F18). The browser half is
-// e2e/console-polish.spec.ts.
+// a card's event chip and what a ready delivery waits for, who recorded a ledger line, and
+// the UTC form of a wall-clock moment on System. The browser half is e2e/console-polish.spec.ts.
 import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -70,7 +69,7 @@ const refused = {
 /** An order id of this test's own, n of them: synthetic, never a hex string. */
 const idOf = (n: number) => `01JC8Z5R0T2B6Y8C4V1N3K${String(n).padStart(4, 'Q')}`;
 
-describe('the visitor’s own order on the board (G7)', () => {
+describe('the visitor’s own order on the board', () => {
   test('the checkout remembers each order it places, newest first, once each', () => {
     const tab = memory();
     rememberPlacedOrder(idOf(1), tab);
@@ -126,7 +125,7 @@ describe('the visitor’s own order on the board (G7)', () => {
   });
 });
 
-describe('a card’s chip and its way forward (G9)', () => {
+describe('a card’s chip and its way forward', () => {
   test('an event’s type breaks only between its words, with a hyphen', () => {
     expect(eventWords('OrderProductionStarted')).toEqual(['Order', 'Production', 'Started']);
     expect(chipText('OrderOutForDelivery')).toBe('Order\u00ADOut\u00ADFor\u00ADDelivery');
@@ -154,7 +153,7 @@ describe('a card’s chip and its way forward (G9)', () => {
   });
 });
 
-describe('who recorded a ledger line (G13)', () => {
+describe('who recorded a ledger line', () => {
   test('a refund of a seeded payment is not called seeded', () => {
     expect(recordedBy({ stripe_id: 'seed:01JC8Z6K3W9QF2N4T7XRB5MREF', kind: 'refund' }).text).toBe(
       'Billing, no Stripe call',
@@ -166,7 +165,7 @@ describe('who recorded a ledger line (G13)', () => {
   });
 });
 
-describe('a wall-clock moment set in UTC (F18)', () => {
+describe('a wall-clock moment set in UTC', () => {
   test('reads in the console’s form, with UTC after it', () => {
     expect(utcMomentText('2026-11-11T10:00:00Z', { now: NOW })).toBe('Wed 11 Nov, 10:00 am UTC');
     expect(utcMomentText('2026-11-10T12:04:09.5Z', { now: NOW })).toBe('Tue 10 Nov, 12:04 pm UTC');

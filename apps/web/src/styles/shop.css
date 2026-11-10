@@ -371,7 +371,7 @@
 }
 
 /* The new demo account's card: the line about its sandbox, then its two actions as a list with the
-   stack's gap, as the provider buttons are (audit G11, 2026-11-10: the two buttons touched). */
+   stack's gap, as the provider buttons are (the audit of 2026-11-10: the two buttons touched). */
 .way-in .made {
   margin: var(--space-3) 0 0;
 }
@@ -396,7 +396,7 @@
   margin: 0 0 var(--space-3);
 }
 
-/* No sandbox yet: the gate, one way on the menu and the checkout (audit F1 and F3, 2026-11-10).
+/* No sandbox yet: the gate, one way on the menu and the checkout (the audit of 2026-11-10).
    One title, one sentence, Start ordering and a quieter Sign in; Turnstile's widget, when it has
    something to show, sits under them. On the menu it is a banner over the list; on the checkout it
    stands where the steps go, with the cart beside it. */
@@ -552,7 +552,7 @@
 }
 
 /* The way to the cart after a pressed Add: hidden until it has the focus (.skip-inline), then a row
-   of its own under that variant, at the end, under the button it follows (audit G10, 2026-11-10). */
+   of its own under that variant, at the end, under the button it follows (the audit of 2026-11-10). */
 .menu-shop .variants li {
   position: relative;
 }
@@ -778,7 +778,7 @@
 /* ---------- The inbox: a message opens directly under its own row ---------- */
 
 /* At every width the open message is a row of its own under the subject that opened it, so it
-   opens where the visitor is looking (audit G1, 2026-11-10: on a phone it opened under the whole
+   opens where the visitor is looking (the audit of 2026-11-10: on a phone it opened under the whole
    list). The subject's row and the message read as one: no rule between them. */
 .inbox-table > tbody > tr[data-open],
 .inbox-table > tbody > tr[data-open] > :is(th, td) {

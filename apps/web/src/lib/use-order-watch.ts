@@ -1,4 +1,4 @@
-// The status page's watch on one order (G3 of the plan of 2026-11-09). It reads the order once,
+// The status page's watch on one order. It reads the order once,
 // then follows it over the sandbox's kitchen socket, the frames the board gets. It is a guest on
 // that socket in every sense: it never sends a frame (no command, no ping), it sends no
 // heartbeat (that is the console's, for the Simulator), and it gives its socket up when the

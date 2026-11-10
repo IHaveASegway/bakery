@@ -1,6 +1,6 @@
-// Words and addresses after the audit of 2026-11-08 (afternoon): the tour's bake line (N8), a
-// scheduled campaign said once (N9), one name in the Place cell (N12), the dispatch day in the URL
-// (N13) and the catering page's signed-out sentence (P4).
+// Words and addresses after the audit of 2026-11-08 (afternoon): the tour's bake line, a
+// scheduled campaign said once, one name in the Place cell, the dispatch day in the URL
+// and the catering page's signed-out sentence.
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
@@ -11,7 +11,7 @@ import { dayFromQuery, dropOffNote, queryWithDay } from '../src/lib/dispatch';
 import { ALL_ENTRIES } from '../src/guide';
 import { day, route, stop } from './dispatch-support';
 
-describe('N8: the guide and the bake list say the same', () => {
+describe('the guide and the bake list say the same', () => {
   test('moving the clock does not make a plan', () => {
     const bake = ALL_ENTRIES.find((e) => e.id === 'kitchen-bake');
     const said = [bake?.what ?? '', ...(bake?.facts ?? [])].join(' ');
@@ -21,7 +21,7 @@ describe('N8: the guide and the bake list say the same', () => {
   });
 });
 
-describe('N9: a scheduled campaign says it once', () => {
+describe('a scheduled campaign says it once', () => {
   test('the foot line does not repeat the card’s sentence', () => {
     const said = scheduledSaid('2026-11-08T14:30:00-07:00', Date.parse('2026-11-08T12:00:00Z'));
     expect(said).toBe('Send time set: Sun 8 Nov, 2:30 pm.');
@@ -30,7 +30,7 @@ describe('N9: a scheduled campaign says it once', () => {
   });
 });
 
-describe('N12: the Place cell names the place once', () => {
+describe('the Place cell names the place once', () => {
   test('the drop-off spot shows only when it differs from the label', () => {
     expect(dropOffNote('Sunnyside Park', 'Sunnyside Park')).toBeNull();
     expect(dropOffNote('Sunnyside Park', ' sunnyside park ')).toBeNull();
@@ -48,7 +48,7 @@ describe('N12: the Place cell names the place once', () => {
   });
 });
 
-describe('N13: the dispatch day lives in the URL', () => {
+describe('the dispatch day lives in the URL', () => {
   test('parses a day and nothing else', () => {
     expect(dayFromQuery('?day=2026-11-10')).toBe('2026-11-10');
     expect(dayFromQuery('?x=1&day=2026-11-10')).toBe('2026-11-10');
@@ -67,7 +67,7 @@ describe('N13: the dispatch day lives in the URL', () => {
   });
 });
 
-describe('P4: the catering page says what is true signed out', () => {
+describe('the catering page says what is true signed out', () => {
   // Since 2026-11-10 the page shows the gate there, with its own title and button.
   test('its gate speaks of catering and an inquiry, not of a menu or an order', () => {
     expect(CATERING_START).toEqual({

@@ -105,7 +105,7 @@ export default function Guest() {
   );
 }
 
-/** What the gate says, on the menu and the checkout alike: one title, one sentence (audit F3). */
+/** What the gate says, on the menu and the checkout alike: one title, one sentence. */
 export const START_TITLE = 'Ordering starts with your own sandbox.';
 /** The gate's button on the menu and the checkout; a page that takes no order names its own. */
 export const START_ACTION = 'Start ordering';
@@ -113,7 +113,7 @@ export const START_SENTENCE =
   'A sandbox is your own private copy of the bakery: made in a few seconds, no account needed, wiped at 10:00 UTC.';
 
 /**
- * The gate, shown one way wherever a page needs a sandbox (audit F1 and F3, 2026-11-10; the
+ * The gate, shown one way wherever a page needs a sandbox (the audit of 2026-11-10; the
  * catering page since the same day's follow-up): one sentence, a button (Start ordering on the menu
  * and the checkout) that makes a guest sandbox right here and leaves the visitor where they were,
  * with their cart, and a quieter Sign in that comes back to this page. Turnstile's script loads
@@ -229,7 +229,7 @@ export function StartHere({
 
 /**
  * The sign-in page for a visitor who already has a sandbox: the header's "Your bakery" comes here
- * from a page with no script (audit F14), so this page says so and offers the way on, rather than
+ * from a page with no script, so this page says so and offers the way on, rather than
  * suggesting the sandbox is gone. Nothing shows until the API has answered.
  */
 export function AlreadyIn() {

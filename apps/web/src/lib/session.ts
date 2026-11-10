@@ -82,7 +82,7 @@ export function watchSession(listener: (signedIn: boolean) => void): () => void 
 }
 
 /**
- * The header's way in, the same words on every page (audit F14, 2026-11-10): "Sign in" on the
+ * The header's way in, the same words on every page (the audit of 2026-11-10): "Sign in" on the
  * pages with no script and "Console" elsewhere told a guest on the essays that their sandbox was
  * gone. The pages with no script cannot ask, so the words never depend on the answer; only where
  * the link goes does. Without a known session it is the sign-in page, which tells a visitor who has

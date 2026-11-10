@@ -105,7 +105,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
   });
 }
 
-test('a page asks for the session once, with the guide open too (audit P2)', async ({ page }) => {
+test('a page asks for the session once, with the guide open too', async ({ page }) => {
   let asked = 0;
   page.on('request', (request) => {
     if (new URL(request.url()).pathname === '/v1/session') asked += 1;
@@ -132,7 +132,7 @@ test('the sitemap is served and names the menu', async ({ page }) => {
   expect(answer.text).toContain('<loc>https://bakery.ihaveasegway.com/menu/</loc>');
 });
 
-test('a cart quantity can be cleared and retyped, and settles into range with the range said (audit P5)', async ({
+test('a cart quantity can be cleared and retyped, and settles into range with the range said', async ({
   page,
 }) => {
   await page.goto('/menu/');

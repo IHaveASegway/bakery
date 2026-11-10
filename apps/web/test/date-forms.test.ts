@@ -1,4 +1,4 @@
-// The forms the console and the inbox print a date in (F18, 2026-11-10), one test a form. Every
+// The forms the console and the inbox print a date in (the audit of 2026-11-10), one test a form. Every
 // screen takes its words from src/lib/when.ts, so these are the only shapes a reader meets: a short
 // day, a day in another year, a time with its day, and the clock alone in a list that names the
 // day. The long form, whenText, is for a title or a <time>'s machine form, not for the text.

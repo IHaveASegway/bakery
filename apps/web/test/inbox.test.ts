@@ -122,7 +122,7 @@ describe('names and words', () => {
   });
 });
 
-describe('the order page’s link to its receipt (audit G1, 2026-11-10)', () => {
+describe('the order page’s link to its receipt', () => {
   const ORDER = '01JC8YV2D4QK7S1M9E3PZ6W8OR';
   const OTHER = '01JC8YV2D4QK7S1M9E3PZ6W8XY';
   const message = (id: string, kind: MessageKind, ref: string) => ({ message: id, kind, ref });

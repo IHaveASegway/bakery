@@ -575,7 +575,7 @@ details.menu > summary::-webkit-details-marker {
   outline-color: var(--danger);
 }
 
-/* The catering inquiry (F11, 2026-11-10), laid out as the checkout's fields are: two columns of
+/* The catering inquiry (the audit of 2026-11-10), laid out as the checkout's fields are: two columns of
    label, control, hint and error on a wide screen, one on a phone, the brief across both, and Send
    with what is still to fill beside it. */
 .inquiry-fields {

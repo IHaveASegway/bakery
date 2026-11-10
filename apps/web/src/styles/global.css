@@ -127,7 +127,7 @@ main:focus {
 /* Read out, not shown. Held to its containing block's left edge: at its static place, one inside a
    box that scrolls sideways but is not positioned (the board's activity feed) sat at the far end
    of that row and made the page as wide as the row, and on a phone the layout, the recorder and
-   every sheet with it (audit F4, 2026-11-10). */
+   every sheet with it (the audit of 2026-11-10). */
 .sr-only {
   position: absolute;
   left: 0;
@@ -325,7 +325,7 @@ main:focus {
 
   /* Rows on a phone, every section in sight: the bakery's name with the session link at its
      right end, then every link of the nav, wrapping onto another line rather than scrolling out
-     of sight, then the guide's labelled control in a row of its own (audit G6, 2026-11-10). The nav's box gives way (its landmark stays in the
+     of sight, then the guide's labelled control in a row of its own (the audit of 2026-11-10). The nav's box gives way (its landmark stays in the
      markup) so its parts can sit in both rows; nothing lies over anything. */
   .masthead-inner {
     justify-content: flex-start;

@@ -1,4 +1,4 @@
-// The gate, one way on the menu and the checkout (audit F1 and F3, 2026-11-10): one title, one
+// The gate, one way on the menu and the checkout (the audit of 2026-11-10): one title, one
 // sentence, Start ordering that makes a guest sandbox in place, a quieter Sign in that comes back to
 // the page, and, while the new sandbox seeds, the same frame saying so with nothing to press.
 import { createElement } from 'react';

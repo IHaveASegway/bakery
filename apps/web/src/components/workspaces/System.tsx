@@ -131,7 +131,7 @@ export function SystemView({
 
 /**
  * "at Wed 11 Nov, 10:00 am UTC, in 6 h 12 min", counting down; asks for a reload once it is due.
- * The wipe is set on the wall clock in UTC, so it says UTC (F18, 2026-11-10).
+ * The wipe is set on the wall clock in UTC, so it says UTC (the audit of 2026-11-10).
  */
 function Countdown({
   wipeAt,

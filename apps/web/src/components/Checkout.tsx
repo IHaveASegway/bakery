@@ -121,7 +121,7 @@ export function slotWords(kind: 'pickup' | 'delivery', start: string, now?: numb
  * The /checkout/ island: how, when, pay, with the cart or the placed order beside the steps. With
  * no sandbox yet the steps are not drawn: the gate takes their place, so no choice is taken before
  * there is a sandbox to order from, and Start ordering makes one here, with the cart kept beside it
- * (audit F1 and F3, 2026-11-10).
+ * (the audit of 2026-11-10).
  */
 export default function Checkout() {
   const phase = useSandboxPhase();

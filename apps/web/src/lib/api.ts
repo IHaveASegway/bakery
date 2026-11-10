@@ -553,7 +553,7 @@ export const rotateToken = (id: string, key?: string) =>
  * Where "Continue with Google" and "Continue with GitHub" go. The API sends the visitor back to
  * the return path, which may be any lower-case path and never a query (crates/app/src/auth/oauth.rs,
  * `return_path`), so the way in has a landing of its own, /app/start/, which makes the account its
- * sandbox when it has no live one; /app/ itself never does (audit G11, 2026-11-10).
+ * sandbox when it has no live one; /app/ itself never does (the audit of 2026-11-10).
  */
 export const SIGNIN_RETURN = '/app/start/';
 export const signinUrl = (provider: 'google' | 'github') =>

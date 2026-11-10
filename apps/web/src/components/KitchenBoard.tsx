@@ -61,7 +61,7 @@ function listenForMenus() {
 
 /**
  * A card's "…" menu, a <details>, with the manners of the top bar's popovers (ConsoleTopBar.tsx,
- * Popover; F15, 2026-11-10): Escape closes it and puts focus back on its button, a press outside
+ * Popover; the audit of 2026-11-10): Escape closes it and puts focus back on its button, a press outside
  * closes it, and opening one closes the one that was open, so two are never open at once.
  */
 function useCardMenu() {
@@ -166,7 +166,7 @@ export function CardView({
   onRefunded: (said: string, whole: boolean) => void;
   /** Business now (wall clock plus the sandbox's offset), so "this year" is the bakery's. */
   now?: number | undefined;
-  /** An order the checkout placed in this tab: the visitor's own (G7). */
+  /** An order the checkout placed in this tab: the visitor's own. */
   yours?: boolean;
 }) {
   const action = actionFor(card);
@@ -328,11 +328,11 @@ export default function KitchenBoard({
   const clearFollow = useRef(() => setFollow(null)).current;
   // The column a phone shows; null until the visitor picks one.
   const [shown, setShown] = useState<Card['state'] | null>(null);
-  // The orders the checkout placed in this tab, marked "Yours" (G7; lib/placed-orders.ts). Read
+  // The orders the checkout placed in this tab, marked "Yours" (lib/placed-orders.ts). Read
   // after the first paint: the server has no storage, and the page's first render must match its.
   const [yours, setYours] = useState<ReadonlySet<string>>(() => new Set());
   useEffect(() => setYours(placedOrders()), []);
-  // Which of the last two things this page said is the newer: a refund's line or a move's (G8).
+  // Which of the last two things this page said is the newer: a refund's line or a move's.
   const [latest, setLatest] = useState<'refund' | 'command'>('command');
   const open = kitchen.status === 'open';
   const groups = groupByState(kitchen.board);
@@ -386,7 +386,7 @@ export default function KitchenBoard({
   const own = groups.find((g) => g.cards.some((c) => yours.has(c.order)))?.state;
   const showing =
     moved ?? shown ?? own ?? groups.find((g) => g.cards.length > 0)?.state ?? 'pending';
-  // One line above the board, the latest; the activity feed under it keeps the rest (G8).
+  // One line above the board, the latest; the activity feed under it keeps the rest.
   const command = kitchen.commands[0];
   const line =
     latest === 'refund' && refunded !== null

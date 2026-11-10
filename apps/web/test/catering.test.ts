@@ -650,7 +650,7 @@ describe('the waits after a payment', () => {
   });
 });
 
-describe('the inquiry form says what is wrong at its field (F11, 2026-11-10)', () => {
+describe('the inquiry form says what is wrong at its field', () => {
   const earliest = '2026-11-17';
 
   test('a headcount out of range is said at the headcount, in its own words', () => {

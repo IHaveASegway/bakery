@@ -44,7 +44,7 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /*
- * The forms the console and the inbox print a date in (F18, 2026-11-10; design brief: "dates read as
+ * The forms the console and the inbox print a date in (the audit of 2026-11-10; design brief: "dates read as
  * people say them"), and no others:
  *
  *   dayText     a short day                 "Tue 10 Nov"
@@ -109,7 +109,7 @@ export const businessNowMs = (offsetS: number = 0): number => Date.now() + offse
 
 /**
  * "Wed 11 Nov, 10:00 am UTC": a wall-clock moment that is set in UTC and must be said in it (the
- * nightly wipe at 10:00 UTC), in `momentText`'s form with "UTC" after it (F18, 2026-11-10). The
+ * nightly wipe at 10:00 UTC), in `momentText`'s form with "UTC" after it (the audit of 2026-11-10). The
  * day is UTC's, and its year shows when it is not now's. The text itself when it is not a time.
  */
 export function utcMomentText(value: string, options: { now?: number | undefined } = {}): string {

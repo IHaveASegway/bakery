@@ -8,7 +8,7 @@ import Turnstile from './Turnstile';
 
 /**
  * Text typed before the island hydrated sits in the DOM field, and React's controlled value would
- * wipe it. On mount, take what the field already holds into state (audit C25).
+ * wipe it. On mount, take what the field already holds into state.
  */
 function useKeepTyped(setters: [React.RefObject<HTMLInputElement | null>, (v: string) => void][]) {
   useEffect(() => {
@@ -24,7 +24,7 @@ function useKeepTyped(setters: [React.RefObject<HTMLInputElement | null>, (v: st
 type Made = { sandbox: true } | { sandbox: false; error: Text };
 
 /**
- * Creates the account, then its sandbox, in the one press (audit G11, 2026-11-10): the page says
+ * Creates the account, then its sandbox, in the one press (the audit of 2026-11-10): the page says
  * each way in gives a private sandbox, and "Continue to the console" landed on "You have no
  * sandbox" with one press more to make it. An account's sandbox needs no Turnstile pass. If the
  * sandbox cannot be started, the card says so and the console's own New sandbox is the way on.

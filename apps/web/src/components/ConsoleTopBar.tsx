@@ -264,7 +264,7 @@ function Popover({
   title?: string;
   buttonClass: string;
   panelLabel: string;
-  /** A small chevron after the label, so a chip that opens a panel reads as a button (audit F22). */
+  /** A small chevron after the label, so a chip that opens a panel reads as a button. */
   caret?: boolean;
   /** The panel's content, or a function of how to close it (for a panel with its own Cancel). */
   children: ReactNode | ((close: () => void) => ReactNode);

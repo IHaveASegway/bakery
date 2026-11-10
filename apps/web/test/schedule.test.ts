@@ -247,7 +247,7 @@ describe('a slot that filled first', () => {
   });
 });
 
-describe('a screen that shows a day opens on the first open one (F13, 2026-11-10)', () => {
+describe('a screen that shows a day opens on the first open one', () => {
   test('a closed Monday is passed over, and stays a choice', async () => {
     const { firstOpenDate, isOpenDate } = await import('../src/lib/schedule');
     expect(isOpenDate('2026-11-09')).toBe(false);

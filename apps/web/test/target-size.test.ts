@@ -1,5 +1,5 @@
 // Targets of 24 CSS pixels at least (WCAG 2.2, 2.5.8): the checkout's radio inputs and the API
-// reference's links that stand on a line of their own (audit P10, P11). Measured in a browser on
+// reference's links that stand on a line of their own. Measured in a browser on
 // 2026-11-08; this keeps the rules that produce those sizes.
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';

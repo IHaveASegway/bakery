@@ -34,7 +34,7 @@ const COLUMNS = 6;
  * arrive from the Inbox’s own alarms and not from this page.
  *
  * A pressed subject opens its message in a row of its own directly under that message's row, at
- * every width, and its heading takes the focus (audit G1, 2026-11-10: on a phone the message
+ * every width, and its heading takes the focus (the audit of 2026-11-10: on a phone the message
  * opened under the whole list, thousands of pixels below the press, and nothing seemed to happen).
  * The subject again, Close or Escape closes it and gives the focus back to the subject. One message
  * is open at a time. `?receipt=<order id>`, the order page's link, opens that order's receipt once

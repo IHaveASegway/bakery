@@ -1,6 +1,6 @@
 // Fixes from the audit of 2026-11-10: the catering form says what is wrong at its field (F11), a
-// card's "…" menu closes on Escape and one at a time (F15), and Refund says in words what its
-// second press does (F21). Nothing here refunds: the second press is never made.
+// card's "…" menu closes on Escape and one at a time, and Refund says in words what its
+// second press does. Nothing here refunds: the second press is never made.
 import { demoAccount, expect, expectNoAxeViolations, liveSandbox, test } from './fixtures';
 
 for (const colorScheme of ['light', 'dark'] as const) {
@@ -94,7 +94,7 @@ test('a card’s menu closes on Escape with focus back on its button, and one op
   );
 });
 
-// F9 on a phone, measured in the browser (2026-11-10): every stacked table cell that draws a label
+// Stacked tables on a phone, measured in the browser (2026-11-10): every stacked table cell that draws a label
 // keeps a label column at least as wide as the label, so the label never sits on its value. A read
 // of the source could not see this: on the API reference a plainer rule's padding won over the
 // label column's, and every label there was drawn over its value.

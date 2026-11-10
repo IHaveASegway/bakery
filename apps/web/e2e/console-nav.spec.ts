@@ -1,5 +1,5 @@
-// The console's navigation (audit C26, and the seven pages of 2026-11-09) and the menu's short path
-// on a phone (audit P3): the sidebar's pages, an old anchor that lands on its section's page with the
+// The console's navigation (the seven pages of 2026-11-09) and the menu's short path
+// on a phone: the sidebar's pages, an old anchor that lands on its section's page with the
 // focus on its heading, the board's skip link past the cards, and the guide's first step on the menu,
 // which rings one card that sits above its sheet.
 import { demoAccount, expect, expectNoAxeViolations, liveSandbox, test } from './fixtures';

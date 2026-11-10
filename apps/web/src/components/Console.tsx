@@ -99,7 +99,7 @@ export default function Console({
   }, []);
 
   /**
-   * /app/start/: the sign-in page promises each way in a sandbox (audit G11, 2026-11-10), and a
+   * /app/start/: the sign-in page promises each way in a sandbox (the audit of 2026-11-10), and a
    * first sign-in with Google or GitHub, or a return after the night's wipe, came back with none.
    * The live sandbox the session names is shown as it is; with none, one is made, once: a refusal
    * (a cap, the one-a-minute limit, the API out of reach) is said in the API's words over the

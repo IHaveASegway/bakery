@@ -87,7 +87,7 @@ describe('dist/_headers', () => {
     for (const path of paths) expect(path, path).toMatch(/\/\*$/);
   });
 
-  // The menu since 2026-11-10: its Start ordering makes a guest sandbox in place (audit F1).
+  // The menu since 2026-11-10: its Start ordering makes a guest sandbox in place.
   test.each(['/signin/*', '/app/*', '/menu/*'])(
     '%s adds Turnstile to script-src and frame-src',
     (path) => {
