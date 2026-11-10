@@ -148,15 +148,16 @@ describe('the plan and the stops', () => {
     expect(out).toContain('cannot be published');
   });
 
-  test('the table has order, place, window, zone, units, status, van and stop', () => {
+  test('the table has order, place, window, zone, units, stop status, van and stop', () => {
     const d = day([stop(1, 1, 8, { van: 1, stop: 1 }), stop(2, 2, 5, { status: 'provisional' })]);
     const out = renderToStaticMarkup(createElement(DispatchStops, { day: d, data: route }));
-    for (const head of ['Order', 'Place', 'Window', 'Zone', 'Units', 'Status', 'Van', 'Stop']) {
+    const heads = ['Order', 'Place', 'Window', 'Zone', 'Units', 'Stop status', 'Van', 'Stop'];
+    for (const head of heads) {
       expect(out).toContain(`<th scope="col" class="whitespace-nowrap">${head}</th>`);
     }
     // On a phone the head is hidden and the rows stack, so each cell names its column
     // (`data-label`, the one pattern every stacking table uses, global.css).
-    for (const label of ['Order', 'Place', 'Window', 'Zone', 'Units', 'Status', 'Van', 'Stop']) {
+    for (const label of heads) {
       expect(out).toContain(`data-label="${label}"`);
     }
     // A stop with no number yet leaves its cell empty, so a phone shows no stray dash.
@@ -165,7 +166,10 @@ describe('the plan and the stops', () => {
     expect(out).toContain('<table class="table [overflow-wrap:normal]">');
     expect(out).toContain('9:00 am to 11:00 am');
     expect(out).toContain('Zone 1');
-    expect(out).toContain('Provisional (not paid yet)');
+    expect(out).toContain('Not paid yet');
+    // A paid stop on the published plan says so, not the board's "Confirmed".
+    expect(out).toContain('Published, leaves when ready');
+    expect(out).not.toContain('Confirmed');
     expect(out).toContain('Drop-off spot: ');
     const left = day([stop(1, 1, 8, { van: 1, stop: 1, status: 'out_for_delivery' })]);
     const leftOut = renderToStaticMarkup(createElement(DispatchStops, { day: left, data: route }));

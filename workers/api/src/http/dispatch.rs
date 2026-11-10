@@ -176,6 +176,8 @@ async fn command(
     let birth = day(cx, id, date).await?;
     let key = cx.key.ok_or_else(problem::idempotency_key)?;
     let name = birth.name.clone();
+    let cause = format!("{}:{key}", step.prefix());
+    cx.caused(&cause);
     let mut res = call(
         &cx.env,
         dispatch::BINDING,
@@ -183,7 +185,7 @@ async fn command(
         Method::Post,
         "/_command",
         Some(&CommandIn {
-            key: format!("{}:{key}", step.prefix()),
+            key: cause,
             body_hash: body_hash(text),
             birth: Some(birth),
             cmd,

@@ -5,6 +5,7 @@
 // Server to client: `snapshot` on open, `evt` for each applied event, `presence`, `bye`, and the
 // `ack` or `nack` that answers a `cmd`. Client to server: `cmd` only.
 import { PACKAGES } from './catering';
+import { itemName } from './words';
 
 export type CardState = 'pending' | 'confirmed' | 'in_production' | 'ready' | 'out_for_delivery';
 
@@ -460,7 +461,7 @@ export function groupBakeLines(lines: BakeLine[]): BakeGroup[] {
 }
 
 /**
- * One line of a bake list in words: "12 × country loaf" for a menu item, and "Breakfast spread for
+ * One line of a bake list in words: "12 × Country loaf" for a menu item, and "Breakfast spread for
  * 40 people" for a catering event, whose line is the package's slug with the headcount as its
  * quantity (crates/domain/src/schedule.rs, "The catering place"). The API marks such a line
  * `catering: true` since 2026-11-08; a frame from before that is told apart by the package slug.
@@ -468,10 +469,10 @@ export function groupBakeLines(lines: BakeLine[]): BakeGroup[] {
 export function bakeLineText(line: { item: string; qty: number; catering?: boolean }): string {
   const pack = PACKAGES.find((p) => p.slug === line.item);
   if (line.catering === true || pack !== undefined) {
-    const label = pack?.label ?? line.item.replaceAll('-', ' ');
+    const label = pack?.label ?? itemName(line.item);
     return `${label} for ${line.qty} ${line.qty === 1 ? 'person' : 'people'}`;
   }
-  return `${line.qty} × ${line.item.replaceAll('-', ' ')}`;
+  return `${line.qty} × ${itemName(line.item)}`;
 }
 
 /** The cards in each column, by slot and then order id, empty columns kept. */
@@ -543,6 +544,13 @@ export function waitingFor(
  * chip can break between them inside a narrow card instead of running past its edge.
  */
 export const eventWords = (type: string): string[] => type.split(/(?=[A-Z][a-z])/);
+
+/**
+ * An event's type for a card's chip: its words joined by soft hyphens, so a narrow card breaks it
+ * only between two words, with a hyphen at the break, and never inside one. The text reads as the
+ * type when nothing breaks it.
+ */
+export const chipText = (type: string): string => eventWords(type).join('\u00AD');
 
 /** The activity feed's entries: the last 50 events, newest first. */
 export const FEED_MAX = 50;

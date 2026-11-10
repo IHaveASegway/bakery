@@ -34,10 +34,11 @@ const CORS_PREFLIGHT: &[(&str, &str)] = &[
     ("Access-Control-Max-Age", "7200"),
 ];
 /// Only on an actual response, for the islands to read. `Bakery-Cache` says whether the menu
-/// came from the Cache API (PR 4).
+/// came from the Cache API (PR 4); `Bakery-Cause` names the cause a command's events carry
+/// (2026-11-10, ADR 0013's postscript).
 const CORS_ACTUAL: &[(&str, &str)] = &[(
     "Access-Control-Expose-Headers",
-    "ETag, Location, Retry-After, Bakery-Cache",
+    "ETag, Location, Retry-After, Bakery-Cache, Bakery-Cause",
 )];
 
 /// The one `Cache-Control` a route may set instead of `no-store`: the menu's, which a browser
@@ -141,7 +142,7 @@ mod tests {
                 ("Access-Control-Allow-Credentials", "true".to_owned()),
                 (
                     "Access-Control-Expose-Headers",
-                    "ETag, Location, Retry-After, Bakery-Cache".to_owned()
+                    "ETag, Location, Retry-After, Bakery-Cache, Bakery-Cause".to_owned()
                 ),
             ]
         );

@@ -1416,6 +1416,35 @@ pub fn is_command(method: &str) -> bool {
     matches!(method, "POST" | "PATCH" | "DELETE")
 }
 
+/// The commands whose answer names no `Bakery-Cause`, each because no event of its own is
+/// written under the request: sign-up, sign-in and sign-out write none; a new sandbox is
+/// seeded by its own timer after the answer; a wipe deletes; a heartbeat and a redrive write
+/// nothing new (a redrive sends the dead letter's own event again); paying a balance leaves the
+/// recording to Stripe's webhook; a rebuild's one event comes from its own alarm. The webhook
+/// is Stripe's and answers Stripe.
+pub const NO_CAUSE: &[&str] = &[
+    "demo-signup",
+    "demo-signin",
+    "signout",
+    "create-sandbox",
+    "wipe-sandbox",
+    "redrive",
+    "heartbeat",
+    "pay-balance",
+    "start-rebuild",
+    "stripe-webhook",
+];
+
+/// Whether a 2xx answer carries `Bakery-Cause`: the `cause` every event the command writes
+/// carries in its envelope and on the flight recorder's hops, so any write can be followed,
+/// a PATCH sent without a key included (ADR 0013's postscript of 2026-11-10). It is the
+/// `Idempotency-Key`, or the key with the route's own prefix (`capacity:`, `propose:` and the
+/// other dispatch steps, `consent:`, `draft:`, and `edit:`, `schedule:` and `cancel:` with the
+/// campaign's id), or, for a payment, the payment's id.
+pub fn names_cause(route: &RouteSpec) -> bool {
+    is_command(route.method) && !NO_CAUSE.contains(&route.id)
+}
+
 /// Whether the route spends a rate limit: every command a browser sends, and the socket's
 /// upgrade. The webhook is gated by its signature instead.
 pub fn is_limited(route: &RouteSpec) -> bool {
@@ -1604,6 +1633,32 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn every_command_names_its_cause_but_the_listed_ones() {
+        for id in NO_CAUSE {
+            let route = ROUTES.iter().find(|r| r.id == *id);
+            assert!(route.is_some_and(|r| is_command(r.method)), "{id}");
+        }
+        let named: Vec<&str> = ROUTES
+            .iter()
+            .filter(|r| names_cause(r))
+            .map(|r| r.id)
+            .collect();
+        assert_eq!(named.len(), 32, "{named:?}");
+        for id in [
+            "patch-menu-item",
+            "set-tax-rate",
+            "set-capacity",
+            "edit-campaign",
+            "place-order",
+            "propose-dispatch",
+            "stop-traffic",
+        ] {
+            assert!(named.contains(&id), "{id}");
+        }
+        assert!(ROUTES.iter().all(|r| r.method != "GET" || !names_cause(r)));
     }
 
     #[test]

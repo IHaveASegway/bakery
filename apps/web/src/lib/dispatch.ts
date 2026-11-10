@@ -643,15 +643,37 @@ export function clockText(time: string): string {
   return clockLabel(l.hour * 60 + l.minute);
 }
 
+// The Stops table's column is the stop's own state in the Dispatch log, not the order's: a paid
+// order is a confirmed stop whether the kitchen has it in production or ready, so the column says
+// what the stop is waiting for, and is headed "Stop status" so it is not read as the board's.
 const STATUS_WORDS: Record<StopStatus, string> = {
-  provisional: 'Provisional (not paid yet)',
-  confirmed: 'Confirmed',
+  provisional: 'Not paid yet',
+  confirmed: 'To plan',
   out_for_delivery: 'Out for delivery',
   removed: 'Removed',
   completed: 'Delivered',
 };
 
+/** The stop's own state in words, as `StopStatus` has it, before any plan is published. */
 export const statusText = (status: StopStatus): string => STATUS_WORDS[status];
+
+/**
+ * The Stops table's status: the stop's own state, and for a paid stop whether it is on the
+ * published plan. A stop on the published plan leaves when its order is ready (the Order's
+ * `OrderOutForDelivery`, which makes the stop out for delivery).
+ */
+export function stopStateText(row: Pick<StopRow, 'status' | 'stop'>): string {
+  if (row.status === 'confirmed' && row.stop !== null) return 'Published, leaves when ready';
+  if (row.status === 'removed') return 'Removed (expired or cancelled)';
+  return statusText(row.status);
+}
+
+/**
+ * When the page looks again after a write that starts events it does not hear (a publish sends
+ * every ready order out, and each one's `OrderOutForDelivery` reaches the Dispatch a moment after
+ * the answer), in milliseconds after the answer. Then the page's ten-second look takes over.
+ */
+export const FOLLOW_UP_MS = [1_500, 4_000] as const;
 
 /** "Zone 2", for `z2`. */
 export const zoneText = (zone: string): string => `Zone ${zone.replace(/^z/, '')}`;

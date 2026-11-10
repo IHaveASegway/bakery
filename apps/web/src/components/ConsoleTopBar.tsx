@@ -7,6 +7,7 @@ import type { WorkspaceId } from '../lib/console-sections';
 import { roughCountdown } from '../lib/countdown';
 import { clockOfText, shortDate, utcMomentText, whenText } from '../lib/when';
 import ClockControl from './ClockControl';
+import SandboxActions from './SandboxActions';
 
 /** The same, short, for a top bar that has run out of room (console.css): the long one is still read out. */
 const SHORT: Record<SessionResponse['kind'], string> = {
@@ -111,26 +112,14 @@ function Controls({
               <dt>Wiped</dt>
               <dd>at {utcMomentText(sandbox.wipe_at)}</dd>
             </dl>
-            <p className="actions">
-              <button
-                type="button"
-                className="btn btn-danger btn-sm"
-                disabled={busy}
-                onClick={onWipe}
-              >
-                Wipe now
-              </button>
-              {!isGuest && (
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  disabled={busy}
-                  onClick={onReplace}
-                >
-                  New sandbox
-                </button>
-              )}
-            </p>
+            <SandboxActions
+              sandboxId={sandbox.id}
+              isGuest={isGuest}
+              busy={busy}
+              small
+              onWipe={onWipe}
+              onReplace={onReplace}
+            />
           </Popover>
         )}
         {live && (

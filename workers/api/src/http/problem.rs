@@ -320,7 +320,12 @@ pub fn order(rule: &str, class: Option<&str>) -> Failure {
                 "not-baked-that-day" => "A line names an item that is not baked on the slot's day.",
                 "out-of-season" => "A line names an item that is out of season on the slot's day.",
                 "pickup-only" => "A line names an item that is sold for pickup only.",
-                "zone-required" => "A delivery needs a zone: z1, z2 or z3.",
+                "zone-required" => {
+                    "The bakery does not know where this customer is, so it cannot work out a delivery zone, and the order named none. Choose pickup."
+                }
+                "wrong-zone" => {
+                    "A delivery goes to the customer's own zone, and this order named another."
+                }
                 "zone-on-pickup" => "A pickup has no zone.",
                 "lead-time" => "The slot is sooner than the longest lead time among the lines.",
                 "slot" => "The slot is not a business time such as 2026-11-07T09:45:00-07:00.",
@@ -606,8 +611,8 @@ pub fn schedule(
         "zone-required" => (
             "zone-required",
             422,
-            "A delivery needs a zone",
-            "A delivery needs a zone: z1, z2 or z3.".into(),
+            "The customer's delivery zone is not known",
+            "The bakery does not know where this customer is, so a delivery has no zone to hold a place in. Choose pickup.".into(),
         ),
         "bad-target" => (
             "bad-target",
@@ -1084,6 +1089,58 @@ mod tests {
                 .detail
                 .unwrap()
                 .contains("offset-cap")
+        );
+    }
+
+    #[test]
+    fn every_schedule_refusal_names_its_rule_as_a_word() {
+        // The checkout's matcher (apps/web/src/lib/order-errors.ts, `ruleOf`) finds a rule by its
+        // slug in the detail, so every one of the Schedule's carries it, as the Order's do.
+        for rule in [
+            "slot-full",
+            "item-cap",
+            "hold-lost",
+            "no-such-slot",
+            "closed-day",
+            "unknown-zone",
+            "zone-required",
+            "bad-target",
+            "unknown-item",
+            "ref-held",
+        ] {
+            let f = schedule(rule, None, None, None);
+            assert!(
+                f.problem.problem_type.ends_with(&format!("/{rule}")),
+                "{rule}"
+            );
+            let detail = f.problem.detail.unwrap();
+            assert!(
+                detail.ends_with(&format!(" The rule is {rule}.")),
+                "{rule}: {detail}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_zone_rules_say_what_they_mean_since_the_zone_is_the_customers() {
+        let detail = |rule: &str| order(rule, None).problem.detail.unwrap();
+        let required = detail("zone-required");
+        assert!(
+            required.contains("does not know where this customer is"),
+            "{required}"
+        );
+        assert!(!required.contains("z1"), "{required}");
+        assert!(required.ends_with(" The rule is zone-required."));
+        let wrong = detail("wrong-zone");
+        assert!(wrong.contains("the customer's own zone"), "{wrong}");
+        assert!(wrong.ends_with(" The rule is wrong-zone."));
+        let day = schedule("zone-required", None, None, None)
+            .problem
+            .detail
+            .unwrap();
+        assert!(
+            day.contains("does not know where this customer is"),
+            "{day}"
         );
     }
 

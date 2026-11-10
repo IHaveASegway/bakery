@@ -257,7 +257,7 @@ const PROSE: Record<PrincipleId, Prose> = {
   'idempotency-keys': {
     problem:
       'A phone loses its connection just after Place order. The visitor presses it again, and the first request may have arrived after all. Without care, that is two orders.',
-    technique: 'An Idempotency-Key on every command, remembered by the object that runs it.',
+    technique: 'An Idempotency-Key on every POST, remembered by the object that runs it.',
     how: 'Each attempt carries a new key, and its retries the same one. The object records the key and its answer in the same transaction as the command’s events, so a repeat gets the first answer back with Idempotent-Replayed: true, and the same key with a different body is refused. The key has to be stored with the write: checked in one place and written in another, a crash between the two would let the repeat through.',
     where:
       'The commands_seen table in every aggregate object; the Idempotency-Key header on every POST.',

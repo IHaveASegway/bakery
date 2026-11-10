@@ -250,10 +250,10 @@ test.describe('on a phone', () => {
     // Three moves, one line above the board: the latest, in a live region.
     await page.getByRole('button', { name: `Start production for order ${short}` }).click();
     const chip = cardOf(page, id).locator('.card-event');
-    await expect(chip).toContainText('OrderProductionStarted');
+    await expect(chip).toHaveAttribute('title', 'OrderProductionStarted');
     expect(await overrun(chip, cardOf(page, id))).toBeLessThanOrEqual(0.5);
     await page.getByRole('button', { name: `Mark ready for order ${short}` }).click();
-    await expect(cardOf(page, id).locator('.card-event')).toContainText('OrderReady');
+    await expect(cardOf(page, id).locator('.card-event')).toHaveAttribute('title', 'OrderReady');
     await page.getByRole('button', { name: `Mark picked up for order ${short}` }).click();
     const said = page.locator('.board-said');
     await expect(said).toHaveAttribute('aria-live', 'polite');
@@ -288,12 +288,22 @@ test('a chip stays in its card at every width, and a ready delivery says what it
     .getByRole('button', { name: `Start production for order ${pickup.slice(-6)}` })
     .click();
   const chip = own.locator('.card-event');
-  await expect(chip).toContainText('OrderProductionStarted');
+  await expect(chip).toHaveAttribute('title', 'OrderProductionStarted');
+  // The words are the type's, joined by soft hyphens only.
+  expect(await chip.evaluate((n) => (n.textContent ?? '').replaceAll('\u00AD', ''))).toBe(
+    'OrderProductionStarted',
+  );
   for (const width of [1280, 1024, 390]) {
     await page.setViewportSize({ width, height: 900 });
     if (width === 390) await page.getByRole('button', { name: /^In production/ }).click();
     await expect(chip).toBeVisible();
     expect(await overrun(chip, own), `the chip at ${width} px`).toBeLessThanOrEqual(0.5);
+    // At most a line per word, and nothing cut: a break falls only at a soft hyphen.
+    expect(await linesOf(chip), `the chip's lines at ${width} px`).toBeLessThanOrEqual(3);
+    expect(
+      await chip.evaluate((n) => n.scrollWidth <= n.clientWidth + 1),
+      `the chip is whole at ${width} px`,
+    ).toBe(true);
   }
 
   // The delivery made ready waits for its van, in words, with the way to Dispatch.
