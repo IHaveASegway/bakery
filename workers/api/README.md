@@ -352,8 +352,9 @@ accepted, told `bye` `limit` and closed with 1008, so the console knows not to r
 at most 4 KB (1009), 10 frames a second a socket (1008), text frames only (1003). The last 64
 command ids, the board and the heartbeat are in SQLite, so all of it survives hibernation; the
 per-socket frame counts are in memory and start again after a wake. `wrangler dev` hibernates an
-idle Kitchen with sockets open after about 10 s: the next frame or upgrade logs `kitchen_wake` with
-a new instance mark. `scripts/ws-probe.mjs` is the smoke test's client: Node 22's `WebSocket`, the
+idle Kitchen with sockets open after about 10 s of quiet, though not punctually (seen on
+2026-11-10: in the first 12 s, the third, or none of five; the smoke's idle spells therefore grow
+from 12 s to 60 s): the next frame or upgrade logs `kitchen_wake` with a new instance mark. `scripts/ws-probe.mjs` is the smoke test's client: Node 22's `WebSocket`, the
 cookie from a jar file, one JSON line per frame.
 
 ## The trace socket

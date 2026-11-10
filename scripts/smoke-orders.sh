@@ -716,16 +716,18 @@ expect_probe "the repeated id made one event: one OrderProductionStarted, its ca
 expect_probe "socket a saw the card become ready and leave the board" "$TMP/ws_a.out" "evts.some((e) => e.stream.endsWith(':$CONF') && e.type === 'OrderReady' && e.cause === '$C2') && evts.some((e) => e.stream.endsWith(':$CONF') && e.type === 'OrderPickedUp' && e.cause === '$C3')"
 check "the Kitchen logged each cmd with its id and outcome, nothing more" "grep -q '\"event\":\"kitchen_cmd\",\"instance\":\"[0-9a-f]*\",\"id\":\"$C4\",\"outcome\":\"nack\",\"rule\":\"out-of-order\"}' '$LOG'"
 
-# Hibernation: both sockets stay idle for 12 s. A guest's socket, accepted before the idle spell,
+# Hibernation: both sockets stay idle for a spell. A guest's socket, accepted before the idle spell,
 # sends its cmd after it: the frame wakes the guest's Kitchen, which must still know the socket
 # is a guest's from its attachment alone.
 GCARD="$(probe_field "$TMP/board_guest.out" "cards[0].order")"
 GC="$(ulid)"
 probe_args G "$GID"
-# wrangler dev evicts an idle hibernatable object after about 10 s of quiet, but an alarm or a
-# delivery that lands in the window keeps it awake, so the idle spell is tried up to five times:
-# each try waits 12 s and then touches the staff Kitchen with a fresh socket, which is what wakes
-# an evicted object. The guest's frame goes out after the first spell either way.
+# What is known as of 2026-11-10 (docs/roadmap.md, R77): nothing enters the Kitchen between the
+# probes below (four runs logged at every entry), each probe restarts the object's idle time, and
+# wrangler dev's eviction after about 10 s of quiet is not punctual: one run evicted in the first
+# 12 s spell, one in the third, two in none of five. So the spells grow, 12, 20, 30, 45 and 60 s,
+# and stop at the first one after which a fresh socket finds the Kitchen woken; the check still
+# fails when none does. The guest's frame goes out after 13 s either way.
 node "${PROBE[@]}" --delay 13 --cmd "$GC:$GCARD:mark_ready" --until nack --timeout 80 > "$TMP/ws_guest.out" &
 WS_G=$!
 sleep 1
@@ -733,16 +735,22 @@ WAKE_FROM="$(wc -l < "$LOG")"
 D_BEFORE="$( (head -n "$WAKE_FROM" "$LOG" | grep '"event":"kitchen_socket_open"' | grep '"sockets":2}' | tail -n 1 | sed -E 's/.*"instance":"([0-9a-f]+)".*/\1/') || true)"
 D_AFTER=""
 IDLE_TRIES=0
-while [[ -z "$D_AFTER" && "$IDLE_TRIES" -lt 5 ]]; do
+IDLE_S=0
+for spell in 12 20 30 45 60; do
+  [[ -z "$D_AFTER" ]] || break
   IDLE_TRIES=$((IDLE_TRIES + 1))
-  sleep 12
+  IDLE_S=$spell
+  sleep "$spell"
   probe D2 "$DID" --until snapshot > "$TMP/ws_r.out" || true
   tail -n "+$WAKE_FROM" "$LOG" > "$TMP/wake.log"
   D_AFTER="$( (grep '"event":"kitchen_wake"' "$TMP/wake.log" | grep '"sockets":2}' | head -n 1 | sed -E 's/.*"instance":"([0-9a-f]+)".*/\1/') || true)"
 done
 wait "$WS_G" || true
 tail -n "+$WAKE_FROM" "$LOG" > "$TMP/wake.log"
-check "an idle board hibernates: after an idle spell (try $IDLE_TRIES of 5, 12 s each) the Kitchen with 2 sockets open woke (kitchen_wake)" "[[ -n '$D_AFTER' ]]"
+if [[ -n "$D_AFTER" ]] && (( IDLE_TRIES > 1 )); then
+  echo "--- the Kitchen left memory only after an idle spell of $IDLE_S s (try $IDLE_TRIES of 5)"
+fi
+check "an idle board hibernates: after an idle spell of $IDLE_S s, try $IDLE_TRIES of 5, the Kitchen with 2 sockets open woke (kitchen_wake)" "[[ -n '$D_AFTER' ]]"
 check "the woken Kitchen is a new instance ($D_BEFORE, then $D_AFTER): memory did not survive, the sockets did" "[[ -n '$D_BEFORE' && -n '$D_AFTER' && '$D_BEFORE' != '$D_AFTER' ]]"
 expect_probe "after a wake, a guest's cmd is nacked guest-scope from the socket's attachment" "$TMP/ws_guest.out" "frames.some((f) => f.t === 'nack' && f.id === '$GC' && f.rule === 'guest-scope')"
 check "the guest's Kitchen woke for that frame" "grep '\"event\":\"kitchen_wake\"' '$TMP/wake.log' | grep -q '\"sockets\":1}'"
