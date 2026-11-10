@@ -58,7 +58,7 @@ describe('pickup choices', () => {
     expect(choices[31]?.label).toBe('2:45 pm');
     const nine = choices.find((c) => c.label === '9:00 am');
     expect(nine?.free).toBe(4);
-    expect(freeText(nine!)).toBe('4 free');
+    expect(freeText(nine!)).toBe('4 left');
   });
 
   test('a full slot is greyed out and cannot be picked', () => {

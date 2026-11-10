@@ -52,13 +52,21 @@ export default function CateringQueue({
   const [error, setError] = useState<Text | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Bumped by every action's answer. A look at the list that started before an action answered
+  // carries the state from before it, so its answer is dropped: it would move the card back to its
+  // old group for ten seconds, and take the keyboard's focus with it.
+  const taken = useRef(0);
+
   // One look at the list. `quiet` is the timer's: it leaves the Refresh button as it is, so a
   // focused button is not disabled under the keyboard every ten seconds.
   const load = useCallback(
     async (quiet = false): Promise<boolean> => {
       if (!quiet) setBusy(true);
+      const asked = taken.current;
       try {
-        setEvents((await listCatering(sandboxId)).events);
+        const answer = (await listCatering(sandboxId)).events;
+        if (taken.current !== asked) return true;
+        setEvents(answer);
         setError(null);
         return true;
       } catch (e) {
@@ -81,6 +89,7 @@ export default function CateringQueue({
   // new group and is drawn again, and the button that had the focus goes with the old one.
   const refocus = useRef<string | null>(null);
   const take = useCallback((event: CateringResponse) => {
+    taken.current += 1;
     setEvents((list) => {
       const before = (list ?? []).find((e) => e.catering === event.catering);
       if (before?.state !== event.state) refocus.current = event.catering;
@@ -88,14 +97,38 @@ export default function CateringQueue({
     });
   }, []);
 
-  // Focus goes to the changed card, but only when it has been dropped to the page: a visitor who
-  // has moved on is left where they are.
+  // What last held the keyboard's focus inside the queue, and the card it was in; null once the
+  // visitor has put the focus somewhere else themselves.
+  const lastFocus = useRef<{ element: HTMLElement; card: string | null } | null>(null);
+
+  // A press outside what holds the focus is the visitor moving on: after it, a redraw leaves the
+  // focus wherever the press put it, the page itself included.
   useEffect(() => {
-    const id = refocus.current;
-    if (id === null) return;
+    const press = (e: PointerEvent) => {
+      const held = lastFocus.current?.element;
+      if (held !== undefined && !held.contains(e.target as Node)) lastFocus.current = null;
+    };
+    document.addEventListener('pointerdown', press, true);
+    return () => document.removeEventListener('pointerdown', press, true);
+  }, []);
+
+  // A redraw can drop the focus to the page with no one asking: a card that changed state is drawn
+  // anew in its new group, and the element that had the focus goes with the old one; and a fresh
+  // look that lists the cards in another order moves the focused card, which the browser blurs. In
+  // either case the focus goes back where it was: to the same element when it is still in the
+  // page, else to its card (the changed card, after an action), else to the queue's heading. A
+  // visitor who has moved on is left where they are.
+  useEffect(() => {
+    const held = lastFocus.current;
+    const id = refocus.current ?? held?.card ?? null;
     refocus.current = null;
     const active = document.activeElement;
     if (active !== null && active !== document.body) return;
+    if (held !== null && held.element.isConnected) {
+      held.element.focus();
+      return;
+    }
+    if (id === null) return;
     (
       document.getElementById(`catering-card-${id}`) ??
       document.getElementById('catering-queue-heading')
@@ -106,7 +139,22 @@ export default function CateringQueue({
   const reminders = upcomingReminders(events ?? []);
 
   return (
-    <section aria-labelledby="catering-queue-heading">
+    <section
+      aria-labelledby="catering-queue-heading"
+      onFocus={(e) => {
+        const element = e.target as HTMLElement;
+        const card = element.closest('[id^="catering-card-"]');
+        lastFocus.current = {
+          element,
+          card: card === null ? null : card.id.slice('catering-card-'.length),
+        };
+      }}
+      onBlur={(e) => {
+        // The keyboard took the focus out of the queue: that is the visitor's move too.
+        const next = e.relatedTarget as Node | null;
+        if (next !== null && !e.currentTarget.contains(next)) lastFocus.current = null;
+      }}
+    >
       <h3 id="catering-queue-heading" tabIndex={-1} data-tour="crm-catering-queue">
         Catering queue
       </h3>

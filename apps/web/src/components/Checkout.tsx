@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OrderRequest, OrderResponse } from '../contracts';
-import { ApiError, placeOrder } from '../lib/api';
+import { ApiError, getOrder, placeOrder } from '../lib/api';
 import { attemptFor, keepKeyAfter, type Attempt } from '../lib/attempt';
 import {
   EMPTY_CART,
@@ -12,9 +12,10 @@ import {
   totals,
 } from '../lib/cart';
 import { type Message as Text } from '../lib/messages';
-import { taxBpOf } from '../lib/menu';
+import { findVariant, taxBpOf } from '../lib/menu';
 import { dollars, taxPercent } from '../lib/money';
 import { describeOrderError } from '../lib/order-errors';
+import { isPaid } from '../lib/payment';
 import {
   HORIZON_DAYS,
   horizonDates,
@@ -38,27 +39,118 @@ import { useCart } from '../lib/use-cart';
 import { useSchedule } from '../lib/use-schedule';
 import { useLiveMenu } from '../lib/use-live-menu';
 import { useSandboxPhase } from '../lib/use-session';
+import { shortWhen, windowText } from '../lib/when';
 import CartLines from './CartLines';
 import HowThisWorks from './HowThisWorks';
 import Message from './Message';
-import PaymentStep from './PaymentStep';
-import SlotPicker from './SlotPicker';
+import PaymentStep, { orderPage } from './PaymentStep';
+import SlotPicker, { DayChips } from './SlotPicker';
 import StatusLine from './StatusLine';
 
-/** The /checkout/ island: the cart, how to receive it, a note, and the order's result. */
+type StepId = 'how' | 'when' | 'pay';
+
+/**
+ * One step's frame: its number and title, then either its body (open), one line of what was
+ * chosen with "Change" (done), or nothing (still to come).
+ */
+function Step({
+  id,
+  n,
+  title,
+  state,
+  summary,
+  onChange,
+  children,
+}: {
+  id: StepId;
+  n: number;
+  title: string;
+  state: 'open' | 'done' | 'todo';
+  summary?: React.ReactNode;
+  onChange?: (() => void) | undefined;
+  children?: React.ReactNode;
+}) {
+  return (
+    <section
+      className="step"
+      data-state={state}
+      aria-labelledby={`${id}-heading`}
+      aria-current={state === 'open' ? 'step' : undefined}
+    >
+      <div className="step-head">
+        <span className="step-n" aria-hidden="true">
+          {state === 'done' ? (
+            <svg viewBox="0 0 16 16" focusable="false">
+              <path d="M3.5 8.5l3 3 6-7" />
+            </svg>
+          ) : (
+            n
+          )}
+        </span>
+        <h2 id={`${id}-heading`}>
+          <span className="sr-only">Step {n} of 3: </span>
+          {title}
+        </h2>
+        {state === 'done' && summary !== undefined && <p className="step-summary">{summary}</p>}
+        {state === 'done' && onChange !== undefined && (
+          <button
+            type="button"
+            className="btn btn-quiet btn-sm step-change"
+            aria-label={`Change ${title.toLowerCase()}`}
+            onClick={onChange}
+          >
+            Change
+          </button>
+        )}
+      </div>
+      {state === 'open' && <div className="step-body">{children}</div>}
+    </section>
+  );
+}
+
+/**
+ * Delivery's zone. The API will derive it from the customer's place (roadmap R69); when it does,
+ * this field and the `zone` in the order body go, and nothing else in the step changes.
+ */
+function ZoneField({ zone, onZone }: { zone: Zone; onZone: (zone: Zone) => void }) {
+  return (
+    <p className="field zone-field">
+      <label htmlFor="zone">Delivery zone</label>
+      <select id="zone" value={zone} onChange={(e) => onZone(e.target.value as Zone)}>
+        {ZONES.map((z) => (
+          <option key={z} value={z}>
+            Zone {z.slice(1)}
+          </option>
+        ))}
+      </select>
+    </p>
+  );
+}
+
+/** "Tue 10 Nov, 9:15 am" for a pickup, "Tue 10 Nov, 9:00 am to 11:00 am" for a delivery. */
+function slotWords(kind: 'pickup' | 'delivery', start: string): string {
+  return kind === 'pickup'
+    ? shortWhen(start)
+    : `${shortWhen(start).split(', ')[0]}, ${windowText(start)}`;
+}
+
+/** The /checkout/ island: how, when, pay, with the cart or the placed order beside the steps. */
 export default function Checkout() {
   const phase = useSandboxPhase();
   const menu = useLiveMenu(phase);
   const { cart, ready, update } = useCart();
   const [now, setNow] = useState<number | null>(null);
   const [day, setDay] = useState('');
-  // The day the visitor picked in the slot picker; until then, the cart's slot's day, else today.
+  // The day the visitor picked; until then, the cart's slot's day, else the first open day.
   const [pickedDay, setPickedDay] = useState<string | null>(null);
   const [conflict, setConflict] = useState<SlotConflict | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Text | null>(null);
   const [retry, setRetry] = useState(false);
   const [result, setResult] = useState<{ order: OrderResponse; sandboxId: string } | null>(null);
+  const [open, setOpen] = useState<'how' | 'when'>('how');
+  // `?order=<id>`: the status page's "Pay for this order" comes back here for the payment step.
+  const [resume, setResume] = useState<string | null>(null);
   const attempt = useRef<Attempt | null>(null);
 
   const live = phase.name === 'live';
@@ -72,6 +164,37 @@ export default function Checkout() {
     const timer = setInterval(() => setNow(Date.now() + offsetS * 1000), 30_000);
     return () => clearInterval(timer);
   }, [offsetS]);
+
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('order')?.trim() ?? '';
+    if (id !== '') setResume(id);
+  }, []);
+
+  // An order to pay for, from the status page: unpaid, it opens the payment step; anything else
+  // belongs on its own page.
+  useEffect(() => {
+    if (resume === null || sandboxId === null) return;
+    let stopped = false;
+    getOrder(sandboxId, resume).then(
+      (order) => {
+        if (stopped) return;
+        if (order.status === 'placed') setResult({ order, sandboxId });
+        else window.location.replace(orderPage(order.id));
+      },
+      (e: unknown) => {
+        if (stopped) return;
+        setResume(null);
+        setError(
+          e instanceof ApiError && e.status === 404
+            ? { title: 'That order is not in your sandbox', detail: 'Start a new one below.' }
+            : describeOrderError(e),
+        );
+      },
+    );
+    return () => {
+      stopped = true;
+    };
+  }, [resume, sandboxId]);
 
   // The rate is the published menu's, so the preview matches what the Order will charge.
   const taxBp = taxBpOf(menu.menu);
@@ -100,7 +223,7 @@ export default function Checkout() {
   const firstOpen = groups[0]?.date ?? today;
   const wanted = pickedDay ?? (cartDay === '' ? firstOpen : cartDay);
   const liveDay = dates.includes(wanted) ? wanted : today;
-  const schedule = useSchedule(live ? sandboxId : null, live ? liveDay : '');
+  const schedule = useSchedule(live && open === 'when' ? sandboxId : null, live ? liveDay : '');
   const baked = useMemo(
     () =>
       liveDay === '' ||
@@ -116,6 +239,11 @@ export default function Checkout() {
   }, [schedule.schedule, now, lead, baked, cart.kind, cart.zone]);
   const chosenLive = choices.find((c) => c.start === cart.slot && pickable(c)) ?? null;
   const chosenStart = live ? (chosenLive?.start ?? null) : (chosen?.value ?? null);
+  // Days the page's own rules find nothing on for this cart: offered, but quiet.
+  const quiet = useMemo(
+    () => new Set(dates.filter((d) => !groups.some((g) => g.date === d))),
+    [dates, groups],
+  );
 
   const reasons: string[] = [];
   if (cart.lines.length === 0) reasons.push('Add something to the cart.');
@@ -172,224 +300,309 @@ export default function Checkout() {
     }
   }
 
-  if (result !== null) {
-    return <PaymentStep sandboxId={result.sandboxId} order={result.order} menu={menu} />;
+  const placed = result?.order ?? null;
+  const kind = placed?.kind ?? cart.kind;
+  const howWords =
+    kind === 'pickup'
+      ? 'Pickup at the bakery'
+      : `Delivery to zone ${(placed?.zone ?? cart.zone).slice(1)}`;
+  const whenStart = placed?.slot ?? chosenStart;
+
+  // Nothing to check out: one sentence and the way back.
+  if (placed === null && resume === null && ready && cart.lines.length === 0) {
+    return (
+      <div className="checkout-empty">
+        <StatusLine phase={phase} />
+        <div className="empty">
+          <h2>Your cart is empty</h2>
+          <p>Add something from the menu, and come back here to choose a time and pay.</p>
+          <p>
+            <a className="btn btn-primary" href="/menu/">
+              Browse the menu
+            </a>
+          </p>
+          <Message error={error} />
+        </div>
+      </div>
+    );
   }
 
-  return (
-    <div className="shop-split">
-      <StatusLine phase={phase} />
+  const state = (id: StepId): 'open' | 'done' | 'todo' => {
+    if (placed !== null) return id === 'pay' ? 'open' : 'done';
+    if (id === 'pay') return 'todo';
+    if (id === open) return 'open';
+    return id === 'how' ? 'done' : 'todo';
+  };
 
-      <section aria-labelledby="cart-heading" className="cart" data-tour="checkout-cart">
-        <h2 id="cart-heading">Your cart</h2>
-        <CartLines cart={cart} menu={menu.menu} update={update} />
-        {cart.lines.length === 0 && ready && (
-          <p>
-            <a href="/menu/">Back to the menu</a>
-          </p>
-        )}
-        {cart.lines.length > 0 && (
-          <dl className="totals">
-            <dt>Subtotal</dt>
-            <dd>{dollars(sum.subtotal_cents)}</dd>
-            <dt>Tax at {taxPercent(taxBp)}% (the demo’s rate)</dt>
-            <dd>{dollars(sum.tax_cents)}</dd>
-            <dt>Total</dt>
-            <dd>
-              <strong>{dollars(sum.total_cents)}</strong>
-            </dd>
-          </dl>
-        )}
-      </section>
+  return (
+    <div className="checkout">
+      <div className="checkout-status">
+        <StatusLine phase={phase} />
+      </div>
 
       <form
-        aria-labelledby="receive-heading"
+        className="checkout-steps"
+        aria-label="Checkout"
         data-tour="checkout-form"
         onSubmit={(e) => {
           e.preventDefault();
           void place();
         }}
       >
-        <h2 id="receive-heading">Pickup or delivery</h2>
-        <fieldset>
-          <legend>How do you want it?</legend>
-          <label className="chip">
-            <input
-              type="radio"
-              name="kind"
-              checked={cart.kind === 'pickup'}
-              onChange={() => {
+        <Step
+          id="how"
+          n={1}
+          title="How you get it"
+          state={state('how')}
+          summary={howWords}
+          onChange={placed === null ? () => setOpen('how') : undefined}
+        >
+          <fieldset className="how-choice">
+            <legend className="sr-only">Pickup or delivery</legend>
+            {(
+              [
+                ['pickup', 'Pickup', 'At the bakery, in 15-minute slots'],
+                ['delivery', 'Delivery', 'To your door, in 2-hour windows'],
+              ] as const
+            ).map(([value, label, hint]) => (
+              <label key={value} className="how-option">
+                <input
+                  type="radio"
+                  name="kind"
+                  value={value}
+                  checked={cart.kind === value}
+                  onChange={() => {
+                    setConflict(null);
+                    update((c) => ({ ...c, kind: value, slot: '' }));
+                  }}
+                />
+                <span className="how-label">{label}</span>
+                <span className="how-hint">{hint}</span>
+              </label>
+            ))}
+          </fieldset>
+          {cart.kind === 'delivery' && (
+            <ZoneField
+              zone={cart.zone}
+              onZone={(zone) => {
                 setConflict(null);
-                update((c) => ({ ...c, kind: 'pickup', slot: '' }));
+                update((c) => ({ ...c, zone }));
               }}
-            />{' '}
-            Pickup, in 15-minute slots
-          </label>{' '}
-          <label className="chip">
-            <input
-              type="radio"
-              name="kind"
-              checked={cart.kind === 'delivery'}
-              onChange={() => {
-                setConflict(null);
-                update((c) => ({ ...c, kind: 'delivery', slot: '' }));
-              }}
-            />{' '}
-            Delivery, in 2-hour windows
-          </label>
-        </fieldset>
-
-        {cart.kind === 'delivery' && (
-          <p>
-            <label htmlFor="zone">Delivery zone</label>
-            <select
-              id="zone"
-              value={cart.zone}
-              onChange={(e) => {
-                setConflict(null);
-                update((c) => ({ ...c, zone: e.target.value as Zone }));
-              }}
-            >
-              {ZONES.map((z) => (
-                <option key={z} value={z}>
-                  Zone {z.slice(1)}
-                </option>
-              ))}
-            </select>
+            />
+          )}
+          {blocker !== null && <p className="problem">{blocker}</p>}
+          <p className="step-actions">
+            <button type="button" className="btn btn-primary" onClick={() => setOpen('when')}>
+              Continue
+            </button>
           </p>
-        )}
+        </Step>
 
-        {live ? (
-          <SlotPicker
-            kind={cart.kind}
-            today={today}
-            dates={dates}
-            day={liveDay}
-            onDay={(date) => {
-              setPickedDay(date);
-              setConflict(null);
-              update((c) => ({ ...c, slot: '' }));
-            }}
-            live={schedule}
-            choices={choices}
-            slot={cart.slot}
-            onSlot={(start) => {
-              setConflict(null);
-              update((c) => ({ ...c, slot: start }));
-            }}
-            conflict={conflict}
-            onTakeNext={(start) => {
-              setPickedDay(dateOfStart(start));
-              setConflict(null);
-              update((c) => ({ ...c, slot: start }));
-            }}
-            baked={baked}
-            leadHours={Math.round(lead / 60)}
-          />
-        ) : (
-          <>
-            <p>
-              <label htmlFor="day">Day</label>
-              <select
-                id="day"
-                value={shownDay}
-                disabled={groups.length === 0}
-                onChange={(e) => {
-                  setDay(e.target.value);
+        <Step
+          id="when"
+          n={2}
+          title="When"
+          state={state('when')}
+          summary={
+            whenStart === null ? undefined : (
+              <time dateTime={whenStart}>{slotWords(kind, whenStart)}</time>
+            )
+          }
+        >
+          {live ? (
+            <SlotPicker
+              kind={cart.kind}
+              today={today}
+              dates={dates}
+              day={liveDay}
+              onDay={(date) => {
+                setPickedDay(date);
+                setConflict(null);
+                update((c) => ({ ...c, slot: '' }));
+              }}
+              live={schedule}
+              choices={choices}
+              slot={cart.slot}
+              onSlot={(start) => {
+                setConflict(null);
+                update((c) => ({ ...c, slot: start }));
+              }}
+              conflict={conflict}
+              onTakeNext={(start) => {
+                setPickedDay(dateOfStart(start));
+                setConflict(null);
+                update((c) => ({ ...c, slot: start }));
+              }}
+              baked={baked}
+              leadHours={Math.round(lead / 60)}
+              quiet={quiet}
+            />
+          ) : (
+            <>
+              <DayChips
+                dates={groups.map((g) => g.date)}
+                day={shownDay}
+                today={today}
+                onDay={(date) => {
+                  setDay(date);
                   update((c) => ({ ...c, slot: '' }));
                 }}
-              >
-                {groups.map((g) => (
-                  <option key={g.date} value={g.date}>
-                    {g.label}
-                  </option>
-                ))}
-              </select>
-            </p>
-            <p>
-              <label htmlFor="time">
-                {cart.kind === 'pickup' ? 'Pickup time' : 'Delivery window'}
-              </label>
-              <select
-                id="time"
-                value={chosen?.value ?? ''}
-                disabled={timesOfDay.length === 0}
-                onChange={(e) => update((c) => ({ ...c, slot: e.target.value }))}
-              >
-                <option value="">Choose…</option>
-                {timesOfDay.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-              <span className="hint">
-                Bakery time (Mountain). Open Tuesday to Sunday, 7:00 am to 3:00 pm.
-                {lead > 0 && ` Your cart needs ${Math.round(lead / 60)} hours’ notice at least.`}
-              </span>
-            </p>
-          </>
-        )}
-
-        <p>
-          <label htmlFor="note">Note for the kitchen (optional)</label>
-          <textarea
-            id="note"
-            rows={2}
-            value={cart.note}
-            aria-describedby="note-count"
-            onChange={(e) => update((c) => ({ ...c, note: e.target.value }))}
-          />
-          <span id="note-count" className="hint">
-            {noteChars} of {NOTE_MAX} characters. No emails, phone numbers, card numbers or web
-            addresses: the bakery refuses them and keeps no personal details.
-          </span>
-        </p>
-        <p aria-live="polite" className="problem-slot">
-          {noteChars > NOTE_MAX && (
-            <span className="problem">
-              The note is {noteChars - NOTE_MAX} characters over the limit.
-            </span>
+              />
+              <fieldset className="slot-chips">
+                <legend>{cart.kind === 'pickup' ? 'Pickup time' : 'Delivery window'}</legend>
+                <ul className="choices" data-kind={cart.kind}>
+                  {timesOfDay.map((s) => (
+                    <li key={s.value}>
+                      <label className="chip slot-chip">
+                        <input
+                          type="radio"
+                          name="slot"
+                          value={s.value}
+                          checked={chosen?.value === s.value}
+                          onChange={() => update((c) => ({ ...c, slot: s.value }))}
+                        />
+                        <span className="slot-time">{s.label}</span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+                <p className="hint">
+                  Bakery time (Mountain). Open Tuesday to Sunday, 7:00 am to 3:00 pm.
+                  {lead > 0 && ` Your cart needs ${Math.round(lead / 60)} hours’ notice at least.`}
+                </p>
+              </fieldset>
+            </>
           )}
-        </p>
 
-        {live ? (
-          <>
-            <p>
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={busy || reasons.length > 0}
-              >
-                {busy ? 'Placing your order…' : retry ? 'Try again' : 'Place order'}
-              </button>
-            </p>
-            {reasons.length > 0 && cart.lines.length > 0 && (
-              <ul className="hint">
-                {reasons.map((r) => (
-                  <li key={r}>{r}</li>
-                ))}
-              </ul>
-            )}
-            {retry && (
-              <p className="hint">
-                Trying again sends the same request with the same key, so the order cannot be placed
-                twice.
-              </p>
-            )}
-          </>
-        ) : phase.name === 'seeding' || phase.name === 'loading' ? (
-          <p>Seeding your bakery… You can order as soon as it is ready.</p>
-        ) : (
-          <p>
-            Ordering needs a sandbox. <a href="/signin/">Sign in or try it as a guest</a>; your cart
-            stays in this tab.
+          <p className="field note-field">
+            <label htmlFor="note">Note for the kitchen (optional)</label>
+            <textarea
+              id="note"
+              rows={2}
+              value={cart.note}
+              aria-describedby="note-count"
+              onChange={(e) => update((c) => ({ ...c, note: e.target.value }))}
+            />
+            <span id="note-count" className="hint">
+              {noteChars} of {NOTE_MAX} characters. No emails, phone numbers, card numbers or web
+              addresses: the bakery refuses them and keeps no personal details.
+            </span>
           </p>
-        )}
-        <Message error={error} />
+          <p aria-live="polite" className="problem-slot">
+            {noteChars > NOTE_MAX && (
+              <span className="problem">
+                The note is {noteChars - NOTE_MAX} characters over the limit.
+              </span>
+            )}
+          </p>
+
+          {live ? (
+            <>
+              <p className="step-actions">
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={busy || reasons.length > 0}
+                >
+                  {busy ? 'Placing your order…' : retry ? 'Try again' : 'Place order'}
+                </button>
+              </p>
+              {reasons.length > 0 && cart.lines.length > 0 && (
+                <ul className="hint reasons">
+                  {reasons.map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+              )}
+              {retry && (
+                <p className="hint">
+                  Trying again sends the same request with the same key, so the order cannot be
+                  placed twice.
+                </p>
+              )}
+            </>
+          ) : phase.name === 'seeding' || phase.name === 'loading' ? (
+            <p>Seeding your bakery… You can order as soon as it is ready.</p>
+          ) : (
+            <p>
+              Ordering needs a sandbox. <a href="/signin/">Sign in or try it as a guest</a>; your
+              cart stays in this tab.
+            </p>
+          )}
+          <Message error={error} />
+        </Step>
       </form>
 
-      <HowThisWorks menu={menu} />
+      <aside
+        className="panel checkout-summary"
+        aria-labelledby="cart-heading"
+        data-tour="checkout-cart"
+      >
+        <h2 id="cart-heading">{placed === null ? 'Your cart' : 'Your order'}</h2>
+        {placed === null ? (
+          <>
+            <CartLines cart={cart} menu={menu.menu} update={update} />
+            {cart.lines.length > 0 && (
+              <dl className="summary-totals">
+                <dt>Subtotal</dt>
+                <dd>{dollars(sum.subtotal_cents)}</dd>
+                <dt>Tax at {taxPercent(taxBp)}% (the demo’s rate)</dt>
+                <dd>{dollars(sum.tax_cents)}</dd>
+                <dt className="total">Total</dt>
+                <dd className="total">{dollars(sum.total_cents)}</dd>
+              </dl>
+            )}
+            <p className="hint">
+              The cart lives in this tab and is cleared when the order is placed. The order goes to
+              your private sandbox and is deleted with it at 10:00 UTC.{' '}
+              <a href="/menu/">Back to the menu</a>
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="hint">
+              Order <code title={placed.id}>{placed.id.slice(-6)}</code>, priced by the API from
+              menu version {placed.menu_version}.
+            </p>
+            <ul className="receipt-lines">
+              {placed.lines.map((line) => {
+                const found = findVariant(menu.menu, line.variant);
+                return (
+                  <li key={line.variant}>
+                    <span>
+                      {line.qty} ×{' '}
+                      {found
+                        ? `${found.item.name}, ${found.variant.label.toLowerCase()}`
+                        : line.variant}
+                    </span>
+                    <span className="price">{dollars(line.unit_cents * line.qty)}</span>
+                  </li>
+                );
+              })}
+            </ul>
+            <dl className="summary-totals">
+              <dt>Subtotal</dt>
+              <dd>{dollars(placed.subtotal_cents)}</dd>
+              <dt>Tax</dt>
+              <dd>{dollars(placed.tax_cents)}</dd>
+              <dt className="total">Total</dt>
+              <dd className="total">{dollars(placed.total_cents)}</dd>
+            </dl>
+          </>
+        )}
+      </aside>
+
+      <div className="checkout-pay">
+        <Step id="pay" n={3} title="Pay" state={state('pay')}>
+          {result !== null && !isPaid(result.order.status) && (
+            <PaymentStep sandboxId={result.sandboxId} order={result.order} offsetS={offsetS} />
+          )}
+        </Step>
+      </div>
+
+      <div className="checkout-how">
+        <HowThisWorks menu={menu} />
+      </div>
     </div>
   );
 }
