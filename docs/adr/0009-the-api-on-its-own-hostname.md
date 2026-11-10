@@ -71,6 +71,12 @@ One-way-ish for the hostname once third parties hold it. Stripe's webhook endpoi
 
 As built, 2026-11-09: the kill switch's pre-built WAF rule is also turned on by the 15-minute breaker at `off`, through the Rulesets API (`workers/api/src/breaker.rs`). The breaker is not configured in production as of 2026-11-09 (`GET /v1/status` says `unconfigured`).
 
+## Postscript 2026-11-10
+
+Corrected on 2026-11-10 by the session, under the owner's delegation of 2026-11-09; revisable. Each line names a sentence above that the build or a later record contradicts, and gives what is true, with its source. The decision text above is not rewritten.
+
+- Alternatives' verdict for option A, "Chosen, as asked", records the owner's direction (Q8 · Q-api-host). The engineering case is in the same row: a kill switch on a hostname that cannot hit a page, and origin isolation with a host-only cookie no other host receives. Its cost, a preflight on the first non-simple call, has not been measured: no first-call latency is recorded as of 2026-11-10 (Revisit if's first trigger).
+
 ## Patterns and further reading
 
 - Cross-origin resource sharing: WHATWG, [Fetch Standard, CORS protocol](https://fetch.spec.whatwg.org/#http-cors-protocol).

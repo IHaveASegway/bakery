@@ -80,6 +80,12 @@ As built, 2026-11-09: the table has 73 routes in 65 paths, and 58 accept a beare
 
 Accepted by delegation on 2026-11-09 (roadmap R12), so from that date the v1 contract changes only by addition, as decision and Door say.
 
+## Postscript 2026-11-10
+
+Corrected on 2026-11-10 by the session, under the owner's delegation of 2026-11-09; revisable. Each line names a sentence above that the build or a later record contradicts, and gives what is true, with its source. The decision text above is not rewritten.
+
+- The Worker routes with a table of its own, `workers/api/src/http/routes.rs` matched by `match_route`, and not the `worker` crate's `Router` ([ADR 0002](0002-rust-for-every-backend.md)'s postscript). Its reason, recorded on 2026-11-10: the table is data. Each route's method, pattern, scope, rate limit and bearer rule is one row, so the 405's `Allow`, the Origin exemptions and the scopes come from one list, and native tests hold it to the contract table in `crates/contracts`, from which the OpenAPI document and the TypeScript are generated (the module's header). The SDK's `Router` takes a handler per pattern and, in `worker` 0.8.7, has no method that lists its routes (`src/router.rs` of the crate, read on 2026-11-10), so none of that could be derived from it or tested against it. The `Router`'s code is still in the tree, as `matchit`, the router inside `worker` (`deny.toml`).
+
 ## Patterns and further reading
 
 - Problem details for HTTP APIs: [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457), as of 2026-11-05.
