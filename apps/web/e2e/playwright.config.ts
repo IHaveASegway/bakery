@@ -24,9 +24,12 @@ export default defineConfig({
   // The suite's limit. Five minutes from the PR 11 preparation until 2026-11-09, when 54 tests in
   // 16 specs needed about 5.5 minutes on a busy cloud machine (one worker, load average 4 to 6;
   // two runs stopped at 5 minutes with 42 and 50 passed and none failed), while CI ran #101's 55
-  // tests in 3.4 minutes. Ten minutes leaves room for both; the e2e job's own limit is 20 minutes
-  // (.github/workflows/ci.yml). docs/delivery.md, "The e2e suite".
-  globalTimeout: 10 * 60_000,
+  // tests in 3.4 minutes. Ten minutes left room for both until 2026-11-10, when 127 tests in 22
+  // specs took 11.5 minutes on the same busy machine (a run stopped at the limit with 124 passed
+  // and none failed), while CI ran 103 tests in 7.9 minutes that day. Fifteen minutes holds the
+  // suite and leaves the e2e job, whose own limit is 20 minutes (.github/workflows/ci.yml), five
+  // for its setup. docs/delivery.md, "The e2e suite".
+  globalTimeout: 15 * 60_000,
   reporter: process.env.CI ? [['list'], ['github']] : [['list']],
   use: {
     ...devices['Desktop Chrome'],

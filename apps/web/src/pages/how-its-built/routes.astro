@@ -97,7 +97,8 @@ const SOURCES = [
       the bakery. The heuristic scores every ordered pair, 63 × 62 = 3,906 of them for the Saturday,
       sorts by saving, and merges trips from the largest saving down while a van has room. It uses
       no clock and no random draw, so the same input gives the same plan. It is in{' '}
-      <code>crates/domain/src/dispatch/savings.rs</code>.
+      <code>crates/domain/src/dispatch/savings.rs</code>. A second pass then shortens the plan,
+      keeping every window (<code>improve.rs</code>).
     </p>
     <p>
       VROOM, run in the browser as WebAssembly, builds a plan and then moves and swaps stops between
@@ -113,8 +114,8 @@ const SOURCES = [
       real plan and the best one can only be shorter still. A negative gap, where the server’s plan
       is shorter, is possible, and the screen says so in words. The gap does not say how far VROOM
       is from the best plan, which neither planner computes. ADR 0012 sets the bakery’s own line at
-      25 percent of total drive time on the seeded days, a revisit trigger, and the roadmap records
-      no measured gap.
+      25 percent of total drive time on the seeded days, a revisit trigger. It fired on 2026-11-10;
+      the second pass answered it.
     </p>
 
     <h2>Neither is trusted: the object decides</h2>

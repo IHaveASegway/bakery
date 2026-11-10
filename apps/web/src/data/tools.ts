@@ -1020,11 +1020,11 @@ export const TOOLS: Tool[] = [
     id: 'savings',
     name: 'The savings heuristic in Rust, in `Dispatch`',
     group: 'dispatch',
-    version: '`crates/domain/src/dispatch/savings.rs`',
+    version: '`crates/domain/src/dispatch/savings.rs` and `improve.rs`',
     doesHere:
-      'Proposes the day’s routes inside the object; measured natively at a median of 0.69 ms on 2026-11-10.',
+      'Proposes the day’s routes inside the object, then shortens them with a bounded improvement pass; measured natively on 2026-11-10 at a median of 0.69 ms alone and 1.13 to 2.28 ms with the pass.',
     whyHere:
-      'A pure function tested natively, cheap enough for the object’s handler: a median of 0.69 ms, natively, on the build session’s machine, 2026-11-10, not as WebAssembly and not on the edge.',
+      'A pure function tested natively, cheap enough for the object’s handler: a median of 1.13 to 2.28 ms and at worst 6.2 ms with the improvement pass, natively, on the build session’s machine, 2026-11-10, not as WebAssembly and not on the edge.',
     whenNot:
       'When its gap to a real solver passes 25% of drive time, or the problem has more than one depot.',
     records: [{ adr: '0012' }],

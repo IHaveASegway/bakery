@@ -437,11 +437,14 @@ test.describe('a stranger at the gate', () => {
     const gate = page.getByRole('region', { name: 'Ordering starts with your own sandbox.' });
     await gate.getByRole('button', { name: 'Start ordering' }).click();
     // Beside what it explains where a place is clear of the steps' controls, else as its line.
+    // The note is placed again on the frame after the gate goes (Note.tsx), so the read at the end
+    // waits for it: in CI on 2026-11-10 (#146's run) one read 10 ms after Continue appeared found
+    // the open note over the cart's "Back to the menu".
     await expect(page.locator('.guide-line, #guide-live')).toContainText('Try it as a guest', {
       timeout: 30_000,
     });
     await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible({ timeout: 30_000 });
-    expect(await guideOverControls(page)).toEqual([]);
+    await expect.poll(() => guideOverControls(page)).toEqual([]);
   });
 });
 
