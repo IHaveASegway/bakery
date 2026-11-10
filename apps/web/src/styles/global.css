@@ -184,6 +184,15 @@ main:focus {
   list-style: none;
 }
 
+/* The links, then the session link in a list of its own, so a phone can scroll the one and keep
+   the other in place. */
+.site-nav-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
 .site-nav a {
   display: inline-flex;
   align-items: center;
@@ -309,29 +318,29 @@ main:focus {
     margin-left: 0;
   }
 
-  /* One row on a phone: the links scroll sideways under the name, and the session link stays
-     pinned at the row's right end. No script: a focused link scrolls itself into view. */
+  /* One row on a phone: the links scroll sideways under the name, and the session link, in a list
+     of its own, stays at the row's right end. No script: a focused link scrolls itself into view. */
   .masthead nav {
     flex: 1 1 100%;
+    flex-wrap: nowrap;
     min-width: 0;
   }
 
-  .masthead .site-nav {
+  .masthead .site-nav-links {
+    flex: 1 1 auto;
     flex-wrap: nowrap;
+    min-width: 0;
     overflow-x: auto;
     scrollbar-width: none;
   }
 
-  .masthead .site-nav li {
+  .masthead .site-nav-links li {
     flex: none;
   }
 
-  .masthead .site-nav li:has(.session-link) {
-    position: sticky;
-    right: 0;
-    margin-left: auto;
-    padding-left: var(--space-2);
-    background: var(--surface-raised);
+  .masthead .site-nav-session {
+    flex: none;
+    white-space: nowrap;
   }
 }
 

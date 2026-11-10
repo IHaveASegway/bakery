@@ -121,8 +121,8 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
             </svg>
             <span>Proof of Concept Bakery</span>
           </a>
-          <nav aria-label="The bakery">
-            <ul class="site-nav">
+          <nav aria-label="The bakery" class="site-nav-row">
+            <ul class="site-nav site-nav-links">
               {NAV.map(({ href, label }) => (
                 <li>
                   <a href={href} aria-current={current(href)}>
@@ -130,6 +130,8 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
                   </a>
                 </li>
               ))}
+            </ul>
+            <ul class="site-nav site-nav-session">
               <li>
                 <a
                   class="session-link"
