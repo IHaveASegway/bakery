@@ -251,8 +251,17 @@ jobs:
         run: node scripts/image-metadata.mjs --tracked
       - name: Every relative link in the docs reaches its file and heading (scripts/check-doc-links.mjs)
         run: node scripts/check-doc-links.mjs
-      - name: The Lighthouse step retries a tool error and nothing else (scripts/lighthouse-pages.test.sh)
-        run: bash scripts/lighthouse-pages.test.sh
+      - name: Every script's own test passes, with fakes and no network (scripts/*.test.sh)
+        # One step for all of them, so a new script test needs no change here: a pull request that
+        # changes this workflow gets no preview. Today: lighthouse-pages.test.sh (the Lighthouse
+        # step retries a tool error and nothing else) and wipe-check.test.sh (the morning wipe
+        # check reads the status route's count).
+        run: |
+          for t in scripts/*.test.sh; do
+            echo "::group::$t"
+            bash "$t"
+            echo "::endgroup::"
+          done
       - name: No Workers Cache in any wrangler.jsonc (it bills every asset request)
         run: |
           bad=0
