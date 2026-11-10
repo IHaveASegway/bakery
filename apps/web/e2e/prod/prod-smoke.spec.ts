@@ -50,6 +50,7 @@ const PAGES = [
   '/how-its-built/sandbox/',
   '/how-its-built/api/',
   '/how-its-built/breaker/',
+  '/how-its-built/tools/',
   '/docs/api/',
   '/inbox/',
   '/app/',
