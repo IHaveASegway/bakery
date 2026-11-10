@@ -1,0 +1,223 @@
+---
+import Base from '../../layouts/Base.astro';
+import {
+  NOT_RECORDED,
+  TOOLS,
+  TOOL_GROUPS,
+  WEIGHED_AFTER,
+  type Never,
+  type RecordRef,
+} from '../../data/tools';
+import { ESSAYS, HOW_PATH, REPO, TOOLS_TITLE, adrUrl } from '../../lib/links';
+
+// Every tool in the build, and what was not chosen (src/data/tools.ts). A static page with no
+// island and no script, like How it's built and the essays: HTML and CSS only, the strict policy.
+// Each tool is an article; its alternatives sit in a closed <details>, so the page scans as the
+// tools and opens to the trade-offs.
+
+/** A sentence's text and code, from the backticks the data marks code with. */
+const parts = (text: string) => text.split('`').map((part, i) => ({ code: i % 2 === 1, part }));
+
+const DOCS = {
+  stack: 'stack.md',
+  architecture: 'architecture.md',
+  security: 'security.md',
+} as const;
+
+/** A record as a link: an ADR on GitHub (with its section), a document, or an essay here. */
+function record(ref: RecordRef): { href: string; label: string; external: boolean } {
+  if ('adr' in ref) {
+    return {
+      href: adrUrl(ref.adr),
+      label:
+        ref.section === undefined ? `ADR ${ref.adr}` : `ADR ${ref.adr}, section ${ref.section}`,
+      external: true,
+    };
+  }
+  if ('doc' in ref) {
+    return {
+      href: `${REPO}/blob/main/docs/${DOCS[ref.doc]}`,
+      label: DOCS[ref.doc],
+      external: true,
+    };
+  }
+  const essay = ESSAYS[ref.essay];
+  return { href: essay.path, label: essay.title, external: false };
+}
+
+const NEVER: Record<Never['kind'], string> = {
+  measured: 'Never measured',
+  compared: 'Never compared',
+  checked: 'Never checked',
+};
+
+const OWNER = { rule: 'The owner’s rule', direction: 'The owner’s direction' } as const;
+
+const groups = TOOL_GROUPS.map((group) => ({
+  ...group,
+  tools: TOOLS.filter((tool) => tool.group === group.id).map((tool) => ({
+    ...tool,
+    recordLinks: tool.records.map(record),
+    essayLinks: (tool.essays ?? []).map((id) => ESSAYS[id]),
+    alts: (tool.alternatives ?? []).map((alt) => ({ ...alt, link: record(alt.record) })),
+  })),
+}));
+const altCount = TOOLS.reduce((n, t) => n + (t.alternatives?.length ?? 0), 0);
+---
+
+<Base
+  title={`${TOOLS_TITLE} | Proof of Concept Bakery`}
+  description="Every tool Proof of Concept Bakery is built with: what it does here, why it was chosen, when it would be the wrong one, and the alternatives the decision records weighed."
+>
+  <div class="prose tools-page">
+    <h1>{TOOLS_TITLE}</h1>
+    <p class="lead">
+      The {TOOLS.length} tools the bakery is built with: what each does here, why it was chosen,
+      when it would be the wrong one, and the {altCount} alternatives the records weighed and did
+      not choose.
+    </p>
+    <p>
+      Every sentence on this page restates a decision record; none is a new reason. Some choices
+      were not engineering verdicts, and where the reason is the owner’s rule or direction, the tool
+      says so. Some alternatives were weighed only after the build, on{' '}
+      <time datetime={WEIGHED_AFTER}>{WEIGHED_AFTER}</time>, and some were never compared at all:{' '}
+      <a href={adrUrl('0016')} rel="noopener">
+        ADR 0016
+      </a>{' '}
+      records ten of them, and what was never measured. Where a record names no case for an
+      alternative, the page says “not recorded”.
+    </p>
+
+    <nav aria-labelledby="tool-groups-title">
+      <h2 id="tool-groups-title">The groups</h2>
+      <ul class="tool-index">
+        {groups.map((g) => (
+          <li>
+            <a href={`#${g.id}`}>{g.title}</a> <span class="tool-count">{g.tools.length}</span>
+          </li>
+        ))}
+      </ul>
+    </nav>
+
+    {groups.map((g) => (
+      <section class="tool-group" id={g.id} aria-labelledby={`${g.id}-title`}>
+        <h2 id={`${g.id}-title`}>{g.title}</h2>
+        {g.tools.map((tool) => (
+          <article class="tool" id={tool.id} aria-labelledby={`${tool.id}-title`}>
+            <h3 id={`${tool.id}-title`}>
+              {parts(tool.name).map((p) => (p.code ? <code>{p.part}</code> : p.part))}
+            </h3>
+            <p class="tool-meta">
+              {parts(tool.version).map((p) => (p.code ? <code>{p.part}</code> : p.part))}
+              {tool.ownersRule && (
+                <>
+                  {' '}
+                  <span class="tool-flag">{OWNER[tool.ownersRule]}</span>
+                </>
+              )}
+            </p>
+            <dl class="tool-facts">
+              <dt>Does here</dt>
+              <dd>{parts(tool.doesHere).map((p) => (p.code ? <code>{p.part}</code> : p.part))}</dd>
+              <dt>Why here</dt>
+              <dd>{parts(tool.whyHere).map((p) => (p.code ? <code>{p.part}</code> : p.part))}</dd>
+              <dt>When not</dt>
+              <dd>{parts(tool.whenNot).map((p) => (p.code ? <code>{p.part}</code> : p.part))}</dd>
+              {tool.notMeasured && (
+                <>
+                  <dt class="not-measured">Not measured</dt>
+                  <dd class="not-measured">
+                    {parts(tool.notMeasured).map((p) => (p.code ? <code>{p.part}</code> : p.part))}
+                  </dd>
+                </>
+              )}
+            </dl>
+            <p class="tool-links">
+              <span class="tool-links-label">Records:</span>{' '}
+              {tool.recordLinks.map((r, i) => (
+                <>
+                  {i > 0 && ' · '}
+                  <a href={r.href} rel={r.external ? 'noopener' : undefined}>
+                    {r.label}
+                  </a>
+                </>
+              ))}
+              {tool.essayLinks.length > 0 && (
+                <>
+                  <br />
+                  <span class="tool-links-label">
+                    {tool.essayLinks.length === 1 ? 'Essay:' : 'Essays:'}
+                  </span>{' '}
+                  {tool.essayLinks.map((e, i) => (
+                    <>
+                      {i > 0 && ' · '}
+                      <a href={e.path}>{e.title}</a>
+                    </>
+                  ))}
+                </>
+              )}
+            </p>
+            {tool.alts.length > 0 && (
+              <details class="tool-alts">
+                <summary>Considered and not chosen ({tool.alts.length})</summary>
+                <ul class="alt-list">
+                  {tool.alts.map((alt) => (
+                    <li class="alt">
+                      <h4>
+                        {parts(alt.name).map((p) => (p.code ? <code>{p.part}</code> : p.part))}
+                      </h4>
+                      {alt.after && (
+                        <p class="alt-after">
+                          <span class="tool-flag">Weighed after the build, {WEIGHED_AFTER}</span>
+                        </p>
+                      )}
+                      <dl class="alt-facts">
+                        <dt>Would have replaced</dt>
+                        <dd>
+                          {parts(alt.replaces).map((p) =>
+                            p.code ? <code>{p.part}</code> : p.part,
+                          )}
+                        </dd>
+                        <dt>Why not here</dt>
+                        <dd>
+                          {parts(alt.whyNot).map((p) => (p.code ? <code>{p.part}</code> : p.part))}
+                        </dd>
+                        <dt>When it would be right</dt>
+                        <dd class={alt.whenRight === NOT_RECORDED ? 'not-recorded' : undefined}>
+                          {parts(alt.whenRight).map((p) =>
+                            p.code ? <code>{p.part}</code> : p.part,
+                          )}
+                        </dd>
+                        {alt.never && (
+                          <>
+                            <dt>{NEVER[alt.never.kind]}</dt>
+                            <dd>
+                              {parts(alt.never.text).map((p) =>
+                                p.code ? <code>{p.part}</code> : p.part,
+                              )}
+                            </dd>
+                          </>
+                        )}
+                        <dt>Record</dt>
+                        <dd>
+                          <a href={alt.link.href} rel={alt.link.external ? 'noopener' : undefined}>
+                            {alt.link.label}
+                          </a>
+                        </dd>
+                      </dl>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </article>
+        ))}
+      </section>
+    ))}
+
+    <p class="hint">
+      Back to <a href={HOW_PATH}>How it’s built</a>, where each principle has its section and its
+      essay.
+    </p>
+  </div>
+</Base>

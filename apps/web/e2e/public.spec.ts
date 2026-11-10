@@ -28,6 +28,7 @@ const PAGES = [
   '/how-its-built/sandbox/',
   '/how-its-built/api/',
   '/how-its-built/breaker/',
+  '/how-its-built/tools/',
   '/docs/api/',
   '/inbox/',
   '/app/',
@@ -82,6 +83,25 @@ test.describe('an unknown path', () => {
     await expectNoAxeViolations(page);
   });
 });
+
+// The tools page (/how-its-built/tools/): a "Considered and not chosen" list opens from the
+// keyboard, and axe finds nothing with every list open, in the light scheme and the dark.
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`the tools page passes axe with every list open, ${colorScheme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme });
+    await page.goto('/how-its-built/tools/');
+    await expect(page.locator('h1')).toHaveText('The tools, and what was not chosen');
+    const summaries = page.locator('details.tool-alts > summary');
+    expect(await summaries.count()).toBeGreaterThan(20);
+    await summaries.first().focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('details.tool-alts').first()).toHaveAttribute('open', '');
+    await page.evaluate(() => {
+      for (const d of document.querySelectorAll('details')) d.open = true;
+    });
+    await expectNoAxeViolations(page);
+  });
+}
 
 test('a page asks for the session once, with the guide open too (audit P2)', async ({ page }) => {
   let asked = 0;
