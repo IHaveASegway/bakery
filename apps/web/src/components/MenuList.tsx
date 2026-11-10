@@ -41,6 +41,13 @@ interface Props {
   menu: MenuView;
   /** Called with a variant slug; without it the list is read-only. */
   onAdd?: (variant: string, label: string) => void;
+  /**
+   * The variant whose Add was pressed last, and what takes the visitor to the cart from it: a link
+   * right after that one button, so the cart is one Tab away from the press (audit G10,
+   * 2026-11-10: the cart comes before the list, and Check out was about 70 Tab presses back).
+   */
+  added?: string | null;
+  onToCart?: () => void;
 }
 
 /** Whether an item is in season on any of the next 8 bakery days. Unknown (server render): yes. */
@@ -53,7 +60,7 @@ function seasonOpen(item: ItemView, now: number | null): boolean {
   return false;
 }
 
-export default function MenuList({ menu, onAdd }: Props) {
+export default function MenuList({ menu, onAdd, added = null, onToCart }: Props) {
   // The season is read from the clock after mount, so the server's HTML and the first render match.
   const [now, setNow] = useState<number | null>(null);
   useEffect(() => setNow(Date.now()), []);
@@ -115,6 +122,18 @@ export default function MenuList({ menu, onAdd }: Props) {
                             >
                               Add
                             </button>
+                          )}
+                          {onToCart && variant.slug === added && (
+                            <a
+                              className="skip-inline to-cart"
+                              href="#cart-heading"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                onToCart();
+                              }}
+                            >
+                              Go to your cart
+                            </a>
                           )}
                         </li>
                       ))}

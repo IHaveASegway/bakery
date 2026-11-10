@@ -1,9 +1,9 @@
-// Sign-in with a demo account, through the sign-in page's own forms, and a sandbox created from
-// the console (docs/roadmap.md, PR 11: "sign-in" and "a sandbox created"). Turnstile's script is
+// Sign-in with a demo account, through the sign-in page's own forms, and the sandbox the same press
+// makes (docs/roadmap.md, PR 11: "sign-in" and "a sandbox created"; audit G11, 2026-11-10). Turnstile's script is
 // the stand-in in fixtures.ts; everything else is the storefront and the API as they ship.
 import { expect, password, test } from './fixtures';
 
-test('a demo account is created, signed in to, and makes a sandbox', async ({ page }) => {
+test('a demo account is created with its sandbox, and signed in to again', async ({ page }) => {
   const secret = password();
 
   await page.goto('/signin/');
@@ -48,11 +48,11 @@ test('a demo account is created, signed in to, and makes a sandbox', async ({ pa
   await signin.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app\/$/);
   await expect(page.getByRole('heading', { name: 'Signed in with a demo account' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'You have no sandbox' })).toBeVisible();
 
-  // A sandbox, seeded by its first alarm; the console updates by itself.
-  await page.getByRole('button', { name: 'New sandbox' }).click();
-  // The top bar names the new sandbox on every console page.
+  // The press that made the account made its sandbox too (audit G11), and the account keeps it
+  // across a sign-out, so the console opens on it, seeded by its first alarm.
+  await expect(page.getByRole('heading', { name: 'You have no sandbox' })).toHaveCount(0);
+  // The top bar names the sandbox on every console page.
   await expect(page.getByRole('button', { name: /^Sandbox / })).toBeVisible();
   await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible({
     timeout: 30_000,

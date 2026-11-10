@@ -303,7 +303,7 @@ export default function OrderStatus() {
           <a className={placed || off ? 'btn btn-secondary' : 'btn btn-primary'} href="/app/">
             Play the kitchen
           </a>
-          <a className="btn btn-secondary" href="/inbox/">
+          <a className="btn btn-secondary" href={`/inbox/?receipt=${encodeURIComponent(id ?? '')}`}>
             Read your receipt in the inbox
           </a>
         </p>

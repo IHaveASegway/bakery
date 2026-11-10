@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { demoSignin, demoSignup } from '../lib/api';
+import { createSandbox, demoSignin, demoSignup } from '../lib/api';
 import { describeError, type Message as Text } from '../lib/messages';
 import { NEXT_PATHS, nextFrom } from '../lib/next';
 import { hydrating, useMounted } from '../lib/use-mounted';
@@ -20,6 +20,15 @@ function useKeepTyped(setters: [React.RefObject<HTMLInputElement | null>, (v: st
   }, []);
 }
 
+/** What became of the sandbox the new account's press also asked for. */
+type Made = { sandbox: true } | { sandbox: false; error: Text };
+
+/**
+ * Creates the account, then its sandbox, in the one press (audit G11, 2026-11-10): the page says
+ * each way in gives a private sandbox, and "Continue to the console" landed on "You have no
+ * sandbox" with one press more to make it. An account's sandbox needs no Turnstile pass. If the
+ * sandbox cannot be started, the card says so and the console's own New sandbox is the way on.
+ */
 function CreateAccount() {
   const id = useId();
   const [password, setPassword] = useState('');
@@ -28,6 +37,7 @@ function CreateAccount() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Text | null>(null);
   const [username, setUsername] = useState<string | null>(null);
+  const [made, setMade] = useState<Made | null>(null);
   const [copied, setCopied] = useState<'yes' | 'no' | null>(null);
   const [resetKey, setResetKey] = useState(0);
   const passwordRef = useRef<HTMLInputElement>(null);
@@ -41,6 +51,13 @@ function CreateAccount() {
     try {
       const created = await demoSignup({ password, turnstile_token: token });
       setPassword('');
+      // The account exists and its session is set; its sandbox is asked for at once.
+      try {
+        await createSandbox({ replace: false });
+        setMade({ sandbox: true });
+      } catch (e) {
+        setMade({ sandbox: false, error: describeError(e) });
+      }
       setUsername(created.username);
     } catch (e) {
       setError(describeError(e));
@@ -69,20 +86,32 @@ function CreateAccount() {
           Your username is <code className="username">{username}</code>. It is shown once and nobody
           can look it up later, so write it down now, with the password you chose.
         </p>
-        <p>
-          <button type="button" className="btn btn-secondary" onClick={copy}>
-            Copy username
-          </button>
-        </p>
+        {made?.sandbox === true && (
+          <p className="made">Your sandbox is made too: your own bakery, until 10:00 UTC.</p>
+        )}
+        {made?.sandbox === false && (
+          <p className="problem made">
+            <strong>Your sandbox could not be started: {made.error.title}.</strong>{' '}
+            {made.error.detail} You can start one on the next page.
+          </p>
+        )}
+        {/* Two actions a card holds as the provider buttons do: a list with the stack's gap. */}
+        <ul className="choices">
+          <li>
+            <button type="button" className="btn btn-secondary" onClick={copy}>
+              Copy username
+            </button>
+          </li>
+          <li>
+            <a className="btn btn-primary" href={next}>
+              Continue to {NEXT_PATHS[next]}
+            </a>
+          </li>
+        </ul>
         <Message>
           {copied === 'yes' && <p>Copied.</p>}
           {copied === 'no' && <p>Copying failed. Select the username above and copy it by hand.</p>}
         </Message>
-        <p>
-          <a className="btn btn-primary" href={next}>
-            Continue to {NEXT_PATHS[next]}
-          </a>
-        </p>
       </section>
     );
   }
@@ -122,7 +151,7 @@ function CreateAccount() {
         className="btn btn-primary"
         disabled={busy || unavailable || token === null}
       >
-        {busy ? 'Creating…' : 'Create a demo account'}
+        {busy ? 'Creating your account and sandbox…' : 'Create a demo account'}
       </button>
       <Message error={error} />
     </form>

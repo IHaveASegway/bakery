@@ -72,3 +72,24 @@ export function countText(shown: number, total: number, kind: string = ALL_KINDS
     ? `${total} ${total === 1 ? 'message' : 'messages'}.`
     : `Showing the newest ${shown} of ${total} messages.`;
 }
+
+/**
+ * The query parameter that names an order whose receipt the inbox opens: the order page's "Read
+ * your receipt in the inbox" goes to `/inbox/?receipt=<order id>`. A message's `ref` is the order,
+ * catering event or campaign it is about, so an order's receipt is the receipt whose `ref` is it.
+ */
+export const RECEIPT_PARAM = 'receipt';
+
+/** The order named by the page's query string, or null when it names none. */
+export function receiptOrder(search: string): string | null {
+  const order = new URLSearchParams(search).get(RECEIPT_PARAM)?.trim() ?? '';
+  return order === '' ? null : order;
+}
+
+/** The id of the order's receipt among the listed messages, or null when it is not among them. */
+export function receiptOf(
+  messages: Pick<MessageResponse, 'message' | 'kind' | 'ref'>[],
+  order: string,
+): string | null {
+  return messages.find((m) => m.kind === 'receipt' && m.ref === order)?.message ?? null;
+}

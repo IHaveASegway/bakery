@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import type { MessageResponse } from '../contracts';
 import { getMessage, listInbox } from '../lib/api';
 import { businessNowMs, momentText, whenText } from '../lib/when';
@@ -10,6 +10,8 @@ import {
   filterOf,
   kindLabel,
   namesOf,
+  receiptOf,
+  receiptOrder,
   recipientName,
 } from '../lib/inbox';
 import { describeError, type Message as Text } from '../lib/messages';
@@ -21,11 +23,21 @@ import StatusLine from './StatusLine';
 /** The default the API applies, asked for by name so the page and the count agree. */
 const LIMIT = 50;
 
+/** The table's columns, so the open message's row spans them all. */
+const COLUMNS = 6;
+
 /**
  * The /inbox/ island: every message the bakery has sent anyone in the visitor's sandbox, newest
  * first, with the kind, who it went to, its subject and when it was delivered, opened and
- * clicked, and the open one's body beside it. A guest reads it too. The list looks again every
- * five seconds, since opens and clicks arrive from the Inbox’s own alarms and not from this page.
+ * clicked. A guest reads it too. The list looks again every five seconds, since opens and clicks
+ * arrive from the Inbox’s own alarms and not from this page.
+ *
+ * A pressed subject opens its message in a row of its own directly under that message's row, at
+ * every width, and its heading takes the focus (audit G1, 2026-11-10: on a phone the message
+ * opened under the whole list, thousands of pixels below the press, and nothing seemed to happen).
+ * The subject again, Close or Escape closes it and gives the focus back to the subject. One message
+ * is open at a time. `?receipt=<order id>`, the order page's link, opens that order's receipt once
+ * the list holds it; an order with no receipt in the list leaves the plain list.
  */
 export default function Inbox() {
   const phase = useSandboxPhase();
@@ -40,6 +52,13 @@ export default function Inbox() {
   const [error, setError] = useState<Text | null>(null);
   const { customers } = useCustomers(sandboxId);
   const names = namesOf(customers ?? []);
+  // The order whose receipt the address asks for, until the list has shown it once.
+  const [wanted, setWanted] = useState<string | null>(null);
+  useEffect(() => setWanted(receiptOrder(window.location.search)), []);
+  // The heading takes the focus when a message opens; Close and Escape give it back to the subject.
+  const heading = useRef<HTMLHeadingElement>(null);
+  const section = useRef<HTMLElement>(null);
+  const focusOnOpen = useRef(false);
 
   const load = useCallback(() => {
     if (sandboxId === null) return;
@@ -81,12 +100,57 @@ export default function Inbox() {
     };
   }, [sandboxId, selected]);
 
+  // The order page's link: open its receipt once the list holds it, and only once.
+  useEffect(() => {
+    if (wanted === null || messages === null) return;
+    const receipt = receiptOf(messages, wanted);
+    if (receipt === null) return;
+    setWanted(null);
+    focusOnOpen.current = true;
+    setSelected(receipt);
+  }, [wanted, messages]);
+
   const listed = messages?.find((m) => m.message === selected) ?? null;
-  const open = detail ?? listed;
+  const open = listed === null ? null : detail?.message === listed.message ? detail : listed;
+
+  // Once the open message is drawn, its heading takes the focus and the message is scrolled only as
+  // far as it needs to be in view: it is directly under the pressed subject, so the page barely
+  // moves, and never by more than the message's own height.
+  const openId = open?.message ?? null;
+  useEffect(() => {
+    if (openId === null || !focusOnOpen.current) return;
+    focusOnOpen.current = false;
+    heading.current?.focus({ preventScroll: true });
+    section.current?.scrollIntoView({ block: 'nearest' });
+  }, [openId]);
+
+  function press(id: string) {
+    // The visitor's own choice wins over a receipt the address asked for and the list lacks yet.
+    setWanted(null);
+    if (id === selected) return setSelected(null);
+    focusOnOpen.current = true;
+    setSelected(id);
+  }
+
+  /** Close the open message and give the focus back to its subject. */
+  function close() {
+    if (selected === null) return;
+    const subject = document.getElementById(subjectId(selected));
+    setSelected(null);
+    subject?.focus();
+  }
 
   return (
     <>
-      <StatusLine phase={phase} signedOut="You have no sandbox yet, so the inbox is empty." />
+      <StatusLine
+        phase={phase}
+        signedOut="You have no sandbox yet, so the inbox is empty."
+        signedOutNext={
+          <>
+            <a href="/menu/">Start at the menu</a>: an order’s receipt lands here.
+          </>
+        }
+      />
       {sandboxId !== null && (
         <>
           <p data-tour="inbox-list">
@@ -118,8 +182,13 @@ export default function Inbox() {
                 {countText(messages.length, total, kind)}
               </p>
               {messages.length > 0 && (
-                <div className="table-scroll">
-                  <table>
+                <div
+                  className="table-scroll"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape' && selected !== null) close();
+                  }}
+                >
+                  <table className="inbox-table">
                     <caption className="sr-only">Messages, newest first</caption>
                     <thead>
                       <tr>
@@ -133,31 +202,64 @@ export default function Inbox() {
                     </thead>
                     <tbody>
                       {messages.map((m) => (
-                        <tr key={m.message}>
-                          <td data-label="Kind">{kindLabel(m.kind)}</td>
-                          <td data-label="To">{recipientName(names, m.to)}</td>
-                          <th scope="row" data-label="Subject">
-                            <button
-                              type="button"
-                              className="link"
-                              aria-pressed={m.message === selected}
-                              onClick={() => setSelected(m.message === selected ? null : m.message)}
-                            >
-                              {m.subject}
-                            </button>
-                          </th>
-                          <td data-label="Delivered">
-                            <time dateTime={m.delivered_at} title={whenText(m.delivered_at)}>
-                              {momentText(m.delivered_at, { now })}
-                            </time>
-                          </td>
-                          <td data-label="Opened">
-                            {m.opened_at ? momentText(m.opened_at, { now }) : ''}
-                          </td>
-                          <td data-label="Clicked">
-                            {m.clicked_at ? momentText(m.clicked_at, { now }) : ''}
-                          </td>
-                        </tr>
+                        <Fragment key={m.message}>
+                          <tr data-open={m.message === selected ? '' : undefined}>
+                            <td data-label="Kind">{kindLabel(m.kind)}</td>
+                            <td data-label="To">{recipientName(names, m.to)}</td>
+                            <th scope="row" data-label="Subject">
+                              <button
+                                type="button"
+                                id={subjectId(m.message)}
+                                className="link"
+                                aria-expanded={m.message === selected}
+                                aria-controls={m.message === selected ? 'inbox-open' : undefined}
+                                onClick={() => press(m.message)}
+                              >
+                                {m.subject}
+                              </button>
+                            </th>
+                            <td data-label="Delivered">
+                              <time dateTime={m.delivered_at} title={whenText(m.delivered_at)}>
+                                {momentText(m.delivered_at, { now })}
+                              </time>
+                            </td>
+                            <td data-label="Opened">
+                              {m.opened_at ? momentText(m.opened_at, { now }) : ''}
+                            </td>
+                            <td data-label="Clicked">
+                              {m.clicked_at ? momentText(m.clicked_at, { now }) : ''}
+                            </td>
+                          </tr>
+                          {open !== null && m.message === open.message && (
+                            <tr className="inbox-open">
+                              <td colSpan={COLUMNS}>
+                                <section
+                                  id="inbox-open"
+                                  aria-labelledby="message-heading"
+                                  data-tour="inbox-message"
+                                  ref={section}
+                                >
+                                  <h2 id="message-heading" ref={heading} tabIndex={-1}>
+                                    {open.subject}
+                                  </h2>
+                                  <p className="hint">
+                                    {kindLabel(open.kind)} to {recipientName(names, open.to)},
+                                    delivered {momentText(open.delivered_at, { now })}.{' '}
+                                    {engagementText(open, now)}.
+                                  </p>
+                                  <p className="brief">{open.body}</p>
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={close}
+                                  >
+                                    Close
+                                  </button>
+                                </section>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
                       ))}
                     </tbody>
                   </table>
@@ -165,18 +267,11 @@ export default function Inbox() {
               )}
             </>
           )}
-          {open && (
-            <section aria-labelledby="message-heading" data-tour="inbox-message">
-              <h2 id="message-heading">{open.subject}</h2>
-              <p className="hint">
-                {kindLabel(open.kind)} to {recipientName(names, open.to)}, delivered{' '}
-                {momentText(open.delivered_at, { now })}. {engagementText(open, now)}.
-              </p>
-              <p className="brief">{open.body}</p>
-            </section>
-          )}
         </>
       )}
     </>
   );
 }
+
+/** The subject's button, by message: the focus goes back to it when its message closes. */
+const subjectId = (message: string) => `subject-${message}`;
