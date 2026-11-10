@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { placeNote } from '../../lib/guide';
+import { controlBoxes } from './clear';
 
 /** Below this width a note is a sheet over the lower third of the window, placed by CSS alone. */
 const PHONE = '(max-width: 40rem)';
@@ -71,6 +72,7 @@ export function Note({
   pinned,
   changed,
   onClose,
+  onCrowded,
   children,
 }: {
   id: string;
@@ -81,11 +83,20 @@ export function Note({
   /** A value that changes when the note's content does, which restarts its timer. */
   changed: unknown;
   onClose: () => void;
+  /**
+   * Called when no place beside the anchor, nor a corner, is clear of the page's controls: the
+   * caller folds the note to its line rather than lay it over the next thing to press. Without
+   * it, the note takes the place that fits best (a note the visitor opened from its mark).
+   */
+  onCrowded?: (() => void) | undefined;
   children: ReactNode;
 }) {
   const box = useRef<HTMLElement>(null);
   const [inside, setInside] = useState({ pointer: false, focus: false });
   const [corner, setCorner] = useState(false);
+  const crowded = useRef(onCrowded);
+  crowded.current = onCrowded;
+  const placed = useRef(false);
 
   // Place the note beside its anchor, ring the anchor, and keep both right while the page
   // scrolls, resizes or redraws (a card that moved is a new element), one frame at a time.
@@ -133,7 +144,14 @@ export function Note({
           height: window.innerHeight - BAR_ROOM,
           top: topInset(),
         },
+        controlBoxes(),
       );
+      // Only where it arrives: a note the visitor is reading never folds away under them.
+      if (!at.clear && !placed.current && crowded.current !== undefined) {
+        crowded.current();
+        return;
+      }
+      placed.current = true;
       setCorner(false);
       note.style.top = `${Math.round(at.top)}px`;
       note.style.left = `${Math.round(at.left)}px`;

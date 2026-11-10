@@ -23,6 +23,7 @@ import {
   withEvent,
   withOrder,
 } from '../src/lib/order-track';
+import { keptTimes } from '../src/components/OrderStatus';
 
 const ID = '01JTESTORDERTRACK000000AA';
 const order = (over: Partial<OrderResponse> = {}): OrderResponse => ({
@@ -196,5 +197,27 @@ describe('the status page', () => {
     const { default: OrderStatus } = await import('../src/components/OrderStatus');
     const html = renderToStaticMarkup(createElement(OrderStatus));
     expect(html).toContain('Reading your order');
+  });
+});
+
+describe('the times a tab saw for an order’s steps', () => {
+  const store = (items: Record<string, string>) => ({ getItem: (k: string) => items[k] ?? null });
+  test('survive a reload, read back as they were kept', () => {
+    const kept = { placed: '2026-11-10T11:48:00-07:00', paid: '2026-11-10T11:49:00-07:00' };
+    const read = keptTimes(
+      'ord-one',
+      store({ 'bakery.order-times.v1.ord-one': JSON.stringify(kept) }),
+    );
+    expect(read).toEqual(kept);
+  });
+  test('read as none when nothing was kept, the storage is blocked or the value is not times', () => {
+    expect(keptTimes('ord-one', store({}))).toEqual({});
+    expect(keptTimes('ord-one', null)).toEqual({});
+    expect(keptTimes('ord-one', store({ 'bakery.order-times.v1.ord-one': 'not json' }))).toEqual(
+      {},
+    );
+    expect(
+      keptTimes('ord-one', store({ 'bakery.order-times.v1.ord-one': '{"paid":3,"placed":""}' })),
+    ).toEqual({});
   });
 });

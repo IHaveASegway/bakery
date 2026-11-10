@@ -43,7 +43,36 @@ function sourceText(watch: Watch): string {
   }
 }
 
-/** The steps the order has taken and has left, each done one with its time. */
+/** Where this tab keeps the times it saw for an order's steps, so a reload still shows them. */
+const timesKey = (id: string) => `bakery.order-times.v1.${id}`;
+
+/** The times this tab saw for an order's steps; empty when storage is missing or blocked. */
+export function keptTimes(id: string, store: Pick<Storage, 'getItem'> | null): Track['times'] {
+  try {
+    const raw = store?.getItem(timesKey(id));
+    const read: unknown = raw ? JSON.parse(raw) : null;
+    if (read === null || typeof read !== 'object') return {};
+    return Object.fromEntries(
+      Object.entries(read).filter(([, at]) => typeof at === 'string' && at !== ''),
+    ) as Track['times'];
+  } catch {
+    return {};
+  }
+}
+
+function keepTimes(id: string, times: Track['times']): void {
+  try {
+    window.sessionStorage.setItem(timesKey(id), JSON.stringify(times));
+  } catch {
+    // A per-tab convenience only: without it a reload shows the steps without their times.
+  }
+}
+
+/**
+ * The steps the order has taken and has left, each done one with its time when this tab saw it.
+ * A step done before the tab watched has no time to show: its tick says it is done, and no word
+ * pretends to be a time.
+ */
 function Tracker({ track }: { track: Track }) {
   const stages = stagesFor(track.order.kind);
   const taken = stepsTaken(track.status, track.order.kind);
@@ -76,7 +105,7 @@ function Tracker({ track }: { track: Track }) {
                   {clockOfText(at)}
                 </time>
               ) : (
-                'done'
+                <span className="sr-only">done</span>
               )}
             </span>
           </li>
@@ -130,7 +159,28 @@ export default function OrderStatus() {
   }, []);
 
   const watch = useOrderWatch(phase.name === 'live' ? phase.id : null, id ?? '');
-  const track = watch.track;
+  // The times this tab saw survive a reload: the order's answer carries only when it was placed.
+  const [kept, setKept] = useState<Track['times']>({});
+  useEffect(() => {
+    if (!id) return;
+    let store: Storage | null = null;
+    try {
+      store = window.sessionStorage;
+    } catch {
+      // Blocked storage: no kept times.
+    }
+    setKept(keptTimes(id, store));
+  }, [id]);
+  const seenTimes = watch.track?.times;
+  useEffect(() => {
+    if (!id || seenTimes === undefined) return;
+    const merged = { ...kept, ...seenTimes };
+    if (JSON.stringify(merged) === JSON.stringify(kept)) return;
+    setKept(merged);
+    keepTimes(id, merged);
+  }, [id, seenTimes]);
+  const track =
+    watch.track === null ? null : { ...watch.track, times: { ...kept, ...watch.track.times } };
   const placed = track?.status === 'placed';
 
   // The hold's time left, while there is one to count.
@@ -253,8 +303,8 @@ export default function OrderStatus() {
           <a className={placed || off ? 'btn btn-secondary' : 'btn btn-primary'} href="/app/">
             Play the kitchen
           </a>
-          <a className="btn btn-quiet" href="/inbox/">
-            Your receipt, in the inbox
+          <a className="btn btn-secondary" href="/inbox/">
+            Read your receipt in the inbox
           </a>
         </p>
         {!placed && !off && track.status !== 'closed' && (

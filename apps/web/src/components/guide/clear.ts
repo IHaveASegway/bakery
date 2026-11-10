@@ -4,7 +4,7 @@
 import type { Box } from '../../lib/guide';
 
 const HEADINGS = 'h1, h2, h3, h4';
-const CONTROLS =
+export const CONTROLS =
   'a[href], button, input, select, textarea, summary, label, [role="button"], [role="switch"], [tabindex]:not([tabindex="-1"])';
 
 const boxOf = (r: DOMRect): Box => ({ top: r.top, left: r.left, width: r.width, height: r.height });
@@ -105,4 +105,21 @@ export function clearOfPage(box: Box): boolean {
     if (ownLines(under).some((line) => meets(line, box))) return false;
   }
   return true;
+}
+
+/**
+ * The boxes, in window coordinates, of the page's controls showing in the window now: what a note
+ * keeps clear of (lib/guide.ts, placeNote). The guide's own layer is not the page.
+ */
+export function controlBoxes(): Box[] {
+  const view = { width: document.documentElement.clientWidth, height: window.innerHeight };
+  const boxes: Box[] = [];
+  for (const el of document.querySelectorAll(CONTROLS)) {
+    if (el.closest('[data-guide-root]') !== null) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    if (r.bottom <= 0 || r.right <= 0 || r.top >= view.height || r.left >= view.width) continue;
+    boxes.push(boxOf(r));
+  }
+  return boxes;
 }

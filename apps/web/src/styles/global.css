@@ -318,31 +318,48 @@ main:focus {
     margin-left: 0;
   }
 
-  /* One row on a phone: the links scroll sideways under the name, and the session link, in a list
-     of its own, stays at the row's right end. No script: a focused link scrolls itself into view. */
-  .masthead nav {
-    flex: 1 1 100%;
-    flex-wrap: nowrap;
+  /* Two rows on a phone, every section in sight: the bakery's name with the guide's control and
+     the session link at its right end, then every link of the nav, wrapping onto another line
+     rather than scrolling out of sight. The nav's box gives way (its landmark stays in the
+     markup) so its parts can sit in both rows; nothing lies over anything. */
+  .masthead-inner {
+    justify-content: flex-start;
+    column-gap: var(--space-2);
+  }
+
+  .masthead .site-name {
+    flex: 1 1 0;
     min-width: 0;
   }
 
+  .masthead .site-nav-row {
+    display: contents;
+  }
+
+  .masthead .masthead-guide {
+    order: 1;
+  }
+
+  .masthead .site-nav-session {
+    flex: none;
+    order: 2;
+    white-space: nowrap;
+  }
+
   .masthead .site-nav-links {
-    flex: 1 1 auto;
-    flex-wrap: nowrap;
+    flex: 1 1 100%;
+    order: 3;
+    flex-wrap: wrap;
     min-width: 0;
-    overflow-x: auto;
-    scrollbar-width: none;
-    /* A visible edge: the row fades out at its right end, so it reads as going on. */
-    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+    margin-inline: calc(-1 * var(--space-2));
   }
 
   .masthead .site-nav-links li {
     flex: none;
   }
 
-  .masthead .site-nav-session {
-    flex: none;
-    white-space: nowrap;
+  .masthead .guide-line-slot {
+    order: 4;
   }
 }
 
@@ -352,16 +369,17 @@ main:focus {
   font-size: var(--type-14);
 }
 
-/* A short page (the API unreachable, a sandbox still seeding) still fills the window: the main
-   column grows and the footer sits at the foot, never mid-screen over the grey surface. */
-body.shell-app {
+/* A short page (the API unreachable, a sandbox still seeding, the status page on a phone) still
+   fills the window, in every shell: the main column grows and the footer reaches the window's
+   foot, never leaving a grey band under it. */
+body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
   min-height: 100dvh;
 }
 
-body.shell-app > main {
+body > main {
   flex: 1 0 auto;
 }
 
