@@ -100,6 +100,18 @@ test('a card’s button on the board opens a note: the frame, the event and its 
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expectNoAxeViolations(page);
 
+  // A card's "…" menu open over the board is nearer than the note: the first Escape closes the
+  // menu alone, the next the note. The menu is another column's, so the note covers none of it.
+  const cardMenu = page
+    .locator('section[aria-labelledby="board-in_production"] details.menu > summary')
+    .first();
+  if (await cardMenu.isVisible()) {
+    await cardMenu.click();
+    await expect(page.locator('.board details.menu[open]')).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.board details.menu[open]')).toHaveCount(0);
+    await expect(note).toBeVisible();
+  }
   await page.keyboard.press('Escape');
   await expect(note).toHaveCount(0);
 
@@ -406,6 +418,145 @@ test('the menu’s read opens a note with what answered, and Ask again shows the
   await expectNoAxeViolations(page);
 });
 
+test.describe('a stranger at the gate', () => {
+  // The first look at the session, before there is one, is a 401 that Chromium logs.
+  test.use({ allowedStatuses: [401] });
+
+  test('the note after Start ordering lies over none of the checkout’s controls', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/menu/');
+    const adds = page.getByRole('button', { name: /^Add .*, to the cart$/ });
+    await expect(adds.first()).toBeEnabled();
+    await adds.first().click();
+    await page.goto('/checkout/');
+    const gate = page.getByRole('region', { name: 'Ordering starts with your own sandbox.' });
+    await gate.getByRole('button', { name: 'Start ordering' }).click();
+    // Beside what it explains where a place is clear of the steps' controls, else as its line.
+    await expect(page.locator('.guide-line, #guide-live')).toContainText('Try it as a guest', {
+      timeout: 30_000,
+    });
+    await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible({ timeout: 30_000 });
+    expect(await guideOverControls(page)).toEqual([]);
+  });
+});
+
+test('one press of Show me around shows step 1, with the menu’s line showing', async ({ page }) => {
+  await demoAccount(page);
+  await liveSandbox(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/menu/');
+  const line = page.locator('.guide-line');
+  await expect(line).toContainText('Where the menu came from');
+  await page.getByRole('button', { name: 'Show me around' }).click();
+  await expect(page.locator('#guide-path')).toContainText('1 of');
+  await expect(line).toHaveCount(0);
+});
+
+test('every mark sits at the end of the words it explains, on the home page, the menu and System', async ({
+  page,
+}) => {
+  await demoAccount(page);
+  await liveSandbox(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  for (const path of ['/', '/menu/', '/app/system/']) {
+    await page.goto(path);
+    await expect(page.locator('.guide-spot').first()).toBeVisible();
+    expect(await marksAwayFromWords(page), path).toEqual([]);
+  }
+});
+
+test('the recorder is never wider than the window, after the window narrows with marks drawn', async ({
+  page,
+}) => {
+  await demoAccount(page);
+  await liveSandbox(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/app/');
+  await expect(page.locator('.guide-spot').first()).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await (await recorderButton(page)).click();
+  const panel = page.locator('.guide-panel');
+  await expect(panel).toBeVisible();
+  // The panel is sized by the window at once; the page is read once it is at rest (the marks
+  // placed for the new width), and what sticks out past the window, outside any box that scrolls
+  // or clips it, is named: on a phone the layout widens to the widest content, and every fixed
+  // part of the guide with it.
+  const sizes = () =>
+    page.evaluate(() => {
+      const width = document.documentElement.clientWidth;
+      const clipped = (el: Element) => {
+        for (
+          let up = el.parentElement;
+          up !== null && up !== document.body;
+          up = up.parentElement
+        ) {
+          if (getComputedStyle(up).overflowX !== 'visible') return true;
+        }
+        return false;
+      };
+      const wide = [...document.querySelectorAll('body *')]
+        .filter((el) => el.getBoundingClientRect().right > width + 0.5 && !clipped(el))
+        .slice(0, 6)
+        .map(
+          (el) =>
+            `${el.tagName.toLowerCase()}.${String(el.className)} ${Math.round(el.getBoundingClientRect().right)}`,
+        );
+      return {
+        panel: document.querySelector('.guide-panel')?.getBoundingClientRect().width ?? 0,
+        page: document.documentElement.scrollWidth,
+        width,
+        wide,
+        settled: document.documentElement.dataset.guideMarks === 'settled',
+      };
+    });
+  const first = await sizes();
+  expect(first.panel).toBeLessThanOrEqual(first.width);
+  await expect
+    .poll(async () => {
+      const now = await sizes();
+      return now.settled && now.page <= now.width ? 'fits' : `${now.page}: ${now.wide.join('; ')}`;
+    })
+    .toBe('fits');
+});
+
+/**
+ * Each mark against the ends of the page's lines of text: a mark sits a few pixels after the end
+ * of a line, level with it, never in a gutter beside nothing or on a card's border. Each that does
+ * not, named by what it explains.
+ */
+async function marksAwayFromWords(page: Page): Promise<string[]> {
+  await expect(page.locator('html')).toHaveAttribute('data-guide-marks', 'settled');
+  return page.evaluate(() => {
+    const ends: DOMRect[] = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+      if ((n.textContent ?? '').trim() === '') continue;
+      if (n.parentElement?.closest('[data-guide-root]') != null) continue;
+      const range = document.createRange();
+      range.selectNodeContents(n);
+      ends.push(...range.getClientRects());
+    }
+    const away: string[] = [];
+    for (const mark of document.querySelectorAll<HTMLElement>('.guide-spot')) {
+      const m = mark.getBoundingClientRect();
+      const middle = m.top + m.height / 2;
+      const near = ends.some(
+        (r) =>
+          middle >= r.top - 4 &&
+          middle <= r.bottom + 4 &&
+          m.left - r.right >= 0 &&
+          m.left - r.right <= 24,
+      );
+      if (!near || mark.dataset.guideHow === 'gutter') {
+        away.push(`${mark.dataset.guideTarget ?? '?'} (${mark.dataset.guideHow ?? '?'})`);
+      }
+    }
+    return away;
+  });
+}
+
 /**
  * The guide's notes and folded lines against the page's controls (buttons, inputs, links, the slot
  * picker's labels), as boxes on the screen now: each that meets one, named.
@@ -568,30 +719,46 @@ test.describe('on a phone', () => {
         (n.nodeType === Node.ELEMENT_NODE ? (n as Element) : n.parentElement)?.closest(
           '[data-guide-root]',
         ) != null;
-      window.scrollTo(0, 0);
-      const things: [string, R][] = [];
-      for (const c of document.querySelectorAll(
-        'a[href], button, input, select, textarea, [role="button"]',
-      )) {
-        const r = c.getBoundingClientRect();
-        if (!inGuide(c) && r.width > 0)
-          things.push([`${c.tagName} "${(c.textContent ?? '').trim().slice(0, 30)}"`, doc(r)]);
-      }
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-      for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
-        if ((n.textContent ?? '').trim() === '' || inGuide(n)) continue;
-        const range = document.createRange();
-        range.selectNodeContents(n);
-        for (const r of range.getClientRects()) {
-          things.push([`the text "${(n.textContent ?? '').trim().slice(0, 30)}"`, doc(r)]);
-        }
-      }
       const frame = () =>
         new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+      // The marks are read only once they stand where the layout puts them now (Layer.tsx sets
+      // data-guide-marks): a text change or a scroll moves them a frame later, and a mark read in
+      // between sits where the old layout had it.
+      const calm = async () => {
+        for (let i = 0; i < 300; i += 1) {
+          await frame();
+          if (document.documentElement.dataset.guideMarks !== 'settled') continue;
+          await frame();
+          if (document.documentElement.dataset.guideMarks === 'settled') return;
+        }
+      };
+      const pageThings = () => {
+        const things: [string, R][] = [];
+        for (const c of document.querySelectorAll(
+          'a[href], button, input, select, textarea, [role="button"]',
+        )) {
+          const r = c.getBoundingClientRect();
+          if (!inGuide(c) && r.width > 0)
+            things.push([`${c.tagName} "${(c.textContent ?? '').trim().slice(0, 30)}"`, doc(r)]);
+        }
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+          if ((n.textContent ?? '').trim() === '' || inGuide(n)) continue;
+          const range = document.createRange();
+          range.selectNodeContents(n);
+          for (const r of range.getClientRects()) {
+            things.push([`the text "${(n.textContent ?? '').trim().slice(0, 30)}"`, doc(r)]);
+          }
+        }
+        return things;
+      };
+      window.scrollTo(0, 0);
       const end = document.documentElement.scrollHeight - window.innerHeight;
       for (let y = 0; ; y = Math.min(end, y + 300)) {
         window.scrollTo(0, y);
-        await frame();
+        await calm();
+        // The page and its marks, read in the same settled frame.
+        const things = pageThings();
         for (const spot of document.querySelectorAll('.guide-spot')) {
           const box = doc(spot.getBoundingClientRect());
           for (const [what, r] of things) if (meets(box, r)) hits.add(`at ${y}: a mark on ${what}`);
@@ -752,6 +919,96 @@ test.describe('on a phone', () => {
     // Step two: the slots are clear of it.
     await expect(page.locator('input[name="slot"]').first()).toBeAttached();
     expect(await guideOverControls(page), 'checkout, step two').toEqual([]);
+  });
+
+  test('the masthead shows every section, and the guide’s control covers no link', async ({
+    page,
+  }) => {
+    for (const path of ['/', '/status/']) {
+      await page.goto(path);
+      const nav = page.getByRole('navigation', { name: 'The bakery' });
+      const control = await page.locator('.masthead .guide-bar-dock').boundingBox();
+      // Every section and the session link, whatever the session link's words are.
+      const links = nav.getByRole('link');
+      expect(await links.count()).toBeGreaterThanOrEqual(6);
+      for (const link of await links.all()) {
+        const name = (await link.textContent()) ?? '';
+        await expect(link).toBeInViewport({ ratio: 1 });
+        const box = await link.boundingBox();
+        expect(box, name).not.toBeNull();
+        if (box === null || control === null) continue;
+        const meets =
+          box.x < control.x + control.width &&
+          box.x + box.width > control.x &&
+          box.y < control.y + control.height &&
+          box.y + box.height > control.y;
+        expect(meets, `${path}: the control over ${name}`).toBe(false);
+      }
+    }
+    // A short page: the footer reaches the window's foot.
+    const foot = await page.locator('footer.site-footer').boundingBox();
+    expect((foot?.y ?? 0) + (foot?.height ?? 0)).toBeGreaterThanOrEqual(844 - 1);
+  });
+
+  test('the control’s menu closes on Escape and on a tap outside it', async ({ page }) => {
+    await page.goto('/');
+    const compact = page.getByRole('button', { name: /^Under the hood, (on|off)$/ });
+    const recorder = page.getByRole('button', { name: 'Recorder' });
+    await compact.click();
+    await expect(recorder).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(recorder).toBeHidden();
+    await expect(compact).toBeFocused();
+    await compact.click();
+    await expect(recorder).toBeVisible();
+    await page.locator('main h1').click();
+    await expect(recorder).toBeHidden();
+  });
+
+  test('with the cart open, the guide’s control lies over none of its buttons', async ({
+    page,
+  }) => {
+    await demoAccount(page);
+    await liveSandbox(page);
+    await page.goto('/menu/');
+    await page.getByRole('button', { name: /^Add / }).first().click();
+    await page.locator('.cart-bar').click();
+    const checkOut = page
+      .getByRole('button', { name: 'Check out' })
+      .or(page.getByRole('link', { name: 'Check out' }));
+    await expect(checkOut.first()).toBeVisible();
+    const hits = await page.evaluate(() => {
+      const control = document.querySelector('.guide-bar-dock');
+      if (control === null) return [];
+      const c = control.getBoundingClientRect();
+      if (getComputedStyle(control).visibility === 'hidden' || c.width === 0) return [];
+      return [...document.querySelectorAll('.cart-sheet a[href], .cart-sheet button')]
+        .filter((el) => {
+          const r = el.getBoundingClientRect();
+          return r.left < c.right && r.right > c.left && r.top < c.bottom && r.bottom > c.top;
+        })
+        .map((el) => (el.textContent ?? '').trim());
+    });
+    expect(hits).toEqual([]);
+  });
+
+  test('a note’s sheet folds to its line when the visitor scrolls the page beneath it', async ({
+    page,
+  }) => {
+    await demoAccount(page);
+    await liveSandbox(page);
+    await page.goto('/app/system/');
+    const advance = page.getByRole('button', { name: /^Advance 15 minutes/ }).first();
+    await advance.click();
+    const note = page.getByRole('region', { name: 'Under the hood: The clock' });
+    await expect(note).toBeVisible();
+    await page.mouse.move(195, 300);
+    await page.mouse.wheel(0, 200);
+    await expect(note).toHaveCount(0);
+    const line = page.locator('.guide-line');
+    await expect(line).toContainText('The clock');
+    await line.getByRole('button', { name: /The clock/ }).click();
+    await expect(note).toBeVisible();
   });
 
   test('a live note opened by a control low on the screen does not cover that control', async ({

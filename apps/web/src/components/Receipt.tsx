@@ -17,10 +17,13 @@ export default function Receipt({
   order,
   menu,
   paid,
+  now,
 }: {
   order: OrderResponse;
   menu: ReturnType<typeof useLiveMenu>;
   paid: boolean;
+  /** The sandbox's business time, so "this year" is the bakery's (lib/when.ts). */
+  now?: number | undefined;
 }) {
   return (
     <section
@@ -40,8 +43,8 @@ export default function Receipt({
         <dd>
           <time dateTime={order.slot} title={whenText(order.slot)}>
             {order.kind === 'pickup'
-              ? shortWhen(order.slot)
-              : `${shortWhen(order.slot).split(', ')[0]}, ${windowText(order.slot)}`}
+              ? shortWhen(order.slot, { now })
+              : `${shortWhen(order.slot, { now }).split(', ')[0]}, ${windowText(order.slot)}`}
           </time>
         </dd>
         <dt>Menu version</dt>

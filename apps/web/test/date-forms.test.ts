@@ -2,7 +2,7 @@
 // screen takes its words from src/lib/when.ts, so these are the only shapes a reader meets: a short
 // day, a day in another year, a time with its day, and the clock alone in a list that names the
 // day. The long form, whenText, is for a title or a <time>'s machine form, not for the text.
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { leadHint } from '../src/lib/catering';
 import { sentenceFor } from '../src/lib/catering-errors';
 import { scheduledSaid } from '../src/lib/crm';
@@ -95,5 +95,28 @@ describe('the inventory: where each date is printed, in which form', () => {
   test('the System clock: business time with its seconds, the year from business now', () => {
     const wall = Date.parse('2026-11-05T17:07:30Z');
     expect(businessNowView(wall, 0).text).toBe('Thu 5 Nov, 10:07:30 am');
+  });
+});
+
+describe('the order’s dates judge the year by the bakery’s time, not the browser’s', () => {
+  test('the checkout’s slot, the order page’s line and the receipt take `now`', async () => {
+    const { slotWords } = await import('../src/components/Checkout');
+    const { whenLine } = await import('../src/components/OrderStatus');
+    vi.useFakeTimers();
+    // The browser's clock in another year than the sandbox's business time.
+    vi.setSystemTime(new Date('2027-03-01T12:00:00Z'));
+    try {
+      const slot = '2026-11-10T09:15:00-07:00';
+      const bakeryNow = Date.parse('2026-11-10T08:00:00-07:00');
+      expect(slotWords('pickup', slot, bakeryNow)).toBe('Tue 10 Nov, 9:15 am');
+      expect(slotWords('pickup', slot)).toContain('2026');
+      const track = {
+        order: { kind: 'pickup', slot },
+      } as unknown as Parameters<typeof whenLine>[0];
+      expect(whenLine(track, bakeryNow)).toBe('Pickup Tue 10 Nov, 9:15 am');
+      expect(whenLine(track)).toContain('2026');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

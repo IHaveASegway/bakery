@@ -68,6 +68,35 @@ export default function Guide({
     setReady(true);
   }, []);
 
+  // The control's menu closes on Escape and on a press anywhere outside the control, as a menu
+  // does; Escape gives the focus back to the button that opened it.
+  const bar = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!more && !full) return;
+    const close = (focus: boolean) => {
+      const opener = more ? moreButton.current : compactButton.current;
+      setMore(false);
+      setFull(false);
+      if (focus && opener !== null && opener.offsetParent !== null) opener.focus();
+    };
+    // Caught on the way down, so this Escape closes the menu only, not a note under it too.
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      close(true);
+    };
+    const onPress = (event: PointerEvent) => {
+      if (event.target instanceof Node && bar.current?.contains(event.target)) return;
+      close(false);
+    };
+    document.addEventListener('keydown', onKey, { capture: true });
+    document.addEventListener('pointerdown', onPress, { capture: true });
+    return () => {
+      document.removeEventListener('keydown', onKey, { capture: true });
+      document.removeEventListener('pointerdown', onPress, { capture: true });
+    };
+  }, [more, full]);
+
   const flip = () => {
     const next = !on;
     setOn(next);
@@ -88,7 +117,12 @@ export default function Guide({
 
   return (
     <div className="guide-layer" data-guide-root="">
-      <div className={`guide-bar guide-bar-${placement}`} role="group" aria-label="Under the hood">
+      <div
+        ref={bar}
+        className={`guide-bar guide-bar-${placement}`}
+        role="group"
+        aria-label="Under the hood"
+      >
         {placement === 'dock' && (
           <button
             ref={compactButton}
