@@ -35,6 +35,9 @@
 //!
 //! The property tests check that a stop is left unassigned only when every van is in use and no
 //! van has the room, or the time, to take it anywhere in its route.
+//!
+//! The object does not propose this plan as it is: [`super::propose_plan`] runs the improvement
+//! pass of `improve.rs` over it first (since 2026-11-10).
 
 use std::collections::BTreeMap;
 

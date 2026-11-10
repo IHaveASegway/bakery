@@ -707,6 +707,73 @@ fn an_asymmetric_matrix_is_never_driven_backwards() {
     assert_eq!(plan.minutes, 5 + 1 + 5);
 }
 
+#[test]
+fn the_improvement_pass_uncrosses_two_routes() {
+    // The east pair is places 1 and 2, the west pair 3 and 4. A plan that sends each van east
+    // and west is the plan the pass is for: one swap makes it the savings plan's two pairs.
+    let m = TravelMatrix::new(
+        vec![
+            vec![0, 10, 11, 10, 11],
+            vec![10, 0, 2, 20, 21],
+            vec![11, 2, 0, 21, 20],
+            vec![10, 20, 21, 0, 2],
+            vec![11, 21, 20, 2, 0],
+        ],
+        0,
+    )
+    .unwrap();
+    let stops: Vec<Stop> = (1..=4).map(|k| confirmed(k, k as u8, 1)).collect();
+    let crossed = Plan {
+        source: PlanSource::Server,
+        plan_v: 0,
+        routes: vec![
+            VanRoute {
+                van: 1,
+                stops: vec![ulid(1), ulid(3)],
+            },
+            VanRoute {
+                van: 2,
+                stops: vec![ulid(2), ulid(4)],
+            },
+        ],
+        minutes: (10 + 20 + 10) + (11 + 20 + 11),
+        unassigned: vec![],
+    };
+    let better = improve_plan(crossed, &stops, 2, 2, &m);
+    assert_eq!(better.minutes, (10 + 2 + 11) * 2);
+    let pairs: Vec<BTreeSet<Ulid>> = better
+        .routes
+        .iter()
+        .map(|r| r.stops.iter().copied().collect())
+        .collect();
+    assert_eq!(
+        pairs,
+        vec![
+            BTreeSet::from([ulid(1), ulid(2)]),
+            BTreeSet::from([ulid(3), ulid(4)])
+        ]
+    );
+    // The savings plan is already those pairs, and the proposal leaves it as it is.
+    let built = savings_plan(&stops, 2, 2, &m);
+    assert_eq!(propose_plan(&stops, 2, 2, &m), built);
+}
+
+#[test]
+fn the_improvement_pass_keeps_a_window_it_could_shorten_past() {
+    // Two stops on one van. Bakery, 2, 1 and back is 15 minutes and bakery, 1, 2 and back is
+    // 90, but stop 1's window closes two hours before stop 2's opens.
+    let m = TravelMatrix::new(vec![vec![0, 30, 5], vec![5, 0, 30], vec![30, 5, 0]], 0).unwrap();
+    let start = crate::calendar::WINDOW_STARTS;
+    let stops = vec![
+        confirmed_at(1, 1, 1, start[0]),
+        confirmed_at(2, 2, 1, start[2]),
+    ];
+    let plan = propose_plan(&stops, 1, 10, &m);
+    assert_eq!(plan.routes[0].stops, vec![ulid(1), ulid(2)]);
+    assert_eq!(plan.minutes, 30 + 30 + 30);
+    assert!(m.route_minutes(&[2, 1]).unwrap() < plan.minutes);
+}
+
 /// One generated instance: stops at random places with random units in random windows of the
 /// day's three, and a random matrix whose triangle inequality is not enforced.
 #[derive(Debug, Clone)]
@@ -754,8 +821,26 @@ fn instance(symmetric: bool) -> impl Strategy<Value = Instance> {
     )
 }
 
-fn check_plan(i: &Instance) -> Result<(), TestCaseError> {
-    let plan = savings_plan(&i.stops, i.vans, i.capacity, &i.matrix);
+/// Which plan a property run checks: the savings construction alone, or the server's proposal,
+/// the construction with the improvement pass after it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Planner {
+    Construction,
+    Proposal,
+}
+
+impl Planner {
+    fn plan(self, stops: &[Stop], vans: u8, capacity: u32, matrix: &TravelMatrix) -> Plan {
+        match self {
+            Planner::Construction => savings_plan(stops, vans, capacity, matrix),
+            Planner::Proposal => propose_plan(stops, vans, capacity, matrix),
+        }
+    }
+}
+
+fn check_plan(i: &Instance, planner: Planner) -> Result<(), TestCaseError> {
+    let plan = planner.plan(&i.stops, i.vans, i.capacity, &i.matrix);
+    let construction = savings_plan(&i.stops, i.vans, i.capacity, &i.matrix);
     // Every stop exactly once, on a van or unassigned.
     let mut seen: Vec<Ulid> = plan.routes.iter().flat_map(|r| r.stops.clone()).collect();
     seen.extend(plan.unassigned.iter().copied());
@@ -794,20 +879,35 @@ fn check_plan(i: &Instance) -> Result<(), TestCaseError> {
             prop_assert!(door.open <= times.serve[k] && times.serve[k] <= door.close);
         }
     }
+    // The improvement pass leaves the stops the construction left, and never drives longer.
+    if planner == Planner::Proposal {
+        prop_assert_eq!(&plan.unassigned, &construction.unassigned);
+        prop_assert!(
+            plan.minutes <= construction.minutes,
+            "the proposal drives {} minutes, the construction {}",
+            plan.minutes,
+            construction.minutes
+        );
+        prop_assert_eq!(
+            &improve_plan(plan.clone(), &i.stops, i.vans, i.capacity, &i.matrix).routes,
+            &plan.routes,
+            "a second pass finds a move the first left"
+        );
+    }
     // A stop is left behind only when it is too big for any van, or every van is out and none
-    // has the room or the time to take it anywhere in its route.
-    for o in &plan.unassigned {
+    // has the room or the time to take it anywhere in its route (the construction's promise).
+    for o in &construction.unassigned {
         let s = stop(o);
         if s.units > i.capacity {
             continue;
         }
         prop_assert_eq!(
-            plan.routes.len(),
+            construction.routes.len(),
             usize::from(i.vans),
             "{} left with a van free",
             o
         );
-        for r in &plan.routes {
+        for r in &construction.routes {
             let load: u32 = r.stops.iter().map(units).sum();
             if load + s.units > i.capacity {
                 continue;
@@ -829,7 +929,11 @@ fn check_plan(i: &Instance) -> Result<(), TestCaseError> {
     let mut reversed = i.stops.clone();
     reversed.reverse();
     prop_assert_eq!(
-        &savings_plan(&reversed, i.vans, i.capacity, &i.matrix),
+        &planner.plan(&reversed, i.vans, i.capacity, &i.matrix),
+        &plan
+    );
+    prop_assert_eq!(
+        &planner.plan(&i.stops, i.vans, i.capacity, &i.matrix),
         &plan
     );
 
@@ -855,7 +959,10 @@ fn check_plan(i: &Instance) -> Result<(), TestCaseError> {
         matrix: i.matrix.clone(),
     };
     let s = execute::<Dispatch>(s, &propose, &ctx(1)).unwrap().0;
-    prop_assert_eq!(s.proposed().unwrap().routes.clone(), plan.routes.clone());
+    // The object proposes the construction with the improvement pass after it.
+    let proposal = propose_plan(&i.stops, i.vans, i.capacity, &i.matrix);
+    prop_assert_eq!(&s.proposed().unwrap().routes, &proposal.routes);
+    prop_assert_eq!(s.proposed().unwrap().minutes, proposal.minutes);
     let depot = Some(i.matrix.depot());
     let browser = DispatchCommand::SubmitPlan {
         routes: plan
@@ -895,12 +1002,22 @@ proptest! {
 
     #[test]
     fn the_savings_plan_holds_the_invariants_on_a_symmetric_matrix(i in instance(true)) {
-        check_plan(&i)?;
+        check_plan(&i, Planner::Construction)?;
     }
 
     #[test]
     fn the_savings_plan_holds_the_invariants_on_an_asymmetric_matrix(i in instance(false)) {
-        check_plan(&i)?;
+        check_plan(&i, Planner::Construction)?;
+    }
+
+    #[test]
+    fn the_proposal_holds_the_invariants_on_a_symmetric_matrix(i in instance(true)) {
+        check_plan(&i, Planner::Proposal)?;
+    }
+
+    #[test]
+    fn the_proposal_holds_the_invariants_on_an_asymmetric_matrix(i in instance(false)) {
+        check_plan(&i, Planner::Proposal)?;
     }
 }
 

@@ -9,7 +9,8 @@
 //!   `OrderCancelled`, each idempotent by order. A stop's size is its **units**, the order's line
 //!   quantities summed, which is also what a van's capacity counts.
 //! - **Plans** cover the day's confirmed stops, the ones not yet delivered ([`DispatchState::plannable`]).
-//!   `Propose` runs the savings heuristic ([`savings_plan`]) and `SubmitPlan` takes the browser's
+//!   `Propose` runs the savings heuristic ([`savings_plan`]) and then a bounded improvement pass
+//!   over its routes ([`propose_plan`], since 2026-11-10), and `SubmitPlan` takes the browser's
 //!   VROOM plan; `Publish` makes either the record, as plan version `plan_v`, one more than the
 //!   last, superseding it. A published plan is what drivers, the kitchen board and the order
 //!   status read, through `RoutePublished`.
@@ -74,6 +75,7 @@
 //!   decision, question 5), and a van early at a door waits there for the window to open. A
 //!   van's `minutes` stay drive minutes, which the validator and the comparison use.
 
+mod improve;
 mod matrix;
 mod savings;
 pub mod windows;
@@ -89,6 +91,7 @@ use crate::calendar::{BakeryDate, WINDOW_STARTS};
 use crate::order::{OrderEvent, OrderKind};
 use crate::{BusinessTime, Ulid};
 
+pub use improve::{MAX_ROUNDS, improve_plan, propose_plan};
 pub use matrix::{
     MAX_PLACES, MatrixError, MatrixPlace, PlaceIndex, SYNTHETIC_MINUTES, TravelMatrix, place_index,
     place_label,
@@ -909,7 +912,7 @@ impl Aggregate for Dispatch {
                         place: s.place,
                     });
                 }
-                let plan = savings_plan(&stops, *vans, *capacity, matrix);
+                let plan = propose_plan(&stops, *vans, *capacity, matrix);
                 Ok(vec![DispatchEvent::RouteProposed {
                     date,
                     plan_v: state.next_plan_v(),

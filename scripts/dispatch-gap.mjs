@@ -1,5 +1,6 @@
-// The gap ADR 0012's Revisit trigger is about: the server's savings heuristic against VROOM, in
-// total drive minutes, on one sandbox's busy Saturday, delivery windows included.
+// The gap ADR 0012's Revisit trigger is about: the server's plan, the savings heuristic with its
+// improvement pass, against VROOM, in total drive minutes, on one sandbox's busy Saturday,
+// delivery windows included.
 //
 //   node scripts/dispatch-gap.mjs [<seed> <birth date>]    default: 42 2026-11-07
 //   node scripts/dispatch-gap.mjs --problem <file>         a problem the example already wrote
@@ -7,7 +8,9 @@
 //
 // The problem comes from `cargo run -p bakery-seed --example dispatch-problem`: the stops in
 // order-id order with their units and windows, the vans, the Worker's matrix cut to the bakery and
-// the stops, and the server's plan with what the validator said of it. It names no place. VROOM is
+// the stops, and the server's plan with what the validator said of it: the savings construction
+// with the improvement pass after it, as the object proposes, and the construction's minutes
+// alone. It names no place. VROOM is
 // the storefront's, the files scripts/fetch-solver.mjs leaves in apps/web/public/app/dispatch/solver/,
 // asked the way the dispatch screen asks it (apps/web/src/lib/dispatch.ts, buildProblem and
 // solveOptions). The gap is (server - VROOM) / VROOM, in tenths of a percent rounded half away from
@@ -160,6 +163,8 @@ export function measure(problem, solver) {
     problems.push(`the server left ${server.unassigned.length} stops`);
   if (recount !== server.minutes)
     problems.push(`the server's ${server.minutes} recount to ${recount}`);
+  if (server.minutes > problem.construction_minutes)
+    problems.push(`the server's ${server.minutes} are more than its construction's`);
   if (vroom.unassigned.length > 0) problems.push(`VROOM left ${vroom.unassigned.length} stops`);
   if (late.length > 0) problems.push(`VROOM is late at ${late.length} stops`);
   if (units.some((u) => u > problem.capacity)) problems.push('VROOM overloads a van');
@@ -173,6 +178,7 @@ export function measure(problem, solver) {
     stops: problem.stops.length,
     vans: problem.vans,
     server_minutes: server.minutes,
+    construction_minutes: problem.construction_minutes,
     validator_ok: server.validator.ok,
     vroom_minutes: vroomMinutes,
     vroom_version: solver.version,
@@ -189,7 +195,7 @@ export function measure(problem, solver) {
 function report(r, today) {
   return [
     `dispatch-gap, measured ${today}: seed ${r.seed}, born ${r.born}, busy Saturday ${r.date}, ${r.stops} stops, ${r.vans} vans, windows on`,
-    `  server (savings heuristic, validator ${r.validator_ok ? 'ok' : 'refused'}): ${r.server_minutes} minutes`,
+    `  server (savings and the improvement pass, validator ${r.validator_ok ? 'ok' : 'refused'}): ${r.server_minutes} minutes, ${r.construction_minutes} before the pass`,
     `  VROOM ${r.vroom_version} (-x ${r.exploration}, ${r.solve_ms} ms): ${r.vroom_minutes} minutes`,
     `  gap: ${r.gap_percent ?? 'undefined'}% (the trigger is above ${r.trigger_percent}%)`,
     ...r.problems.map((p) => `  problem: ${p}`),
