@@ -97,24 +97,25 @@ const SOURCES = [
       the bakery. The heuristic scores every ordered pair, 63 × 62 = 3,906 of them for the Saturday,
       sorts by saving, and merges trips from the largest saving down while a van has room. It uses
       no clock and no random draw, so the same input gives the same plan. It is in{' '}
-      <code>crates/domain/src/dispatch/savings.rs</code>.
+      <code>crates/domain/src/dispatch/savings.rs</code>. A second pass then shortens the plan,
+      keeping every window (<code>improve.rs</code>).
     </p>
     <p>
-      VROOM, run in the browser as WebAssembly, builds a plan and then moves and swaps stops between
+      VROOM, run in the browser as WebAssembly, builds a plan, then moves and swaps stops between
       routes until no change shortens the driving. It looks harder, so it should find a shorter plan
       more often than not. The page asks it to look at level 5 up to 40 stops and level 3 above
       that, and to stop after 5 seconds (<code>apps/web/src/lib/dispatch.ts</code>).
     </p>
     <p>
-      Neither is exact, and the gap on the dispatch screen has to be read with that in mind. The
-      screen reports the server’s total less the browser’s, as a percentage of the browser’s. That
-      is a gap between two heuristics. A gap of zero says they agree, not that either is best. A
-      positive gap is a floor on what the server’s plan leaves unused, since the browser’s plan is a
-      real plan and the best one can only be shorter still. A negative gap, where the server’s plan
-      is shorter, is possible, and the screen says so in words. The gap does not say how far VROOM
-      is from the best plan, which neither planner computes. ADR 0012 sets the bakery’s own line at
-      25 percent of total drive time on the seeded days, a revisit trigger, and the roadmap records
-      no measured gap.
+      Neither is exact, and the screen’s gap has to be read with that in mind. The screen reports
+      the server’s total less the browser’s, as a percentage of the browser’s. That is a gap between
+      two heuristics. A gap of zero says they agree, not that either is best. A positive gap is a
+      floor on what the server’s plan leaves unused, since the browser’s plan is a real plan and the
+      best one can only be shorter still. A negative gap, where the server’s plan is shorter, is
+      possible, and the screen says so. The gap does not say how far VROOM is from the best plan,
+      which neither planner computes. ADR 0012 sets the bakery’s own line at 25 percent of total
+      drive time on the seeded days, a revisit trigger. It fired on 2026-11-10; the second pass
+      answered it.
     </p>
 
     <h2>Neither is trusted: the object decides</h2>
@@ -127,7 +128,7 @@ const SOURCES = [
       2026-11-08, <code>window</code>. Every stop appears once, no van carries more than its
       capacity, every route starts and ends at the bakery, no stop is left out, and no van reaches a
       stop after its delivery window closes. A plan that sends its own total is refused with 400,
-      since the object does not read it. The minutes are always worked out from the object’s own
+      since the object does not read it. The minutes are worked out from the object’s own
       travel-time matrix, the same arithmetic for the server’s plan and the browser’s.
     </p>
     <p>
@@ -136,9 +137,9 @@ const SOURCES = [
       count. Since 2026-11-08 it also gives VROOM the times the object checks: the vans leave at
       9:00 am, a stop may be served until two hours after its window opens, and each door takes 3
       minutes. Until then the browser’s plan ignored time. A published plan is a{' '}
-      <code>RoutePublished</code> event, and it is the only one that reaches the kitchen board and
-      the orders. Once a van has left, the object asks the orders about it and refuses a new publish
-      with 409 <code>published</code>.
+      <code>RoutePublished</code> event, the only one that reaches the kitchen board and the orders.
+      Once a van has left, the object asks the orders about it and refuses a new publish with 409{' '}
+      <code>published</code>.
     </p>
 
     <h2>Where the computation is free and where it is paid</h2>
@@ -154,9 +155,9 @@ const SOURCES = [
         <strong>The server’s plan is cheap by design.</strong> ADR 0012 estimated a few milliseconds
         of CPU for tens of stops. That has not been timed on its own. The Worker’s configured limit,{' '}
         <code>limits.cpu_ms</code> in <code>workers/api/wrangler.jsonc</code>, is 300 ms, where
-        Cloudflare’s paid default on {READ} was 30 seconds. The bakery set it low on purpose, as a
-        bill guard. A VROOM search that took 548 ms in a browser on another machine is a figure to
-        compare against 300 ms, not a test that it would not fit.
+        Cloudflare’s paid default on {READ} was 30 seconds. The bakery set it low as a bill guard. A
+        VROOM search that took 548 ms in a browser on another machine is a figure to compare against
+        300 ms, not a test that it would not fit.
       </li>
       <li>
         <strong>The travel times are paid once, offline.</strong> No routing service is called while

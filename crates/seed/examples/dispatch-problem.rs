@@ -8,13 +8,16 @@
 //! The output holds ids, units, minutes and seconds only, never a place. Node 0 is the bakery and
 //! node `k` is the `k`-th stop in order-id order. `minutes` is the Worker's matrix
 //! (`crates/seed/data/salt-lake-city/matrix.json`) cut to those nodes, so two stops at one place
-//! have equal rows. The server's plan is the savings heuristic's proposal, checked again by the
-//! validator the Worker runs on a browser's plan, windows included.
+//! have equal rows. The server's plan is the object's proposal, the savings construction with the
+//! improvement pass after it, checked again by the validator the Worker runs on a browser's
+//! plan, windows included; `construction_minutes` is the savings construction's alone.
 
 use std::process::ExitCode;
 
 use bakery_domain::calendar::WINDOW_MINUTES;
-use bakery_domain::dispatch::{DEPARTURE_MINUTES, Door, SERVICE_MINUTES, SubmittedRoute};
+use bakery_domain::dispatch::{
+    DEPARTURE_MINUTES, Door, SERVICE_MINUTES, Stop, SubmittedRoute, savings_plan,
+};
 use bakery_seed::{BirthDate, Generator, Seed, busy_saturday, seed_matrix};
 use serde_json::{Value, json};
 
@@ -85,6 +88,8 @@ fn problem(seed: u64, born: BirthDate) -> Value {
             end: None,
         })
         .collect();
+    let owned: Vec<Stop> = stops.iter().map(|s| (*s).clone()).collect();
+    let construction = savings_plan(&owned, state.vans(), state.capacity(), &matrix);
     let validator = match state.validate_submission(&submitted, &matrix) {
         Ok((_, minutes)) => json!({ "ok": true, "minutes": minutes }),
         Err(e) => json!({ "ok": false, "rule": e.rule(), "error": e.to_string() }),
@@ -110,5 +115,6 @@ fn problem(seed: u64, born: BirthDate) -> Value {
             "unassigned": plan.unassigned.iter().map(ToString::to_string).collect::<Vec<_>>(),
             "validator": validator,
         },
+        "construction_minutes": construction.minutes,
     })
 }
