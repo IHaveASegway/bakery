@@ -40,9 +40,9 @@ export default function Guide({
 }: {
   screen: PageId;
   /**
-   * A dock (the shop and prose shells: at the window's foot on a wide screen; on a narrow one a
-   * single button, in the cart bar's row where the page has one, else in the masthead's first row),
-   * or in the app shell's top bar.
+   * A dock (the shop and prose shells: at the window's foot on a wide screen, moved to the page's
+   * end once hydrated; on a phone one labelled button in a row of the masthead's own, on every
+   * page), or in the app shell's top bar.
    */
   placement?: 'dock' | 'topbar';
 }) {
