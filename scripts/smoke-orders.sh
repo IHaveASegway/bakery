@@ -910,6 +910,33 @@ expect_status trace_order_2 201
 for _ in $(seq 1 80); do trace_ws_ok "batches.some((f) => f.hops.some((h) => h.cause === '$TRACE_KEY_2'))" && break; sleep 0.25; done
 expect_trace_ws "trace socket: the second order's OrderPlaced arrives as a hops frame, after the snapshot's cursor" "batches.some((f) => f.v === 1 && f.cursor > snapshot.cursor && f.hops.some((h) => h.type === 'OrderPlaced' && h.cause === '$TRACE_KEY_2'))"
 
+# The dead letter of the kitchen fault above, end to end: the demo sandbox's trace holds the
+# faulted OrderPlaced's retried hops, then the dead hop the dead-letter queue's consumer reported
+# (the Kitchen refused every attempt, so it and every class after it are `dead_lettered`), then
+# the redriven delivery. The dead letter is observed when it is kept, never counted.
+D_CURSOR=0
+: > "$TMP/trace_d.json"
+for _ in $(seq 1 20); do
+  get_as trace_d D "/v1/sandboxes/$DID/trace?after=$D_CURSOR"
+  node -e "const b = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); console.log(JSON.stringify(b.hops))" "$TMP/trace_d.body" >> "$TMP/trace_d.json"
+  D_CURSOR="$(json_field trace_d b.cursor)"
+  [[ "$(json_field trace_d b.more)" == true ]] || break
+done
+dead_ok() {
+  node -e "
+    const all = require('fs').readFileSync(process.argv[1], 'utf8').split('\n').filter(Boolean).flatMap((l) => JSON.parse(l));
+    const hops = all.filter((h) => h.id === '$EVENT');
+    const isDead = (h) => h.deliveries.length > 0 && h.deliveries.every((d) => d.outcome === 'dead_lettered');
+    const di = hops.findIndex(isDead);
+    const dead = hops[di];
+    const tried = hops.slice(0, Math.max(di, 0));
+    const after = hops.slice(di + 1);
+    if (!($1)) process.exit(1);" "$TMP/trace_d.json" 2>/dev/null
+}
+check "trace: the faulted OrderPlaced's hops before its dead letter were retried at the Kitchen" "dead_ok \"di > 0 && tried.every((h) => h.deliveries[0].to === 'Kitchen' && h.deliveries.every((d) => d.outcome === 'retried'))\""
+check "trace: its dead hop marks the Kitchen and every class after it dead_lettered" "dead_ok \"dead && JSON.stringify(dead.deliveries.map((d) => d.to)) === JSON.stringify(['Kitchen', 'Crm', 'Inbox']) && dead.attempt === tried[tried.length - 1].attempt\""
+check "trace: the redriven event's hop after it is delivered everywhere" "dead_ok \"after.some((h) => h.deliveries.every((d) => d.outcome === 'delivered'))\""
+
 # Another sandbox's guest, and the upgrade's own checks.
 command_as trace_other R2 192.0.2.47 POST /v1/sandboxes '{"turnstile_token":"pass-1","replace":false}'
 expect_status trace_other 201
