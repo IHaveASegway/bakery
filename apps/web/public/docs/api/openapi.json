@@ -1184,12 +1184,12 @@
           },
           {
             "const": "read-only",
-            "description": "Reads work; commands get 503.",
+            "description": "Reads work; commands get 503 `read-only`. Signing in, \"Wipe now\" and Stripe's webhook\nstill work. True of every route since 2026-11-10 (roadmap R85); until then only new\nsandboxes and demo accounts were refused.",
             "type": "string"
           },
           {
             "const": "off",
-            "description": "Only the storefront's static pages work.",
+            "description": "Only the storefront's static pages, `GET /v1/health`, `GET /v1/status` and Stripe's\nwebhook work; every other route gets 503 `off` (every route since 2026-11-10, roadmap R85).",
             "type": "string"
           }
         ]

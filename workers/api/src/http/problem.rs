@@ -838,6 +838,26 @@ pub fn dispatch(status: u16, rule: &str) -> Failure {
     }
 }
 
+/// A route the flag refused (roadmap R85, `bakery_app::flag_gate::gate`): 503 `read-only` for a
+/// command at `read-only`, 503 `off` for anything but the probes and the webhook at `off`. The
+/// slugs are admission's; the words say what is refused now that every route reads the flag.
+pub fn flagged(r: Refusal) -> Failure {
+    match r {
+        Refusal::Off => Failure::typed(
+            "off",
+            503,
+            "The demo is switched off",
+            "The demo is off for now. The storefront's pages and the status page still work.",
+        ),
+        _ => Failure::typed(
+            "read-only",
+            503,
+            "The demo is read-only",
+            "The demo is read-only for now: sandboxes can be looked at, not changed.",
+        ),
+    }
+}
+
 /// A cap or the flag, with `Retry-After` to the next 00:00 UTC for a cap.
 pub fn refusal(r: Refusal, retry_after: Option<u32>, account_cap: u32) -> Failure {
     let f = match r {

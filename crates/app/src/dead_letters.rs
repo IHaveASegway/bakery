@@ -17,7 +17,7 @@ use bakery_domain::WallTime;
 
 /// How long after a change of the flag a dead letter is still taken as made while `off`: two
 /// minutes. After the flag leaves `off`, a consumer isolate keeps its copy of `off` for up to 60 s
-/// (`FLAG_CACHE_MS` in workers/api/src/queue.rs) and retries what it gets; a retry has no delay
+/// (`FLAG_COPY_MS` in crates/app/src/flag_gate.rs) and retries what it gets; a retry has no delay
 /// (`bakery-events` sets no `retry_delay` in workers/api/wrangler.jsonc), so 3 retries take a few
 /// batches; and the dead-letter queue's consumer waits up to 5 s for a batch (its
 /// `max_batch_timeout` is the default, "Defaults to `5` seconds", Queues configuration,
