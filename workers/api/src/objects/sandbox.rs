@@ -227,6 +227,10 @@ pub struct RegisterOrder {
     /// The slot's bakery day: its `Schedule` is registered in the same call.
     #[serde(default)]
     pub date: Option<BakeryDate>,
+    /// The order's customer when it is not the sandbox's persona (the Simulator's), so the
+    /// answer's `zone` is theirs.
+    #[serde(default)]
+    pub customer: Option<Ulid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -286,6 +290,10 @@ pub struct OrderSlot {
     /// range.
     #[serde(default)]
     pub schedule: Option<String>,
+    /// The customer's delivery zone, their place's (`bakery_seed::zone_of_place`, roadmap R69):
+    /// the zone a delivery is placed in. `None` when the customer's place is not known.
+    #[serde(default)]
+    pub zone: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -737,6 +745,13 @@ impl Sandbox {
         }
         let children: Option<N> = first(&self.sql(), "SELECT count(*) AS n FROM registry", vec![])?;
         let (persona_name, line1) = self.persona(meta)?;
+        let persona_zone = match meta.persona.parse::<Ulid>() {
+            Ok(id) => self
+                .persona_place(meta, id)?
+                .and_then(|place| bakery_seed::zone_of_place(&place))
+                .map(str::to_owned),
+            Err(_) => None,
+        };
         Ok(SandboxResponse {
             id: meta.id.clone(),
             kind: if meta.kind == "guest" {
@@ -761,6 +776,7 @@ impl Sandbox {
                 postal_code: bakery_seed::ADDRESS_POSTAL_CODE.to_owned(),
                 country: bakery_seed::ADDRESS_COUNTRY.to_owned(),
             },
+            persona_zone,
             clock_offset_s: meta.clock_offset_s,
             clock_v: u32::try_from(meta.clock_v).unwrap_or(0),
             token_v: u32::try_from(meta.token_v).unwrap_or(0),
@@ -999,6 +1015,10 @@ impl Sandbox {
             }
             _ => None,
         };
+        let zone = self
+            .persona_place(meta, body.customer.unwrap_or(persona))?
+            .and_then(|place| bakery_seed::zone_of_place(&place))
+            .map(str::to_owned);
         json(
             &OrderSlot {
                 order,
@@ -1007,6 +1027,7 @@ impl Sandbox {
                 clock_v: u32::try_from(meta.clock_v).unwrap_or(0),
                 replayed,
                 schedule,
+                zone,
             },
             200,
         )
@@ -1295,6 +1316,15 @@ impl Sandbox {
         let Ok(customer_id) = customer_id.parse::<Ulid>() else {
             return refuse(404, "unknown-persona");
         };
+        match self.persona_place(meta, customer_id)? {
+            Some(place) => json(&serde_json::json!({ "place": place }), 200),
+            None => refuse(404, "unknown-persona"),
+        }
+    }
+
+    /// A persona's place label, `p1` to `p64`, from its first-touch payload, or from the seed
+    /// before the personas are written; `None` for an id that is not one of the seed's.
+    fn persona_place(&self, meta: &MetaRow, customer_id: Ulid) -> Result<Option<String>> {
         #[derive(Deserialize)]
         struct PersonaRow {
             register: String,
@@ -1309,21 +1339,20 @@ impl Sandbox {
         } else {
             None
         };
-        let place = match found {
-            Some(r) => {
+        Ok(match found {
+            Some(r) => Some(
                 serde_json::from_str::<customer::RegisterIn>(&r.register)?
                     .profile
-                    .place
-            }
+                    .place,
+            ),
             None => {
                 let g = Self::generated(u64::try_from(meta.seed).unwrap_or(0), meta.born()?)?;
-                match g.customers.iter().find(|c| c.id == customer_id) {
-                    Some(c) => c.place.clone(),
-                    None => return refuse(404, "unknown-persona"),
-                }
+                g.customers
+                    .iter()
+                    .find(|c| c.id == customer_id)
+                    .map(|c| c.place.clone())
             }
-        };
-        json(&serde_json::json!({ "place": place }), 200)
+        })
     }
 
     /// The registered `Schedule` days from business today on: where `MenuPublished`'s new

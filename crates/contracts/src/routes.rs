@@ -527,7 +527,7 @@ pub const ROUTES: &[RouteSpec] = &[
             no(
                 422,
                 "order",
-                "naming the rule (`note-<class>` for the note)",
+                "naming the rule (`note-<class>` for the note; `wrong-zone` for a delivery naming a zone other than the persona's)",
             ),
             SEEDING,
         ],

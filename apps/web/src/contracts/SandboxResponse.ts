@@ -51,6 +51,11 @@ export interface SandboxResponse {
    */
   persona_name: string;
   /**
+   * The persona's delivery zone, `z1` to `z3`: their place's, which a delivery goes to (since
+   * 2026-11-10, roadmap R69). `null` only when the persona's place is not known.
+   */
+  persona_zone?: string | null;
+  /**
    * The seed the sandbox was generated from. A JSON number: JavaScript reads it exactly only
    * below 2^53, so the router mints seeds in that range.
    */
