@@ -292,7 +292,8 @@ expect_status none 200
 breaker_is none unconfigured
 expect_json none "b.breaker.since === null && b.breaker.last_run === null && b.breaker.last_usd === null && Array.isArray(b.breaker.unread) && b.breaker.unread.length === 0"
 expect_json none "Object.keys(b.breaker).join(',') === 'state,since,last_run,last_usd,unread'"
-expect_json none "Object.keys(b).indexOf('breaker') !== -1 && Object.keys(b).indexOf('breaker') === Object.keys(b).indexOf('flag') - 1"
+# The wire order: breaker, then sandboxes_past_wipe (2026-11-10), then flag.
+expect_json none "Object.keys(b).indexOf('breaker') !== -1 && Object.keys(b).indexOf('breaker') === Object.keys(b).indexOf('sandboxes_past_wipe') - 1 && Object.keys(b).indexOf('sandboxes_past_wipe') === Object.keys(b).indexOf('flag') - 1"
 run_cron cron_none
 expect_status cron_none 200
 check "without the secrets the cron logs breaker_unconfigured naming BREAKER_API_TOKEN" "ev_has breaker_unconfigured '\"var\":\"BREAKER_API_TOKEN\"'"
