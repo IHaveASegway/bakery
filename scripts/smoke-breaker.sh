@@ -158,7 +158,9 @@ random_text() { node -e "process.stdout.write(require('crypto').randomBytes(64).
 # and whole_has reads everything since the script began (the secrets check).
 mark() { MARK="$(wc -l < "$LOG")"; }
 since() { tail -n +"$((MARK + 1))" "$LOG"; }
-log_has() { since | grep -qF -- "$1"; }
+# Not `grep -q` behind a pipe: under pipefail `since` can die of SIGPIPE once grep has its match
+# and has gone (smoke-auth.sh). This grep reads all of it, its output thrown away.
+log_has() { since | grep -F -- "$1" > /dev/null; }
 log_count() { since | grep -cF -- "$1" || true; }
 whole_has() { grep -qF -- "$1" "$LOG"; }
 # ev_has EVENT FRAGMENT...: a line since the mark with this event and every fragment.
