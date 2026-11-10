@@ -68,6 +68,6 @@ Two-way. The Recorder holds nothing another object reads, so the class, its two 
 
 ## Patterns and further reading
 
-- Wire Tap and Message History: Gregor Hohpe and Bobby Woolf, [Enterprise Integration Patterns](https://www.enterpriseintegrationpatterns.com/patterns/messaging/WireTap.html) (2003). The consumer is the tap; the Recorder keeps a short history beside the channel.
-- Distributed tracing, of which a hop is a small part: Chris Richardson, [Pattern: Distributed tracing](https://microservices.io/patterns/observability/distributed-tracing.html), read on 2026-11-09.
+- Wire Tap and Message History: [Enterprise Integration Patterns](https://www.enterpriseintegrationpatterns.com/patterns/messaging/WireTap.html), the book of 2003 and its site. The consumer is the tap; the Recorder keeps a short history beside the channel.
+- Distributed tracing, of which a hop is a small part: [Pattern: Distributed tracing](https://microservices.io/patterns/observability/distributed-tracing.html), microservices.io, read on 2026-11-09.
 - Durable Object WebSockets and hibernation: [Cloudflare's guide](https://developers.cloudflare.com/durable-objects/best-practices/websockets/), read on 2026-11-09.
