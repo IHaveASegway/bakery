@@ -1,6 +1,6 @@
 # bakery
 
-Proof of Concept Bakery, the made-up bakery that [ihaveasegway.com's lab](https://ihaveasegway.com/lab/) simulates, built as a real business system: ordering, pickup and delivery scheduling, catering, billing through Stripe's sandbox, and a CRM with campaigns, every backend in Rust on Cloudflare Workers, its state in SQLite-backed Durable Objects (DOs), with a private sandbox for every visitor that is wiped every night, and every decision written down in public. It is a portfolio demo of architecture, modelled on [the site's own repository](https://github.com/IHaveASegway/website), and it is built in the open. The point is the tools and principles working together, and for each tool, why it is used here and when it would be the wrong one.
+Proof of Concept Bakery, the made-up bakery that [ihaveasegway.com's lab](https://ihaveasegway.com/lab/) simulates, built as a real business system: ordering, pickup and delivery scheduling, catering, billing through Stripe's sandbox, and a CRM with campaigns, every backend in Rust on Cloudflare Workers, its state in SQLite-backed Durable Objects (DOs), with a private sandbox for every visitor that is wiped every night, and every decision written down in public. It is a portfolio demo of architecture, modelled on [Joseph Peterson's site](https://github.com/IHaveASegway/website), and it is built in the open. The point is the tools and principles working together, and for each tool, why it is used here and when it would be the wrong one.
 
 ## Where to look first
 
@@ -31,7 +31,7 @@ Each visitor gets a private sandbox, seeded with synthetic history (made-up cust
 - make the same calls through the API with the sandbox's own bearer token (the API reference is at `/docs/api/`);
 - read the status page (`/status/`), the tools page (`/how-its-built/tools/`) and How it's built (`/how-its-built/`), with its fourteen essays (as of 2026-11-10, `apps/web/src/pages/how-its-built/`).
 
-**Without an account**, a guest gets a sandbox behind Turnstile and can browse, order and pay with a test card ([product.md](docs/product.md#decided), Q45 · Q-guest-scope). A guest can also move their own order across the kitchen board. Signing in with Google, GitHub or a demo account unlocks the console's other writes (menu edits, campaigns, publishing a route), the API token, simulated traffic, and a sandbox that follows the account across devices.
+**Without an account**, a guest gets a sandbox behind Turnstile and can browse, order and pay with a test card ([product.md](docs/product.md#decided), Q45 · Q-guest-scope). Signing in with Google, GitHub or a demo account unlocks the console's writes (menu edits, campaigns, publishing a route), the API token, simulated traffic, and a sandbox that follows the account across devices.
 
 ## Status
 
@@ -129,4 +129,4 @@ Every decision that is costly to reverse is written down in public before it is 
 
 ## License
 
-The code and the docs are MIT-licensed: [LICENSE](LICENSE) is the MIT License's text. The owner chose MIT in the plan's first pull request, and [product.md](docs/product.md#decided) records it as decided under Q35 (Q-license).
+The code and the docs are MIT-licensed: [LICENSE](LICENSE) is the MIT License's text. Joseph chose MIT in the plan's first pull request, and [product.md](docs/product.md#decided) records it as decided under Q35 (Q-license).
