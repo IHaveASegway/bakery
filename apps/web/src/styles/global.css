@@ -1708,6 +1708,8 @@ progress::-moz-progress-bar {
   margin-top: 2px;
   color: var(--accent);
   font-size: var(--type-12);
+  /* A 24 px target: at the text's own 16 px, axe failed it whenever a control came near. */
+  line-height: 1.5rem;
   cursor: pointer;
 }
 
