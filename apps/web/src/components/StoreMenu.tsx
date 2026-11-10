@@ -1,33 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { addLine, totals } from '../lib/cart';
 import { dollars } from '../lib/money';
-import { signinFor } from '../lib/next';
 import { useCart } from '../lib/use-cart';
 import { useLiveMenu } from '../lib/use-live-menu';
 import { hydrating, useMounted } from '../lib/use-mounted';
 import { useSandboxPhase, type Phase } from '../lib/use-session';
 import CartLines from './CartLines';
+import { StartHere } from './Guest';
 import MenuList from './MenuList';
-import StatusLine from './StatusLine';
+import StatusLine, { ORDERS_LIVE } from './StatusLine';
 
-/** A visitor with no sandbox: one banner, one button, to the sign-in page and back to the menu. */
-function StartBanner() {
-  return (
-    <div className="start-banner" data-tour="menu-start">
-      <div>
-        <p className="start-title">Ordering starts with your own sandbox.</p>
-        <p className="hint">
-          This is the demo’s seed menu. A guest sandbox takes a few seconds and is wiped tonight.
-        </p>
-      </div>
-      <a className="btn btn-primary" href={signinFor('/menu/')}>
-        Start ordering
-      </a>
-    </div>
-  );
-}
-
-const noSandbox = (phase: Phase) => phase.name === 'nosession' || phase.name === 'nosandbox';
+/** No sandbox yet, or one still seeding: the gate, the checkout's own, in the banner's place. */
+const gated = (phase: Phase) =>
+  phase.name === 'nosession' || phase.name === 'nosandbox' || phase.name === 'seeding';
 
 /**
  * The /menu/ island: a bar of the categories, the menu with Add buttons, the cart beside it, and
@@ -43,6 +28,17 @@ export default function StoreMenu() {
   const mounted = useMounted();
   const heading = useRef<HTMLHeadingElement>(null);
   const bar = useRef<HTMLButtonElement>(null);
+  const status = useRef<HTMLDivElement>(null);
+  // Browsing and filling the cart need no sandbox. Once the gate's sandbox is live, the focus,
+  // left on a button that is gone, goes to the line that says so.
+  const wasGated = useRef(false);
+  useEffect(() => {
+    if (gated(phase)) wasGated.current = true;
+    else if (phase.name === 'live' && wasGated.current) {
+      wasGated.current = false;
+      status.current?.focus();
+    }
+  }, [phase]);
 
   function add(variant: string, label: string) {
     if (addLine(cart, variant).refused) {
@@ -69,8 +65,17 @@ export default function StoreMenu() {
   // before the long list; the grid puts it in the side column on a wide screen.
   return (
     <div className="shop-split menu-shop">
-      <div className="menu-status">
-        {noSandbox(phase) ? <StartBanner /> : <StatusLine phase={phase} />}
+      <div
+        className="menu-status"
+        ref={status}
+        tabIndex={-1}
+        data-tour={gated(phase) ? 'menu-start' : undefined}
+      >
+        {gated(phase) ? (
+          <StartHere here="/menu/" seeding={phase.name === 'seeding'} className="start-banner" />
+        ) : (
+          <StatusLine phase={phase} live={ORDERS_LIVE} />
+        )}
       </div>
       <nav className="category-bar" aria-label="Menu categories" data-tour="menu-categories">
         <ul>

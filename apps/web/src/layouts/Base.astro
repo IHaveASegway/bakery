@@ -9,6 +9,7 @@ import ConsoleNav from '../components/ConsoleNav';
 import { workspaceAt } from '../lib/console-sections';
 import type { PageId } from '../lib/guide';
 import { REPO, SITE_LAB } from '../lib/links';
+import { SESSION_LABEL } from '../lib/session';
 
 interface Props {
   title: string;
@@ -25,7 +26,7 @@ interface Props {
 const { title, description, screen, noindex = false, session = false } = Astro.props;
 
 // The public shell: the bakery's name, the nav and the footer, on every page. Plain links; a page
-// with the guide also runs the small script that turns "Sign in" into "Console" (SessionLink.astro).
+// with the guide also runs the small script that sends "Your bakery" to the console (SessionLink.astro).
 const NAV = [
   { href: '/menu/', label: 'Menu' },
   { href: '/catering/', label: 'Catering' },
@@ -33,9 +34,10 @@ const NAV = [
   { href: '/about/', label: 'About' },
   { href: '/status/', label: 'Status' },
 ];
-// The last link is the visitor's way in. It is "Sign in" in the HTML, which is right with no script;
-// the script at the foot turns it into "Console" when the API says there is a session.
-const SESSION = { href: '/signin/', label: 'Sign in' };
+// The last link is the visitor's way in, the same words on every page (audit F14, 2026-11-10). It
+// goes to the sign-in page in the HTML, which is right with no script (that page tells a visitor
+// with a sandbox so); the script at the foot sends it to the console when there is a session.
+const SESSION = { href: '/signin/', label: SESSION_LABEL };
 const FOOTER = [
   { href: '/privacy/', label: 'Privacy' },
   { href: '/docs/api/', label: 'API reference' },

@@ -13,6 +13,7 @@ import { dollars } from '../lib/money';
 import { dateLabel } from '../lib/schedule';
 import { usePoll } from '../lib/use-poll';
 import { useSandboxPhase } from '../lib/use-session';
+import { signinFor } from '../lib/next';
 import CateringDetail from './CateringDetail';
 import CateringInquiryForm from './CateringInquiryForm';
 import Message from './Message';
@@ -107,7 +108,8 @@ export default function Catering() {
         <p>Seeding your bakery… You can ask about an event as soon as it is ready.</p>
       ) : (
         <p>
-          Catering needs a sandbox. <a href="/signin/">Sign in or try it as a guest</a>.
+          Catering needs a sandbox.{' '}
+          <a href={signinFor('/catering/')}>Sign in or try it as a guest</a>.
         </p>
       )}
 

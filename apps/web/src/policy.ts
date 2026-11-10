@@ -9,8 +9,12 @@
   reading the privacy page loads nothing from Cloudflare. Pages that create a sandbox or an account
   (/signin/ now, /app/ because it can create a sandbox too, and since 2026-11-09 the console's other
   workspaces under it: /app/money/, /app/menu/, /app/catering/, /app/customers/ and /app/system/)
-  are the challenge class: they add Turnstile's origin to script-src and frame-src, and nothing else. Pages with an island but no
-  third party (/menu/ and /inbox/, and since the tour, now the guide, /privacy/ and /docs/api/, and since PR 13
+  are the challenge class: they add Turnstile's origin to script-src and frame-src, and nothing else.
+  Since 2026-11-10 the menu (/menu/) is in the challenge class too, and the checkout is the payment
+  class plus Turnstile (the checkout class): both start a guest sandbox in place with Start ordering
+  (audit F1, components/Guest.tsx), and load Turnstile's script only once that button is pressed, so
+  a visitor who only reads the menu still loads nothing from Cloudflare. Pages with an island but no
+  third party (/inbox/, and since the tour, now the guide, /privacy/ and /docs/api/, and since PR 13
   /status/, and since 2026-11-09 the order's status page, /order/) are the island class: the strict
   policy plus the hashes below. The start page carries the guide too, but it has no rule of its own:
   it is the one page whose rule would have no splat (`/`), and on launch day, 2026-11-06, production
@@ -42,7 +46,7 @@
   Strict-Transport-Security is the zone's alone and never appears (site ADR 0011).
 */
 
-export type PageClass = 'every' | 'challenge' | 'dispatch' | 'island' | 'payment';
+export type PageClass = 'every' | 'challenge' | 'dispatch' | 'island' | 'payment' | 'checkout';
 
 /** Where the browser reaches the API when nothing says otherwise. */
 export const DEFAULT_API_ORIGIN = 'https://api.bakery.ihaveasegway.com';
@@ -75,8 +79,10 @@ export function directives(
   const api = normalizeOrigin(apiOrigin);
   // The dispatch screen is under /app/, so it keeps the challenge class and adds the worker.
   const dispatch = pageClass === 'dispatch';
-  const challenge = pageClass === 'challenge' || dispatch;
-  const payment = pageClass === 'payment';
+  // The checkout takes a payment and can start a guest sandbox: both classes' origins, no more.
+  const checkout = pageClass === 'checkout';
+  const challenge = pageClass === 'challenge' || dispatch || checkout;
+  const payment = pageClass === 'payment' || checkout;
   return {
     'default-src': ["'self'"],
     'script-src': [
@@ -89,7 +95,10 @@ export function directives(
     'img-src': ["'self'"],
     'font-src': ["'self'"],
     'connect-src': ["'self'", api, socketOrigin(api), ...(payment ? [STRIPE_API] : [])],
-    'frame-src': challenge ? [TURNSTILE] : payment ? STRIPE_FRAMES : ["'none'"],
+    'frame-src':
+      challenge || payment
+        ? [...(challenge ? [TURNSTILE] : []), ...(payment ? STRIPE_FRAMES : [])]
+        : ["'none'"],
     ...(dispatch ? { 'worker-src': ["'self'"] } : {}),
     'object-src': ["'none'"],
     'base-uri': ["'none'"],
@@ -121,8 +130,11 @@ export const OTHER_HEADERS: Record<string, string> = {
   'Cross-Origin-Opener-Policy': 'same-origin',
 };
 
-/** Pages that load Turnstile. Cloudflare serves a trailing-slash path with the splat matching empty. */
-export const CHALLENGE_PATHS = ['/signin/*', '/app/*'];
+/**
+ * Pages that load Turnstile. Cloudflare serves a trailing-slash path with the splat matching empty.
+ * The menu since 2026-11-10: its Start ordering makes a guest sandbox in place.
+ */
+export const CHALLENGE_PATHS = ['/signin/*', '/app/*', '/menu/*'];
 
 /** The dispatch screen: the challenge class, plus `worker-src 'self'` for the solver's module worker. */
 export const DISPATCH_PATHS = ['/app/dispatch/*'];
@@ -147,17 +159,16 @@ export const SOLVER_CSP =
  * since 2026-11-09) is here too: it reads the order and the kitchen socket, both on the API's
  * origins, and loads no third party.
  */
-export const ISLAND_PATHS = [
-  '/menu/*',
-  '/inbox/*',
-  '/privacy/*',
-  '/docs/api/*',
-  '/status/*',
-  '/order/*',
-];
+export const ISLAND_PATHS = ['/inbox/*', '/privacy/*', '/docs/api/*', '/status/*', '/order/*'];
 
 /** Pages that load Stripe: the checkout's payment step and the catering page's deposit step. */
 export const PAYMENT_PATHS = ['/checkout/*', '/catering/*'];
+
+/**
+ * The payment pages that also load Turnstile, and so get the checkout class: the checkout, whose
+ * Start ordering makes a guest sandbox in place (2026-11-10). The catering page does not.
+ */
+export const CHECKOUT_PATHS = ['/checkout/*'];
 
 /** Every path that gets a rule of its own, which scripts/inline-hashes.mjs reads hashes for. */
 export const RULE_PATHS = [
@@ -186,7 +197,7 @@ export function headersFile(apiOrigin: string, hashes: Record<string, Hashes> = 
   ];
   for (const path of CHALLENGE_PATHS) {
     lines.push(
-      '# Sign-in and sandbox creation load Turnstile, and only they do.',
+      '# Sign-in and sandbox creation (the console, the menu) load Turnstile, and only they do.',
       path,
       '  ! Content-Security-Policy',
       `  Content-Security-Policy: ${csp('challenge', apiOrigin, of(path))}`,
@@ -224,11 +235,14 @@ export function headersFile(apiOrigin: string, hashes: Record<string, Hashes> = 
     );
   }
   for (const path of PAYMENT_PATHS) {
+    const checkout = CHECKOUT_PATHS.includes(path);
     lines.push(
-      '# The checkout and the catering page load Stripe for a payment step, and only they do.',
+      checkout
+        ? '# The checkout loads Stripe for its payment step and Turnstile for Start ordering.'
+        : '# The checkout and the catering page load Stripe for a payment step, and only they do.',
       path,
       '  ! Content-Security-Policy',
-      `  Content-Security-Policy: ${csp('payment', apiOrigin, of(path))}`,
+      `  Content-Security-Policy: ${csp(checkout ? 'checkout' : 'payment', apiOrigin, of(path))}`,
       '',
     );
   }
