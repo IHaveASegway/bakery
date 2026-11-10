@@ -429,11 +429,15 @@ details.how > summary:hover {
 
 .capacity-table th[scope='row'] {
   font-weight: 500;
+}
+
+.capacity-table td.num,
+.capacity-table th.num {
   white-space: nowrap;
 }
 
 .capacity-table td:last-child {
-  width: 30%;
+  width: 3.5rem;
   vertical-align: middle;
 }
 
