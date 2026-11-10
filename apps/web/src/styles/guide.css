@@ -95,6 +95,21 @@
   border-color: transparent;
 }
 
+/* On a wide screen the control is the whole bar; the narrow screen's single button is hidden. */
+.guide-layer .guide-compact {
+  display: none;
+}
+
+.guide-full {
+  display: contents;
+}
+
+/* The dock's island sits in the masthead, but on a wide screen its bar is fixed at the window's
+   foot and takes no room in the masthead's row. */
+.masthead-guide {
+  display: contents;
+}
+
 /* On a wide screen the extra buttons sit in the bar and the menu's button is not needed. */
 .guide-extra {
   display: contents;
@@ -631,6 +646,187 @@
   outline-offset: 3px;
 }
 
+/* ---- A narrow screen: the dock is one 48 px button, never over the page's primary column ----
+
+   It shows the switch's state and opens the whole control on a tap. Where the page has its own
+   bottom bar (the menu's cart bar), the button sits at that bar's left end, in the same row, so
+   the column of Add buttons at the right never passes under it; where it has none, the button
+   sits in the masthead's first row and scrolls away with it, over nothing. */
+@media (max-width: 60rem) {
+  body:has(.cart-bar) .guide-bar-dock {
+    padding: 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
+  }
+
+  body:has(.cart-bar) .guide-layer .guide-bar-dock .guide-compact {
+    display: grid;
+    place-items: center;
+    box-sizing: border-box;
+    width: 48px;
+    height: 48px;
+    padding: 0;
+    border: 1px solid var(--guide-edge);
+    border-radius: 10px;
+    background: var(--guide-surface);
+    box-shadow: var(--shadow-raised);
+  }
+
+  body:has(.cart-bar) .guide-layer .guide-bar-dock .guide-compact[data-on] .guide-switch-track {
+    border-color: var(--guide-accent);
+    background: var(--guide-accent);
+  }
+
+  body:has(.cart-bar) .guide-layer .guide-bar-dock .guide-compact[data-on] .guide-switch-thumb {
+    background: var(--guide-accent-ink);
+    transform: translateX(12px);
+  }
+
+  body:has(.cart-bar) .guide-layer .guide-bar-dock .guide-full {
+    display: none;
+  }
+
+  body:has(.cart-bar) .guide-layer .guide-bar-dock .guide-full[data-open] {
+    position: absolute;
+    z-index: 60;
+    display: grid;
+    gap: 2px;
+    min-width: 200px;
+    padding: 4px;
+    border: 1px solid var(--guide-edge);
+    border-radius: 10px;
+    background: var(--guide-surface);
+    box-shadow: var(--shadow-raised);
+  }
+
+  body:has(.cart-bar) .guide-layer .guide-bar-dock .guide-switch-text {
+    position: static;
+    width: auto;
+    height: auto;
+    clip-path: none;
+  }
+
+  body:has(.cart-bar) .guide-layer .guide-bar-dock .guide-more {
+    display: none;
+  }
+
+  body:has(.cart-bar) .guide-layer .guide-bar-dock .guide-extra,
+  body:has(.cart-bar) .guide-layer .guide-bar-dock .guide-extra[data-open] {
+    position: static;
+    display: contents;
+  }
+
+  body:has(.cart-bar) .guide-layer .guide-bar-dock :is(.guide-switch, .guide-quiet) {
+    justify-content: flex-start;
+    min-height: 44px;
+    text-align: left;
+  }
+
+  body:has(.cart-bar) .guide-bar-dock {
+    right: auto;
+    bottom: var(--space-4);
+    left: var(--space-4);
+  }
+
+  body:has(.cart-bar) .guide-layer .guide-bar-dock .guide-full[data-open] {
+    bottom: calc(100% + 8px);
+    left: 0;
+  }
+
+  body:has(.guide-bar-dock) .cart-bar {
+    left: calc(var(--space-4) + 56px);
+  }
+}
+
+@media (max-width: 48rem) {
+  .guide-bar-dock {
+    padding: 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
+  }
+
+  .guide-layer .guide-bar-dock .guide-compact {
+    display: grid;
+    place-items: center;
+    box-sizing: border-box;
+    width: 48px;
+    height: 48px;
+    padding: 0;
+    border: 1px solid var(--guide-edge);
+    border-radius: 10px;
+    background: var(--guide-surface);
+    box-shadow: var(--shadow-raised);
+  }
+
+  .guide-layer .guide-bar-dock .guide-compact[data-on] .guide-switch-track {
+    border-color: var(--guide-accent);
+    background: var(--guide-accent);
+  }
+
+  .guide-layer .guide-bar-dock .guide-compact[data-on] .guide-switch-thumb {
+    background: var(--guide-accent-ink);
+    transform: translateX(12px);
+  }
+
+  .guide-layer .guide-bar-dock .guide-full {
+    display: none;
+  }
+
+  .guide-layer .guide-bar-dock .guide-full[data-open] {
+    position: absolute;
+    z-index: 60;
+    display: grid;
+    gap: 2px;
+    min-width: 200px;
+    padding: 4px;
+    border: 1px solid var(--guide-edge);
+    border-radius: 10px;
+    background: var(--guide-surface);
+    box-shadow: var(--shadow-raised);
+  }
+
+  .guide-layer .guide-bar-dock .guide-switch-text {
+    position: static;
+    width: auto;
+    height: auto;
+    clip-path: none;
+  }
+
+  .guide-layer .guide-bar-dock .guide-more {
+    display: none;
+  }
+
+  .guide-layer .guide-bar-dock .guide-extra,
+  .guide-layer .guide-bar-dock .guide-extra[data-open] {
+    position: static;
+    display: contents;
+  }
+
+  .guide-layer .guide-bar-dock :is(.guide-switch, .guide-quiet) {
+    justify-content: flex-start;
+    min-height: 44px;
+    text-align: left;
+  }
+
+  body:not(:has(.cart-bar)) .masthead-guide {
+    display: block;
+  }
+
+  body:not(:has(.cart-bar)) .guide-bar-dock {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    z-index: 30;
+  }
+
+  body:not(:has(.cart-bar)) .guide-bar-dock .guide-full[data-open] {
+    top: calc(100% + 8px);
+    right: 0;
+  }
+}
+
 /* ---- A phone: the note is a sheet over the lower third, the panel most of the screen ---- */
 
 @media (max-width: 40rem) {
@@ -676,7 +872,7 @@
     left: 0 !important;
     width: auto;
     max-width: none;
-    bottom: 56px;
+    bottom: 8px;
     max-height: 34vh;
     border-radius: 10px;
     margin: 0 8px;
@@ -686,10 +882,17 @@
     display: none;
   }
 
+  /* The pressed control is low on the screen: the sheet opens at the top, under the bars. */
+  .guide-note[data-sheet='top'],
+  .guide-note.guide-corner[data-sheet='top'] {
+    top: calc(var(--guide-top, 0px) + 8px) !important;
+    bottom: auto !important;
+  }
+
   .guide-panel {
     top: auto;
     right: 8px;
-    bottom: 56px;
+    bottom: 8px;
     left: 8px;
     width: auto;
     max-width: none;
@@ -697,12 +900,8 @@
   }
 }
 
-/* The menu's cart bar (a phone) sits at the window's foot: the dock and a note's sheet go above it. */
+/* The console's tab bar, and on a phone the menu's cart bar, sit at the window's foot. */
 @media (max-width: 60rem) {
-  body:has(.cart-bar) .guide-bar-dock {
-    bottom: 80px;
-  }
-
   /* The console's tab bar sits at the foot: a note's sheet and the recorder end above it. */
   .shell-app .guide-note,
   .shell-app .guide-note.guide-corner,
@@ -715,7 +914,7 @@
   body:has(.cart-bar) .guide-note,
   body:has(.cart-bar) .guide-note.guide-corner,
   body:has(.cart-bar) .guide-panel {
-    bottom: 128px;
+    bottom: 72px;
   }
 
   .guide-bar-topbar .guide-switch-text {

@@ -358,3 +358,191 @@ test('on the order page, the kitchen’s move opens a note with the event heard,
   await expect(panel.getByText(/Reading every 10 seconds/)).toBeVisible();
   for (const c of consoles) await c.close();
 });
+
+test.describe('on a phone', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  /**
+   * Every hotspot's box against every button, link and line of text on the page, at each step of a
+   * scroll through it. The page's boxes are read once, in page coordinates (a scroll moves none of
+   * them but the fixed bars, which a mark is kept off by design); the marks at every step.
+   */
+  async function spotsClearAllTheWay(page: Page): Promise<string[]> {
+    return page.evaluate(async () => {
+      const hits = new Set<string>();
+      type R = { l: number; t: number; r: number; b: number };
+      const doc = (rect: DOMRect): R => ({
+        l: rect.left + window.scrollX,
+        t: rect.top + window.scrollY,
+        r: rect.right + window.scrollX,
+        b: rect.bottom + window.scrollY,
+      });
+      const meets = (a: R, b: R) => a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t;
+      const inGuide = (n: Node) =>
+        (n.nodeType === Node.ELEMENT_NODE ? (n as Element) : n.parentElement)?.closest(
+          '[data-guide-root]',
+        ) != null;
+      window.scrollTo(0, 0);
+      const things: [string, R][] = [];
+      for (const c of document.querySelectorAll(
+        'a[href], button, input, select, textarea, [role="button"]',
+      )) {
+        const r = c.getBoundingClientRect();
+        if (!inGuide(c) && r.width > 0)
+          things.push([`${c.tagName} "${(c.textContent ?? '').trim().slice(0, 30)}"`, doc(r)]);
+      }
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+        if ((n.textContent ?? '').trim() === '' || inGuide(n)) continue;
+        const range = document.createRange();
+        range.selectNodeContents(n);
+        for (const r of range.getClientRects()) {
+          things.push([`the text "${(n.textContent ?? '').trim().slice(0, 30)}"`, doc(r)]);
+        }
+      }
+      const frame = () =>
+        new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+      const end = document.documentElement.scrollHeight - window.innerHeight;
+      for (let y = 0; ; y = Math.min(end, y + 300)) {
+        window.scrollTo(0, y);
+        await frame();
+        for (const spot of document.querySelectorAll('.guide-spot')) {
+          const box = doc(spot.getBoundingClientRect());
+          for (const [what, r] of things) if (meets(box, r)) hits.add(`at ${y}: a mark on ${what}`);
+        }
+        if (y >= end) break;
+      }
+      return [...hits];
+    });
+  }
+
+  test('no hotspot sits on a button, a link or a line of text, on the home page, the menu and the checkout', async ({
+    page,
+  }) => {
+    await demoAccount(page);
+    const sandbox = await liveSandbox(page);
+    const menu = await api<Parameters<typeof pickupOrder>[0]>(
+      page,
+      'GET',
+      `/v1/sandboxes/${sandbox.id}/menu`,
+    );
+    const want = pickupOrder(menu.body, sandbox.clock_offset_s ?? 0, 2);
+    for (const path of ['/', '/menu/', '/checkout/']) {
+      if (path === '/checkout/') {
+        await page.evaluate(
+          (cart) => sessionStorage.setItem('bakery.cart.v1', JSON.stringify(cart)),
+          {
+            lines: want.lines,
+            note: '',
+            kind: 'pickup',
+            zone: 'z1',
+            slot: '',
+          },
+        );
+      }
+      await page.goto(path);
+      await expect(page.locator('.guide-spot').first()).toBeVisible();
+      // The menu's own note is about its read; close it, so the page is what is measured.
+      const close = page.getByRole('button', { name: 'Close this note' });
+      if (await close.isVisible()) await close.click();
+      expect(await spotsClearAllTheWay(page), path).toEqual([]);
+    }
+  });
+
+  test('the guide’s control is one button that never sits over an Add button or a checkout step control', async ({
+    page,
+  }) => {
+    await demoAccount(page);
+    const sandbox = await liveSandbox(page);
+    const menu = await api<Parameters<typeof pickupOrder>[0]>(
+      page,
+      'GET',
+      `/v1/sandboxes/${sandbox.id}/menu`,
+    );
+    const want = pickupOrder(menu.body, sandbox.clock_offset_s ?? 0, 2);
+    const underIt = (selector: string) =>
+      page.evaluate(async (sel) => {
+        const hits: string[] = [];
+        const control = document.querySelector('.guide-bar-dock');
+        if (control === null) return ['no guide control'];
+        const frame = () =>
+          new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+        const end = document.documentElement.scrollHeight - window.innerHeight;
+        for (let y = 0; ; y = Math.min(end, y + 120)) {
+          window.scrollTo(0, y);
+          await frame();
+          const c = control.getBoundingClientRect();
+          for (const el of document.querySelectorAll(sel)) {
+            const r = el.getBoundingClientRect();
+            if (
+              r.width > 0 &&
+              r.left < c.right &&
+              r.right > c.left &&
+              r.top < c.bottom &&
+              r.bottom > c.top
+            ) {
+              hits.push(
+                `at ${y}: ${(el.textContent ?? el.getAttribute('aria-label') ?? '').trim().slice(0, 40)}`,
+              );
+            }
+          }
+          if (y >= end) break;
+        }
+        return hits;
+      }, selector);
+
+    await page.goto('/menu/');
+    const compact = page.getByRole('button', { name: /^Under the hood, (on|off)$/ });
+    await expect(compact).toBeVisible();
+    const box = await compact.boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(44);
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+    const close = page.getByRole('button', { name: 'Close this note' });
+    if (await close.isVisible()) await close.click();
+    // It sits at the cart bar's left end, in the same row, never over the column of Add buttons.
+    const bar = await page.locator('.cart-bar').boundingBox();
+    expect(
+      Math.abs((bar?.y ?? 0) + (bar?.height ?? 0) - ((box?.y ?? 0) + (box?.height ?? 0))),
+    ).toBeLessThanOrEqual(1);
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(bar?.x ?? 0);
+    expect(await underIt('button[aria-label^="Add "]')).toEqual([]);
+    // An Add pressed low on the screen: the note it opens does not cover it.
+    const add = page.getByRole('button', { name: /^Add .*, to the cart$/ }).nth(3);
+    await add.evaluate((el) =>
+      window.scrollTo(
+        0,
+        el.getBoundingClientRect().top + window.scrollY - window.innerHeight + 150,
+      ),
+    );
+    await add.click();
+    const opened = page.locator('.guide-note').first();
+    await expect(opened).toBeVisible();
+    const pressed = await add.boundingBox();
+    const sheet = await opened.boundingBox();
+    expect(
+      pressed !== null &&
+        sheet !== null &&
+        (pressed.y + pressed.height <= sheet.y || pressed.y >= sheet.y + sheet.height),
+    ).toBe(true);
+    const shut = page.getByRole('button', { name: 'Close this note' });
+    if (await shut.isVisible()) await shut.click();
+    // A tap opens the whole control: the switch, the short path and the recorder.
+    await compact.click();
+    await expect(page.getByRole('switch', { name: 'Under the hood' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Recorder' })).toBeVisible();
+    await compact.click();
+
+    await page.evaluate((cart) => sessionStorage.setItem('bakery.cart.v1', JSON.stringify(cart)), {
+      lines: want.lines,
+      note: '',
+      kind: 'pickup',
+      zone: 'z1',
+      slot: '',
+    });
+    await page.goto('/checkout/');
+    await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
+    // No cart bar here: the control sits in the masthead's first row and scrolls away with it.
+    expect(await underIt('form button, form input, form select, form label')).toEqual([]);
+    await expectNoAxeViolations(page);
+  });
+});

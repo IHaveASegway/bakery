@@ -13,7 +13,9 @@ import { PATHS, entriesFor } from '../../guide';
 import {
   PATH_CLOSED,
   pathReduce,
-  placeSpot,
+  spotBox,
+  spotFits,
+  spotPlaces,
   screenOf,
   type GuideEntry,
   type PageId,
@@ -30,6 +32,7 @@ import {
   watchToOpen,
   type WatchNews,
 } from './match';
+import { clearOfPage, headingLine } from './clear';
 import { Note, barBoxes, resolveAnchor, topInset } from './Note';
 import Panel from './Panel';
 import {
@@ -461,20 +464,23 @@ function Hotspots({
     const measure = () => {
       frame = 0;
       const view = { width: document.documentElement.clientWidth, height: window.innerHeight };
-      const bars = barBoxes();
+      const taken = barBoxes();
       const next: Spot[] = [];
       for (const entry of targets) {
         const element = targetOf(entry.target);
         if (element === null) continue;
         const rect = element.getBoundingClientRect();
         if (rect.width === 0 && rect.height === 0) continue;
-        const at = placeSpot(
+        // The first place that is in the window, off every bar and every mark already placed, and
+        // clear of the page's controls and text; with none, the mark is not drawn, and the next
+        // scroll looks again. The recorder lists every entry all the same.
+        const at = spotPlaces(
           { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
           view,
-          bars,
-        );
-        // Not drawn while its place is out of the window or on a bar; the next scroll looks again.
-        if (at === null) continue;
+          headingLine(element),
+        ).find((place) => spotFits(place, view, taken) && clearOfPage(spotBox(place)));
+        if (at === undefined) continue;
+        taken.push(spotBox(at));
         next.push({
           target: entry.target,
           title: entry.title,

@@ -1,0 +1,93 @@
+// What a hotspot must not sit on, read from the page: its controls and its lines of text. The
+// placing itself is pure (lib/guide.ts, spotPlaces and spotFits); this is the part only the page
+// can answer.
+import type { Box } from '../../lib/guide';
+
+const HEADINGS = 'h1, h2, h3, h4';
+const CONTROLS =
+  'a[href], button, input, select, textarea, summary, label, [role="button"], [role="switch"], [tabindex]:not([tabindex="-1"])';
+
+const boxOf = (r: DOMRect): Box => ({ top: r.top, left: r.left, width: r.width, height: r.height });
+const meets = (a: Box, b: Box) =>
+  a.left < b.left + b.width &&
+  a.left + a.width > b.left &&
+  a.top < b.top + b.height &&
+  a.top + a.height > b.top;
+
+/**
+ * The heading a target is explained under: the target itself when it is one, its first heading,
+ * or the nearest heading before it in the page (the menu's lead sentence sits under "Menu").
+ */
+function headingOf(target: Element): Element | null {
+  if (target.matches(HEADINGS)) return target;
+  const inside = target.querySelector(HEADINGS);
+  if (inside !== null) return inside;
+  for (let node: Element | null = target, depth = 0; node !== null && depth < 3; depth++) {
+    for (
+      let before = node.previousElementSibling;
+      before !== null;
+      before = before.previousElementSibling
+    ) {
+      if (before.matches(HEADINGS)) return before;
+      const last = [...before.querySelectorAll(HEADINGS)].at(-1);
+      if (last !== undefined) return last;
+    }
+    node = node.parentElement;
+  }
+  return null;
+}
+
+/** The box of the last line of text in the heading a target is explained under, in window terms. */
+export function headingLine(target: Element): Box | null {
+  const heading = headingOf(target);
+  if (heading === null) return null;
+  const range = document.createRange();
+  range.selectNodeContents(heading);
+  const lines = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0);
+  const last = lines.reduce<DOMRect | null>(
+    (best, r) =>
+      best === null || r.bottom > best.bottom || (r.bottom === best.bottom && r.right > best.right)
+        ? r
+        : best,
+    null,
+  );
+  return last === null ? null : boxOf(last);
+}
+
+/** The boxes of an element's own lines of text: its direct text, not its children's. */
+function ownLines(element: Element): Box[] {
+  const lines: Box[] = [];
+  for (const node of element.childNodes) {
+    if (node.nodeType !== Node.TEXT_NODE || (node.textContent ?? '').trim() === '') continue;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    for (const r of range.getClientRects()) lines.push(boxOf(r));
+  }
+  return lines;
+}
+
+/**
+ * Whether `box` (window coordinates) is clear of the page: no control and no line of text under
+ * any of its corners or its middle. The guide's own layer is not the page.
+ */
+export function clearOfPage(box: Box): boolean {
+  const inset = 2;
+  const points = [
+    [box.left + inset, box.top + inset],
+    [box.left + box.width - inset, box.top + inset],
+    [box.left + inset, box.top + box.height - inset],
+    [box.left + box.width - inset, box.top + box.height - inset],
+    [box.left + box.width / 2, box.top + box.height / 2],
+  ] as const;
+  for (const [x, y] of points) {
+    const under = document
+      .elementsFromPoint(x, y)
+      .find((el) => el.closest('[data-guide-root]') === null);
+    if (under === undefined || under === document.documentElement || under === document.body) {
+      continue;
+    }
+    if (under.closest(CONTROLS) !== null) return false;
+    if (ownLines(under).some((line) => meets(line, box))) return false;
+  }
+  return true;
+}

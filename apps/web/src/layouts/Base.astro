@@ -121,6 +121,11 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
             </svg>
             <span>Proof of Concept Bakery</span>
           </a>
+          {screen && (
+            <div class="masthead-guide" data-guide-slot>
+              <Guide screen={screen} placement="dock" client:idle />
+            </div>
+          )}
           <nav aria-label="The bakery" class="site-nav-row">
             <ul class="site-nav site-nav-links">
               {NAV.map(({ href, label }) => (
@@ -166,7 +171,6 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
         <p>Everything here is made up: the bakery, its customers, their orders and their cards.</p>
       </div>
     </footer>
-    {screen && shell !== 'app' && <Guide screen={screen} placement="dock" client:idle />}
     {(screen || session) && <SessionLink />}
   </body>
 </html>

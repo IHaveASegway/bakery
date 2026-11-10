@@ -109,6 +109,19 @@ export function Note({
         note.style.removeProperty('left');
         note.removeAttribute('data-side');
         setCorner(target === null);
+        // A phone's sheet sits at the foot; when what the visitor pressed is down there, under
+        // where the sheet would be, the sheet goes to the top instead, under the page's bars.
+        const anchorRect = target?.getBoundingClientRect();
+        const sheetTop = window.innerHeight - note.offsetHeight - 80;
+        if (
+          anchorRect !== undefined &&
+          window.matchMedia(PHONE).matches &&
+          anchorRect.bottom > sheetTop
+        ) {
+          note.setAttribute('data-sheet', 'top');
+        } else {
+          note.removeAttribute('data-sheet');
+        }
         return;
       }
       const rect = target.getBoundingClientRect();

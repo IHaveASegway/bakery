@@ -332,6 +332,8 @@ main:focus {
     min-width: 0;
     overflow-x: auto;
     scrollbar-width: none;
+    /* A visible edge: the row fades out at its right end, so it reads as going on. */
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
   }
 
   .masthead .site-nav-links li {
