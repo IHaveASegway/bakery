@@ -54,6 +54,12 @@ export const DISPATCH: GuideEntry[] = [
     events: ['PlanSubmitted'],
     principle: ROUTE,
     triggers: ['submit-plan', 'PlanSubmitted'],
+    facts: [
+      'Drive minutes are free-flow times from the travel-time matrix, with no traffic, no time at the door and no waiting for a window to open; the time the last van is back counts both.',
+      'The server’s plan is a savings heuristic (Operations Research, 1964), fast and good but not exact. The browser’s plan is VROOM, a modern solver that looks harder for a shorter plan.',
+      'Neither is the record: the Dispatch object checks whichever plan is sent, works out its minutes from its own matrix, and decides what may be published.',
+      'The Route Lab is where the solver is explained.',
+    ],
     api: {
       routeId: 'submit-plan',
       method: 'POST',

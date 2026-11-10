@@ -127,7 +127,7 @@ export const SIGNIN: GuideEntry[] = [
     screen: 'signin',
     target: 'signin-guest',
     title: 'Try it as a guest',
-    what: 'No account: a Turnstile pass buys a sandbox and a cookie. Guests browse, order and pay with a test card; the console’s writes need a sign-in.',
+    what: 'No account: a Turnstile pass buys a sandbox and a cookie. Guests browse, order, pay with a test card and move their own orders on the kitchen board; the console’s other writes need a sign-in.',
     why: 'Admission happens once, at the door, so every later request is cheap and the daily cap is counted in one place.',
     whenNot:
       'Not where a refusal is unacceptable: on a busy day the cap turns a visitor away rather than spend more.',
@@ -234,13 +234,17 @@ export const MENU: GuideEntry[] = [
     screen: 'menu',
     target: 'menu-how',
     title: 'Where the menu came from',
-    what: 'With a sandbox, the menu comes from its own Catalog through the API. It answers with an ETag, and an unchanged menu costs a 304 and no body.',
-    why: 'An ETag lets the browser ask whether its copy is current for the price of a header.',
+    what: 'Without a sandbox this is the demo’s seed menu, the one every new sandbox starts with. With a sandbox, the menu comes from its own Catalog object through the API, with an ETag and a Bakery-Cache header.',
+    why: 'A menu is read far more than it changes, so a cache keyed by its version spares its single writer, the Catalog object.',
     whenNot:
-      'Not when the request itself is the cost: a cache that expires on a timer saves the round trip and serves an old price until then.',
+      'Not for a read that must be current, such as an order’s status, or a body that differs per visitor, such as a cart.',
     events: ['MenuPublished'],
     principle: CACHE,
-    triggers: [],
+    triggers: ['get-menu'],
+    facts: [
+      'Asking again with the ETag in hand costs a 304 and no body until a change is published in the console.',
+      'Publishing a change bumps the menu’s version, so the first read of the new version misses the cache once and fills it.',
+    ],
     api: {
       routeId: 'get-menu',
       method: 'GET',
@@ -269,6 +273,28 @@ export const CHECKOUT: GuideEntry[] = [
       path: '/v1/sandboxes/{id}/menu',
       note: 'The prices the order will be checked against.',
     },
+  },
+  {
+    id: 'checkout-menu',
+    screen: 'checkout',
+    target: 'checkout-menu',
+    title: 'The menu this checkout read',
+    what: 'The checkout reads your sandbox’s menu to show its lines and totals. The read goes through the same cache as the menu page, keyed by the menu’s version.',
+    why: 'A cache keyed by the menu’s version answers the many reads of a menu that rarely changes, and never serves an old version.',
+    whenNot:
+      'Not for the price you pay: the API prices the order itself from the version it names.',
+    events: [],
+    principle: CACHE,
+    triggers: ['get-menu'],
+    api: {
+      routeId: 'get-menu',
+      method: 'GET',
+      path: '/v1/sandboxes/{id}/menu',
+      note: 'The menu with an ETag and a Bakery-Cache header. Send the ETag back as If-None-Match and an unchanged menu costs a 304 and no body.',
+    },
+    facts: [
+      'Asking again with that ETag costs a 304 and no body until you publish a change in the console.',
+    ],
   },
   {
     id: 'checkout-form',

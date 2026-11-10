@@ -33,11 +33,13 @@ const COMMAND_EVENT: Record<string, string> = {
 };
 
 /**
- * The events a note expects for what the visitor did: a board command makes its one event; any
- * other action makes the entry's events.
+ * The events a note expects for what the visitor did: a board command makes its one event; a story
+ * read makes none; any other action makes the entry's events.
  */
 export function expectedFor(entry: GuideEntry | null, group: readonly Trace[]): string[] {
   const first = group[0];
+  // A read changes nothing, so it expects no event: the menu's events are its publisher's.
+  if (first?.read !== undefined) return [];
   const one = first?.transport === 'socket' ? COMMAND_EVENT[first.action ?? ''] : undefined;
   if (one !== undefined) return [one];
   return entry?.events ?? [];
@@ -66,12 +68,16 @@ export const MOUNT_GRACE_MS = 3_000;
 /**
  * The actions already in the store when the layer mounts that are old news: those that began more
  * than MOUNT_GRACE_MS before `now`. A press made just before the layer finished loading (a quick
- * Place order) still opens its note; one made minutes ago, with the guide off, does not.
+ * Place order) still opens its note; one made minutes ago, with the guide off, does not. A story
+ * read is never old news: the menu's first load is the page's own story, however late the layer
+ * comes to tell it.
  */
 export const gesturesIn = (traces: readonly Trace[], now: number): Set<number> =>
   new Set(
     traces.flatMap((t) =>
-      t.gesture === null || t.startedAt > now - MOUNT_GRACE_MS ? [] : [t.gesture],
+      t.gesture === null || t.startedAt > now - MOUNT_GRACE_MS || t.read !== undefined
+        ? []
+        : [t.gesture],
     ),
   );
 

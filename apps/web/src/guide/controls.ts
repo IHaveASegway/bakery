@@ -150,6 +150,13 @@ export const CONTROLS: GuideEntry[] = [
     events: ['ClockAdvanced'],
     principle: CLOCK,
     triggers: ['advance-clock', 'ClockAdvanced'],
+    happened:
+      'The Sandbox grew its offset and handed it to every object, and each one worked out its timers again from the new business time and set its alarm afresh: an order’s expiry, a reminder or a campaign’s send may fire now.',
+    facts: [
+      'A step grows the offset, and each click carries its own Idempotency-Key, so a repeated request moves the clock once.',
+      'It moves order expiries (an unpaid order lasts 15 minutes of business time), slot dates, the bake list’s day, catering lead times and reminders, invoice due dates, campaign schedules, simulated opens, and the time written on new events.',
+      'It does not move the platform’s alarms (they run on the wall clock and are set again when the clock moves), the nightly wipe and its 36-hour backstop, cookies, Turnstile tokens, Stripe’s timestamps and webhook tolerance, the daily traffic ledger, the recording time on events, or logs.',
+    ],
     api: {
       routeId: 'advance-clock',
       method: 'POST',

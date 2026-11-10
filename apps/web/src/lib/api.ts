@@ -60,7 +60,7 @@ import type {
 } from '../contracts';
 import { DEFAULT_API_ORIGIN, normalizeOrigin, socketOrigin } from '../policy';
 import { parseProblem, problemSlug, type ProblemInfo } from './problem';
-import { pageSource } from './trace';
+import { pageSource, type ReadName } from './trace';
 import { ulid } from './ulid';
 
 /** The same value src/policy.ts puts in connect-src, so a call the policy blocks cannot happen. */
@@ -105,7 +105,7 @@ export class NetworkError extends Error {
 async function send(
   method: string,
   path: string,
-  options: { body?: unknown; key?: string; headers?: Record<string, string> } = {},
+  options: { body?: unknown; key?: string; headers?: Record<string, string>; read?: ReadName } = {},
 ): Promise<Response> {
   const headers: Record<string, string> = { ...options.headers };
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
@@ -117,12 +117,25 @@ async function send(
   }
   const started = performance.now();
   // The guide's trace (lib/trace.ts) hears every write: its route, status, time and key, never its
-  // body. A read is not traced: it changes nothing, so there is nothing under the hood to show.
-  const traced = (status: number | null) => {
-    if (method === 'GET') return;
+  // body. A read is traced only when it is a story read (trace.ts, STORY_READS), with what its
+  // answer's headers said; the page's other reads change nothing and are not traced.
+  const traced = (response: Response | null) => {
+    if (method === 'GET' && options.read === undefined) return;
     const ms = performance.now() - started;
     const key = headers['Idempotency-Key'] ?? null;
-    pageSource.emit({ kind: 'call', key, method, path, status, ms, at: Date.now() });
+    const status = response?.status ?? null;
+    const read =
+      options.read === undefined
+        ? {}
+        : {
+            read: {
+              name: options.read,
+              cache: response?.headers.get('Bakery-Cache') ?? null,
+              etag: response?.headers.get('ETag') ?? null,
+              asked: headers['If-None-Match'] ?? null,
+            },
+          };
+    pageSource.emit({ kind: 'call', key, method, path, status, ms, at: Date.now(), ...read });
   };
   try {
     const response = await fetch(`${apiOrigin}${path}`, {
@@ -131,7 +144,7 @@ async function send(
       headers,
       ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
     });
-    traced(response.status);
+    traced(response);
     return response;
   } catch {
     traced(null);
@@ -184,11 +197,12 @@ export type MenuAnswer =
 /**
  * `GET /v1/sandboxes/{id}/menu`. With the ETag of the copy in hand it sends `If-None-Match` and a
  * 304 comes back as `modified: false`. `Bakery-Cache` (`hit` or `miss`) and `ETag` are the two
- * headers the API exposes for the "How this works" line.
+ * headers the API exposes; the guide's menu note shows them (a story read, lib/trace.ts).
  */
 export async function getMenu(id: string, etag: string | null = null): Promise<MenuAnswer> {
   const response = await send('GET', `${sandboxPath(id)}/menu`, {
     headers: etag === null ? {} : { 'If-None-Match': etag },
+    read: 'menu',
   });
   const seen = {
     etag: response.headers.get('ETag'),

@@ -101,6 +101,16 @@ export interface GuideEntry {
    * own click sent on one of these routes, or an event of one of these types that it caused.
    */
   triggers: string[];
+  /**
+   * What just happened, said in the live note under its chain when one of `triggers` opens it: one
+   * or two sentences about the thing the visitor set off, such as a hold placed or a timer re-armed.
+   */
+  happened?: string;
+  /**
+   * Standing facts a page once said in its own "How this works" words, kept here so the page can
+   * stop explaining: each a short sentence or two, shown under `what` in the standing note.
+   */
+  facts?: string[];
 }
 
 /** The number of sentences in a text: a stop, a question or an exclamation and then a space or the end. */
@@ -266,32 +276,70 @@ export function placeNote(
   return { ...best, side: 'none', caret: 0 };
 }
 
-/** A hotspot's size, with the ring drawn around it. */
+/** A hotspot's size, with the ring drawn around it, and the clear margin it keeps. */
 const SPOT = 28;
+const CLEAR = 8;
+/** After a heading's text, room for the mark's pulse (it grows to about 14 px past the mark). */
+const LINE_GAP = 18;
+
+/** Whether two boxes overlap. */
+export const overlaps = (a: Box, b: Box) =>
+  a.left < b.left + b.width &&
+  a.left + a.width > b.left &&
+  a.top < b.top + b.height &&
+  a.top + a.height > b.top;
 
 /**
- * Where a hotspot for `target` sits, in window coordinates: outside the target's top-right corner
- * when the window has room, else just above its right end, so the mark never sits on the text it
- * explains. Null when that place is not wholly in the window or touches one of `bars` (the top bar,
- * the masthead, a tab bar, the cart bar, the guide's own bar): the mark waits until its target
- * scrolls into view, and is never pushed onto a bar.
+ * Where a hotspot for `target` may sit, in window coordinates, best first. In the gutter outside the
+ * target's top-right corner, when the window has room for the mark and a clear margin there; else,
+ * when the target has a heading, in that heading's own line, after its text (`line` is the box of
+ * the heading's last line of text), so the mark reads as part of the line it explains. Never on
+ * the target's edge where the gutter is too narrow: that is where it sat on a button or a word.
  */
-export function placeSpot(
+export function spotPlaces(
   target: Box,
   view: { width: number; height: number },
-  bars: readonly Box[],
-): { top: number; left: number } | null {
-  const outside = target.left + target.width + 8 + SPOT <= view.width;
-  const top = outside ? target.top : target.top - SPOT;
-  const left = outside ? target.left + target.width + 8 : target.left + target.width - 24;
-  if (top < 0 || left < 0 || top + SPOT > view.height || left + SPOT > view.width) return null;
-  const touches = (bar: Box) =>
-    left < bar.left + bar.width &&
-    left + SPOT > bar.left &&
-    top < bar.top + bar.height &&
-    top + SPOT > bar.top;
-  return bars.some(touches) ? null : { top, left };
+  line: Box | null,
+): { top: number; left: number; how: 'gutter' | 'line' }[] {
+  const places: { top: number; left: number; how: 'gutter' | 'line' }[] = [];
+  const gutterLeft = target.left + target.width + CLEAR;
+  if (gutterLeft + SPOT + CLEAR <= view.width) {
+    places.push({ top: target.top, left: gutterLeft, how: 'gutter' });
+  }
+  if (line !== null) {
+    const left = line.left + line.width + LINE_GAP;
+    if (left + SPOT + CLEAR <= view.width) {
+      places.push({ top: line.top + (line.height - SPOT) / 2, left, how: 'line' });
+    }
+  }
+  return places;
 }
+
+/**
+ * Whether a hotspot may be drawn at `at`: wholly in the window, and touching none of `bars` (the
+ * top bar, the masthead, a tab bar, the cart bar, the guide's own control) nor a mark already
+ * placed. A mark that may not waits until its target scrolls into view; it is never pushed onto a
+ * bar. The page's own text and controls are checked by the layer, which can see them.
+ */
+export function spotFits(
+  at: { top: number; left: number },
+  view: { width: number; height: number },
+  bars: readonly Box[],
+): boolean {
+  const box = { top: at.top, left: at.left, width: SPOT, height: SPOT };
+  if (box.top < 0 || box.left < 0 || box.top + SPOT > view.height || box.left + SPOT > view.width) {
+    return false;
+  }
+  return !bars.some((bar) => overlaps(box, bar));
+}
+
+/** The box a hotspot at `at` takes, ring included. */
+export const spotBox = (at: { top: number; left: number }): Box => ({
+  top: at.top,
+  left: at.left,
+  width: SPOT,
+  height: SPOT,
+});
 
 // ---- The short path ("Show me around") ----
 

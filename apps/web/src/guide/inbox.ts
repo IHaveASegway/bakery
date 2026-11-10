@@ -14,6 +14,10 @@ export const INBOX: GuideEntry[] = [
     events: ['MessageDelivered'],
     principle: QUEUE,
     triggers: [],
+    facts: [
+      'A message is addressed to a customer, and the name shown is that persona’s made-up display name.',
+      'Opens and clicks are simulated by the inbox’s own alarms from the seed: a little under half are opened, and a third of those clicked. Nobody opens anything, and this page never makes one happen.',
+    ],
     api: {
       routeId: 'list-inbox',
       method: 'GET',

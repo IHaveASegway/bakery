@@ -33,7 +33,6 @@ import { useLiveMenu } from '../lib/use-live-menu';
 import { useSandboxPhase } from '../lib/use-session';
 import { shortWhen, windowText } from '../lib/when';
 import CartLines from './CartLines';
-import HowThisWorks from './HowThisWorks';
 import Message from './Message';
 import PaymentStep, { orderPage } from './PaymentStep';
 import SlotPicker, { DayChips } from './SlotPicker';
@@ -319,7 +318,7 @@ export default function Checkout() {
   return (
     <div className="checkout">
       <div className="checkout-status">
-        <StatusLine phase={phase} />
+        <StatusLine phase={phase} tour="checkout-menu" />
       </div>
 
       <form
@@ -583,10 +582,6 @@ export default function Checkout() {
             <PaymentStep sandboxId={result.sandboxId} order={result.order} offsetS={offsetS} />
           )}
         </Step>
-      </div>
-
-      <div className="checkout-how">
-        <HowThisWorks menu={menu} />
       </div>
     </div>
   );

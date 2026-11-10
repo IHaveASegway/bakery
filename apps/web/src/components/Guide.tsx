@@ -38,7 +38,11 @@ export default function Guide({
   placement = 'dock',
 }: {
   screen: PageId;
-  /** A dock at the window's foot (the shop and prose shells), or in the app shell's top bar. */
+  /**
+   * A dock (the shop and prose shells: at the window's foot on a wide screen; on a narrow one a
+   * single button, in the cart bar's row where the page has one, else in the masthead's first row),
+   * or in the app shell's top bar.
+   */
   placement?: 'dock' | 'topbar';
 }) {
   // The bar is drawn with the page but does nothing until the island has hydrated, so its buttons
@@ -50,9 +54,13 @@ export default function Guide({
   const [said, setSaid] = useState('');
   const panelButton = useRef<HTMLButtonElement>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
+  const compactButton = useRef<HTMLButtonElement>(null);
   // On a phone the bar is one pill: the switch, and a small menu for the rest (CSS hides one or
   // the other by width, so nothing here depends on the window's size).
   const [more, setMore] = useState(false);
+  // On a narrow screen the dock is one 44 px button showing on or off, and the whole control opens
+  // from it on a tap (CSS shows one or the other by width and by whether the page has a cart bar).
+  const [full, setFull] = useState(false);
   const hasPath = (PATHS[screen]?.length ?? 0) > 0;
 
   useEffect(() => {
@@ -70,73 +78,96 @@ export default function Guide({
   const closePanel = useCallback(() => {
     setPanel(false);
     setMore(false);
+    setFull(false);
     // The focus goes back to the button that opened the panel, or on a phone to the menu's.
     const back = panelButton.current;
     if (back !== null && back.offsetParent !== null) back.focus();
-    else moreButton.current?.focus();
+    else if (moreButton.current?.offsetParent) moreButton.current.focus();
+    else compactButton.current?.focus();
   }, []);
 
   return (
     <div className="guide-layer" data-guide-root="">
       <div className={`guide-bar guide-bar-${placement}`} role="group" aria-label="Under the hood">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={on}
-          className="guide-switch"
-          disabled={!ready}
-          onClick={flip}
-        >
-          <span className="guide-switch-track" aria-hidden="true">
-            <span className="guide-switch-thumb" />
-          </span>
-          <span className="guide-switch-text">Under the hood</span>
-        </button>
-        <button
-          ref={moreButton}
-          type="button"
-          className="guide-more"
-          aria-expanded={more}
-          aria-controls="guide-extra"
-          aria-label="More of Under the hood"
-          disabled={!ready}
-          onClick={() => setMore((m) => !m)}
-        >
-          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
-            <circle cx="3" cy="8" r="1.5" fill="currentColor" />
-            <circle cx="8" cy="8" r="1.5" fill="currentColor" />
-            <circle cx="13" cy="8" r="1.5" fill="currentColor" />
-          </svg>
-        </button>
-        <div id="guide-extra" className="guide-extra" data-open={more || undefined}>
-          {hasPath && on && (
+        {placement === 'dock' && (
+          <button
+            ref={compactButton}
+            type="button"
+            className="guide-compact"
+            aria-expanded={full}
+            aria-controls="guide-full"
+            aria-label={`Under the hood, ${on ? 'on' : 'off'}`}
+            data-on={on || undefined}
+            disabled={!ready}
+            onClick={() => setFull((f) => !f)}
+          >
+            <span className="guide-switch-track" aria-hidden="true">
+              <span className="guide-switch-thumb" />
+            </span>
+          </button>
+        )}
+        <div id="guide-full" className="guide-full" data-open={full || undefined}>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={on}
+            className="guide-switch"
+            disabled={!ready}
+            onClick={flip}
+          >
+            <span className="guide-switch-track" aria-hidden="true">
+              <span className="guide-switch-thumb" />
+            </span>
+            <span className="guide-switch-text">Under the hood</span>
+          </button>
+          <button
+            ref={moreButton}
+            type="button"
+            className="guide-more"
+            aria-expanded={more}
+            aria-controls="guide-extra"
+            aria-label="More of Under the hood"
+            disabled={!ready}
+            onClick={() => setMore((m) => !m)}
+          >
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+              <circle cx="3" cy="8" r="1.5" fill="currentColor" />
+              <circle cx="8" cy="8" r="1.5" fill="currentColor" />
+              <circle cx="13" cy="8" r="1.5" fill="currentColor" />
+            </svg>
+          </button>
+          <div id="guide-extra" className="guide-extra" data-open={more || undefined}>
+            {hasPath && on && (
+              <button
+                type="button"
+                className="guide-quiet"
+                disabled={!ready}
+                onClick={() => {
+                  setMore(false);
+                  setFull(false);
+                  setPath((n) => n + 1);
+                }}
+              >
+                Show me around
+              </button>
+            )}
             <button
+              ref={panelButton}
               type="button"
               className="guide-quiet"
+              aria-expanded={panel}
+              aria-controls={panel ? 'guide-panel' : undefined}
               disabled={!ready}
               onClick={() => {
                 setMore(false);
-                setPath((n) => n + 1);
+                setFull(false);
+                if (panel) closePanel();
+                else setPanel(true);
               }}
             >
-              Show me around
+              Recorder
             </button>
-          )}
-          <button
-            ref={panelButton}
-            type="button"
-            className="guide-quiet"
-            aria-expanded={panel}
-            aria-controls={panel ? 'guide-panel' : undefined}
-            disabled={!ready}
-            onClick={() => {
-              setMore(false);
-              if (panel) closePanel();
-              else setPanel(true);
-            }}
-          >
-            Recorder
-          </button>
+          </div>
         </div>
       </div>
       <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">

@@ -8,13 +8,16 @@ import DispatchStops from '../src/components/DispatchStops';
 import { CATERING_SIGNED_OUT } from '../src/lib/catering';
 import { scheduledSaid, stateSays } from '../src/lib/crm';
 import { dayFromQuery, dropOffNote, queryWithDay } from '../src/lib/dispatch';
-import { HOW } from '../src/guide/how';
+import { ALL_ENTRIES } from '../src/guide';
 import { day, route, stop } from './dispatch-support';
 
-describe('N8: the tour and the bake list say the same', () => {
+describe('N8: the guide and the bake list say the same', () => {
   test('moving the clock does not make a plan', () => {
-    expect(HOW.bake).not.toContain('when the clock moves');
-    expect(HOW.bake).toContain('an order or a catering deposit for that day is paid');
+    const bake = ALL_ENTRIES.find((e) => e.id === 'kitchen-bake');
+    const said = [bake?.what ?? '', ...(bake?.facts ?? [])].join(' ');
+    expect(said).not.toContain('when the clock moves');
+    expect(said).toContain('an order or a catering deposit for that day is paid');
+    expect(said).toContain('Moving the clock makes none');
   });
 });
 

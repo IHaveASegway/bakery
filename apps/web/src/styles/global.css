@@ -184,6 +184,15 @@ main:focus {
   list-style: none;
 }
 
+/* The links, then the session link in a list of its own, so a phone can scroll the one and keep
+   the other in place. */
+.site-nav-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
 .site-nav a {
   display: inline-flex;
   align-items: center;
@@ -308,12 +317,52 @@ main:focus {
   .site-nav .session-link {
     margin-left: 0;
   }
+
+  /* One row on a phone: the links scroll sideways under the name, and the session link, in a list
+     of its own, stays at the row's right end. No script: a focused link scrolls itself into view. */
+  .masthead nav {
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+
+  .masthead .site-nav-links {
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    /* A visible edge: the row fades out at its right end, so it reads as going on. */
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+  }
+
+  .masthead .site-nav-links li {
+    flex: none;
+  }
+
+  .masthead .site-nav-session {
+    flex: none;
+    white-space: nowrap;
+  }
 }
 
 /* The app: the console's top bar, a sidebar where the page has one, and a workspace that fills
    the rest. The console's base size is 14 px. */
 .shell-app {
   font-size: var(--type-14);
+}
+
+/* A short page (the API unreachable, a sandbox still seeding) still fills the window: the main
+   column grows and the footer sits at the foot, never mid-screen over the grey surface. */
+body.shell-app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+body.shell-app > main {
+  flex: 1 0 auto;
 }
 
 .topbar {

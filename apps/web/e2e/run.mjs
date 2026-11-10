@@ -22,8 +22,9 @@
 // Ports are fixed, and differ from the smoke scripts' (8787, 8788, 8790, 8791) so both can run on
 // one machine: web 8797, API 8798, fake providers 8799, fake Stripe 8800, the webhook relay 8801,
 // inspectors 9347 and 9348. Each can be moved with E2E_<NAME>_PORT. Every secret in the scratch
-// env file is random or a documented test value, written to a temporary directory and deleted
-// with it; nothing is written into the repository but Playwright's test-results/.
+// env file is random or a documented test value, written to a temporary directory (under TMPDIR
+// when it is set) and deleted with it on every way out, an interrupt included; nothing is written
+// into the repository but Playwright's test-results/.
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -67,16 +68,30 @@ const TURNSTILE_TEST_SECRET = '1x0000000000000000000000000000000AA';
 const started = Date.now();
 const children = [];
 const scratch = mkdtempSync(path.join(os.tmpdir(), 'bakery-e2e-'));
+// The children's own temporary files (wrangler's update check, Playwright's transform cache) go
+// inside the scratch directory too, so removing it leaves nothing of the run behind.
+const childTmp = path.join(scratch, 'tmp');
+mkdirSync(childTmp);
+const TMP_ENV = { TMPDIR: childTmp, TMP: childTmp, TEMP: childTmp };
 let relay = null;
+let playwright = null;
 let failed = false;
 let stopping = false;
+let cleaned = null;
 
 function log(line) {
   console.log(`[e2e] ${line}`);
 }
 
 function stopAll() {
-  for (const child of children.reverse()) {
+  if (playwright !== null && playwright.exitCode === null && playwright.signalCode === null) {
+    try {
+      playwright.kill('SIGTERM');
+    } catch {
+      // already gone
+    }
+  }
+  for (const child of [...children].reverse()) {
     if (child.exitCode === null && child.signalCode === null) {
       try {
         process.kill(-child.pid, 'SIGTERM'); // each child leads its own process group
@@ -98,11 +113,42 @@ function keepLogs() {
   log(`server logs kept in ${path.relative(process.cwd(), out) || out}`);
 }
 
+/** Resolves once every child has exited, or after `ms`, whichever is first. */
+function exited(ms) {
+  const running = [...children, ...(playwright === null ? [] : [playwright])].filter(
+    (child) => child.exitCode === null && child.signalCode === null,
+  );
+  const all = Promise.all(running.map((child) => new Promise((done) => child.once('exit', done))));
+  return Promise.race([all.then(() => true), new Promise((done) => setTimeout(done, ms, false))]);
+}
+
+// Stops every server, keeps the logs of a failed run, and removes the scratch directory before the
+// process ends, on every way out: the normal end, a failed run, an error from main(), SIGINT and
+// SIGTERM. Until 2026-11-10 the removal sat in an unref'd timer that the process never waited for,
+// so every run left its directory behind. Called twice, it does the work once.
 function cleanUp() {
-  stopAll();
-  if (failed) keepLogs();
-  // Give the servers a moment to let go of their state before it is deleted.
-  setTimeout(() => rmSync(scratch, { recursive: true, force: true }), 500).unref();
+  cleaned ??= (async () => {
+    stopAll();
+    // The servers' state is in the directory: let them exit first, for at most five seconds, then
+    // kill what is left of each group and give it a moment more.
+    if (!(await exited(5_000))) {
+      for (const child of children) {
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+        } catch {
+          // already gone
+        }
+      }
+      await exited(1_000);
+    }
+    if (failed) keepLogs();
+    try {
+      rmSync(scratch, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    } catch (e) {
+      log(`could not remove ${scratch}: ${e.message}`);
+    }
+  })();
+  return cleaned;
 }
 
 function start(name, command, args, options = {}) {
@@ -111,7 +157,7 @@ function start(name, command, args, options = {}) {
   writeFileSync(out, '');
   const child = spawn(command, args, {
     cwd: options.cwd ?? ROOT,
-    env: { ...process.env, ...options.env },
+    env: { ...process.env, ...TMP_ENV, ...options.env },
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -244,6 +290,7 @@ async function main() {
   await new Promise((resolve, reject) => {
     const gen = spawn(process.execPath, [path.join(ROOT, 'scripts/api-deploy-config.mjs')], {
       cwd: ROOT,
+      env: { ...process.env, ...TMP_ENV },
       stdio: ['ignore', 'ignore', 'inherit'],
     });
     gen.on('exit', (code) =>
@@ -314,7 +361,7 @@ async function main() {
     if (/^(https?|all|no)_proxy$/i.test(name)) delete env[name];
   }
   const code = await new Promise((resolve) => {
-    const pw = spawn(
+    const pw = (playwright = spawn(
       PLAYWRIGHT,
       ['test', '--config', path.join(WEB_DIR, CONFIGS[SUITE]), ...passthrough],
       {
@@ -322,6 +369,7 @@ async function main() {
         stdio: 'inherit',
         env: {
           ...env,
+          ...TMP_ENV,
           E2E_WEB_PORT: String(PORTS.web),
           E2E_API_PORT: String(PORTS.api),
           E2E_STRIPE_PORT: String(PORTS.stripe),
@@ -341,7 +389,7 @@ async function main() {
             : {}),
         },
       },
-    );
+    ));
     pw.on('exit', (c, signal) => resolve(c ?? (signal ? 1 : 0)));
   });
   log(
@@ -350,24 +398,30 @@ async function main() {
   return code;
 }
 
-process.on('SIGINT', () => {
-  stopping = true;
-  cleanUp();
-  process.exit(130);
-});
+// An interrupt stops the run where it is: the servers and Playwright are stopped, the scratch
+// directory is removed, and the process ends with the signal's conventional code.
+for (const [signal, code] of [
+  ['SIGINT', 130],
+  ['SIGTERM', 143],
+]) {
+  process.on(signal, () => {
+    stopping = true;
+    void cleanUp().finally(() => process.exit(code));
+  });
+}
 
 main().then(
-  (code) => {
+  async (code) => {
     stopping = true;
     failed = failed || code !== 0;
-    cleanUp();
+    await cleanUp();
     process.exitCode = code;
   },
-  (e) => {
+  async (e) => {
     stopping = true;
     failed = true;
     console.error(`[e2e] ${e.message}`);
-    cleanUp();
+    await cleanUp();
     process.exitCode = 1;
   },
 );

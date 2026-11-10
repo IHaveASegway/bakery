@@ -1,6 +1,7 @@
 // The checkout's three steps and the order's own status page (/order/?id=<order id>): an order is
 // placed through the steps, paid at the fake Stripe as scripts/smoke-payments.sh pays, and its
-// page follows it over the kitchen socket while a staff page moves its card. The second test
+// page follows it over the kitchen socket while a staff page moves its card. The second test is a
+// guest's: no sign-in, the order paid, and the guest's own board moving the card. The third
 // holds the board's four sockets with three consoles and the status page, which must give its
 // socket up and follow the order by reading it instead. Stripe.js cannot load here
 // (js.stripe.com is unreachable), so the payment step says so, which is expected; a stub stands
@@ -11,6 +12,7 @@ import {
   demoAccount,
   expect,
   expectNoAxeViolations,
+  guestSandbox,
   liveSandbox,
   payOrder,
   pickupOrder,
@@ -112,6 +114,63 @@ test('an order placed in three steps and paid follows the kitchen on its own pag
   await expect(page.getByText(/stopped listening/)).toBeVisible();
   await expectNoAxeViolations(page);
   await staff.close();
+});
+
+// A guest moves the orders on their own board since 2026-11-10 (roadmap R72): no sign-in, the
+// order's page pointing the way, and the page following the move the guest made.
+test('a guest pays, moves their own order to Ready on the board, and its page follows', async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(150_000);
+  const sandbox = await guestSandbox(page);
+  const menu = await api<Menu>(page, 'GET', `/v1/sandboxes/${sandbox.id}/menu`);
+  expect(menu.status).toBe(200);
+  const want = pickupOrder(menu.body, sandbox.clock_offset_s ?? 0);
+  const placed = await api<{ id: string }>(
+    page,
+    'POST',
+    `/v1/sandboxes/${sandbox.id}/orders`,
+    want,
+  );
+  expect(placed.status, JSON.stringify(placed.body)).toBe(201);
+  const id = placed.body.id;
+  const short = id.slice(-6);
+  await payOrder(page, sandbox.id, id);
+
+  // The order's page says the board is theirs to play, and links to it.
+  await page.goto(`/order/?id=${id}`);
+  const current = page
+    .getByRole('list', { name: 'Your order’s steps' })
+    .locator('[aria-current="step"]');
+  await expect(current).toContainText('Paid');
+  await expect(
+    page.getByText('On the kitchen board you can move this order on yourself'),
+  ).toBeVisible();
+  const play = page.getByRole('link', { name: 'Play the kitchen' });
+  await expect(play).toHaveAttribute('href', '/app/');
+
+  // The guest's own board: live move buttons, no refund menu, and the note says what a sign-in adds.
+  const board = await context.newPage();
+  await board.goto('/app/');
+  await expect(board.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+  await expect(
+    board.getByText('Guests move their own orders here; a refund needs a sign-in.'),
+  ).toBeVisible();
+  await expect(board.getByRole('button', { name: `More for order ${short}` })).toHaveCount(0);
+  await expectNoAxeViolations(board);
+  await move(board, `Start production for order ${short}`);
+  await expect(current).toContainText('In production');
+  await move(board, `Mark ready for order ${short}`);
+
+  // The card is in the Ready column, and the order's page shows Ready without a reload.
+  await expect(
+    board.locator('section.column[data-state="ready"]').getByText(short, { exact: true }),
+  ).toBeVisible();
+  await expect(current).toContainText('Ready');
+  await expect(board.locator('.messages .problem')).toHaveCount(0);
+  await expectNoAxeViolations(page);
+  await board.close();
 });
 
 test('with the board’s four sockets wanted, the status page gives its own up and reads instead', async ({
