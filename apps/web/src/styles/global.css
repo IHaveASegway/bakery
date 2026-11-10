@@ -984,12 +984,12 @@ td {
     display: none;
   }
   table:not(.table-fits) > tbody > tr > :is(th, td)[data-label],
-  :is(.schema-table, .params-table) > tbody > tr > :is(th, td) {
+  table:not(.table-fits):is(.schema-table, .params-table) > tbody > tr > :is(th, td) {
     position: relative;
     padding-left: 7.5rem;
   }
   table:not(.table-fits) > tbody > tr > :is(th, td)[data-label]::before,
-  :is(.schema-table, .params-table) > tbody > tr > :is(th, td)::before {
+  table:not(.table-fits):is(.schema-table, .params-table) > tbody > tr > :is(th, td)::before {
     content: attr(data-label);
     position: absolute;
     top: 0.1em;
@@ -1001,29 +1001,31 @@ td {
     line-height: inherit;
   }
   /* The API reference repeats two table shapes hundreds of times, so their labels are said here
-     once rather than on every cell (the page's HTML stays under its size test). */
-  .schema-table > tbody > tr > :nth-child(1)::before,
-  .params-table > tbody > tr > :nth-child(1)::before {
+     once rather than on every cell (the page's HTML stays under its size test). The two rules above
+     name these shapes as `table:not(.table-fits):is(...)`, at the same weight as a `[data-label]`
+     cell, so their label column is not undone by the plain cell rule's padding (2026-11-10). */
+  table:not(.table-fits).schema-table > tbody > tr > :nth-child(1)::before,
+  table:not(.table-fits).params-table > tbody > tr > :nth-child(1)::before {
     content: 'Name';
   }
-  .schema-table > tbody > tr > :nth-child(2)::before {
+  table:not(.table-fits).schema-table > tbody > tr > :nth-child(2)::before {
     content: 'Type';
   }
-  .schema-table > tbody > tr > :nth-child(3)::before,
-  .params-table > tbody > tr > :nth-child(3)::before {
+  table:not(.table-fits).schema-table > tbody > tr > :nth-child(3)::before,
+  table:not(.table-fits).params-table > tbody > tr > :nth-child(3)::before {
     content: 'Required';
   }
-  .schema-table > tbody > tr > :nth-child(4)::before {
+  table:not(.table-fits).schema-table > tbody > tr > :nth-child(4)::before {
     content: 'Limits';
   }
-  .schema-table > tbody > tr > :nth-child(5)::before,
-  .params-table > tbody > tr > :nth-child(5)::before {
+  table:not(.table-fits).schema-table > tbody > tr > :nth-child(5)::before,
+  table:not(.table-fits).params-table > tbody > tr > :nth-child(5)::before {
     content: 'Meaning';
   }
-  .params-table > tbody > tr > :nth-child(2)::before {
+  table:not(.table-fits).params-table > tbody > tr > :nth-child(2)::before {
     content: 'In';
   }
-  .params-table > tbody > tr > :nth-child(4)::before {
+  table:not(.table-fits).params-table > tbody > tr > :nth-child(4)::before {
     content: 'Type';
   }
   dl {
