@@ -1,6 +1,6 @@
 // The console as seven pages (design brief, 2026-11-09): the sidebar's workspaces, each page's
 // sections in order, the old anchors of the one-page console, the skip past the board, and the
-// menu guide's first-card target (audit C26, P3). Static renders show the first paint; effects do
+// menu guide's first-card target. Static renders show the first paint; effects do
 // not run in them, so each panel draws its heading and its first-read text, which is all these
 // checks need.
 import { createElement, type ComponentType } from 'react';

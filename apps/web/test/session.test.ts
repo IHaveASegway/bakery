@@ -1,5 +1,5 @@
 // The session reader: one request per page however many islands ask, a 401 that says "signed out"
-// and a network failure that says nothing, the one browser hint, and the header link (audit C17, P2).
+// and a network failure that says nothing, the one browser hint, and the header link.
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const getSession = vi.fn();
@@ -131,7 +131,7 @@ describe('watchSession', () => {
 });
 
 describe('sessionLink', () => {
-  test('the same words with a session or without; only the address follows it (audit F14)', () => {
+  test('the same words with a session or without; only the address follows it', () => {
     expect(sessionLink(false, '/menu/')).toEqual({
       href: '/signin/',
       label: 'Your bakery',

@@ -34,7 +34,7 @@
 #   but not yet made stays confirmed when the plan is published, and its completion is 409
 #   `dispatch` `not-ready`; made ready on the kitchen socket, it goes out for delivery at once on
 #   van-1, stop 1 (the day's one `StopReady`, since 2026-11-08), the board shows it out on van-1,
-#   the day's stops show it out for delivery (one `StopDeparted`, the UI audit's N3), and the plan
+#   the day's stops show it out for delivery (one `StopDeparted`, the audit of 2026-11-08), and the plan
 #   now stands (409 `published`); its completion then delivers it, and the board clears.
 # - The wipe: scripts/list-objects.mjs exits 0, the Dispatch objects included.
 #

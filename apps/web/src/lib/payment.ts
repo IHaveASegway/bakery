@@ -154,7 +154,7 @@ export const ledgerSource = (entry: { stripe_id: string }): string =>
   isSeededLine(entry) ? ' (seeded, no Stripe call)' : '';
 
 /**
- * Who recorded a ledger line, as the ledger's "Recorded by" column says it (G13, 2026-11-10).
+ * Who recorded a ledger line, as the ledger's "Recorded by" column says it (the audit of 2026-11-10).
  * Stripe's lines are Stripe's. A `seed:` payment is the seed's, written by Billing at birth. A
  * `seed:` refund is not seeded: it is a refund someone made of a seeded payment, which Billing
  * records alone because Stripe never saw that payment (workers/api/src/objects/billing.rs,

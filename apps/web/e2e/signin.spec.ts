@@ -1,5 +1,5 @@
 // Sign-in with a demo account, through the sign-in page's own forms, and the sandbox the same press
-// makes (docs/roadmap.md, PR 11: "sign-in" and "a sandbox created"; audit G11, 2026-11-10). Turnstile's script is
+// makes (docs/roadmap.md, PR 11: "sign-in" and "a sandbox created"; the audit of 2026-11-10). Turnstile's script is
 // the stand-in in fixtures.ts; everything else is the storefront and the API as they ship.
 import { expect, password, test } from './fixtures';
 
@@ -23,9 +23,9 @@ test('a demo account is created with its sandbox, and signed in to again', async
 
   // On the console the top bar's bakery nav is one link, back to the shop, and never "Sign in".
   // The shop's header says "Your bakery" on every page and, for a signed-in visitor, goes to the
-  // console, on a page (the privacy page) whose islands never ask for the session themselves
-  // (audit C17). On a page with no script (the tools page) the same words go to the sign-in page,
-  // which says the sandbox is there and offers the console (audit F14).
+  // console, on a page (the privacy page) whose islands never ask for the session themselves.
+  // On a page with no script (the tools page) the same words go to the sign-in page,
+  // which says the sandbox is there and offers the console.
   const nav = page.getByRole('navigation', { name: 'The bakery' });
   await expect(nav.getByRole('link', { name: 'The shop' })).toHaveAttribute('href', '/menu/');
   await expect(nav.getByRole('link', { name: 'Sign in' })).toHaveCount(0);
@@ -49,7 +49,7 @@ test('a demo account is created with its sandbox, and signed in to again', async
   await expect(page).toHaveURL(/\/app\/$/);
   await expect(page.getByRole('heading', { name: 'Signed in with a demo account' })).toBeVisible();
 
-  // The press that made the account made its sandbox too (audit G11), and the account keeps it
+  // The press that made the account made its sandbox too, and the account keeps it
   // across a sign-out, so the console opens on it, seeded by its first alarm.
   await expect(page.getByRole('heading', { name: 'You have no sandbox' })).toHaveCount(0);
   // The top bar names the sandbox on every console page.
@@ -60,7 +60,7 @@ test('a demo account is created with its sandbox, and signed in to again', async
   await expect(page.getByRole('heading', { name: 'Kitchen board' })).toBeVisible();
 });
 
-test('a username typed before the forms hydrate is kept (audit C25)', async ({ page }) => {
+test('a username typed before the forms hydrate is kept', async ({ page }) => {
   // Hold every script back, as a slow connection would, so the visitor types into the server's HTML.
   let release!: () => void;
   const gate = new Promise<void>((resolve) => (release = resolve));

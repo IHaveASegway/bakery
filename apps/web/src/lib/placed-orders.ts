@@ -1,5 +1,5 @@
 // The orders placed in this browser tab, so the kitchen board can mark the visitor's own "Yours"
-// (G7, 2026-11-10). The kitchen's snapshot does not say which cards a visitor placed: a card
+// (the audit of 2026-11-10). The kitchen's snapshot does not say which cards a visitor placed: a card
 // carries a `cause` only for an event the board saw live, and a seeded order and a visitor's look
 // alike in it. So the checkout remembers each order it places, here, and the board reads them.
 //

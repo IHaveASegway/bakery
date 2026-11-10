@@ -1,4 +1,4 @@
-// The landing of a sign-in with Google or GitHub (audit G11, 2026-11-10): the provider links come
+// The landing of a sign-in with Google or GitHub (the audit of 2026-11-10): the provider links come
 // back to /app/start/, a path the API's return-path rule keeps as it is (crates/app/src/auth/
 // oauth.rs, `return_path`: a slash, then lower-case letters, digits, slashes and hyphens, never a
 // query, or the API falls back to /app/), and the page that path builds mounts the console with

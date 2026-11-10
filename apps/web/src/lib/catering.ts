@@ -303,7 +303,7 @@ export function inquiryReasons(form: InquiryForm, earliest: string): string[] {
 
 /**
  * What is wrong with a value the visitor has entered, said at its field in the field's own words
- * (F11, 2026-11-10). A field left empty is not wrong yet: what is still to choose is said beside
+ * (the audit of 2026-11-10). A field left empty is not wrong yet: what is still to choose is said beside
  * the button (`inquiryMissing`).
  */
 export interface InquiryFieldErrors {

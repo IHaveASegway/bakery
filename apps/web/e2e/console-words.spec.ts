@@ -1,4 +1,4 @@
-// The dispatch day is kept in the address (audit N13), and the catering page says what is true signed out (P4).
+// The dispatch day is kept in the address, and the catering page says what is true signed out.
 import { demoAccount, expect, expectNoAxeViolations, liveSandbox, test } from './fixtures';
 
 test('the dispatch day is kept in the address and survives a reload', async ({ page }) => {

@@ -521,7 +521,7 @@ export function actionFor(card: Card): { action: Action; label: string } | null 
 }
 
 /**
- * What a card with no button waits for, in words, or null when it has a button (G9, 2026-11-10).
+ * What a card with no button waits for, in words, or null when it has a button (the audit of 2026-11-10).
  * A ready delivery leaves with a van, not from the board: once the day's plan is published on
  * Dispatch, a delivery that is ready goes out on it, at the publish or as soon as Dispatch hears it
  * is ready (workers/api/src/objects/order.rs: `RoutePublished` and `StopReady` become

@@ -57,7 +57,7 @@ export default function ClockControl({
       const clock = await clicks.current.click(sandboxId, step);
       setOffset(clock.clock_offset_s);
       setWall(Date.now());
-      // The console's form, "Mon 16 Nov, 5:09 am", as every other date on the page (F18).
+      // The console's form, "Mon 16 Nov, 5:09 am", as every other date on the page.
       setSaid(
         `Business time moved forward. It is now ${momentText(clock.business_now, { now: Date.parse(clock.business_now) })}.`,
       );
@@ -89,7 +89,7 @@ export default function ClockControl({
         </strong>{' '}
         (Mountain), <span className="whitespace-nowrap">{formatOffset(offset)}</span> ahead of the
         wall clock,{' '}
-        {/* One phrase that never breaks inside itself (F19): "with 14 d of 14 d left". */}
+        {/* One phrase that never breaks inside itself, at any width: "with 14 d of 14 d left". */}
         <span className="whitespace-nowrap" data-phrase="clock-left">
           with {formatOffset(left)} of {formatOffset(MAX_OFFSET_S)} left.
         </span>

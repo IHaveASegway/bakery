@@ -1,10 +1,10 @@
 // The menu editor and the capacity panel after the audit of 2026-11-08 (afternoon): a price drafted
-// in another tab is noticed (N6), and the capacity panel follows a publish without a reload (N10).
+// in another tab is noticed, and the capacity panel follows a publish without a reload.
 import { describe, expect, test } from 'vitest';
 import { catchUpToMenu } from '../src/lib/capacity';
 import { anotherTabText, unseenDrafts } from '../src/lib/menu';
 
-describe('N6: drafts made in another tab', () => {
+describe('drafts made in another tab', () => {
   test('a slug the page did not know is unseen; the same slugs are not', () => {
     expect(unseenDrafts(['country-loaf'], ['country-loaf', 'baguette'])).toEqual(['baguette']);
     expect(unseenDrafts(['country-loaf'], ['country-loaf'])).toEqual([]);
@@ -24,7 +24,7 @@ describe('N6: drafts made in another tab', () => {
   });
 });
 
-describe('N10: the capacity panel follows the menu', () => {
+describe('the capacity panel follows the menu', () => {
   const no = async () => undefined;
 
   test('stops as soon as the day reports the published version', async () => {

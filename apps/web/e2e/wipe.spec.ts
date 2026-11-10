@@ -150,7 +150,7 @@ test('Wipe now asks nothing more when the socket closes before the wipe answers'
   expect(closed, 'the Kitchen closed the board before the wipe answered').toBe(true);
   expect(asked, 'what the console asked after the close').toEqual([]);
   await expect(page.getByRole('heading', { name: 'Your sandbox is wiped' })).toBeVisible();
-  // The button that had the focus went with the sandbox: the wiped view's heading has it (audit N7).
+  // The button that had the focus went with the sandbox: the wiped view's heading has it.
   await expect(page.locator('#gone-heading')).toBeFocused();
   await page.reload();
   await expect(page.getByRole('heading', { name: 'You have no sandbox' })).toBeVisible();

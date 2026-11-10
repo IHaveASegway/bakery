@@ -207,7 +207,7 @@ describe('the cart in sessionStorage', () => {
   });
 });
 
-describe('the quantity field (audit P5)', () => {
+describe('the quantity field', () => {
   test('a whole number in range passes as typed; an emptied or half-typed field does not', () => {
     expect(validQty('7')).toBe(7);
     expect(validQty('24')).toBe(24);

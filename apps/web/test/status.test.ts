@@ -232,7 +232,7 @@ describe('the words', () => {
     expect(unreachableWords(null)).toContain('no earlier answer');
   });
 
-  test('an API that answered with an error is not called unreachable (audit P9)', () => {
+  test('an API that answered with an error is not called unreachable', () => {
     expect(failureLabel()).toBe('Unreachable.');
     expect(failureLabel(503)).toBe('Not available.');
     expect(unreachableWords(null, 503)).toBe(
@@ -252,7 +252,7 @@ describe('the words', () => {
   });
 });
 
-describe('the sandbox meter (audit P1)', () => {
+describe('the sandbox meter', () => {
   test('the track and the fill are styled apart, so an empty meter is not a full bar', async () => {
     const { readFileSync } = await import('node:fs');
     const css = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');

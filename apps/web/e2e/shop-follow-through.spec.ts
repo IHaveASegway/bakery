@@ -1,14 +1,14 @@
 // The shop's follow-through from the audit of 2026-11-10, measured in the browser:
-// G1, the inbox: a pressed subject opens its message directly under its own row, its heading in the
+// The inbox: a pressed subject opens its message directly under its own row, its heading in the
 // viewport and focused, at 390 and 1280 px, for the first, a middle and the last message listed;
 // Escape and Close give the focus back to the subject; the order page's link opens that order's
 // receipt, and an order the list does not hold leaves the plain list.
-// G11, the demo account: the press that makes the account makes its sandbox, so one press more
+// The demo account: the press that makes the account makes its sandbox, so one press more
 // reaches a live Kitchen board and "You have no sandbox" is never drawn; the card's two actions
 // stand apart.
-// G10, the menu by keyboard: after Add, the way to the cart is the next Tab stop, and it takes the
+// The menu by keyboard: after Add, the way to the cart is the next Tab stop, and it takes the
 // focus to the cart (at 1280 px the panel, at 390 px the sheet), whose heading then shows a ring.
-// G11.2, Google and GitHub: a sign-in lands on /app/start/, which starts the sandbox; /app/ never
+// Google and GitHub: a sign-in lands on /app/start/, which starts the sandbox; /app/ never
 // does.
 import type { Locator, Page } from '@playwright/test';
 import {
@@ -380,7 +380,7 @@ const outlineOf = (page: Page, selector: string) =>
     };
   });
 
-// The sign-in's landing (audit G11.2, 2026-11-10): Google and GitHub come back to /app/start/,
+// The sign-in's landing (the audit of 2026-11-10): Google and GitHub come back to /app/start/,
 // which makes the session a sandbox when it has none and shows the console at /app/. The fake
 // providers (scripts/fake-providers.mjs) answer for a new account on each run.
 const FAKE = `http://127.0.0.1:${process.env.E2E_PROVIDERS_PORT || 8799}`;

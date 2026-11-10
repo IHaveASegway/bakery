@@ -1,9 +1,9 @@
 // The console's fourth-audit fixes (2026-11-10), measured in the browser rather than looked at:
-// Dispatch's Stops table reads whole at 1280 and 1440 px beside no empty block (G5); the order a
-// visitor placed in this tab says "Yours" on its card and the board opens on its column (G7); one
-// line above the board after three moves (G8); a card's event chip inside its card, and a ready
-// delivery that says what it waits for (G9); the ledger says who recorded a refund (G13); and
-// System's dates in the console's forms, its clock phrase on one line (F18, F19).
+// Dispatch's Stops table reads whole at 1280 and 1440 px beside no empty block; the order a
+// visitor placed in this tab says "Yours" on its card and the board opens on its column; one
+// line above the board after three moves; a card's event chip inside its card, and a ready
+// delivery that says what it waits for; the ledger says who recorded a refund; and
+// System's dates in the console's forms, its clock phrase on one line.
 //
 // Elements are picked by what they are (the visitor's own order by its id, a ledger row by its
 // order), never by which seeded card happens to come first.

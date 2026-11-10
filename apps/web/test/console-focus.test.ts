@@ -1,5 +1,5 @@
 // Focus the console keeps after an action, after the audit of 2026-11-08 (afternoon): the catering
-// queue after Send quote and a refused Start production (N4), the wiped view after Wipe now (N7).
+// queue after Send quote and a refused Start production, the wiped view after Wipe now.
 // Static renders show the first paint; effects do not run in them, so the e2e step in
 // e2e/console-polish.spec.ts and e2e/wipe.spec.ts presses the keys.
 import { createElement } from 'react';
@@ -21,7 +21,7 @@ const inquiry: CateringResponse = {
   reminders: [],
 };
 
-describe('N4: the catering queue keeps the keyboard', () => {
+describe('the catering queue keeps the keyboard', () => {
   const html = renderToStaticMarkup(
     createElement(QueueCard, {
       sandboxId: 'S',
@@ -43,7 +43,7 @@ describe('N4: the catering queue keeps the keyboard', () => {
   });
 });
 
-describe('N7: the wiped view takes the focus', () => {
+describe('the wiped view takes the focus', () => {
   test('its heading can be focused', () => {
     const out = renderToStaticMarkup(
       createElement(Gone, { wiped: true, header: null, another: null, error: null }),

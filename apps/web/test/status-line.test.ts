@@ -1,5 +1,5 @@
 // The shared sandbox line: the default signed-out sentence stays for the storefront pages, and a
-// screen with nothing to order can say what is true for it (audit P4).
+// screen with nothing to order can say what is true for it.
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';

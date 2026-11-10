@@ -1,4 +1,4 @@
-// The guest's way in (audit F1 and F3, 2026-11-10): a stranger who fills a cart and opens the
+// The guest's way in (the audit of 2026-11-10): a stranger who fills a cart and opens the
 // checkout with no sandbox meets one gate, before any choice. Start ordering makes a guest sandbox
 // right there, through Turnstile (the stand-in in fixtures.ts), and the visitor stays on the
 // checkout with the cart they had, then picks a time. The gate's Sign in comes back to the page,
@@ -125,7 +125,7 @@ test('the menu’s banner starts in place too, and the sign-in page then says th
   await expect(gate).toHaveCount(0);
 
   // The header reads "Your bakery" on a page with no script too, and the sign-in page it leads to
-  // says the sandbox is there rather than offering to start again (audit F14).
+  // says the sandbox is there rather than offering to start again.
   await page.goto('/how-its-built/tools/');
   const nav = page.getByRole('navigation', { name: 'The bakery' });
   await nav.getByRole('link', { name: 'Your bakery' }).click();

@@ -1,4 +1,4 @@
-// The catering queue keeps the keyboard after Send quote and after a refused Start production (audit N4); the wiped view's focus is checked in wipe.spec.ts (N7).
+// The catering queue keeps the keyboard after Send quote and after a refused Start production; the wiped view's focus is checked in wipe.spec.ts.
 import { demoAccount, expect, expectNoAxeViolations, liveSandbox, test } from './fixtures';
 
 // The refused Start production is a 409, which Chromium logs.

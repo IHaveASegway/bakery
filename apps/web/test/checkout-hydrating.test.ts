@@ -1,6 +1,6 @@
 // The checkout's controls in the server's HTML wait for the island (2026-11-10): a press on
 // Continue or the method choice before hydration did nothing, and slots.spec failed on it about
-// one run in four. Since the gate (audit F1, later on 2026-11-10) the steps are drawn only once the
+// one run in four. Since the gate (later on 2026-11-10) the steps are drawn only once the
 // island knows there is a live sandbox, so the server's HTML holds no choice at all: only the
 // gate's frame, saying the page is looking. Nothing in it can be pressed before the island is live.
 import { createElement } from 'react';
