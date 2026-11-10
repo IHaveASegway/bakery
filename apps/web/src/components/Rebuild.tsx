@@ -7,6 +7,7 @@ import { type Message as Text } from '../lib/messages';
 import GuestNote from './GuestNote';
 import Message from './Message';
 import { HOW } from '../tour/how';
+import HowItWorks from './HowItWorks';
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -112,7 +113,9 @@ export default function Rebuild({
           {percent}%. {rebuildSays(state)}
         </p>
       )}
-      <p className="hint">How this works: {HOW.rebuild}</p>
+      <HowItWorks>
+        <p>{HOW.rebuild}</p>
+      </HowItWorks>
     </section>
   );
 }

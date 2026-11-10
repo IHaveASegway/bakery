@@ -14,6 +14,7 @@ import { whenText } from '../lib/when';
 import GuestNote from './GuestNote';
 import Message from './Message';
 import { HOW } from '../tour/how';
+import HowItWorks from './HowItWorks';
 
 /**
  * Time travel: the business clock shown live, and four steps that move it forward. Business time
@@ -109,7 +110,11 @@ export default function ClockControl({
       </p>
       {isGuest && <GuestNote />}
       <Message error={error}>{said && <p className="hint">{said}</p>}</Message>
-      {variant === 'panel' && <p className="hint">How this works: {HOW.clock}</p>}
+      {variant === 'panel' && (
+        <HowItWorks>
+          <p>{HOW.clock}</p>
+        </HowItWorks>
+      )}
     </>
   );
 }

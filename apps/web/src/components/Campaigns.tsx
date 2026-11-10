@@ -42,6 +42,7 @@ import { describeError, type Message as Text } from '../lib/messages';
 import GuestNote from './GuestNote';
 import Message from './Message';
 import { HOW } from '../tour/how';
+import HowItWorks from './HowItWorks';
 
 /** The business time now, from the wall clock and the sandbox's offset. */
 const businessNow = (offsetS: number) => Date.now() + offsetS * 1000;
@@ -249,7 +250,9 @@ export default function Campaigns({
         </ul>
       )}
 
-      <p className="hint">How this works: {HOW.campaigns}</p>
+      <HowItWorks>
+        <p>{HOW.campaigns}</p>
+      </HowItWorks>
     </section>
   );
 }

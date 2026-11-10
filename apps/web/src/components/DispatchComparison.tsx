@@ -1,5 +1,6 @@
 import { clockText, type BrowserSolver, type Figures, type Report } from '../lib/dispatch';
 import { HOW } from '../tour/how';
+import HowItWorks from './HowItWorks';
 
 const SOURCE_NAMES = { server: 'Server (savings heuristic)', browser: 'Browser (VROOM)' } as const;
 
@@ -56,14 +57,16 @@ export default function DispatchComparison({
           </tbody>
         </table>
       </div>
-      <p className="hint">
-        Both plans keep to the delivery windows: the API refuses either one if a van would reach a
-        stop after its window closes. Drive minutes are free-flow times from the travel-time matrix,
-        with no traffic, no time at the door and no waiting for a window to open; the time the last
-        van is back counts both. The gap is the server’s total less the browser’s, as a percentage
-        of the browser’s.
-      </p>
-      <p className="hint">How this works: {HOW.dispatch}</p>
+      <HowItWorks>
+        <p>
+          Both plans keep to the delivery windows: the API refuses either one if a van would reach a
+          stop after its window closes. Drive minutes are free-flow times from the travel-time
+          matrix, with no traffic, no time at the door and no waiting for a window to open; the time
+          the last van is back counts both. The gap is the server’s total less the browser’s, as a
+          percentage of the browser’s.
+        </p>
+        <p>{HOW.dispatch}</p>
+      </HowItWorks>
     </>
   );
 }
