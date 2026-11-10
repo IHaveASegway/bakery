@@ -178,7 +178,7 @@ test('placing an order at checkout opens a note with the request, its status and
   await expectNoAxeViolations(page);
 });
 
-test('with the switch off, a press opens no note, and it stays off in the tab', async ({
+test('with the switch off, a press opens no note and the layer is not loaded; on again, notes return, but never over the recorder', async ({
   page,
 }) => {
   await demoAccount(page);
@@ -206,4 +206,47 @@ test('with the switch off, a press opens no note, and it stays off in the tab', 
     )
     .toBeGreaterThan(0);
   await expect(page.locator('.guide-note')).toHaveCount(0);
+  // Off, the page loaded no layer, and the recorder still opens (it loads the layer then).
+  expect(await layerLoaded(page)).toBe(false);
+  const recorder = page.getByRole('button', { name: 'Recorder' });
+  await recorder.click();
+  const panel = page.getByRole('region', { name: 'Recorder' });
+  await expect(panel).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(panel).toHaveCount(0);
+
+  // On again: the press made while it was off opens nothing late, and no mark or note flashes.
+  const advance = page.getByRole('button', { name: /^Advance 15 minutes/ }).first();
+  await page.getByRole('switch', { name: 'Under the hood' }).click();
+  await expect(page.locator('.guide-spot').first()).toBeVisible();
+  await expect(page.locator('.guide-note')).toHaveCount(0);
+
+  // With the recorder open, a press is the panel's newest row and no note opens over it, then
+  // or after the panel closes.
+  await recorder.click();
+  await expect(panel).toBeVisible();
+  // The panel's rows for the visitor's presses of the clock (not its entry row of the same title).
+  const clockRows = panel.locator('.guide-row', { hasText: 'POST …/clock' });
+  await expect(clockRows).toHaveCount(1); // the press made while the guide was off
+  // The panel covers the control at this window's size; the keyboard reaches it all the same.
+  await advance.focus();
+  await page.keyboard.press('Enter');
+  await expect(clockRows).toHaveCount(2);
+  await expect(page.locator('.guide-note')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(panel).toHaveCount(0);
+  await expect(page.locator('.guide-note')).toHaveCount(0);
+
+  // With the recorder closed, the next press opens its note again.
+  await advance.click();
+  await expect(page.getByRole('region', { name: 'Under the hood: The clock' })).toBeVisible();
 });
+
+/** Whether the page has fetched the guide's deferred layer (its chunk is named Layer.*.js). */
+async function layerLoaded(page: Page): Promise<boolean> {
+  return page.evaluate(() =>
+    performance
+      .getEntriesByType('resource')
+      .some((entry) => /\/_astro\/Layer\.[^/]+\.js$/.test(entry.name)),
+  );
+}

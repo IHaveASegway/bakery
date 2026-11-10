@@ -392,10 +392,15 @@ describe('when a live note opens', () => {
     expect(noteToOpen([action(5)], seen, { on: true, panel: false })).toBeNull();
   });
 
-  test('a layer that mounts late treats what the store already held as seen', () => {
-    const seen = gesturesIn([action(7), action(null, 'heartbeat'), action(6)]);
+  test('a layer that mounts late treats old actions as seen, and a press just before it as new', () => {
+    const later = T0 + 60_000;
+    const seen = gesturesIn([action(7), action(null, 'heartbeat'), action(6)], later);
     expect([...seen].sort()).toEqual([6, 7]);
     expect(noteToOpen([action(7)], seen, { on: true, panel: false })).toBeNull();
+    // The layer loaded a second after the visitor pressed Place order: that press opens its note.
+    const quick = gesturesIn([action(8)], T0 + 1_000);
+    expect(quick.size).toBe(0);
+    expect(noteToOpen([action(8)], quick, { on: true, panel: false })).toBe(8);
   });
 
   test('the page’s own calls (no click) never open one', () => {

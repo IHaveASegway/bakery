@@ -60,6 +60,17 @@ export function noteToOpen(
   return state.on && !state.panel ? gesture : null;
 }
 
-/** The actions already in the store when the layer mounts: seen, so none of them opens late. */
-export const gesturesIn = (traces: readonly Trace[]): Set<number> =>
-  new Set(traces.flatMap((t) => (t.gesture === null ? [] : [t.gesture])));
+/** How recent an action may be, when the layer mounts, and still open its note. */
+export const MOUNT_GRACE_MS = 3_000;
+
+/**
+ * The actions already in the store when the layer mounts that are old news: those that began more
+ * than MOUNT_GRACE_MS before `now`. A press made just before the layer finished loading (a quick
+ * Place order) still opens its note; one made minutes ago, with the guide off, does not.
+ */
+export const gesturesIn = (traces: readonly Trace[], now: number): Set<number> =>
+  new Set(
+    traces.flatMap((t) =>
+      t.gesture === null || t.startedAt > now - MOUNT_GRACE_MS ? [] : [t.gesture],
+    ),
+  );

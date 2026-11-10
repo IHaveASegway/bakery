@@ -51,9 +51,10 @@ export default function Layer({
 
   // ---- The live note: the visitor's latest action, while the guide is on ----
   const [live, setLive] = useState<{ gesture: number; pinned: boolean } | null>(null);
-  // The layer mounts only while it is needed, so what the store held before it mounted is old news.
-  const opened = useRef(gesturesIn(traces.getSnapshot().traces));
-  const said = useRef(gesturesIn(traces.getSnapshot().traces));
+  // The layer mounts only while it is needed, so what the store held well before it mounted is old
+  // news; a press made just before it loaded still opens its note.
+  const opened = useRef(gesturesIn(traces.getSnapshot().traces, Date.now()));
+  const said = useRef(gesturesIn(traces.getSnapshot().traces, Date.now()));
   const newest = snapshot.traces.find((t) => t.gesture !== null);
   useEffect(() => {
     const gesture = noteToOpen(snapshot.traces, opened.current, { on, panel });
