@@ -697,6 +697,171 @@ td {
   }
 }
 
+/* The tools page (/how-its-built/tools/): one article a tool, three labelled lines in a label
+   column beside the text on a wide screen and stacked on a phone, and a closed list of what was
+   not chosen. */
+.tool-index {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  padding: 0;
+  list-style: none;
+}
+
+.tools-page time {
+  white-space: nowrap;
+}
+
+.tool-count {
+  color: var(--text-muted);
+  font-size: var(--type-14);
+}
+
+.tool-group {
+  scroll-margin-top: 1rem;
+}
+
+.tool {
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+  scroll-margin-top: 1rem;
+}
+
+.tool-group > h2 + .tool {
+  margin-top: var(--space-4);
+}
+
+.tool h3 {
+  margin: 0;
+  font-size: var(--type-18);
+}
+
+.prose .tool-meta {
+  margin: var(--space-1) 0 var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--type-14);
+}
+
+.tool-flag {
+  display: inline-block;
+  margin-left: var(--space-1);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  font-size: var(--type-13);
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.prose .tool-facts,
+.prose .alt-facts {
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  gap: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.prose .alt-facts {
+  grid-template-columns: 10rem minmax(0, 1fr);
+  margin-bottom: 0;
+}
+
+.tool-facts dt,
+.alt-facts dt {
+  padding-top: 0.15em;
+  font-size: var(--type-14);
+  font-weight: 600;
+}
+
+.tool-facts dt.not-measured {
+  color: var(--text);
+}
+
+.tool-facts dd.not-measured {
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--border-strong);
+}
+
+.alt-facts dd.not-recorded {
+  color: var(--text-muted);
+}
+
+.prose .tool-links {
+  margin-bottom: var(--space-3);
+  font-size: var(--type-14);
+}
+
+.tool-links-label {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.tool-alts {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+}
+
+.tool-alts summary {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  font-size: var(--type-14);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tool-alts[open] summary {
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
+}
+
+.prose .alt-list {
+  margin: 0;
+  padding: 0 var(--space-3);
+  list-style: none;
+}
+
+.alt {
+  padding: var(--space-3) 0;
+}
+
+.alt + .alt {
+  border-top: 1px solid var(--border);
+}
+
+.alt h4 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--type-16);
+}
+
+.prose .alt-after {
+  margin: 0 0 var(--space-2);
+}
+
+.alt-after .tool-flag {
+  margin-left: 0;
+}
+
+@media (max-width: 40rem) {
+  .prose .tool-facts,
+  .prose .alt-facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .tool-facts dd,
+  .alt-facts dd {
+    margin-bottom: var(--space-3);
+  }
+
+  .tool-facts dd:last-child,
+  .alt-facts dd:last-child {
+    margin-bottom: 0;
+  }
+}
+
 /* The essay: a long read at 18 px in the reading face. */
 .essay p,
 .essay li {

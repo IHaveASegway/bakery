@@ -48,6 +48,10 @@ export function adrUrl(number: string, files: readonly string[] = adrFiles): str
 export const HOW_PATH = '/how-its-built/';
 export const howUrl = (id: string): string => `${HOW_PATH}#${id}`;
 
+/** The page of every tool in the build and what was not chosen (src/data/tools.ts). */
+export const TOOLS_PATH = '/how-its-built/tools/';
+export const TOOLS_TITLE = 'The tools, and what was not chosen';
+
 /** An essay of How it's built: its path on this site and its title, which is also its h1. */
 export interface Essay {
   path: string;

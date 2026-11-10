@@ -1,8 +1,9 @@
 ---
 import Base from '../../layouts/Base.astro';
 import { GROUPS, ONE_LINE, RECRUITER_LINE, principleOf, sections } from '../../lib/how-its-built';
-import { ESSAY_PAGES, SITE_LAB } from '../../lib/links';
+import { ESSAY_PAGES, SITE_LAB, TOOLS_PATH, TOOLS_TITLE } from '../../lib/links';
 import { decisionRows } from '../../guide/decisions';
+import { TOOLS } from '../../data/tools';
 
 // How it's built (Q6 · Q-public, Q32 · Q-links, Q33 · Q-principles): one section per principle,
 // from the data the guide reads (lib/how-its-built.ts), so the page and the guide cannot drift. A
@@ -42,7 +43,9 @@ const groups = (['lab', 'new', 'demo'] as const).map((group) => ({
         lab page
       </a>{' '}
       that explains the principle on its own, where there is one, and the decision record (ADR) that
-      chose it. The guide on every screen links back here.
+      chose it. The guide on every screen links back here. Every tool in the build, with why it was
+      chosen, when it would be wrong and what was weighed against it, is on{' '}
+      <a href={TOOLS_PATH}>{TOOLS_TITLE}</a>.
     </p>
 
     <h2 id="decisions-title">Why each tool, and when not</h2>
@@ -76,6 +79,10 @@ const groups = (['lab', 'new', 'demo'] as const).map((group) => ({
         </tbody>
       </table>
     </div>
+    <p class="tools-link">
+      <a href={TOOLS_PATH}>Every tool, and what was not chosen</a>: all {TOOLS.length} tools in the
+      build, the alternatives each record weighed, and which were never compared.
+    </p>
 
     <nav aria-labelledby="contents-title">
       <h2 id="contents-title">Contents</h2>
