@@ -192,7 +192,7 @@ export function stateLabel(state: CountersState): string {
     ? 'Live.'
     : state === 'stale'
       ? 'Older than it should be.'
-      : 'Not available yet.';
+      : 'Not available.';
 }
 
 /** The rest of the sentence for a state. */
@@ -207,7 +207,8 @@ export function stateWords(state: CountersState, asOf: string | null): string {
         ? 'The last refresh of the counters failed, so these numbers are old.'
         : `The last refresh of the counters failed, so these numbers are from ${formatTime(asOf)}.`;
     case 'unavailable':
-      return 'The bakery has not read its counters yet. They appear after the first refresh, which runs every 15 minutes.';
+      // All the page knows: no snapshot has been kept. It does not guess why, nor promise when.
+      return 'No refresh of the counters has succeeded yet. The bakery tries every 15 minutes, and this line changes when one succeeds.';
   }
 }
 

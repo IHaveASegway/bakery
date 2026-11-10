@@ -78,7 +78,9 @@ export function StatusView({ model }: { model: Model }) {
 
           <h2>The last 24 hours</h2>
           {data.counters === null ? (
-            <p data-testid="status-counters">No counters yet.</p>
+            <p data-testid="status-counters">
+              No counts to show: no refresh of the counters has succeeded yet.
+            </p>
           ) : (
             <>
               <p className="hint">

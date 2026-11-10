@@ -203,10 +203,15 @@ describe('the words', () => {
   test('each state has its own label and sentence', () => {
     expect(stateLabel('live')).toBe('Live.');
     expect(stateLabel('stale')).toBe('Older than it should be.');
-    expect(stateLabel('unavailable')).toBe('Not available yet.');
+    expect(stateLabel('unavailable')).toBe('Not available.');
     expect(stateWords('live', '2026-11-06T14:15:00Z')).toContain('2026-11-06 14:15 UTC');
     expect(stateWords('stale', '2026-11-06T09:00:00Z')).toContain('last refresh');
-    expect(stateWords('unavailable', null)).toContain('every 15 minutes');
+    // Unavailable is all the page knows: no snapshot yet. It says so, says the bakery tries every
+    // 15 minutes, and promises nothing about when, nor guesses why.
+    expect(stateWords('unavailable', null)).toBe(
+      'No refresh of the counters has succeeded yet. The bakery tries every 15 minutes, and this line changes when one succeeds.',
+    );
+    expect(stateWords('unavailable', null)).not.toMatch(/appear after|first refresh/);
   });
 
   test('the unreachable sentence names the kept answer’s time, or says there is none', () => {
@@ -275,9 +280,9 @@ describe('the page, drawn', () => {
 
   test('unavailable: says so, shows the sandboxes, and no counter', () => {
     const out = html(answered(readStatus(BASE)!));
-    expect(out).toContain('<strong>Not available yet.</strong>');
+    expect(out).toContain('<strong>Not available.</strong>');
     expect(out).toContain('42 of 300');
-    expect(out).toContain('No counters yet.');
+    expect(out).toContain('No counts to show: no refresh of the counters has succeeded yet.');
     expect(out).not.toContain('<dt>');
   });
 
