@@ -152,6 +152,16 @@ describe('the visitor’s own action, and the page’s', () => {
     expect(store.anchorOf(trace?.gesture ?? null)).toBe(button);
   });
 
+  test('a request sent in the click’s own handler is the click’s, though the two clocks round apart', () => {
+    const store = createTraceStore();
+    // The click's whole-millisecond stamp can land just after the request's measured start.
+    const g = store.gesture({}, T0 + 1);
+    store.record(call({ key: 'same-ms' }));
+    store.gesture({}, T0 + 2_000 + 50);
+    store.record(call({ key: 'before-the-click', at: T0 + 2_000 + 84 }));
+    expect(store.getSnapshot().traces.map((t) => t.gesture)).toEqual([null, g.seq]);
+  });
+
   test('a request long after the click, or with none, is the page’s own: no gesture', () => {
     const store = createTraceStore();
     store.record(call({ key: 'heartbeat-key' }));

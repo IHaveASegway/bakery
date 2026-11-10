@@ -233,6 +233,13 @@ export interface Gesture {
 
 /** How long after a click a request still counts as the visitor's. */
 export const GESTURE_MS = 2_000;
+/**
+ * How far before its click a request may seem to start and still be the click's. The click is
+ * stamped with Date.now(), which counts whole milliseconds; a request's start is its answer's
+ * Date.now() less its performance.now() duration, so a request sent in the click's own handler can
+ * seem to start up to a millisecond before the click did.
+ */
+export const SKEW_MS = 5;
 /** How many traces and orphan events are kept. */
 export const KEEP_TRACES = 20;
 const KEEP_ORPHANS = 100;
@@ -293,7 +300,7 @@ export function createTraceStore(
   };
 
   const gestureFor = (at: number) =>
-    last !== null && at - last.at >= 0 && at - last.at <= GESTURE_MS ? last.seq : null;
+    last !== null && at - last.at >= -SKEW_MS && at - last.at <= GESTURE_MS ? last.seq : null;
 
   /** Ties an event to its trace, and then any waiting event it caused; true when it joined. */
   const attach = (event: Extract<Evidence, { kind: 'event' }>): boolean => {
