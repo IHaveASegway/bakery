@@ -580,9 +580,9 @@ describe('dist', () => {
   //
   // Measured 2026-11-10 with node's gzipSync at its default level, per class (the largest page of
   // the class), after the console's seven pages (#106) merged and the pages stopped explaining (the
-  // guide took their How this works words): guide only 82,175 B
-  // (home, privacy); API reference 82,428 B; status 84,949 B; storefront 94,034 B (menu, sign-in);
-  // checkout 112,273 B; the order's page 105,915 B; console screens 111,628 B (the kitchen; the
+  // guide took their How this works words): guide only 82,172 B
+  // (home, privacy); API reference 82,425 B; status 84,946 B; storefront 94,031 B (menu, sign-in);
+  // checkout 112,270 B; the order's page 105,912 B; console screens 111,625 B (the kitchen; the
   // console's seven pages, the shop's catering and the inbox). Each budget is the measured size
   // plus a quarter, rounded up to the next 1,000 B. The ADR's own numbers (5,000 B for a public
   // page, 120,000 B for an app screen or the checkout) are not met on the public pages: every
@@ -591,17 +591,17 @@ describe('dist', () => {
   //
   // Since the guide replaced the tour (2026-11-09) these budgets hold the first load only: the
   // guide's bar and the trace store. With the guide on, the default, the page then loads the
-  // deferred layer (the test after these holds it, at 30,891 B to 31,657 B), so a page with the
+  // deferred layer (the test after these holds it, at 30,897 B to 31,663 B), so a page with the
   // guide on costs more than it did with the tour. Per class, first load / with the guide on /
-  // the tour's total it replaces, as main last measured it: guide only 82,175 / 113,832 / 94,187;
-  // API reference 82,428 / 114,085 / 94,440; status 84,949 / 116,606 / 96,960; storefront
-  // 94,034 / 125,145 / 103,417; checkout 112,273 / 143,384 / 122,775 (its three steps, #101);
-  // console screens 111,628 / 142,739 / 122,232 (the kitchen as its own page). The first load is
-  // smaller than the tour's by 9,383 B to 12,012 B; with the guide on the page is larger, by
-  // 19,645 B to 21,728 B. The tour's totals were taken before the shop's and the console's later
+  // the tour's total it replaces, as main last measured it: guide only 82,172 / 113,835 / 94,187;
+  // API reference 82,425 / 114,088 / 94,440; status 84,946 / 116,609 / 96,960; storefront
+  // 94,031 / 125,148 / 103,417; checkout 112,270 / 143,387 / 122,775 (its three steps, #101);
+  // console screens 111,625 / 142,742 / 122,232 (the kitchen as its own page). The first load is
+  // smaller than the tour's by 9,386 B to 12,015 B; with the guide on the page is larger, by
+  // 19,648 B to 21,731 B. The tour's totals were taken before the shop's and the console's later
   // changes merged, so part of each gap is theirs, not the guide's. The order's status page
-  // (/order/, #101) had no tour, at 97,911 B; with the guide's bar it is 105,915 B first and
-  // 137,026 B with the guide on, which buys the order's read, its watch on the kitchen socket, the
+  // (/order/, #101) had no tour, at 97,911 B; with the guide's bar it is 105,912 B first and
+  // 137,029 B with the guide on, which buys the order's read, its watch on the kitchen socket, the
   // tracker and the guide there. A visitor who turns the guide off loads the first load alone on
   // later pages.
   describe('JavaScript per page', () => {
@@ -680,7 +680,7 @@ describe('dist', () => {
     // The guide's deferred load (components/Guide.tsx): the Layer chunk that a dynamic import brings
     // once the island has mounted and the guide is on or the recorder is open, with every chunk it
     // imports statically that the page's first load does not already carry, gzipped the same way.
-    // Measured 2026-11-10: 30,891 B to 31,657 B (the light pages carry less React in their first
+    // Measured 2026-11-10: 30,897 B to 31,663 B (the light pages carry less React in their first
     // load, so their deferred load is the larger). The budget is the largest plus a quarter,
     // rounded up to the next 1,000 B. The bytes buy the 74 entries with the facts the pages' own
     // paragraphs once said, the notes, the hotspots, the recorder panel, the short path, the order
