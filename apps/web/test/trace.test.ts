@@ -171,6 +171,44 @@ describe('the visitor’s own action, and the page’s', () => {
   });
 });
 
+describe('a story read: the menu’s, traced with what its answer said', () => {
+  const menuRead = (over: Partial<Extract<Evidence, { kind: 'call' }>> = {}): Evidence =>
+    call({
+      key: null,
+      method: 'GET',
+      path: '/v1/sandboxes/sbx-one/menu',
+      status: 200,
+      read: { name: 'menu', cache: 'miss', etag: '"v1"', asked: null },
+      ...over,
+    });
+
+  test('one the page made by itself is a note of its own, with its headers', () => {
+    const store = createTraceStore();
+    store.record(menuRead());
+    const [read] = store.getSnapshot().traces;
+    expect(read?.gesture).not.toBeNull();
+    expect(read?.read).toEqual({ name: 'menu', cache: 'miss', etag: '"v1"', asked: null });
+  });
+
+  test('two reads are two notes, and a later click is a new one again', () => {
+    const store = createTraceStore();
+    store.record(menuRead());
+    store.record(
+      menuRead({ status: 304, read: { name: 'menu', cache: 'hit', etag: '"v1"', asked: '"v1"' } }),
+    );
+    const g = store.gesture({}, T0 + 10_000);
+    const numbers = store.getSnapshot().traces.map((t) => t.gesture);
+    expect(new Set(numbers).size).toBe(2);
+    expect(numbers).not.toContain(g.seq);
+  });
+
+  test('a page’s other reads are not story reads: no gesture of their own', () => {
+    const store = createTraceStore();
+    store.record(call({ key: null, method: 'GET', path: '/v1/sandboxes/sbx-one/traffic' }));
+    expect(store.getSnapshot().traces[0]?.gesture).toBeNull();
+  });
+});
+
 describe('the activity feed: weaker evidence, said as such', () => {
   const entry = (type: string, at: string) => ({ type, at, summary: `${type} happened` });
 

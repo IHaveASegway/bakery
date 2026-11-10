@@ -411,50 +411,6 @@
   }
 }
 
-/* "How this works": closed under a card's work, a quiet line that opens to the explanation. */
-details.how {
-  margin-top: var(--space-3);
-  color: var(--text-muted);
-  font-size: var(--type-13);
-}
-
-details.how > summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 24px;
-  color: var(--text-muted);
-  font-weight: 500;
-  cursor: pointer;
-  list-style: none;
-}
-
-details.how > summary::-webkit-details-marker {
-  display: none;
-}
-
-details.how > summary::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-  transform: rotate(-45deg);
-}
-
-details.how[open] > summary::before {
-  transform: rotate(45deg);
-}
-
-details.how > summary:hover {
-  color: var(--text);
-  text-decoration: underline;
-}
-
-.how-body p {
-  margin: var(--space-2) 0 0;
-}
-
 /* The capacity card: compact tables of the day's places, each with a thin bar of how full. */
 .capacity-table {
   margin: var(--space-3) 0 0;

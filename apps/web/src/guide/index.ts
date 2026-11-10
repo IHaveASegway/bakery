@@ -1,3 +1,4 @@
+import type { ReadName } from '../lib/trace';
 // Every screen's entries, in the order a visitor meets them on the page. The console's come from four
 // files because it is the largest screen; they are one list.
 import type { GuideEntry, RouteShape, ScreenId } from '../lib/guide';
@@ -96,3 +97,9 @@ export const OTHER_WRITES: RouteShape[] = [
 
 /** Every route the guide can name from a request: the entries' and the others. */
 export const ROUTE_SHAPES: RouteShape[] = [...ALL_ENTRIES.map((e) => e.api), ...OTHER_WRITES];
+
+/**
+ * The route of each story read (lib/trace.ts, STORY_READS): the only reads that open a note, each
+ * on the entries that name it in their triggers.
+ */
+export const STORY_READ_ROUTES: Record<ReadName, string> = { menu: 'get-menu' };

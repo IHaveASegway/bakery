@@ -7,7 +7,6 @@ import { useLiveMenu } from '../lib/use-live-menu';
 import { hydrating, useMounted } from '../lib/use-mounted';
 import { useSandboxPhase, type Phase } from '../lib/use-session';
 import CartLines from './CartLines';
-import HowThisWorks from './HowThisWorks';
 import MenuList from './MenuList';
 import StatusLine from './StatusLine';
 
@@ -152,10 +151,6 @@ export default function StoreMenu() {
           <strong>{menu.error.title}.</strong> {menu.error.detail}
         </p>
       )}
-      <HowThisWorks
-        menu={menu}
-        onCheck={phase.name === 'live' ? () => void menu.refresh() : undefined}
-      />
     </div>
   );
 }

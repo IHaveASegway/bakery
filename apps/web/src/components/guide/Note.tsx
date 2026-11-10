@@ -109,6 +109,19 @@ export function Note({
         note.style.removeProperty('left');
         note.removeAttribute('data-side');
         setCorner(target === null);
+        // A phone's sheet sits at the foot; when what the visitor pressed is down there, under
+        // where the sheet would be, the sheet goes to the top instead, under the page's bars.
+        const anchorRect = target?.getBoundingClientRect();
+        const sheetTop = window.innerHeight - note.offsetHeight - 80;
+        if (
+          anchorRect !== undefined &&
+          window.matchMedia(PHONE).matches &&
+          anchorRect.bottom > sheetTop
+        ) {
+          note.setAttribute('data-sheet', 'top');
+        } else {
+          note.removeAttribute('data-sheet');
+        }
         return;
       }
       const rect = target.getBoundingClientRect();
@@ -128,10 +141,23 @@ export function Note({
       if (at.side === 'none') note.removeAttribute('data-side');
       else note.setAttribute('data-side', at.side);
     };
+    // More below the note's edge, and not yet scrolled to: the foot fades (guide.css).
+    const more = () => {
+      const left = note.scrollHeight - note.clientHeight - note.scrollTop;
+      if (left > 4) note.setAttribute('data-more', '');
+      else note.removeAttribute('data-more');
+    };
     const soon = () => {
-      if (frame === 0) frame = requestAnimationFrame(place);
+      if (frame === 0) {
+        frame = requestAnimationFrame(() => {
+          place();
+          more();
+        });
+      }
     };
     place();
+    more();
+    note.addEventListener('scroll', more, { passive: true });
     window.addEventListener('scroll', soon, { passive: true, capture: true });
     window.addEventListener('resize', soon);
     const sizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(soon);
@@ -148,6 +174,7 @@ export function Note({
       sizes?.disconnect();
       redraws?.disconnect();
       document.removeEventListener('focusin', soon);
+      note.removeEventListener('scroll', more);
       ring(null);
     };
   }, [anchor, changed]);
