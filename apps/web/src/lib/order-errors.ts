@@ -17,13 +17,15 @@ const SENTENCES: Record<string, string> = {
   'out-of-season':
     'Something in the cart is out of season on the day you chose. Choose another day.',
   'pickup-only': 'Something in the cart is pickup only. Choose pickup, or take it out.',
-  'zone-required': 'A delivery needs a zone. Choose one.',
+  'zone-required':
+    'The bakery does not know where this customer is, so it cannot deliver this order. Choose pickup.',
   'zone-on-pickup': 'A pickup has no delivery zone.',
+  'wrong-zone': 'A delivery goes to the customer’s own zone, and this order named another.',
   'lead-time': 'Something in the cart needs more notice than that. Choose a later time.',
   'no-such-slot':
     'That is not a time the bakery takes orders for: pickup slots run on the quarter hour, delivery windows start at 9, 11 and 1. Choose one from the list.',
   'closed-day': 'The bakery is closed that day: it opens Tuesday to Sunday. Choose another day.',
-  'unknown-zone': 'The bakery does not deliver to that zone. Choose zone 1, 2 or 3.',
+  'unknown-zone': 'The bakery does not deliver to that zone.',
   'note-email':
     'The note looks like an email address. The bakery keeps no personal details, so leave it out.',
   'note-phone':
@@ -32,6 +34,8 @@ const SENTENCES: Record<string, string> = {
   'note-url': 'The note looks like a web address. Leave it out.',
   'note-too-long': 'The note is longer than 140 characters. Shorten it.',
   note: 'The note was refused. Shorten it or take it out.',
+  'already-placed': 'This order was placed already.',
+  overflow: 'The order’s total is too large to price. Take something out.',
 };
 
 // Longest first, so `note-email` wins over `note`.

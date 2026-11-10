@@ -125,10 +125,11 @@ const SOURCES = [
 
     <h2>A refusal that says when to come back</h2>
     <p>
-      The layers are cheap in different currencies. A Turnstile pass costs the visitor a moment at
-      the sign-in screen. A rate-limit refusal costs the Worker one binding call. A cap refusal
-      costs one request to <code>Control</code> and a few reads. The order follows from that: the
-      free refusals come before the one that touches an object.
+      The layers are cheap in different currencies. A Turnstile pass costs the visitor a moment
+      where a sandbox is made: the sign-in page, or since 2026-11-10 the menu, the checkout or the
+      catering page. A rate-limit refusal costs the Worker one binding call. A cap refusal costs one
+      request to <code>Control</code> and a few reads. The order follows from that: the free
+      refusals come before the one that touches an object.
     </p>
     <p>
       Each answer says what to do. A rate limit is a 429 with <code>Retry-After: 60</code>. A cap is
@@ -156,11 +157,13 @@ const SOURCES = [
         sender’s churn and nothing more; the daily count is exact only because one object keeps it.
       </li>
       <li>
-        <strong>A breaker that is not built.</strong> <code>docs/cost.md</code> designs a cron that
-        reads real usage and sets <code>Control</code> to read-only. As of 2026-11-06 the cron holds
-        no breaker, and the counts above are what stands between the account and a flood. At those
-        caps cost.md works the worst month out at $5.29, 5.3% of the $100 ceiling, with limits as of
-        2026-11-04.
+        <strong>A breaker that acts after the fact.</strong> Since 2026-11-06 a cron reads real
+        usage every 15 minutes and moves <code>Control</code> to read-only, then off, as
+        <a href={ESSAYS.breaker.path}>the breaker essay</a> tells. Its secrets were not set in
+        production as of 2026-11-10, so it reports <code>unconfigured</code>, as
+        <code>docs/cost.md</code> records, and until it acts the counts above are what stands
+        between the account and a flood. At those caps cost.md works the worst month out at $5.29,
+        5.3% of the $100 ceiling, with limits as of 2026-11-04.
       </li>
     </ul>
     <p>

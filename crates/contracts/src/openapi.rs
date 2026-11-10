@@ -55,8 +55,8 @@ pub const SOCKET_FRAMES: &[(&str, &str, &str, &str)] = &[
     (
         "server-to-client",
         "bye",
-        "{t: \"bye\", v: 1, reason: \"wiped\" | \"limit\"}",
-        "before the server closes: 1001 at the wipe; 1008, 1009 or 1003 at a limit",
+        "{t: \"bye\", v: 1, reason: \"wiped\" | \"limit\" | \"off\"}",
+        "before the server closes: 1001 at the wipe; 1008, 1009 or 1003 at a limit; 1013 at the socket's next frame while the demo's flag is `off` (since 2026-11-10)",
     ),
     (
         "client-to-server",
@@ -74,7 +74,7 @@ pub const SOCKET_FRAMES: &[(&str, &str, &str, &str)] = &[
         "server-to-client",
         "nack",
         "{t: \"nack\", v: 1, id, rule}",
-        "the command was refused, naming the rule (`out-of-order` from the order's rules, `unknown-order`, `key-reused`, `rate-limit` past the sandbox's command budget of 60 at once then one a second, or the frame's `version`, `frame`, `id` or `action`); a guest's command is read as any session's since 2026-11-10, and the socket no longer sends `guest-scope`. A `rate-limit` refusal stores nothing, so the same `id` may be sent again later",
+        "the command was refused, naming the rule (`out-of-order` from the order's rules, `unknown-order`, `key-reused`, `rate-limit` past the sandbox's command budget of 60 at once then one a second, the frame's `version`, `frame`, `id` or `action`, or `read-only` while the demo's flag is read-only, before the budget is spent, since 2026-11-10); a guest's command is read as any session's since 2026-11-10, and the socket no longer sends `guest-scope`. A `rate-limit` refusal stores nothing, so the same `id` may be sent again later",
     ),
     (
         "client-to-server",

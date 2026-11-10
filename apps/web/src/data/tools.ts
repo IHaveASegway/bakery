@@ -1038,12 +1038,13 @@ export const TOOLS: Tool[] = [
     version: 'v9.10.0; osmium-tool 1.16.0 (`docs/stack.md`)',
     doesHere: 'Builds the committed travel-time matrix and isochrones once, offline.',
     whyHere:
-      'The owner’s direction of 2026-11-05 chose it over OSRM; both self-host from the same extract, with no measured difference; either needs no API key and no quota.',
+      'The owner’s direction of 2026-11-05 chose it over OSRM; both self-host from the same extract, and OSRM’s matrix, measured on 2026-11-10, is 11.3% faster overall; either needs no API key and no quota.',
     whenNot: 'Not when the times must be rebuilt identically on demand.',
     records: [{ adr: '0012' }, after('5')],
     essays: ['routes'],
     ownersRule: 'direction',
-    notMeasured: 'A matrix from OSRM beside the committed one (roadmap R79).',
+    notMeasured:
+      'Which engine’s times are nearer real drives; an OSRM matrix, measured locally on 2026-11-10, is a median 1.6 and at most 5.7 minutes a pair from the committed one (roadmap R79).',
     alternatives: [
       {
         name: 'Another solver or routing engine',
@@ -1056,7 +1057,7 @@ export const TOOLS: Tool[] = [
         after: true,
         never: {
           kind: 'measured',
-          text: 'A matrix from OSRM beside the committed one (roadmap R79), and any solver but VROOM and the savings heuristic.',
+          text: 'Any solver but VROOM and the savings heuristic; an OSRM matrix, measured locally on 2026-11-10, is at most 5.7 minutes a pair from the committed one and 11.3% faster overall (roadmap R79).',
         },
       },
       {

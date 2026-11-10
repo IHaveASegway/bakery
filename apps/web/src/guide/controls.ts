@@ -19,8 +19,8 @@ export const CONTROLS: GuideEntry[] = [
       routeId: 'patch-menu-item',
       method: 'PATCH',
       path: '/v1/sandboxes/{id}/menu/items/{slug}',
-      body: { price_cents: 975 },
-      note: 'Signed-in sandboxes only. Prices are integer cents.',
+      body: { price_cents: 975, variant: 'country-loaf/whole' },
+      note: 'Signed-in sandboxes only. Prices are integer cents; without variant, every variant of the item gets the price.',
     },
   },
   {

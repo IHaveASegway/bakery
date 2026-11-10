@@ -31,7 +31,7 @@ Each visitor gets a private sandbox, seeded with synthetic history (made-up cust
 - make the same calls through the API with the sandbox's own bearer token (the API reference is at `/docs/api/`);
 - read the status page (`/status/`), the tools page (`/how-its-built/tools/`) and How it's built (`/how-its-built/`), with its fourteen essays (as of 2026-11-10, `apps/web/src/pages/how-its-built/`).
 
-**Without an account**, a guest gets a sandbox behind Turnstile and can browse, order and pay with a test card ([product.md](docs/product.md#decided), Q45 · Q-guest-scope). A guest can also move their own order across the kitchen board. Signing in with Google, GitHub or a demo account unlocks the console's other writes (menu edits, campaigns, publishing a route), the API token, simulated traffic, and a sandbox that follows the account across devices.
+**Without an account**, a guest gets a sandbox behind Turnstile and can browse, order and pay with a test card ([product.md](docs/product.md#decided), Q45 · Q-guest-scope). A guest can also move any order on their sandbox's kitchen board, seeded ones included (since 2026-11-10); refunds stay signed-in. Signing in with Google, GitHub or a demo account unlocks the console's other writes (menu edits, campaigns, publishing a route), the API token, simulated traffic, and a sandbox that follows the account across devices.
 
 ## Status
 
