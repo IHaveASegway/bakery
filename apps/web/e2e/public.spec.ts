@@ -8,6 +8,7 @@ const PAGES = [
   '/menu/',
   '/catering/',
   '/checkout/',
+  '/order/',
   '/privacy/',
   '/signin/',
   '/about/',

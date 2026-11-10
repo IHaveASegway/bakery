@@ -64,6 +64,7 @@ describe('dist', () => {
     ['menu/index.html', '/menu/*'],
     ['inbox/index.html', '/inbox/*'],
     ['status/index.html', '/status/*'],
+    ['order/index.html', '/order/*'],
     ['checkout/index.html', '/checkout/*'],
     ['catering/index.html', '/catering/*'],
   ])('%s: every inline script and style has its hash in %s', (file, path) => {
@@ -134,9 +135,15 @@ describe('dist', () => {
       (f): f is string => typeof f === 'string' && f.endsWith('.html'),
     );
 
-  test('no page asks not to be indexed: the production hostnames are meant to be found', () => {
+  test('no page asks not to be indexed but an order’s status: the rest are meant to be found', () => {
     // Previews on workers.dev carry X-Robots-Tag: noindex from Cloudflare (ci.yml requires it).
-    for (const file of htmlFiles()) expect(page(file), file).not.toMatch(/name="robots"/);
+    // /order/ is one visitor's own order, read from their sandbox, so it alone stays out of search
+    // (2026-11-09).
+    for (const file of htmlFiles()) {
+      if (file === 'order/index.html') {
+        expect(page(file)).toContain('<meta name="robots" content="noindex">');
+      } else expect(page(file), file).not.toMatch(/name="robots"/);
+    }
   });
 
   test('every page carries the shell: the name, the nav, the footer and the one line that says it is made up', () => {
@@ -549,6 +556,10 @@ describe('dist', () => {
   // 126,926 / 149,798 / 136,394. The first load is smaller than the tour's by 9,468 B to 13,875 B;
   // with the guide on the page is larger, by 9,217 B to 13,404 B. A visitor who turns the guide off
   // loads the first load alone on later pages.
+  //
+  // The order's status page (/order/, 2026-11-09) is a class of its own: it buys the order's read,
+  // its watch on the kitchen socket and the tracker, and since the guide reached it (2026-11-10)
+  // the guide's bar too.
   describe('JavaScript per page', () => {
     const KB = 1_000;
     const BUDGETS: Record<string, { budget: number; pages: string[] }> = {
@@ -556,6 +567,7 @@ describe('dist', () => {
       guide: { budget: 101 * KB, pages: ['index.html', 'privacy/index.html'] },
       api: { budget: 101 * KB, pages: ['docs/api/index.html'] },
       status: { budget: 104 * KB, pages: ['status/index.html'] },
+      order: { budget: 123 * KB, pages: ['order/index.html'] },
       storefront: { budget: 116 * KB, pages: ['menu/index.html', 'signin/index.html'] },
       checkout: { budget: 136 * KB, pages: ['checkout/index.html'] },
       console: {

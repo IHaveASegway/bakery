@@ -5,7 +5,7 @@
 // never disagree about the hour.
 import { WINDOW_MINUTES } from './dispatch';
 import { dateLabel } from './schedule';
-import { clockLabel, dateOf, mountainLocal } from './slots';
+import { clockLabel, dateOf, mountainLocal, mountainToMs } from './slots';
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -87,4 +87,15 @@ export function windowText(start: string): string {
  */
 export function timesIn(text: string, options: { seconds?: boolean } = {}): string {
   return text.replace(STAMP, (stamp) => whenText(stamp, options));
+}
+
+/**
+ * A bakery date (`YYYY-MM-DD`) as a day chip says it: weekday "Tue" and day "10 Nov". Noon on the
+ * bakery's clock names the day, whatever the offset.
+ */
+export function dayParts(date: string): { weekday: string; day: string } {
+  const [weekday = date, ...rest] = shortDate(
+    new Date(mountainToMs(date, 12 * 60)).toISOString(),
+  ).split(' ');
+  return { weekday, day: rest.join(' ') };
 }

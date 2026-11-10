@@ -2,6 +2,7 @@
 @import 'tailwindcss' source('../');
 @import './tokens.css';
 @import './components.css';
+@import './checkout.css';
 
 /* System fonts: the bakery fetches no face (design brief, 2026-11-09). tokens.css names these
    fallback stacks behind the site's self-hosted faces, which the bakery does not have. */
