@@ -4,28 +4,31 @@ import DemoAccount from '../../components/DemoAccount';
 import Guest from '../../components/Guest';
 import { signinUrl } from '../../lib/api';
 import SignInError from '../../components/SignInError';
+
+// Three ways in, the quickest first (decision G2, 2026-11-09): a guest, a demo account, or an
+// account the visitor has. The guest and demo-account flows go on to the page named by `next`
+// (src/lib/next.ts); Google and GitHub keep their server-side redirect. Turnstile loads here only.
 ---
 
 <Base
   title="Sign in | Proof of Concept Bakery"
-  description="Three ways into a private sandbox: Google, GitHub or a demo account, or a guest."
+  description="Three ways into a private sandbox: a guest, a demo account, or Google or GitHub."
   screen="signin"
 >
-  <h1>Sign in</h1>
-  <p>
-    Proof of Concept Bakery never stores your name or email. A sandbox is yours until 10:00 UTC,
-    when every sandbox is deleted. <a href="/privacy/">What it keeps and for how long</a>.
+  <h1>Get your own bakery</h1>
+  <p class="page-lead">
+    Each way in gives you a private sandbox, deleted at 10:00 UTC, and the bakery never stores your
+    name or email. <a href="/privacy/">What it keeps and for how long</a>.
   </p>
 
   <SignInError client:load />
 
-  <div class="card-grid">
-    <section aria-labelledby="providers" data-tour="signin-providers">
-      <h2 id="providers">Sign in with an account you have</h2>
-      <p>
-        Google and GitHub tell the bakery only a number that identifies the account, kept as a keyed
-        hash.
-      </p>
+  <div class="ways-in">
+    <Guest client:load />
+    <DemoAccount client:load />
+    <section aria-labelledby="providers" class="way-in" data-tour="signin-providers">
+      <h2 id="providers">Use Google or GitHub</h2>
+      <p>A sandbox that follows you. The provider tells the bakery only a number, kept hashed.</p>
       <ul class="choices">
         <li>
           <a class="btn btn-secondary" href={signinUrl('google')}>
@@ -39,8 +42,5 @@ import SignInError from '../../components/SignInError';
         </li>
       </ul>
     </section>
-
-    <DemoAccount client:load />
-    <Guest client:load />
   </div>
 </Base>
