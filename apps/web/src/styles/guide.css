@@ -867,7 +867,8 @@
   right: 16px;
   bottom: 68px;
   z-index: 50;
-  max-width: min(440px, calc(100vw - 32px));
+  /* Never wider than the dock under it, so it keeps to the same gutter and off the page. */
+  max-width: min(400px, calc(100vw - 32px));
   box-shadow: var(--shadow-raised);
 }
 
@@ -883,23 +884,46 @@
 }
 
 .guide-line-title {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.guide-line .guide-eyebrow {
-  flex: none;
-}
-
+/* The answer's chip gives way before the title does: the title is what the line is about. */
 .guide-line .guide-chip {
-  flex: none;
+  flex: 0 1000 auto;
+  min-width: 2.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* A note whose content runs past its edge fades out at the foot until it is scrolled to the end,
-   so a cut line reads as "there is more" (Note.tsx sets data-more). */
-.guide-note[data-more] {
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
+/* The control beside the line (in the masthead, or the dock below it) already says "Under the
+   hood": the label is read out, not shown, and its room goes to the title. */
+.guide-line .guide-eyebrow {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* A note whose content runs past its edge fades its content at the foot until it is scrolled to
+   the end, so a cut line reads as "there is more" (Note.tsx sets data-more). The fade is a layer of
+   the note's own colour over the content, held at the foot as the note scrolls: the note itself
+   stays opaque to its last pixel, so the page never shows through it. */
+.guide-note[data-more]::after {
+  content: '';
+  position: sticky;
+  bottom: -14px;
+  display: block;
+  height: 36px;
+  margin: -36px -14px 0;
+  background: linear-gradient(to bottom, transparent, var(--guide-surface) 85%);
+  pointer-events: none;
 }
 
 /* ---- A phone: the note is a sheet over the lower third, the panel most of the screen ---- */

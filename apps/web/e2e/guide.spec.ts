@@ -310,6 +310,28 @@ async function guideOverControls(page: Page): Promise<string[]> {
   });
 }
 
+/** How many whole words of the folded line's title fit in the room the line gives it. */
+async function shownWords(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const title = document.querySelector('.guide-line-title');
+    const text = title?.firstChild;
+    if (!title || !text || text.nodeType !== Node.TEXT_NODE) return 0;
+    const room = title.getBoundingClientRect().right;
+    const words = (text.textContent ?? '').split(' ');
+    let end = 0;
+    let shown = 0;
+    for (const word of words) {
+      end += (shown === 0 ? 0 : 1) + word.length;
+      const range = document.createRange();
+      range.setStart(text, 0);
+      range.setEnd(text, end);
+      if (range.getBoundingClientRect().right > room + 0.5) break;
+      shown += 1;
+    }
+    return shown;
+  });
+}
+
 /**
  * The Recorder's button. In the app shell's top bar the guide is one pill and the Recorder sits in
  * its "…" menu, so the menu is opened first; on the shop's dock it is in the bar.
@@ -575,6 +597,7 @@ test.describe('on a phone', () => {
     await page.goto('/menu/');
     await expect(line).toContainText('Where the menu came from');
     expect(await guideOverControls(page), 'menu').toEqual([]);
+    expect(await shownWords(page), 'menu').toBeGreaterThanOrEqual(3);
 
     await page.evaluate((cart) => sessionStorage.setItem('bakery.cart.v1', JSON.stringify(cart)), {
       lines: want.lines,
@@ -587,6 +610,7 @@ test.describe('on a phone', () => {
     await expect(line).toContainText('The menu this checkout read');
     await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
     expect(await guideOverControls(page), 'checkout, step one').toEqual([]);
+    expect(await shownWords(page), 'checkout').toBeGreaterThanOrEqual(3);
     // Opened, it is a note in full; a press in the page folds it back to the line.
     await line.getByRole('button', { name: /The menu this checkout read/ }).click();
     const note = page.getByRole('region', { name: 'Under the hood: The menu this checkout read' });
