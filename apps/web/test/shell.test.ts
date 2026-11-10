@@ -17,6 +17,7 @@ describe('shellFor', () => {
     for (const path of [
       '/how-its-built/',
       '/how-its-built/outbox/',
+      '/how-its-built/tools/',
       '/about/',
       '/privacy/',
       '/404',
