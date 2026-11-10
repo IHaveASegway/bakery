@@ -257,6 +257,11 @@ export default function OrderStatus() {
             Your receipt, in the inbox
           </a>
         </p>
+        {!placed && !off && track.status !== 'closed' && (
+          <p className="hint order-play">
+            On the kitchen board you can move this order on yourself, and this page shows each step.
+          </p>
+        )}
         <p className="sr-only" aria-live="polite">
           {movedText(track.status, order.kind)}
         </p>

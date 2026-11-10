@@ -22,7 +22,6 @@ const ACTION_WORDS = {
 } as const;
 
 const RULES: Record<string, string> = {
-  'guest-scope': 'guests cannot change the board',
   'out-of-order': 'the order is not in the right state for that',
 };
 
@@ -86,7 +85,7 @@ function commandText(c: Command): string {
 export function CardView({
   card,
   sandboxId,
-  canAct,
+  canRefund,
   open,
   focusHere = false,
   onFocused,
@@ -95,7 +94,8 @@ export function CardView({
 }: {
   card: Card;
   sandboxId: string;
-  canAct: boolean;
+  /** Refunds are a signed-in session's; every session moves the card on (roadmap R72). */
+  canRefund: boolean;
   open: boolean;
   /**
    * The card moved column after this page pressed its button. Its button is a new element in the
@@ -118,7 +118,7 @@ export function CardView({
   }, [focusHere, onFocused]);
   const shown = card.lines.slice(0, LINES_SHOWN);
   const rest = card.lines.slice(LINES_SHOWN);
-  const refundable = canAct && card.state !== 'pending';
+  const refundable = canRefund && card.state !== 'pending';
   return (
     <li className="card" ref={item} tabIndex={-1}>
       <p className="card-head">
@@ -172,9 +172,9 @@ export function CardView({
           )}
         </p>
       )}
-      {((canAct && action) || refundable) && (
+      {(action || refundable) && (
         <div className="card-actions">
-          {canAct && action && (
+          {action && (
             <button
               ref={button}
               type="button"
@@ -317,7 +317,9 @@ export default function KitchenBoard({
             </button>
           </p>
         )}
-        {isGuest && <GuestNote />}
+        {isGuest && (
+          <GuestNote>Guests move their own orders here; a refund needs a sign-in.</GuestNote>
+        )}
         <div aria-live="polite" className="messages">
           {refunded !== null && (
             <p className="hint" ref={refundLine} tabIndex={-1}>
@@ -372,7 +374,7 @@ export default function KitchenBoard({
                         setRefunded({ said, order: card.order });
                         onRefunded();
                       }}
-                      canAct={!isGuest}
+                      canRefund={!isGuest}
                       open={open}
                       focusHere={
                         follow !== null && follow.order === card.order && follow.from !== card.state

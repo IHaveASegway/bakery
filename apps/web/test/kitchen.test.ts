@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test, vi } from 'vitest';
 import { CardView } from '../src/components/KitchenBoard';
+import GuestNote from '../src/components/GuestNote';
 import {
   EMPTY_BOARD,
   FEED_MAX,
@@ -62,10 +63,10 @@ describe('frames', () => {
     expect(parseFrame('{"t":"presence","v":1,"sockets":2}')).toEqual({ t: 'presence', sockets: 2 });
     expect(parseFrame('{"t":"bye","v":1,"reason":"wiped"}')).toEqual({ t: 'bye', reason: 'wiped' });
     expect(parseFrame('{"t":"ack","v":1,"id":"X"}')).toEqual({ t: 'ack', id: 'X' });
-    expect(parseFrame('{"t":"nack","v":1,"id":"X","rule":"guest-scope"}')).toEqual({
+    expect(parseFrame('{"t":"nack","v":1,"id":"X","rule":"out-of-order"}')).toEqual({
       t: 'nack',
       id: 'X',
-      rule: 'guest-scope',
+      rule: 'out-of-order',
     });
   });
 
@@ -293,7 +294,7 @@ describe('a delivery’s van and stop', () => {
         createElement(CardView, {
           card,
           sandboxId: '01JC8YV2D4QK7S1M9E3PZ6W8AN',
-          canAct: false,
+          canRefund: false,
           open: true,
           onAct: () => undefined,
           onRefunded: () => undefined,
@@ -304,6 +305,45 @@ describe('a delivery’s van and stop', () => {
     );
     const plain = draw(base);
     expect(plain).not.toMatch(/Van \d|[Ss]top \d/);
+  });
+
+  // A guest moves the orders on their own board since 2026-11-10 (roadmap R72); a refund still
+  // needs a sign-in, so its menu is a signed-in session's only.
+  test('every session gets the move button; only a signed-in one gets the refund menu', () => {
+    const paid = applyEvent(applyEvent(EMPTY_BOARD, delivery()), envelope(2, 'OrderPaid'));
+    const card = paid.cards[ORDER] as Card;
+    const draw = (canRefund: boolean) =>
+      renderToStaticMarkup(
+        createElement(CardView, {
+          card,
+          sandboxId: '01JC8YV2D4QK7S1M9E3PZ6W8AN',
+          canRefund,
+          open: true,
+          onAct: () => undefined,
+          onRefunded: () => undefined,
+        }),
+      );
+    const guest = draw(false);
+    expect(guest).toContain(`aria-label="Start production for order ${ORDER.slice(-6)}"`);
+    expect(guest).not.toContain('More for order');
+    const signedIn = draw(true);
+    expect(signedIn).toContain(`Start production for order ${ORDER.slice(-6)}`);
+    expect(signedIn).toContain(`More for order ${ORDER.slice(-6)}`);
+  });
+
+  test('the guest note says what a sign-in adds, the board’s own sentence when it has one', () => {
+    const plain = renderToStaticMarkup(createElement(GuestNote));
+    expect(plain).toContain('Sign in to use the console’s writes.');
+    const board = renderToStaticMarkup(
+      createElement(
+        GuestNote,
+        null,
+        'Guests move their own orders here; a refund needs a sign-in.',
+      ),
+    );
+    expect(board).toContain('Guests move their own orders here; a refund needs a sign-in.');
+    expect(board).not.toContain('console’s writes');
+    expect(board).toContain('href="/signin/"');
   });
 
   describe('RoutePublished, as crates/domain/src/kitchen.rs applies it', () => {
