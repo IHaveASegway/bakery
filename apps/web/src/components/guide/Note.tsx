@@ -132,6 +132,9 @@ export function Note({
       frame = 0;
       const target = anchor();
       ring(target);
+      // The element it sat by has gone and nothing stands in for it (a button the page replaced):
+      // the caller may fold it to its line rather than leave it in a corner over the page (F6).
+      if (target === null && arrived.current !== null && crowded.current?.() === true) return;
       if (window.matchMedia(PHONE).matches || target === null) {
         note.style.removeProperty('top');
         note.style.removeProperty('left');
@@ -189,11 +192,12 @@ export function Note({
       // Best, clear of every control on the page; else clear of what matters to this press (the
       // pressed control, its result, what is pressed next: audit G3), beside the anchor or, with
       // no room there, docked in the first corner clear of them, the same each time on a page.
-      const everywhere = placeNote(anchorBox, size, view, controlBoxes());
+      const matters = keep.current?.() ?? [];
+      const everywhere = placeNote(anchorBox, size, view, [...controlBoxes(), ...matters]);
       const at =
         everywhere.clear || keep.current === undefined
           ? everywhere
-          : placeNote(anchorBox, size, view, keep.current());
+          : placeNote(anchorBox, size, view, matters);
       // Only where it arrives: a note the visitor is reading never folds away under them.
       if (!at.clear && arrived.current !== target && crowded.current?.() === true) return;
       arrived.current = target;

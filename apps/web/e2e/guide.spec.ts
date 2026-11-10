@@ -610,33 +610,38 @@ test('after a fresh sandbox, a price draft and a move, no row of a note is left 
   await expect(move.locator('[data-state="expected"]')).toHaveCount(0);
 });
 
-test('on the menu a keyboard meets the nav, the page, the footer, then the guide; never a mark (G10)', async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto('/menu/');
-  await expect(page.locator('.guide-spot').first()).toBeVisible();
-  const order: string[] = [];
-  for (let i = 0; i < 80; i += 1) {
-    await page.keyboard.press('Tab');
-    const where = await page.evaluate(() => {
-      const el = document.activeElement;
-      if (el === null || el === document.body) return 'body';
-      if (el.closest('.guide-spot')) return 'mark';
-      if (el.closest('[data-guide-root]')) return 'guide';
-      if (el.closest('header')) return 'header';
-      if (el.closest('main')) return 'main';
-      if (el.closest('footer')) return 'footer';
-      return 'other';
-    });
-    if (order.at(-1) !== where) order.push(where);
-    if (where === 'guide' && order.includes('footer')) break;
-  }
-  expect(order).not.toContain('mark');
-  const guide = order.indexOf('guide');
-  expect(guide).toBeGreaterThan(order.indexOf('main'));
-  expect(guide).toBeGreaterThan(order.indexOf('footer'));
-  expect(order.indexOf('main')).toBeGreaterThan(order.indexOf('header'));
+test.describe('a keyboard on the menu', () => {
+  // The first look at the session, before there is one, is a 401 that Chromium logs.
+  test.use({ allowedStatuses: [401] });
+
+  test('on the menu a keyboard meets the nav, the page, the footer, then the guide; never a mark (G10)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/menu/');
+    await expect(page.locator('.guide-spot').first()).toBeVisible();
+    const order: string[] = [];
+    for (let i = 0; i < 80; i += 1) {
+      await page.keyboard.press('Tab');
+      const where = await page.evaluate(() => {
+        const el = document.activeElement;
+        if (el === null || el === document.body) return 'body';
+        if (el.closest('.guide-spot')) return 'mark';
+        if (el.closest('[data-guide-root]')) return 'guide';
+        if (el.closest('header')) return 'header';
+        if (el.closest('main')) return 'main';
+        if (el.closest('footer')) return 'footer';
+        return 'other';
+      });
+      if (order.at(-1) !== where) order.push(where);
+      if (where === 'guide' && order.includes('footer')) break;
+    }
+    expect(order).not.toContain('mark');
+    const guide = order.indexOf('guide');
+    expect(guide).toBeGreaterThan(order.indexOf('main'));
+    expect(guide).toBeGreaterThan(order.indexOf('footer'));
+    expect(order.indexOf('main')).toBeGreaterThan(order.indexOf('header'));
+  });
 });
 
 test('one press of Show me around shows step 1, with the menu’s line showing', async ({ page }) => {

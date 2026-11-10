@@ -262,7 +262,23 @@ export default function Layer({
     const els = new Set<Element>();
     const pressed = traces.anchorOf(live.gesture);
     const anchorEl = liveAnchor();
-    if (anchorEl !== null) els.add(anchorEl);
+    if (anchorEl !== null) {
+      els.add(anchorEl);
+      // What is pressed next is the controls of the part the note sits by: the step it opened,
+      // the card that moved, the panel whose readout changed (its other buttons).
+      const part = anchorEl.closest('section, article, li, tr, form, fieldset');
+      const box = part?.getBoundingClientRect();
+      // A part, not the page: the whole board is not one card.
+      const small =
+        box !== undefined && box.width * box.height < 0.4 * window.innerWidth * window.innerHeight;
+      if (part !== null && small) {
+        for (const c of part.querySelectorAll(
+          'button, a[href], input, select, textarea, label, summary',
+        )) {
+          els.add(c);
+        }
+      }
+    }
     for (const r of document.querySelectorAll('[data-guide-result]')) els.add(r);
     const focused = focusInPage();
     if (focused !== null) els.add(focused);
