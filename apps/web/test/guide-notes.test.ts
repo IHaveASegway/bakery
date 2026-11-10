@@ -392,6 +392,11 @@ describe('what a story read’s note says', () => {
     expect(readSentence(read(200, null))).toContain('no Bakery-Cache header');
   });
 
+  test('a read expects no event: the menu’s events are its publisher’s', () => {
+    const entry = ALL_ENTRIES.find((e) => e.id === 'menu-how') ?? null;
+    expect(expectedFor(entry, [read(200, 'miss')])).toEqual([]);
+  });
+
   test('asked again with the ETag: current, 304, no body', () => {
     expect(readSentence(read(304, 'hit', '"v3"'))).toBe(
       'This page’s copy was current: it sent If-None-Match "v3", and the API answered 304 with no body.',

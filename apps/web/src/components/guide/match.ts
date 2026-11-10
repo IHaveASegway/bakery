@@ -33,11 +33,13 @@ const COMMAND_EVENT: Record<string, string> = {
 };
 
 /**
- * The events a note expects for what the visitor did: a board command makes its one event; any
- * other action makes the entry's events.
+ * The events a note expects for what the visitor did: a board command makes its one event; a story
+ * read makes none; any other action makes the entry's events.
  */
 export function expectedFor(entry: GuideEntry | null, group: readonly Trace[]): string[] {
   const first = group[0];
+  // A read changes nothing, so it expects no event: the menu's events are its publisher's.
+  if (first?.read !== undefined) return [];
   const one = first?.transport === 'socket' ? COMMAND_EVENT[first.action ?? ''] : undefined;
   if (one !== undefined) return [one];
   return entry?.events ?? [];
