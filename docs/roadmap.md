@@ -801,6 +801,7 @@ Decided by delegation on 2026-11-09, after Joseph's message of that day asked th
   - Not measured: whether a browser whose tab closes or whose network drops, ending a socket the same way, keeps a Kitchen from hibernating on the platform, and what that costs in duration.
 
   Next: bisect the full smoke's steps again with the waiting probe. Owner: session.
+- **R83. A page the `lighthouse` job measures is listed in a file, not in the workflow.** Done on 2026-11-10. A pull request that changes `.github/workflows/ci.yml` gets no preview (`scripts/firewall/scanner-changed.sh`), so a page added to the list in that file could never be measured in the pull request that adds it. The twenty-four paths, in the same order, are now `apps/web/lighthouse-pages.txt`, which the step reads, and `apps/web/test/lighthouse-pages.test.ts` fails when the build emits a page that is neither listed nor excluded with its reason ([delivery.md](delivery.md#lighthouse)). Scope: none left. Owner: session.
 
 ### Added on 2026-11-10, from the records audit
 
