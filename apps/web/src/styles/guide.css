@@ -154,6 +154,8 @@
 
 .topbar-guide:has(.guide-bar-topbar) {
   width: auto;
+  /* Room between the pill and the top bar's own controls, so each stays a target of its own. */
+  margin-inline: 12px;
 }
 
 .guide-layer .guide-bar.guide-bar-topbar {

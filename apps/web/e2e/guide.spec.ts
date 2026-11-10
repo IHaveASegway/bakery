@@ -185,7 +185,8 @@ test('with the switch off, a press opens no note and the layer is not loaded; on
 }) => {
   await demoAccount(page);
   const sandbox = await liveSandbox(page);
-  await page.goto('/app/');
+  // The clock is on the console's System page.
+  await page.goto('/app/system/');
   const toggle = page.getByRole('switch', { name: 'Under the hood' });
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-checked', 'false');
@@ -195,9 +196,9 @@ test('with the switch off, a press opens no note and the layer is not loaded; on
     'aria-checked',
     'false',
   );
-  // The console has hydrated: a click before that is replayed by React later, too late to be
-  // known as the visitor's press (GESTURE_MS).
-  await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+  // The page has hydrated (its controls are drawn only once it has read the session): a click
+  // before that is replayed by React later, too late to be known as the visitor's press.
+  await expect(page.getByRole('button', { name: /^Advance 15 minutes/ }).first()).toBeVisible();
   // A write the visitor presses (the clock, one step) opens nothing while the guide is off.
   await page
     .getByRole('button', { name: /^Advance 15 minutes/ })

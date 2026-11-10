@@ -211,11 +211,13 @@ export default function Layer({
   // Each step brings its element into view, as the visitor is asked to use it.
   useEffect(() => {
     if (pathEntry === null) return;
+    // Near the window's top, under any sticky bar, so a note's sheet at the foot leaves it in view.
     const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    targetOf(pathEntry.target)?.scrollIntoView({
-      block: 'center',
-      behavior: calm ? 'auto' : 'smooth',
-    });
+    const target = targetOf(pathEntry.target);
+    if (target !== null) {
+      const top = target.getBoundingClientRect().top - 80;
+      window.scrollBy({ top, behavior: calm ? 'auto' : 'smooth' });
+    }
   }, [pathEntry]);
   const pathAnchor = useCallback(
     () => (pathEntry === null ? null : targetOf(pathEntry.target)),
