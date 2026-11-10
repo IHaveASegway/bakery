@@ -579,3 +579,9 @@ details.how > summary:hover {
     grid-template-columns: 7rem minmax(0, 1fr);
   }
 }
+
+/* The menu's tax rate is a short number: a field of its own width, not the card's. */
+[data-tour='controls-tax'] input[type='text'] {
+  display: block;
+  width: 12ch;
+}
