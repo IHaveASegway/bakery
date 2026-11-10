@@ -34,6 +34,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_WIPE_GUARD_MS, holdMs } from './wipe-hold.mjs';
 
 const WEB_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT = path.resolve(WEB_DIR, '..', '..');
@@ -353,6 +354,19 @@ async function main() {
     waitFor('the storefront', `https://127.0.0.1:${PORTS.web}/`),
   ]);
   log(`servers ready after ${((Date.now() - started) / 1000).toFixed(1)} s`);
+
+  // Every sandbox is wiped at 10:00:00 UTC, so a test in flight then loses its sandbox. Hold rather than cross it.
+  const guardS = process.env.E2E_WIPE_GUARD_S;
+  const hold = holdMs(
+    Date.now(),
+    guardS === undefined || guardS === '' ? DEFAULT_WIPE_GUARD_MS : Number(guardS) * 1000,
+  );
+  if (hold > 0) {
+    log(
+      `holding ${(hold / 1000).toFixed(0)} s: the daily wipe of every sandbox is at 10:00 UTC and the suite would cross it (E2E_WIPE_GUARD_S=0 never holds)`,
+    );
+    await new Promise((r) => setTimeout(r, hold));
+  }
 
   const passthrough = process.argv.slice(2).filter((a) => a !== '--');
   // No proxy reaches Playwright or its browser: every address the suite uses is on this machine.
