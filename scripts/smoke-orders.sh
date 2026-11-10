@@ -1072,8 +1072,15 @@ expect_json tax_menu_2 "b.version === 2 && b.tax_bp === 850"
 TPICK="$(pickable tax_menu_2 240)" || { fail "tax: no item on the menu fits a slot 4 h out"; TPICK='{}'; }
 TVARIANT="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).variant || '')" "$TPICK")"
 TSLOT="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).slot || '')" "$TPICK")"
+QUEUE_BEFORE="$(grep -c 'QUEUE bakery-events' "$LOG" || true)"
 command_as tax_order D 192.0.2.44 POST "/v1/sandboxes/$TID/orders" "{\"kind\":\"pickup\",\"slot\":\"$TSLOT\",\"lines\":[{\"variant\":\"$TVARIANT\",\"qty\":3}]}"
 expect_status tax_order 201
+# The Queue still consumes after the wipes above, the demo sandbox's with its traffic running:
+# before 2026-11-09 the consumer left a wiped object's answer unread and its batch never finished
+# on `wrangler dev`, so nothing was consumed after the first wipe (fix/consumer-after-wipe).
+queue_moved() { (( $(grep -c 'QUEUE bakery-events' "$LOG" || true) > QUEUE_BEFORE )); }
+for _ in $(seq 1 40); do queue_moved && break; sleep 0.25; done
+check "the Queue's consumer still finishes batches after the wipes: the tax order's events" "queue_moved"
 expect_json tax_order "b.menu_version === 2 && b.tax_cents === Math.floor((b.subtotal_cents * 850 + 5000) / 10000) && b.total_cents === b.subtotal_cents + b.tax_cents && b.tax_cents !== Math.floor((b.subtotal_cents * 1000 + 5000) / 10000)"
 command_as tax_high D 192.0.2.44 PATCH "/v1/sandboxes/$TID/menu/tax-rate" '{"tax_bp":3001}'
 expect_problem tax_high 422 menu

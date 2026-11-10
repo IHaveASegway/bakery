@@ -59,16 +59,52 @@ use bakery_app::names::sandbox_object_name;
 use bakery_app::routing::{Subscriber, deliver_to, reference, strip_for};
 use bakery_contracts::{CateringResponse, Flag, OrderResponse, TraceHop};
 use bakery_domain::{BakeryDate, BusinessTime, Envelope, Ulid};
-use worker::{Cache, Context, Env, MessageBatch, MessageExt, Method, Result, console_log, event};
+use worker::{
+    Cache, Context, Env, MessageBatch, MessageExt, Method, Response, Result, console_log, event,
+};
 
 use crate::clock::SystemClock;
 use crate::http::menu_cache_key;
 use crate::metrics;
 use crate::objects::sandbox::{self, CustomerBirth, DeadLetterIn, DeliveryError, RegisterCustomer};
-use crate::objects::sql::{call, call_empty};
+use crate::objects::sql;
 use crate::objects::{
     billing, catering, control, crm, customer, dispatch, inbox, kitchen, order, recorder, schedule,
 };
+
+/// `sql::call`, with the answer's body read to its end before the consumer goes on. A body left
+/// unread keeps the queue invocation open after the handler returns: on `wrangler dev` (the version
+/// `pnpm-lock.yaml` pins, 2026-11-09) a 410 from an object the Sandbox's wipe was deleting at that moment never let the
+/// batch finish, and the local queue sends no other batch until one does. Every answer here is
+/// small JSON, so reading it costs nothing, and the consumer never depends on an unread stream.
+async fn call<B: serde::Serialize>(
+    env: &Env,
+    binding: &str,
+    name: &str,
+    method: Method,
+    path: &str,
+    body: Option<&B>,
+) -> Result<Response> {
+    settled(sql::call(env, binding, name, method, path, body).await?).await
+}
+
+/// `call` with no body.
+async fn call_empty(
+    env: &Env,
+    binding: &str,
+    name: &str,
+    method: Method,
+    path: &str,
+) -> Result<Response> {
+    call::<()>(env, binding, name, method, path, None).await
+}
+
+/// The answer with its body read, as a buffered answer with the same status.
+async fn settled(mut res: Response) -> Result<Response> {
+    let status = res.status_code();
+    let text = res.text().await?;
+    Ok(Response::ok(text)?.with_status(status))
+}
 
 /// The dead-letter queue's name, as `batch.queue()` reports it.
 const DLQ: &str = "bakery-events-dlq";
