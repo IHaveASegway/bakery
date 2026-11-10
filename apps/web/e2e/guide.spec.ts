@@ -481,7 +481,9 @@ test.describe('a stranger at the gate', () => {
     });
     await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible({ timeout: 30_000 });
     // With the gate gone and no result line on the checkout, the note waits as its line once the
-    // page has settled (up to about a second: Layer.tsx, afterSettling).
+    // page has settled (up to about a second: Layer.tsx, afterSettling), so the read waits for it:
+    // in CI on 2026-11-10 (#146's run) one read 10 ms after Continue appeared found the open note
+    // over the cart's "Back to the menu".
     await expect.poll(() => guideOverControls(page)).toEqual([]);
   });
 });
