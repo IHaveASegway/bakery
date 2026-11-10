@@ -10,7 +10,8 @@
 # room the place held again and the order placed on it. Since 2026-11-08 it reads the menu's
 # drafts route after a price edit and after the publish. Since 2026-11-09 it places for a time
 # that is not a slot (422 `no-such-slot`) and for a Monday (422 `order`, not baked that day). Since
-# 2026-11-09 it reads the flight recorder's trace and its socket for an order it places. It
+# 2026-11-09 it reads the flight recorder's trace and its socket for an order it places. Since
+# 2026-11-10 it prices one variant of an item alone (roadmap R86). It
 # proves each line of docs/roadmap.md's PR 4 "Done when" that can be proven locally, prints ok or
 # FAIL per check as scripts/smoke-auth.sh does, and exits non-zero on any failure.
 #
@@ -1214,6 +1215,29 @@ get_as tax_menu_3 D "/v1/sandboxes/$TID/menu"
 expect_json tax_menu_3 "b.version === 3 && b.tax_bp === 1000"
 get_as tax_order_get D "/v1/sandboxes/$TID/orders/$(json_field tax_order b.id)"
 expect_json tax_order_get "b.menu_version === 2 && b.tax_cents === $(json_field tax_order b.tax_cents)"
+# A price for one variant (roadmap R86, 2026-11-10): the second variant of the first item with two
+# or more is drafted alone and published; its siblings keep their prices. A variant of another
+# item, and a variant with no price, are refused.
+PV_ITEM="$(json_field tax_menu_3 "b.categories.flatMap(c => c.items).find(i => i.variants.length > 1).slug")"
+PV_FIRST_SLUG="$(json_field tax_menu_3 "b.categories.flatMap(c => c.items).find(i => i.slug === '$PV_ITEM').variants[0].slug")"
+PV_FIRST_PRICE="$(json_field tax_menu_3 "b.categories.flatMap(c => c.items).find(i => i.slug === '$PV_ITEM').variants[0].price_cents")"
+PV_SECOND="$(json_field tax_menu_3 "b.categories.flatMap(c => c.items).find(i => i.slug === '$PV_ITEM').variants[1].slug")"
+PV_OTHER="$(json_field tax_menu_3 "b.categories.flatMap(c => c.items).find(i => i.slug !== '$PV_ITEM').variants[0].slug")"
+command_as pv_set D 192.0.2.44 PATCH "/v1/sandboxes/$TID/menu/items/$PV_ITEM" "{\"price_cents\":777,\"variant\":\"$PV_SECOND\"}"
+expect_status pv_set 200
+expect_json pv_set "b.version === 3 && b.pending.includes('$PV_ITEM')"
+get_as pv_drafts D "/v1/sandboxes/$TID/menu/drafts"
+expect_json pv_drafts "(() => { const d = b.pending.find(p => p.slug === '$PV_ITEM'); return d.variants.find(v => v.slug === '$PV_SECOND').price_cents === 777 && d.variants.find(v => v.slug === '$PV_FIRST_SLUG').price_cents === $PV_FIRST_PRICE; })()"
+command_as pv_other D 192.0.2.44 PATCH "/v1/sandboxes/$TID/menu/items/$PV_ITEM" "{\"price_cents\":777,\"variant\":\"$PV_OTHER\"}"
+expect_problem pv_other 422 menu
+expect_json pv_other "b.detail.includes('unknown-variant')"
+command_as pv_bare D 192.0.2.44 PATCH "/v1/sandboxes/$TID/menu/items/$PV_ITEM" "{\"variant\":\"$PV_SECOND\"}"
+expect_problem pv_bare 422 menu
+expect_json pv_bare "b.detail.includes('variant-without-price')"
+command_as pv_publish D 192.0.2.44 POST "/v1/sandboxes/$TID/menu/publish"
+expect_json pv_publish "b.version === 4 && b.pending.length === 0"
+get_as pv_menu D "/v1/sandboxes/$TID/menu"
+expect_json pv_menu "(() => { const i = b.categories.flatMap(c => c.items).find(i => i.slug === '$PV_ITEM'); return i.variants.find(v => v.slug === '$PV_SECOND').price_cents === 777 && i.variants.find(v => v.slug === '$PV_FIRST_SLUG').price_cents === $PV_FIRST_PRICE; })()"
 command_as tax_wipe D 192.0.2.44 DELETE "/v1/sandboxes/$TID"
 expect_status tax_wipe 200
 

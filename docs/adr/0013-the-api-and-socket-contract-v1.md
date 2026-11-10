@@ -110,6 +110,8 @@ Whether it is a breaking change, by Decision 3's rule: it is not, and the socket
 
 **The flag reaches every route (R85).** On 2026-11-10 the flag reached every route (roadmap R85): the problem slugs `read-only` and `off`, which only sandbox and demo-account creation answered, now answer any route the flag refuses, with the same status, 503; the kitchen socket's `nack` gained the rule `read-only` and its `bye` the reason `off`, sent before a close with 1013. These are additions under decision 3: no slug, status, frame or field is renamed or removed. The `bye` reason was documented as `wiped` or `limit`, and the console treats any other reason as an end without a reconnect (`apps/web/src/lib/use-kitchen.ts`).
 
+**A price for each variant (R86).** On 2026-11-10 `MenuItemPatch`, the body of `PATCH /v1/sandboxes/{id}/menu/items/{slug}`, gained an optional `variant`, the slug of the one variant `price_cents` is for (roadmap R86; `crates/contracts/src/lib.rs`). It is an addition under decision 3: a new optional request field. A body without it means what it meant, a price on every variant of the item, which `a_patch_with_a_variant_needs_a_price_and_one_without_still_means_every_variant` (`workers/api/src/http/menu.rs`) and `a_price_edit_names_one_variant_or_every_one` (`crates/domain/src/catalog.rs`) hold. Two rules are new in the existing 422 `menu` problem: `unknown-variant`, for a slug that is not one of the item's variants, and `variant-without-price`.
+
 ## Patterns and further reading
 
 - Problem details for HTTP APIs: [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457), as of 2026-11-05.
