@@ -87,20 +87,24 @@ describe('dist/_headers', () => {
     for (const path of paths) expect(path, path).toMatch(/\/\*$/);
   });
 
-  test.each(['/signin/*', '/app/*'])('%s adds Turnstile to script-src and frame-src', (path) => {
-    const lines = rule(text, path);
-    // Detach first, then set: otherwise Cloudflare appends a second policy and both are enforced.
-    expect(lines.indexOf('! Content-Security-Policy')).toBe(0);
-    const policy = policyOf(lines);
-    expect(directive(policy, 'script-src').slice(0, 2)).toEqual([
-      "'self'",
-      'https://challenges.cloudflare.com',
-    ]);
-    expect(directive(policy, 'frame-src')).toEqual(['https://challenges.cloudflare.com']);
-    expect(directive(policy, 'connect-src')).toEqual(
-      directive(policyOf(rule(text, '/*')), 'connect-src'),
-    );
-  });
+  // The menu since 2026-11-10: its Start ordering makes a guest sandbox in place (audit F1).
+  test.each(['/signin/*', '/app/*', '/menu/*'])(
+    '%s adds Turnstile to script-src and frame-src',
+    (path) => {
+      const lines = rule(text, path);
+      // Detach first, then set: otherwise Cloudflare appends a second policy and both are enforced.
+      expect(lines.indexOf('! Content-Security-Policy')).toBe(0);
+      const policy = policyOf(lines);
+      expect(directive(policy, 'script-src').slice(0, 2)).toEqual([
+        "'self'",
+        'https://challenges.cloudflare.com',
+      ]);
+      expect(directive(policy, 'frame-src')).toEqual(['https://challenges.cloudflare.com']);
+      expect(directive(policy, 'connect-src')).toEqual(
+        directive(policyOf(rule(text, '/*')), 'connect-src'),
+      );
+    },
+  );
 
   test('/app/dispatch/* is the sign-in class plus worker-src self, and detaches the /app/* policy first', () => {
     const lines = rule(text, '/app/dispatch/*');
@@ -151,7 +155,7 @@ describe('dist/_headers', () => {
     }
   });
 
-  test.each(['/menu/*', '/inbox/*', '/privacy/*', '/docs/api/*', '/status/*'])(
+  test.each(['/inbox/*', '/privacy/*', '/docs/api/*', '/status/*'])(
     '%s is an island page: its own policy with hashes, and no third party',
     (path) => {
       const lines = rule(text, path);
@@ -178,14 +182,20 @@ describe('dist/_headers', () => {
       expect(lines.indexOf('! Content-Security-Policy')).toBe(0);
       const policy = policyOf(lines);
       const base = policyOf(rule(text, '/*'));
-      expect(policy).not.toContain('challenges.cloudflare.com');
-      expect(directive(policy, 'script-src')[0]).toBe("'self'");
-      expect(directive(policy, 'script-src')[1]).toBe('https://js.stripe.com');
+      // The checkout also starts a guest sandbox in place (2026-11-10), so it names Turnstile too.
+      const turnstile = path === '/checkout/*' ? ['https://challenges.cloudflare.com'] : [];
+      if (turnstile.length === 0) expect(policy).not.toContain('challenges.cloudflare.com');
+      expect(directive(policy, 'script-src').slice(0, 2 + turnstile.length)).toEqual([
+        "'self'",
+        ...turnstile,
+        'https://js.stripe.com',
+      ]);
       // The island hashes stay.
       expect(
         directive(policy, 'script-src').filter((s) => s.startsWith("'sha256-")),
       ).not.toHaveLength(0);
       expect(directive(policy, 'frame-src')).toEqual([
+        ...turnstile,
         'https://js.stripe.com',
         'https://hooks.stripe.com',
       ]);

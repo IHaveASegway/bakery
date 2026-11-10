@@ -33,10 +33,11 @@ import { useLiveMenu } from '../lib/use-live-menu';
 import { useSandboxPhase } from '../lib/use-session';
 import { shortWhen, windowText } from '../lib/when';
 import CartLines from './CartLines';
+import { StartHere } from './Guest';
 import Message from './Message';
 import PaymentStep, { orderPage } from './PaymentStep';
-import SlotPicker, { DayChips } from './SlotPicker';
-import StatusLine from './StatusLine';
+import SlotPicker from './SlotPicker';
+import StatusLine, { ORDERS_LIVE } from './StatusLine';
 import { hydrating, useMounted } from '../lib/use-mounted';
 
 type StepId = 'how' | 'when' | 'pay';
@@ -79,7 +80,7 @@ function Step({
             n
           )}
         </span>
-        <h2 id={`${id}-heading`}>
+        <h2 id={`${id}-heading`} tabIndex={-1}>
           <span className="sr-only">Step {n} of 3: </span>
           {title}
         </h2>
@@ -111,7 +112,12 @@ function slotWords(kind: 'pickup' | 'delivery', start: string): string {
     : `${shortWhen(start).split(', ')[0]}, ${windowText(start)}`;
 }
 
-/** The /checkout/ island: how, when, pay, with the cart or the placed order beside the steps. */
+/**
+ * The /checkout/ island: how, when, pay, with the cart or the placed order beside the steps. With
+ * no sandbox yet the steps are not drawn: the gate takes their place, so no choice is taken before
+ * there is a sandbox to order from, and Start ordering makes one here, with the cart kept beside it
+ * (audit F1 and F3, 2026-11-10).
+ */
 export default function Checkout() {
   const phase = useSandboxPhase();
   // A delivery goes to the persona's own zone, which the API derives from their place (R69).
@@ -119,7 +125,6 @@ export default function Checkout() {
   const menu = useLiveMenu(phase);
   const { cart, ready, update } = useCart();
   const [now, setNow] = useState<number | null>(null);
-  const [day, setDay] = useState('');
   // The day the visitor picked; until then, the cart's slot's day, else the first open day.
   const [pickedDay, setPickedDay] = useState<string | null>(null);
   const [conflict, setConflict] = useState<SlotConflict | null>(null);
@@ -134,6 +139,8 @@ export default function Checkout() {
   // `?order=<id>`: the status page's "Pay for this order" comes back here for the payment step.
   const [resume, setResume] = useState<string | null>(null);
   const attempt = useRef<Attempt | null>(null);
+  // Whether the gate was shown, so the steps take the focus when the sandbox it made is live.
+  const gated = useRef(false);
 
   const live = phase.name === 'live';
   const sandboxId = phase.name === 'live' ? phase.id : null;
@@ -146,6 +153,15 @@ export default function Checkout() {
     const timer = setInterval(() => setNow(Date.now() + offsetS * 1000), 30_000);
     return () => clearInterval(timer);
   }, [offsetS]);
+
+  useEffect(() => {
+    if (phase.name === 'nosession' || phase.name === 'nosandbox' || phase.name === 'seeding') {
+      gated.current = true;
+    } else if (phase.name === 'live' && gated.current) {
+      gated.current = false;
+      document.getElementById('how-heading')?.focus();
+    }
+  }, [phase.name]);
 
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get('order')?.trim() ?? '';
@@ -190,9 +206,6 @@ export default function Checkout() {
   }, [now, lead, menu.menu, cart.lines, cart.kind]);
   const groups = byDate(slots);
   const chosen = slots.find((s) => s.value === cart.slot) ?? null;
-  const shownDay =
-    chosen?.date ?? (groups.some((g) => g.date === day) ? day : (groups[0]?.date ?? ''));
-  const timesOfDay = groups.find((g) => g.date === shownDay)?.slots ?? [];
   const blocker = cart.kind === 'delivery' ? deliveryBlocker(cart.lines, menu.menu) : null;
 
   // A live sandbox reads the day's schedule from the API; the lists above serve the page before
@@ -289,11 +302,12 @@ export default function Checkout() {
     kind === 'pickup' ? 'Pickup at the bakery' : zoneWords(placed?.zone ?? personaZone);
   const whenStart = placed?.slot ?? chosenStart;
 
-  // Nothing to check out: one sentence and the way back.
+  // Nothing to check out: one sentence and the way back. The menu holds the gate for a visitor with
+  // no sandbox, so this screen does not show it a second way.
   if (placed === null && resume === null && ready && cart.lines.length === 0) {
     return (
       <div className="checkout-empty">
-        <StatusLine phase={phase} />
+        {(live || phase.name === 'seeding') && <StatusLine phase={phase} />}
         <div className="empty">
           <h2>Your cart is empty</h2>
           <p>Add something from the menu, and come back here to choose a time and pay.</p>
@@ -308,6 +322,9 @@ export default function Checkout() {
     );
   }
 
+  // Without a live sandbox the gate stands where the steps go.
+  const gate = !live && placed === null;
+
   const state = (id: StepId): 'open' | 'done' | 'todo' => {
     if (placed !== null) return id === 'pay' ? 'open' : 'done';
     if (id === 'pay') return 'todo';
@@ -318,81 +335,95 @@ export default function Checkout() {
   return (
     <div className="checkout">
       <div className="checkout-status">
-        <StatusLine phase={phase} tour="checkout-menu" />
+        {live && <StatusLine phase={phase} live={ORDERS_LIVE} tour="checkout-menu" />}
       </div>
 
-      <form
-        className="checkout-steps"
-        aria-label="Checkout"
-        data-tour="checkout-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void place();
-        }}
-      >
-        <Step
-          id="how"
-          n={1}
-          title="How you get it"
-          state={state('how')}
-          summary={howWords}
-          onChange={placed === null ? () => setOpen('how') : undefined}
-        >
-          <fieldset className="how-choice">
-            <legend className="sr-only">Pickup or delivery</legend>
-            {(
-              [
-                ['pickup', 'Pickup', 'At the bakery, in 15-minute slots'],
-                ['delivery', 'Delivery', 'To your door, in 2-hour windows'],
-              ] as const
-            ).map(([value, label, hint]) => (
-              <label key={value} className="how-option">
-                <input
-                  type="radio"
-                  name="kind"
-                  value={value}
-                  checked={cart.kind === value}
-                  disabled={!mounted}
-                  {...hydrating(mounted)}
-                  onChange={() => {
-                    setConflict(null);
-                    update((c) => ({ ...c, kind: value, slot: '' }));
-                  }}
-                />
-                <span className="how-label">{label}</span>
-                <span className="how-hint">{hint}</span>
-              </label>
-            ))}
-          </fieldset>
-          {cart.kind === 'delivery' && (
-            <p className="hint zone-line">{zoneWords(personaZone)}, where your place is.</p>
+      {gate ? (
+        <div className="checkout-steps">
+          {phase.name === 'loading' ? (
+            <p className="start-here start-looking" aria-live="polite">
+              Looking for your sandbox…
+            </p>
+          ) : phase.name === 'offline' ? (
+            <div className="start-here">
+              <StatusLine phase={phase} />
+            </div>
+          ) : (
+            <StartHere here="/checkout/" seeding={phase.name === 'seeding'} />
           )}
-          {blocker !== null && <p className="problem">{blocker}</p>}
-          <p className="step-actions">
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={!mounted}
-              {...hydrating(mounted)}
-              onClick={() => setOpen('when')}
-            >
-              Continue
-            </button>
-          </p>
-        </Step>
-
-        <Step
-          id="when"
-          n={2}
-          title="When"
-          state={state('when')}
-          summary={
-            whenStart === null ? undefined : (
-              <time dateTime={whenStart}>{slotWords(kind, whenStart)}</time>
-            )
-          }
+        </div>
+      ) : (
+        <form
+          className="checkout-steps"
+          aria-label="Checkout"
+          data-tour="checkout-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void place();
+          }}
         >
-          {live ? (
+          <Step
+            id="how"
+            n={1}
+            title="How you get it"
+            state={state('how')}
+            summary={howWords}
+            onChange={placed === null ? () => setOpen('how') : undefined}
+          >
+            <fieldset className="how-choice">
+              <legend className="sr-only">Pickup or delivery</legend>
+              {(
+                [
+                  ['pickup', 'Pickup', 'At the bakery, in 15-minute slots'],
+                  ['delivery', 'Delivery', 'To your door, in 2-hour windows'],
+                ] as const
+              ).map(([value, label, hint]) => (
+                <label key={value} className="how-option">
+                  <input
+                    type="radio"
+                    name="kind"
+                    value={value}
+                    checked={cart.kind === value}
+                    disabled={!mounted}
+                    {...hydrating(mounted)}
+                    onChange={() => {
+                      setConflict(null);
+                      update((c) => ({ ...c, kind: value, slot: '' }));
+                    }}
+                  />
+                  <span className="how-label">{label}</span>
+                  <span className="how-hint">{hint}</span>
+                </label>
+              ))}
+            </fieldset>
+            {cart.kind === 'delivery' && (
+              <p className="hint zone-line">{zoneWords(personaZone)}, where your place is.</p>
+            )}
+            {blocker !== null && <p className="problem">{blocker}</p>}
+            <p className="step-actions">
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!mounted}
+                {...hydrating(mounted)}
+                onClick={() => setOpen('when')}
+              >
+                Continue
+              </button>
+            </p>
+          </Step>
+
+          <Step
+            id="when"
+            n={2}
+            title="When"
+            state={state('when')}
+            summary={
+              whenStart === null ? undefined : (
+                <time dateTime={whenStart}>{slotWords(kind, whenStart)}</time>
+              )
+            }
+          >
             <SlotPicker
               kind={cart.kind}
               today={today}
@@ -420,102 +451,56 @@ export default function Checkout() {
               leadHours={Math.round(lead / 60)}
               quiet={quiet}
             />
-          ) : (
-            <>
-              <DayChips
-                dates={groups.map((g) => g.date)}
-                day={shownDay}
-                today={today}
-                onDay={(date) => {
-                  setDay(date);
-                  update((c) => ({ ...c, slot: '' }));
-                }}
+
+            <p className="field note-field">
+              <label htmlFor="note">Note for the kitchen (optional)</label>
+              <textarea
+                id="note"
+                rows={2}
+                value={cart.note}
+                aria-describedby="note-count"
+                onChange={(e) => update((c) => ({ ...c, note: e.target.value }))}
               />
-              <fieldset className="slot-chips">
-                <legend>{cart.kind === 'pickup' ? 'Pickup time' : 'Delivery window'}</legend>
-                <ul className="choices" data-kind={cart.kind}>
-                  {timesOfDay.map((s) => (
-                    <li key={s.value}>
-                      <label className="chip slot-chip">
-                        <input
-                          type="radio"
-                          name="slot"
-                          value={s.value}
-                          checked={chosen?.value === s.value}
-                          onChange={() => update((c) => ({ ...c, slot: s.value }))}
-                        />
-                        <span className="slot-time">{s.label}</span>
-                      </label>
-                    </li>
-                  ))}
-                </ul>
-                <p className="hint">
-                  Bakery time (Mountain). Open Tuesday to Sunday, 7:00 am to 3:00 pm.
-                  {lead > 0 && ` Your cart needs ${Math.round(lead / 60)} hours’ notice at least.`}
-                </p>
-              </fieldset>
-            </>
-          )}
-
-          <p className="field note-field">
-            <label htmlFor="note">Note for the kitchen (optional)</label>
-            <textarea
-              id="note"
-              rows={2}
-              value={cart.note}
-              aria-describedby="note-count"
-              onChange={(e) => update((c) => ({ ...c, note: e.target.value }))}
-            />
-            <span id="note-count" className="hint">
-              {noteChars} of {NOTE_MAX} characters. No emails, phone numbers, card numbers or web
-              addresses: the bakery refuses them and keeps no personal details.
-            </span>
-          </p>
-          <p aria-live="polite" className="problem-slot">
-            {noteChars > NOTE_MAX && (
-              <span className="problem">
-                The note is {noteChars - NOTE_MAX} characters over the limit.
+              <span id="note-count" className="hint">
+                {noteChars} of {NOTE_MAX} characters. No emails, phone numbers, card numbers or web
+                addresses: the bakery refuses them and keeps no personal details.
               </span>
-            )}
-          </p>
-
-          {live ? (
-            <>
-              <p className="step-actions">
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={busy || reasons.length > 0 || !mounted}
-                  {...hydrating(mounted || busy || reasons.length > 0)}
-                >
-                  {busy ? 'Placing your order…' : retry ? 'Try again' : 'Place order'}
-                </button>
-              </p>
-              {reasons.length > 0 && cart.lines.length > 0 && (
-                <ul className="hint reasons">
-                  {reasons.map((r) => (
-                    <li key={r}>{r}</li>
-                  ))}
-                </ul>
-              )}
-              {retry && (
-                <p className="hint">
-                  Trying again sends the same request with the same key, so the order cannot be
-                  placed twice.
-                </p>
-              )}
-            </>
-          ) : phase.name === 'seeding' || phase.name === 'loading' ? (
-            <p>Seeding your bakery… You can order as soon as it is ready.</p>
-          ) : (
-            <p>
-              Ordering needs a sandbox. <a href="/signin/">Sign in or try it as a guest</a>; your
-              cart stays in this tab.
             </p>
-          )}
-          <Message error={error} />
-        </Step>
-      </form>
+            <p aria-live="polite" className="problem-slot">
+              {noteChars > NOTE_MAX && (
+                <span className="problem">
+                  The note is {noteChars - NOTE_MAX} characters over the limit.
+                </span>
+              )}
+            </p>
+
+            <p className="step-actions">
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={busy || reasons.length > 0 || !mounted}
+                {...hydrating(mounted || busy || reasons.length > 0)}
+              >
+                {busy ? 'Placing your order…' : retry ? 'Try again' : 'Place order'}
+              </button>
+            </p>
+            {reasons.length > 0 && cart.lines.length > 0 && (
+              <ul className="hint reasons">
+                {reasons.map((r) => (
+                  <li key={r}>{r}</li>
+                ))}
+              </ul>
+            )}
+            {retry && (
+              <p className="hint">
+                Trying again sends the same request with the same key, so the order cannot be placed
+                twice.
+              </p>
+            )}
+            <Message error={error} />
+          </Step>
+        </form>
+      )}
 
       <aside
         className="panel checkout-summary"
@@ -576,13 +561,15 @@ export default function Checkout() {
         )}
       </aside>
 
-      <div className="checkout-pay">
-        <Step id="pay" n={3} title="Pay" state={state('pay')}>
-          {result !== null && !isPaid(result.order.status) && (
-            <PaymentStep sandboxId={result.sandboxId} order={result.order} offsetS={offsetS} />
-          )}
-        </Step>
-      </div>
+      {!gate && (
+        <div className="checkout-pay">
+          <Step id="pay" n={3} title="Pay" state={state('pay')}>
+            {result !== null && !isPaid(result.order.status) && (
+              <PaymentStep sandboxId={result.sandboxId} order={result.order} offsetS={offsetS} />
+            )}
+          </Step>
+        </div>
+      )}
     </div>
   );
 }

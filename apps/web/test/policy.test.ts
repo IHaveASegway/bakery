@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   CHALLENGE_PATHS,
+  CHECKOUT_PATHS,
   DEFAULT_API_ORIGIN,
   DISPATCH_PATHS,
   ISLAND_PATHS,
@@ -89,6 +90,26 @@ describe('page classes', () => {
     }
   });
 
+  test('the checkout class is the payment class plus Turnstile, in script-src and frame-src (2026-11-10)', () => {
+    const payment = directives('payment', DEFAULT_API_ORIGIN);
+    const checkout = directives('checkout', DEFAULT_API_ORIGIN);
+    expect(checkout['script-src']).toEqual([
+      "'self'",
+      'https://challenges.cloudflare.com',
+      'https://js.stripe.com',
+    ]);
+    expect(checkout['frame-src']).toEqual([
+      'https://challenges.cloudflare.com',
+      'https://js.stripe.com',
+      'https://hooks.stripe.com',
+    ]);
+    for (const name of Object.keys(payment)) {
+      if (['script-src', 'frame-src'].includes(name)) continue;
+      expect(checkout[name], name).toEqual(payment[name]);
+    }
+    expect(checkout['worker-src']).toBeUndefined();
+  });
+
   test('no other class names a Stripe origin', () => {
     for (const pageClass of ['every', 'challenge', 'dispatch', 'island'] as const) {
       expect(csp(pageClass, DEFAULT_API_ORIGIN)).not.toContain('stripe.com');
@@ -123,7 +144,14 @@ describe('page classes', () => {
   });
 
   test('nothing is unsafe in any class', () => {
-    for (const pageClass of ['every', 'challenge', 'dispatch', 'island', 'payment'] as const) {
+    for (const pageClass of [
+      'every',
+      'challenge',
+      'dispatch',
+      'island',
+      'payment',
+      'checkout',
+    ] as const) {
       expect(csp(pageClass, DEFAULT_API_ORIGIN)).not.toMatch(/unsafe-|sha256-|\*/);
     }
   });
@@ -138,9 +166,11 @@ describe('headersFile', () => {
     expect(body.toLowerCase()).not.toContain('strict-transport-security');
   });
 
-  test('the menu and the inbox get an island rule, the checkout and catering pages a payment rule: detach, then their own policy and hashes', () => {
+  test('the inbox gets an island rule, the checkout and catering pages a payment rule: detach, then their own policy and hashes', () => {
+    // The menu is a challenge page since 2026-11-10: Start ordering makes a guest sandbox there.
+    expect(CHALLENGE_PATHS).toEqual(['/signin/*', '/app/*', '/menu/*']);
+    expect(CHECKOUT_PATHS).toEqual(['/checkout/*']);
     expect(ISLAND_PATHS).toEqual([
-      '/menu/*',
       '/inbox/*',
       '/privacy/*',
       '/docs/api/*',
@@ -171,11 +201,13 @@ describe('headersFile', () => {
       const lines = file.split('\n').slice(at + 1, at + 3);
       expect(lines[0]).toBe('  ! Content-Security-Policy');
       expect(lines[1]).toContain("'sha256-AAAA';");
-      expect(lines[1]).not.toContain('challenges.cloudflare.com');
+      if (CHECKOUT_PATHS.includes(path)) expect(lines[1]).toContain('challenges.cloudflare.com');
+      else expect(lines[1]).not.toContain('challenges.cloudflare.com');
     }
-    // Turnstile is named by the challenge rules and the dispatch rule: script-src and frame-src each.
+    // Turnstile is named by the challenge rules, the dispatch rule and the checkout's rule:
+    // script-src and frame-src each.
     expect(file.split('challenges.cloudflare.com').length - 1).toBe(
-      (CHALLENGE_PATHS.length + DISPATCH_PATHS.length) * 2,
+      (CHALLENGE_PATHS.length + DISPATCH_PATHS.length + CHECKOUT_PATHS.length) * 2,
     );
     // Stripe: script-src, two frame-src origins, connect-src; only in the payment rules.
     expect(file.split('stripe.com').length - 1).toBe(4 * PAYMENT_PATHS.length);

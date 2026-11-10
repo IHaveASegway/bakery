@@ -131,16 +131,16 @@ describe('watchSession', () => {
 });
 
 describe('sessionLink', () => {
-  test('Sign in without a session, Console with one, current on its own pages', () => {
+  test('the same words with a session or without; only the address follows it (audit F14)', () => {
     expect(sessionLink(false, '/menu/')).toEqual({
       href: '/signin/',
-      label: 'Sign in',
+      label: 'Your bakery',
       current: false,
     });
     expect(sessionLink(false, '/signin/').current).toBe(true);
     expect(sessionLink(true, '/menu/')).toEqual({
       href: '/app/',
-      label: 'Console',
+      label: 'Your bakery',
       current: false,
     });
     expect(sessionLink(true, '/app/dispatch/').current).toBe(true);

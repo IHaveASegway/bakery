@@ -13,6 +13,7 @@ import type { WorkspaceId } from '../lib/console-sections';
 import { describeError, type Message as Text } from '../lib/messages';
 import { forgetSession, readSession, refreshSession } from '../lib/session';
 import { readSandbox } from '../lib/use-session';
+import { signinFor } from '../lib/next';
 import ConsoleTopBar from './ConsoleTopBar';
 import Message from './Message';
 
@@ -178,7 +179,7 @@ export default function Console({
         <section className="empty">
           <h2>You are not signed in</h2>
           <p>The console shows your own sandbox, so it needs a session.</p>
-          <a className="btn btn-primary" href="/signin/">
+          <a className="btn btn-primary" href={signinFor('/app/')}>
             Sign in or try it as a guest
           </a>
         </section>
