@@ -74,6 +74,26 @@ function controlName(el: Element): string {
   return name.replace(/\s+for order\s+\S+$/i, '');
 }
 
+/**
+ * Watch the page for about a second after an answer, a frame at a time: as soon as `kept` says
+ * the note has something to sit by (its control, the page's result line), nothing happens;
+ * otherwise, once the page has settled, `fold`. A page writes its result line when its own code
+ * has handled the answer, some frames after the guide's trace has it (the board's one status line
+ * waits for the board's own state). Returns the stop.
+ */
+function afterSettling(kept: () => boolean, fold: () => void): () => void {
+  let frame = 0;
+  let left = 60;
+  const look = () => {
+    if (kept()) return;
+    left -= 1;
+    if (left <= 0) fold();
+    else frame = requestAnimationFrame(look);
+  };
+  frame = requestAnimationFrame(look);
+  return () => cancelAnimationFrame(frame);
+}
+
 /** A menu open over the page, which an Escape closes before it closes any note. */
 const OPEN_MENUS =
   '.board details.menu[open], .popover > [aria-expanded="true"], .guide-extra[data-open], .guide-full[data-open]';
@@ -234,15 +254,13 @@ export default function Layer({
     // moved, not the entry's own element), it folds. Later, the note itself folds if its element
     // goes (Note.tsx).
     const gesture = live.gesture;
-    let frame = requestAnimationFrame(() => {
-      frame = requestAnimationFrame(() => {
+    return afterSettling(
+      () => {
         const now = traces.anchorOf(gesture);
-        if (now instanceof Element && now.isConnected) return;
-        if (liveAnchor() !== null) return;
-        setLineFor(gesture);
-      });
-    });
-    return () => cancelAnimationFrame(frame);
+        return (now instanceof Element && now.isConnected) || liveAnchor() !== null;
+      },
+      () => setLineFor(gesture),
+    );
     // When the note arrives and when its answer does: later evidence does not fold it.
   }, [live?.gesture, group.length > 0, answered]);
   const foldIfGone = useCallback((): boolean => {
@@ -259,14 +277,15 @@ export default function Layer({
     if (resultInPage(liveEntry?.target ?? null) !== null) return false;
     const gesture = live.gesture;
     const target = liveEntry?.target ?? null;
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        if (resultInPage(target) !== null) return;
+    afterSettling(
+      () => {
         const now = traces.anchorOf(gesture);
-        if (now instanceof Element && now.isConnected) return;
+        return resultInPage(target) !== null || (now instanceof Element && now.isConnected);
+      },
+      () => {
         setLineFor(gesture);
         setStoryOpen(false);
-      }),
+      },
     );
     return false;
   }, [live, group, liveEntry]);
