@@ -11,6 +11,7 @@ import {
 } from '../lib/crm';
 import { describeCrmError } from '../lib/crm-errors';
 import { momentText, timesIn } from '../lib/when';
+import { likesText } from '../lib/words';
 import { describeError, type Message as Text } from '../lib/messages';
 import Message from './Message';
 
@@ -83,7 +84,7 @@ export default function CustomerTimeline({
       <p className="hint">
         {zoneLabel(customer.home_zone)}, {customer.loyalty_points} points, {customer.orders}{' '}
         {customer.orders === 1 ? 'order' : 'orders'}, {customer.catering} catering. Likes:{' '}
-        {customer.preferences.join(', ')}.
+        {likesText(customer.preferences)}.
       </p>
       <p>
         <label className="check">

@@ -128,6 +128,7 @@ pub async fn place(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answer {
     let (claims, id) = own_sandbox(cx, id)?;
     not_revoked(cx, &claims).await?;
     let key = cx.key.ok_or_else(problem::idempotency_key)?;
+    cx.caused(key.to_string());
     let text = req.text().await.map_err(|_| problem::body())?;
     let body: OrderRequest = serde_json::from_str(&text).map_err(|_| problem::body())?;
     let slot: BusinessTime = body
@@ -337,6 +338,7 @@ pub async fn cancel(cx: &Cx, id: Option<&str>, oid: Option<&str>) -> Answer {
     let (claims, id) = own_sandbox(cx, id)?;
     not_revoked(cx, &claims).await?;
     let key = cx.key.ok_or_else(problem::idempotency_key)?;
+    cx.caused(key.to_string());
     let name = registered(cx, id, oid).await?;
     let res = call(
         &cx.env,

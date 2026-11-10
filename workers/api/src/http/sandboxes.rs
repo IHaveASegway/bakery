@@ -339,6 +339,7 @@ pub async fn set_fault(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answer {
     not_revoked(cx, &claims).await?;
     let body: FaultRequest = read_body(req).await?;
     let key = cx.key.ok_or_else(problem::idempotency_key)?;
+    cx.caused(key.to_string());
     let mut res = call(
         &cx.env,
         sandbox::BINDING,
@@ -435,6 +436,7 @@ pub async fn advance_clock(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answ
     not_revoked(cx, &claims).await?;
     let body: ClockRequest = read_body(req).await?;
     let key = cx.key.ok_or_else(problem::idempotency_key)?;
+    cx.caused(key.to_string());
     let step = clock_step(&body).ok_or_else(|| problem::clock("not-positive"))?;
     let mut res = call(
         &cx.env,

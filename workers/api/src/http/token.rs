@@ -104,6 +104,7 @@ pub async fn issue(cx: &Cx, id: Option<&str>, rotate: bool) -> Answer {
     let acct = claims.acct.clone().ok_or_else(problem::guest_scope)?;
     let keyring = cx.keyring()?;
     let key = cx.key.ok_or_else(problem::idempotency_key)?;
+    cx.caused(key.to_string());
     let iat = cx.now.unix_ms().div_euclid(1_000);
     let mut res = call(
         &cx.env,

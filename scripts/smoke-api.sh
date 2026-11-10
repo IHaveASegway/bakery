@@ -119,7 +119,7 @@ request cors_storefront -H "Origin: $STOREFRONT" "$BASE/v1/health"
 expect_status cors_storefront 200
 expect_header cors_storefront access-control-allow-origin "$STOREFRONT"
 expect_header cors_storefront access-control-allow-credentials "true"
-expect_header cors_storefront access-control-expose-headers "ETag, Location, Retry-After, Bakery-Cache"
+expect_header cors_storefront access-control-expose-headers "ETag, Location, Retry-After, Bakery-Cache, Bakery-Cause"
 expect_header cors_storefront vary "Origin"
 
 # Any other origin: no CORS header at all.

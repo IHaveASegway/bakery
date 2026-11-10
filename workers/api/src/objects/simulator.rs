@@ -413,9 +413,12 @@ impl DurableObject for Simulator {
                 match (method, path) {
                     (Method::Get, "/_traffic") => json(&self.view(now)?, 200),
                     (Method::Post, "/_stop") => {
-                        let _: Stop = sql::body(&mut req).await?;
+                        let stop: Stop = sql::body(&mut req).await?;
                         if self.sim()?.is_some_and(|s| s.running != 0) {
-                            self.stop(&meta, StopReason::Stop, now).await?;
+                            // The staff's stop is its own cause: the request's key, which the
+                            // API gives back in `Bakery-Cause`.
+                            self.stop_under(&meta, StopReason::Stop, Some(stop.key), now)
+                                .await?;
                         }
                         json(&self.view(now)?, 200)
                     }
@@ -642,10 +645,24 @@ impl Simulator {
     /// `StopTraffic`: the run ends with its event, the tick is dropped, and `Control` gets back
     /// the minutes the run did not use.
     async fn stop(&self, meta: &child::Meta, reason: StopReason, now: WallTime) -> Result<()> {
+        self.stop_under(meta, reason, None, now).await
+    }
+
+    /// `StopTraffic` under `cause`, or, for a stop no request asked for (the cap, the wipe, the
+    /// flag), under the run's own key.
+    async fn stop_under(
+        &self,
+        meta: &child::Meta,
+        reason: StopReason,
+        cause: Option<String>,
+        now: WallTime,
+    ) -> Result<()> {
         let Some(run) = self.sim()?.filter(|s| s.running != 0) else {
             return Ok(());
         };
+        // Control settles the run once, by the run's key, whoever stopped it.
         let key = run.run.clone().unwrap_or_default();
+        let cause = cause.unwrap_or_else(|| key.clone());
         let event = self.envelope(
             meta,
             now,
@@ -655,7 +672,7 @@ impl Simulator {
                 "minutes": run.used,
                 "orders": run.orders,
             }),
-            &key,
+            &cause,
         )?;
         let sql = self.sql();
         transaction_sync(&self.state.storage(), move || {

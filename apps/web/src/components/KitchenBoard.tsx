@@ -1,8 +1,8 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   actionFor,
   bakeListsByDate,
-  eventWords,
+  chipText,
   groupByState,
   isSimulated,
   routeWords,
@@ -14,6 +14,7 @@ import { placedOrders } from '../lib/placed-orders';
 import { dateOf, mountainLocal } from '../lib/slots';
 import { useKitchen, type Command } from '../lib/use-kitchen';
 import { clockOfText, shortDate, whenText } from '../lib/when';
+import { variantName } from '../lib/words';
 import BakeList from './BakeList';
 import GuestNote from './GuestNote';
 import RefundControls from './RefundControls';
@@ -78,7 +79,6 @@ function useCardMenu() {
 }
 
 /** `country-loaf/whole` as "country loaf, whole". */
-const variantWords = (slug: string) => slug.replaceAll('-', ' ').replace('/', ', ');
 
 /** The words on a card's one button, short enough for a column; its accessible name keeps the
  *  whole label ("Start production for order 4KX2QF"), which these words are part of. */
@@ -207,7 +207,7 @@ export function CardView({
       <ul className="card-lines">
         {shown.map((l) => (
           <li key={l.variant}>
-            {l.qty} × {variantWords(l.variant)}
+            {l.qty} × {variantName(l.variant)}
           </li>
         ))}
       </ul>
@@ -217,7 +217,7 @@ export function CardView({
           <ul className="card-lines">
             {rest.map((l) => (
               <li key={l.variant}>
-                {l.qty} × {variantWords(l.variant)}
+                {l.qty} × {variantName(l.variant)}
               </li>
             ))}
           </ul>
@@ -228,13 +228,11 @@ export function CardView({
       {(card.last || card.cause) && (
         <p className="hint">
           {card.last ? (
-            <span className="badge card-event" data-tone="kind">
-              {eventWords(card.last).map((word, i) => (
-                <Fragment key={i}>
-                  {i > 0 && <wbr />}
-                  {word}
-                </Fragment>
-              ))}
+            // One name: where the card is too narrow for it, it breaks only between its words and
+            // says so with a hyphen, "OrderProduction-" over "Started", as a reader breaks a long
+            // word (soft hyphens, `chipText`; console.css).
+            <span className="badge card-event" data-tone="kind" title={card.last}>
+              {chipText(card.last)}
             </span>
           ) : (
             'Last event'

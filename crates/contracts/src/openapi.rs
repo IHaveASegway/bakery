@@ -209,6 +209,11 @@ pub fn document() -> Value {
                 "RetryAfter": {
                     "description": "Seconds to wait before asking again.",
                     "schema": { "type": "integer", "minimum": 0 }
+                },
+                "BakeryCause": {
+                    "description": "The `cause` every event this command writes carries, in its envelope and on the flight recorder's hops (`GET /v1/sandboxes/{id}/trace`), so a caller can follow its own write. It is the `Idempotency-Key`, the key with the route's own prefix (`capacity:`, `propose:`, `plan:`, `publish:`, `complete:`, `consent:`, `draft:`, and `edit:`, `schedule:` and `cancel:` with the campaign's id), or, for a payment, the payment's id. A `PATCH` sent without a key gets the cause the API named for it. A replay names the first answer's. Readable from the storefront's origin.",
+                    "schema": { "type": "string" },
+                    "example": "capacity:01JC8Z6K3W9QF2N4T7XRB5M0HD"
                 }
             },
             "securitySchemes": {
@@ -346,6 +351,12 @@ fn response(route: &RouteSpec, status: u16, answers: &[Answer]) -> Value {
         headers.insert(
             "Idempotent-Replayed".into(),
             json!({ "$ref": "#/components/headers/IdempotentReplayed" }),
+        );
+    }
+    if (200..300).contains(&status) && routes::names_cause(route) {
+        headers.insert(
+            "Bakery-Cause".into(),
+            json!({ "$ref": "#/components/headers/BakeryCause" }),
         );
     }
     if matches!(status, 201 | 302 | 303) {
@@ -719,6 +730,31 @@ mod tests {
             .sum();
         assert_eq!(operations, count);
         assert_eq!(count, routes::ROUTES.len());
+    }
+
+    #[test]
+    fn a_command_answer_names_its_cause_and_a_read_does_not() {
+        let doc = document();
+        let cause = json!("#/components/headers/BakeryCause");
+        let paths = &doc["paths"];
+        assert_eq!(
+            paths["/v1/sandboxes/{id}/schedule/{date}/capacity"]["patch"]["responses"]["200"]["headers"]
+                ["Bakery-Cause"]["$ref"],
+            cause
+        );
+        assert_eq!(
+            paths["/v1/sandboxes/{id}/orders"]["post"]["responses"]["201"]["headers"]["Bakery-Cause"]
+                ["$ref"],
+            cause
+        );
+        assert!(
+            paths["/v1/sandboxes/{id}/menu"]["get"]["responses"]["200"]["headers"]["Bakery-Cause"]
+                .is_null()
+        );
+        assert!(
+            paths["/v1/sandboxes"]["post"]["responses"]["201"]["headers"]["Bakery-Cause"].is_null()
+        );
+        assert!(doc["components"]["headers"]["BakeryCause"]["description"].is_string());
     }
 
     #[test]

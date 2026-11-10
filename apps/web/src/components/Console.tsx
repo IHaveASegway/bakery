@@ -257,15 +257,8 @@ export default function Console({
   const isGuest = session.kind === 'guest';
 
   const newSandbox = (replace: boolean) =>
+    // A replace was asked for in the page first (SandboxActions, ConfirmStep).
     act(async () => {
-      if (
-        replace &&
-        !window.confirm(
-          'Replace your sandbox? The current one is deleted now, with everything in it.',
-        )
-      ) {
-        return;
-      }
       const sandbox = await createSandbox({ replace });
       setView({ name: 'sandbox', session: { ...session, sandbox: sandbox.id }, sandbox });
     }, replace);
@@ -278,8 +271,8 @@ export default function Console({
     });
 
   const wipe = (sandbox: SandboxResponse) =>
+    // Asked for in the page first (SandboxActions, ConfirmStep).
     act(async () => {
-      if (!window.confirm('Wipe this sandbox now? Everything in it is deleted for good.')) return;
       await wipeSandbox(sandbox.id);
       setView({ name: 'wiped', session });
     }, true);

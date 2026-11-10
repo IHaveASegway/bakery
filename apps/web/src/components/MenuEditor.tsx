@@ -17,6 +17,7 @@ import {
 } from '../lib/menu';
 import { describeError, type Message as Text } from '../lib/messages';
 import { dollars, dollarsField, parseDollars, parseTaxPercent, taxPercent } from '../lib/money';
+import { itemName } from '../lib/words';
 import GuestNote from './GuestNote';
 import Message from './Message';
 
@@ -429,7 +430,7 @@ export default function MenuEditor({
                 const names = new Map(
                   (menu?.categories ?? []).flatMap((c) => c.items.map((i) => [i.slug, i.name])),
                 );
-                setSaid(anotherTabText(unseen.map((slug) => names.get(slug) ?? slug)));
+                setSaid(anotherTabText(unseen.map((slug) => names.get(slug) ?? itemName(slug))));
                 return;
               }
               const published = await publishMenu(sandboxId);

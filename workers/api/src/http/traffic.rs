@@ -110,6 +110,7 @@ pub async fn start(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answer {
     let (claims, id) = own_sandbox(cx, id)?;
     not_revoked(cx, &claims).await?;
     let key = cx.key.ok_or_else(problem::idempotency_key)?;
+    cx.caused(key.to_string());
     let text = req.text().await.map_err(|_| problem::body())?;
     let body: TrafficRequest = serde_json::from_str(&text).map_err(|_| problem::body())?;
     if !rate_allowed(body.rate) {
@@ -180,15 +181,15 @@ pub async fn stop(cx: &Cx, id: Option<&str>) -> Answer {
     if !registered(cx, id).await? {
         return json(&never_started(cx), 200);
     }
+    let key = random::ulid(cx.now)?.to_string();
+    cx.caused(&key);
     let res = call(
         &cx.env,
         simulator::BINDING,
         &simulator::name(id),
         Method::Post,
         "/_stop",
-        Some(&Stop {
-            key: random::ulid(cx.now)?.to_string(),
-        }),
+        Some(&Stop { key }),
     )
     .await?;
     answered(cx, res).await

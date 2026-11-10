@@ -146,6 +146,7 @@ pub async fn create(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answer {
     let (claims, id) = own_sandbox(cx, id)?;
     not_revoked(cx, &claims).await?;
     let key = cx.key.ok_or_else(problem::idempotency_key)?;
+    cx.caused(key.to_string());
     let text = req.text().await.map_err(|_| problem::body())?;
     let body: CateringInquiryRequest = serde_json::from_str(&text).map_err(|_| problem::body())?;
     let date: BakeryDate = body
@@ -259,6 +260,7 @@ pub async fn accept(cx: &Cx, id: Option<&str>, cid: Option<&str>) -> Answer {
     let (claims, id) = own_sandbox(cx, id)?;
     not_revoked(cx, &claims).await?;
     let key = cx.key.ok_or_else(problem::idempotency_key)?;
+    cx.caused(key.to_string());
     let (name, _) = registered(cx, id, cid).await?;
     let event = state_of(cx, &name).await?;
     // Only a quoted event takes a hold; any other state is the event's to refuse (or, accepted
@@ -344,6 +346,8 @@ pub async fn deposit(cx: &Cx, id: Option<&str>, cid: Option<&str>) -> Answer {
     }
     let out: IntentOut =
         serde_json::from_str(&res.text().await?).map_err(|_| problem::internal())?;
+    // Billing writes the intent's events under the payment's id (objects/billing.rs, `intent`).
+    cx.caused(out.payment.to_string());
     json(
         &PaymentResponse {
             payment: out.payment.to_string(),
@@ -411,6 +415,7 @@ async fn cancel_by(
     let (claims, id) = own_sandbox(cx, id)?;
     not_revoked(cx, &claims).await?;
     let key = cx.key.ok_or_else(problem::idempotency_key)?;
+    cx.caused(key.to_string());
     let text = req.text().await.map_err(|_| problem::body())?;
     let body: CateringCancelRequest = serde_json::from_str(&text).map_err(|_| problem::body())?;
     let reason = match body.reason {
@@ -440,6 +445,7 @@ pub async fn quote(cx: &Cx, req: &mut Request, id: Option<&str>, cid: Option<&st
     let (claims, id) = own_sandbox(cx, id)?;
     not_revoked(cx, &claims).await?;
     let key = cx.key.ok_or_else(problem::idempotency_key)?;
+    cx.caused(key.to_string());
     let text = req.text().await.map_err(|_| problem::body())?;
     let body = quote_body(&text)?;
     let (name, _) = registered(cx, id, cid).await?;
@@ -465,6 +471,7 @@ pub async fn decline(cx: &Cx, req: &mut Request, id: Option<&str>, cid: Option<&
     let (claims, id) = own_sandbox(cx, id)?;
     not_revoked(cx, &claims).await?;
     let key = cx.key.ok_or_else(problem::idempotency_key)?;
+    cx.caused(key.to_string());
     let text = req.text().await.map_err(|_| problem::body())?;
     let body: DeclineRequest = serde_json::from_str(&text).map_err(|_| problem::body())?;
     let reason = match body.reason {
@@ -493,6 +500,7 @@ pub async fn staff_step(cx: &Cx, id: Option<&str>, cid: Option<&str>, cmd: Cmd) 
     let (claims, id) = own_sandbox(cx, id)?;
     not_revoked(cx, &claims).await?;
     let key = cx.key.ok_or_else(problem::idempotency_key)?;
+    cx.caused(key.to_string());
     let (name, _) = registered(cx, id, cid).await?;
     send(
         cx,

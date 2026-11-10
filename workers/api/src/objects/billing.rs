@@ -596,7 +596,9 @@ impl Billing {
         };
         let state = match execute::<BillingAggregate>(state, &cmd, &Self::ctx(meta, now, id)) {
             Ok((next, events)) => {
-                self.commit(meta, &existing, &events, now, &id.to_string())
+                // Under the payment's id, as `CreateIntent`'s, so one cause names both of the
+                // pay call's events and the API can give it back (`Bakery-Cause`).
+                self.commit(meta, &existing, &events, now, &payment.to_string())
                     .await?;
                 next
             }
