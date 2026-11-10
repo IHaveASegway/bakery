@@ -181,7 +181,8 @@ const S: &str = "/v1/sandboxes/{id}";
 /// below. A route added later sits beside its neighbours: the menu's drafts (2026-11-08) after
 /// the publish. Its number, 19, is the audit day of 2026-11-08 in docs/roadmap.md ("UI audit of
 /// 2026-11-08"), which has no pull request number of its own. The tax rate (2026-11-09) sits
-/// after the drafts with the number 20, the roadmap's next work package.
+/// after the drafts with the number 20, the roadmap's next work package. The flight recorder's
+/// two (2026-11-09, ADR 0015) sit after the kitchen's socket and heartbeat with the number 21.
 pub const ROUTES: &[RouteSpec] = &[
     r(
         2,
@@ -631,6 +632,51 @@ pub const ROUTES: &[RouteSpec] = &[
         None,
         &[ok(204, "noted"), ok(404, "another sandbox's id")],
     ),
+    // 2026-11-09: the flight recorder (ADR 0015), what the Queue's consumer did with each event.
+    // Read as the sandbox is: any session of it, a guest's included; the socket as the kitchen's.
+    with_query(
+        r(
+            21,
+            "get-trace",
+            "GET",
+            "/v1/sandboxes/{id}/trace",
+            Sandbox,
+            "The flight recorder's hops after a cursor, newest last: who consumed each event, on which attempt, how long after it was written",
+            None,
+            Some("TraceResponse"),
+            &[
+                ok(
+                    200,
+                    "the hops after `after`, with the next cursor; an empty page for a live sandbox whose recorder was never seeded",
+                ),
+                SEEDING,
+            ],
+        ),
+        &[q(
+            "after",
+            "integer",
+            "the cursor of the last batch already read; 0 or left out for the oldest kept",
+        )],
+    ),
+    cookie_only(r(
+        21,
+        "trace-socket",
+        "GET",
+        "/v1/sandboxes/{id}/trace/ws",
+        Cookie,
+        "The flight recorder's socket, protocol v1 (`x-websocket`): a snapshot, then each batch as it is recorded",
+        None,
+        None,
+        &[
+            ok(101, "the socket; frames in `x-websocket`"),
+            ok(
+                404,
+                "another sandbox's id, or a live sandbox whose recorder was never seeded (`no-recorder`)",
+            ),
+            no(426, "upgrade", "without `Upgrade: websocket`"),
+            SEEDING,
+        ],
+    )),
     r(
         4,
         "get-traffic",
@@ -1633,7 +1679,12 @@ mod tests {
             }
         }
         // The two token routes that mint take the cookie only, and the socket never a token.
-        for id in ["issue-token", "rotate-token", "kitchen-socket"] {
+        for id in [
+            "issue-token",
+            "rotate-token",
+            "kitchen-socket",
+            "trace-socket",
+        ] {
             assert!(!ROUTES.iter().find(|r| r.id == id).unwrap().bearer, "{id}");
         }
     }
@@ -1707,6 +1758,40 @@ mod tests {
             && a.problem == Some("menu")
             && a.note.contains("`tax-rate-range`")));
         assert!(rate.iter().any(|a| a.problem == Some("guest-scope")));
+        // The flight recorder's two routes read as the sandbox and its kitchen socket do.
+        let trace = find("GET", "/v1/sandboxes/{id}/trace").unwrap();
+        let sandbox = find("GET", "/v1/sandboxes/{id}").unwrap();
+        assert_eq!(
+            (trace.id, trace.pr, trace.session, trace.bearer),
+            ("get-trace", 21, sandbox.session, sandbox.bearer)
+        );
+        assert_eq!(trace.response, Some("TraceResponse"));
+        assert_eq!(
+            trace.query.iter().map(|q| q.name).collect::<Vec<_>>(),
+            ["after"]
+        );
+        let socket = find("GET", "/v1/sandboxes/{id}/trace/ws").unwrap();
+        let kitchen = find("GET", "/v1/sandboxes/{id}/kitchen/ws").unwrap();
+        assert_eq!(
+            (socket.id, socket.pr, socket.session, socket.bearer),
+            ("trace-socket", 21, kitchen.session, kitchen.bearer)
+        );
+        let socket = answers(socket);
+        for (status, slug) in [
+            (101, None),
+            (404, None),
+            (426, Some("upgrade")),
+            (403, Some("origin")),
+            (429, Some("rate-limit")),
+            (401, Some("token")),
+        ] {
+            assert!(
+                socket
+                    .iter()
+                    .any(|a| a.status == status && a.problem == slug),
+                "trace-socket {status} {slug:?}"
+            );
+        }
         let sandboxes = answers(find("POST", "/v1/sandboxes").unwrap());
         assert!(
             !sandboxes.iter().any(|a| a.problem == Some("token")),

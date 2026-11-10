@@ -41,14 +41,26 @@
 //! For each message on `bakery-events-dlq`: write it, with the consumer's last error for it,
 //! to the owning Sandbox (`/_dead-letter`), log `dlq` and ack. A wiped sandbox has nowhere to
 //! keep it, and the message is acked.
+//!
+//! Since 2026-11-09 the flight recorder (ADR 0015; objects/recorder.rs): once a message's
+//! deliveries are decided, the consumer builds its hop (the envelope's ids, type, sequence and
+//! times, each routed class with its outcome, never `data`), and at the end of the batch sends
+//! each sandbox's `Recorder` one `/_record` with that sandbox's hops, through `wait_until`, so
+//! the handler returns, and every ack stands, before it is sent. A failure to record is one
+//! `trace_drop` line with the sandbox and the count, and changes nothing else; hops not yet sent
+//! when the platform ends the invocation are lost with no line. The dead-letter queue's consumer
+//! sends each sandbox's Recorder its dead hops (`/_dead`) the same way, once the dead letters are
+//! kept: the Recorder learns of a dead letter only from there, never from a count. With the flag
+//! `off` nothing is delivered and nothing is recorded, dead hops included.
 
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 
 use bakery_app::Clock;
 use bakery_app::analytics::{Event, Point};
 use bakery_app::names::sandbox_object_name;
 use bakery_app::routing::{Subscriber, deliver_to, reference, strip_for};
-use bakery_contracts::{CateringResponse, Flag, OrderResponse};
+use bakery_contracts::{CateringResponse, Flag, OrderResponse, TraceHop};
 use bakery_domain::{BakeryDate, BusinessTime, Envelope, Ulid};
 use worker::{
     Cache, Context, Env, MessageBatch, MessageExt, Method, Response, Result, console_log, event,
@@ -60,7 +72,7 @@ use crate::metrics;
 use crate::objects::sandbox::{self, CustomerBirth, DeadLetterIn, DeliveryError, RegisterCustomer};
 use crate::objects::sql;
 use crate::objects::{
-    billing, catering, control, crm, customer, dispatch, inbox, kitchen, order, schedule,
+    billing, catering, control, crm, customer, dispatch, inbox, kitchen, order, recorder, schedule,
 };
 
 /// `sql::call`, with the answer's body read to its end before the consumer goes on. A body left
@@ -108,11 +120,49 @@ thread_local! {
 }
 
 #[event(queue)]
-async fn queue(batch: MessageBatch<String>, env: Env, _ctx: Context) -> Result<()> {
+async fn queue(batch: MessageBatch<String>, env: Env, ctx: Context) -> Result<()> {
     if batch.queue() == DLQ {
-        dead_letters(&batch, &env).await
+        let dead = dead_letters(&batch, &env).await?;
+        // A dead letter is the Recorder's only news of the event's end; with the flag `off`
+        // nothing is recorded, as on the main queue.
+        if !dead.is_empty() && flag(&env).await != Flag::Off {
+            ctx.wait_until(record(env, dead, "/_dead"));
+        }
+        Ok(())
     } else {
-        consume(&batch, &env).await
+        let hops = consume(&batch, &env).await?;
+        if !hops.is_empty() {
+            ctx.wait_until(record(env, hops, "/_record"));
+        }
+        Ok(())
+    }
+}
+
+/// Each sandbox's hops of the batch to its `Recorder` at `path` (`/_record` from the consumer,
+/// `/_dead` from the dead-letter queue's), one request a sandbox, one after another, after the
+/// batch's acks. The work is bounded by the batch: at most 10 messages (`max_batch_size` in
+/// wrangler.jsonc), so at most 10 sandboxes and 10 requests, each through [`call`], which reads
+/// the answer to its end. Best effort: a failure is logged as `trace_drop`, with the sandbox and
+/// the count only. When the platform ends the invocation's `wait_until` before the last request,
+/// the hops not yet sent are lost with no line at all.
+async fn record(env: Env, hops: BTreeMap<Ulid, Vec<TraceHop>>, path: &'static str) {
+    for (sandbox, hops) in hops {
+        let n = hops.len();
+        let status = call(
+            &env,
+            recorder::BINDING,
+            &recorder::name(sandbox),
+            Method::Post,
+            path,
+            Some(&recorder::RecordIn { hops }),
+        )
+        .await
+        .map_or(0, |r| r.status_code());
+        if status != 200 {
+            console_log!(
+                "{{\"event\":\"trace_drop\",\"sandbox\":\"{sandbox}\",\"path\":{path:?},\"hops\":{n},\"status\":{status}}}"
+            );
+        }
     }
 }
 
@@ -210,9 +260,11 @@ fn subscriber(to: Subscriber, envelope: &Envelope) -> Option<(&'static str, Stri
     }
 }
 
-async fn consume(batch: &MessageBatch<String>, env: &Env) -> Result<()> {
+/// The batch, and the hop of every message whose deliveries were decided, by sandbox.
+async fn consume(batch: &MessageBatch<String>, env: &Env) -> Result<BTreeMap<Ulid, Vec<TraceHop>>> {
     let off = flag(env).await == Flag::Off;
     let (mut acked, mut retried, mut poisoned) = (0u32, 0u32, 0u32);
+    let mut hops: BTreeMap<Ulid, Vec<TraceHop>> = BTreeMap::new();
     for message in batch.raw_iter() {
         if off {
             message.retry();
@@ -247,7 +299,18 @@ async fn consume(batch: &MessageBatch<String>, env: &Env) -> Result<()> {
             forget_old_menu(env, &envelope).await;
         }
         let mut delivered = 0;
-        match deliver(env, &envelope, &mut delivered).await {
+        let outcome = deliver(env, &envelope, &mut delivered).await;
+        let routes: Vec<Subscriber> = deliver_to(&envelope).iter().map(|r| r.to).collect();
+        hops.entry(envelope.sandbox)
+            .or_default()
+            .push(recorder::hop(
+                &envelope,
+                &routes,
+                delivered,
+                outcome.is_err(),
+                SystemClock::new().now_wall(),
+            ));
+        match outcome {
             Ok(()) => {
                 message.ack();
                 acked += 1;
@@ -269,7 +332,7 @@ async fn consume(batch: &MessageBatch<String>, env: &Env) -> Result<()> {
         "{{\"event\":\"queue_batch\",\"queue\":{:?},\"acked\":{acked},\"retried\":{retried},\"poisoned\":{poisoned},\"off\":{off}}}",
         batch.queue()
     );
-    Ok(())
+    Ok(hops)
 }
 
 /// Every live subscriber gets the envelope, stripped for it. The first failure is the error;
@@ -841,7 +904,13 @@ async fn write_dead_letter(
     Ok(res.status_code())
 }
 
-async fn dead_letters(batch: &MessageBatch<String>, env: &Env) -> Result<()> {
+/// Each message written to its Sandbox's dead letters and acked; the dead hop of each one kept,
+/// by sandbox, for the flight recorder (an envelope that does not read has none).
+async fn dead_letters(
+    batch: &MessageBatch<String>,
+    env: &Env,
+) -> Result<BTreeMap<Ulid, Vec<TraceHop>>> {
+    let mut dead: BTreeMap<Ulid, Vec<TraceHop>> = BTreeMap::new();
     for message in batch.raw_iter() {
         let body = message.body().as_string();
         let sandbox = body.as_deref().and_then(sandbox_of);
@@ -854,11 +923,20 @@ async fn dead_letters(batch: &MessageBatch<String>, env: &Env) -> Result<()> {
             .ok()
             .and_then(|v| v.get("id").and_then(|i| i.as_str()).map(str::to_owned))
             .unwrap_or_default();
+        let envelope = read(&body).ok();
         match write_dead_letter(env, sandbox, body, None).await {
             Ok(200) => {
                 console_log!("{{\"event\":\"dlq\",\"outcome\":\"kept\",\"id\":{id:?}}}");
                 metrics::write(env, &Point::one(Event::Dlq));
                 message.ack();
+                if let Some(e) = envelope {
+                    let routes: Vec<Subscriber> = deliver_to(&e).iter().map(|r| r.to).collect();
+                    dead.entry(e.sandbox).or_default().push(recorder::dead_hop(
+                        &e,
+                        &routes,
+                        SystemClock::new().now_wall(),
+                    ));
+                }
             }
             Ok(410) => {
                 console_log!("{{\"event\":\"dlq\",\"outcome\":\"wiped\",\"id\":{id:?}}}");
@@ -870,7 +948,7 @@ async fn dead_letters(batch: &MessageBatch<String>, env: &Env) -> Result<()> {
             }
         }
     }
-    Ok(())
+    Ok(dead)
 }
 
 #[cfg(test)]
@@ -898,6 +976,30 @@ mod tests {
         assert_eq!(order_in(&e), None);
         e.stream = format!("order:{OTHER}:{OTHER}");
         assert_eq!(order_in(&e), None);
+    }
+
+    /// The hop a pickup's `OrderPlaced` gets names the classes the routing table gives it, in its
+    /// order, and an envelope from the wire leaves its `data` behind.
+    #[test]
+    fn a_hop_names_the_routed_classes_and_no_data() {
+        let mut e: Envelope =
+            serde_json::from_str(&envelope(SANDBOX, &format!("order:{SANDBOX}:{OTHER}"))).unwrap();
+        e.event_type = "OrderPlaced".into();
+        e.data = serde_json::json!({ "kind": "pickup", "note": "Two boxes, please" });
+        let routes: Vec<Subscriber> = deliver_to(&e).iter().map(|r| r.to).collect();
+        let hop = recorder::hop(&e, &routes, 1, true, e.recorded_at);
+        let to: Vec<(&str, bakery_contracts::TraceOutcome)> = hop
+            .deliveries
+            .iter()
+            .map(|d| (d.to.as_str(), d.outcome))
+            .collect();
+        use bakery_contracts::TraceOutcome::{Delivered, Retried};
+        assert_eq!(
+            to,
+            [("Kitchen", Delivered), ("Crm", Retried), ("Inbox", Retried)]
+        );
+        assert_eq!(hop.lag_ms, 0);
+        assert!(!serde_json::to_string(&hop).unwrap().contains("Two boxes"));
     }
 
     /// Polls a future that never waits, as `deliver_each`'s are in the test below.

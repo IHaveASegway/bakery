@@ -9,7 +9,8 @@
 # drives a retried placement whose place was given back: 409 `hold-lost` with no room, and with
 # room the place held again and the order placed on it. Since 2026-11-08 it reads the menu's
 # drafts route after a price edit and after the publish. Since 2026-11-09 it places for a time
-# that is not a slot (422 `no-such-slot`) and for a Monday (422 `order`, not baked that day). It
+# that is not a slot (422 `no-such-slot`) and for a Monday (422 `order`, not baked that day). Since
+# 2026-11-09 it reads the flight recorder's trace and its socket for an order it places. It
 # proves each line of docs/roadmap.md's PR 4 "Done when" that can be proven locally, prints ok or
 # FAIL per check as scripts/smoke-auth.sh does, and exits non-zero on any failure.
 #
@@ -58,7 +59,7 @@ stop_pid() {
   fi
 }
 stop() {
-  for pid in ${WS_A:-} ${WS_B:-} ${WS_G:-} ${WS_L[@]:-} ${REDRIVE_PROBE:-}; do kill -TERM "$pid" 2>/dev/null || true; done
+  for pid in ${WS_A:-} ${WS_B:-} ${WS_G:-} ${WS_L[@]:-} ${REDRIVE_PROBE:-} ${WS_T:-}; do kill -TERM "$pid" 2>/dev/null || true; done
   stop_pid "$SERVER_PID"
   stop_pid "$FAKE_PID"
   stop_pid "$STRIPE_PID"
@@ -336,7 +337,7 @@ expect_status guest 201
 expect_json guest "['seeding', 'live'].includes(b.state) && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(b.persona) && b.faults.kitchen === false"
 GID="$(json_field guest b.id)"
 check "guest: seeding reaches live within 20 s" "wait_live guest_live G '$GID'"
-expect_json guest_live "b.state === 'live' && b.children >= 36"
+expect_json guest_live "b.state === 'live' && b.children >= 37"
 
 CANARY="$(random_text 24)"
 command_as signup D 192.0.2.42 POST /v1/auth/demo "{\"password\":\"$CANARY\",\"turnstile_token\":\"pass-1\"}"
@@ -345,7 +346,7 @@ command_as demo D 192.0.2.42 POST /v1/sandboxes '{"replace":false}'
 expect_status demo 201
 DID="$(json_field demo b.id)"
 check "demo: seeding reaches live within 20 s" "wait_live demo_live D '$DID'"
-expect_json demo_live "b.state === 'live' && b.children >= 36 && b.kind === 'account'"
+expect_json demo_live "b.state === 'live' && b.children >= 37 && b.kind === 'account'"
 DUSER="$(json_field signup b.username)"
 
 # A second demo account whose traffic runs with no console at all: no socket, no heartbeat. Its
@@ -793,6 +794,173 @@ expect_status hb_g 204
 command_as hb_other G 192.0.2.41 POST "/v1/sandboxes/$DID/heartbeat"
 expect_status hb_other 404
 
+# ---------- the flight recorder (2026-11-09) ----------
+# The Recorder per sandbox (ADR 0015): the Queue's consumer records each event's hop after its
+# deliveries are decided. Place an order with a known Idempotency-Key and pay it, read the trace
+# until its OrderPlaced hop appears, check the hop names the classes the routing table gives a
+# pickup's OrderPlaced (Kitchen, Crm, Inbox: crates/app/src/routing.rs), follow the chain the
+# payment starts (OrderPaid, then a hop whose cause is OrderPaid's id, such as the day's
+# SlotReserved or the receipt's MessageDelivered; no object reacts to OrderPlaced with an event
+# of its own, so no hop's cause is OrderPlaced's id), see no event data in any of it,
+# watch the socket's snapshot and a live batch, and refuse another sandbox's guest. The wipe's
+# bye and the empty Recorders are checked with the other wipes below. A guest's sandbox, since
+# the guide runs for guests.
+# It runs here, before simulated traffic and the wipes, not after the tax rate: on `wrangler dev`
+# the Queue's consumer delivers nothing more once the demo sandbox is wiped while its traffic runs
+# (seen on main on 2026-11-09: the batch after that wipe never completes), and the recorder is fed
+# by the consumer. Before the traffic, so the traffic's two-minute cap still runs out after the
+# wipe below as it did.
+
+command_as trace_guest R 192.0.2.46 POST /v1/sandboxes '{"turnstile_token":"pass-1","replace":false}'
+expect_status trace_guest 201
+RID="$(json_field trace_guest b.id)"
+check "trace: seeding reaches live within 20 s" "wait_live trace_live R '$RID'"
+expect_json trace_live "b.children >= 37"
+get_as trace_menu R "/v1/sandboxes/$RID/menu"
+RPICK="$(pickable trace_menu 240)" || { fail "trace: no item on the menu fits a slot 4 h out"; RPICK='{}'; }
+RVARIANT="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).variant || '')" "$RPICK")"
+RSLOT="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).slot || '')" "$RPICK")"
+TRACE_NOTE="Trace me gently"
+TRACE_KEY="$(ulid)"
+KEY="$TRACE_KEY"
+command_as trace_order R 192.0.2.46 POST "/v1/sandboxes/$RID/orders" "{\"kind\":\"pickup\",\"slot\":\"$RSLOT\",\"lines\":[{\"variant\":\"$RVARIANT\",\"qty\":1}],\"note\":\"$TRACE_NOTE\"}"
+unset KEY
+expect_status trace_order 201
+ROID="$(json_field trace_order b.id)"
+# Paid as the storefront pays: the payment step, then the Payment Element's confirm at the fake.
+KEY="$ROID"
+command_as trace_pay R 192.0.2.46 POST "/v1/sandboxes/$RID/orders/$ROID/payment"
+unset KEY
+expect_status trace_pay 200
+RPI="$(json_field trace_pay "b.client_secret.split('_secret_')[0]")"
+request trace_confirm -X POST -H "Authorization: Bearer rk_test_not_a_key" -H 'Content-Type: application/x-www-form-urlencoded' --data "payment_method=pm_card_visa" "$STRIPE/v1/payment_intents/$RPI/confirm"
+expect_json trace_confirm "b.status === 'succeeded'"
+
+# trace_read: pages GET .../trace from cursor 0 (or $TRACE_CURSOR) while `more`, appending every
+# hop to $TMP/trace_hops.json, one JSON array per page.
+TRACE_CURSOR=0
+: > "$TMP/trace_hops.json"
+trace_read() {
+  for _ in $(seq 1 20); do
+    get_as trace_page R "/v1/sandboxes/$RID/trace?after=$TRACE_CURSOR"
+    [[ "$(status_of trace_page)" == 200 ]] || return 1
+    node -e "const b = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); console.log(JSON.stringify(b.hops))" "$TMP/trace_page.body" >> "$TMP/trace_hops.json"
+    cat "$TMP/trace_page.body" >> "$TMP/trace_bodies.txt"
+    TRACE_CURSOR="$(json_field trace_page b.cursor)"
+    [[ "$(json_field trace_page b.more)" == true ]] || return 0
+  done
+}
+# trace_ok EXPR: EXPR holds over every hop read so far, as `hops`, with `placed` the order's
+# OrderPlaced hop, `paid` its OrderPaid hop and `caused` a hop whose cause is OrderPaid's id.
+trace_ok() {
+  node -e "
+    const hops = require('fs').readFileSync(process.argv[1], 'utf8').split('\n').filter(Boolean).flatMap((l) => JSON.parse(l));
+    const placed = hops.find((h) => h.type === 'OrderPlaced' && h.cause === '$TRACE_KEY');
+    const paids = hops.filter((h) => h.type === 'OrderPaid' && h.stream === 'order:$RID:$ROID');
+    const paid = paids.find((h) => h.deliveries.every((d) => d.outcome === 'delivered')) || paids[0];
+    const caused = paid ? hops.find((h) => h.cause === paid.id) : undefined;
+    if (!($1)) process.exit(1);" "$TMP/trace_hops.json" 2>/dev/null
+}
+expect_trace() {
+  if trace_ok "$2"; then pass "$1"; else fail "$1 ($(tail -c 400 "$TMP/trace_hops.json" | tr '\n' ' '))"; fi
+}
+for _ in $(seq 1 80); do
+  trace_read || break
+  trace_ok "placed && paid && caused" && break
+  sleep 0.25
+done
+expect_status trace_page 200
+expect_header trace_page cache-control no-store
+expect_json trace_page "typeof b.cursor === 'number' && typeof b.more === 'boolean' && typeof b.missed === 'boolean' && Array.isArray(b.hops)"
+expect_trace "trace: the order's OrderPlaced hop, its cause the Idempotency-Key, within 20 s" "placed && placed.stream === 'order:$RID:$ROID' && placed.seq === 1"
+expect_trace "trace: OrderPlaced went to the routing table's Kitchen, Crm and Inbox, each delivered, on attempt 1" "placed && JSON.stringify(placed.deliveries.map((d) => d.to)) === JSON.stringify(['Kitchen', 'Crm', 'Inbox']) && placed.deliveries.every((d) => d.outcome === 'delivered') && placed.attempt === 1"
+expect_trace "trace: lag is delivered_at less recorded_at, never negative" "placed && placed.lag_ms >= 0 && placed.lag_ms === Math.max(0, Date.parse(placed.delivered_at) - Date.parse(placed.recorded_at))"
+CAUSED="$(node -e "const hops = require('fs').readFileSync(process.argv[1], 'utf8').split('\n').filter(Boolean).flatMap((l) => JSON.parse(l)); const p = hops.find((h) => h.type === 'OrderPaid' && h.stream === process.argv[2]); const c = p && hops.find((h) => h.cause === p.id); process.stdout.write(c ? c.type + ' to ' + c.deliveries.map((d) => d.to).join(', ') : 'none')" "$TMP/trace_hops.json" "order:$RID:$ROID")"
+expect_trace "trace: the payment's OrderPaid hop, on the order's stream, its seq after OrderPlaced" "paid && paid.seq > placed.seq && paid.deliveries.length > 0 && paid.deliveries.every((d) => d.outcome === 'delivered')"
+expect_trace "trace: a hop whose cause is OrderPaid's event id: $CAUSED" "caused && caused.deliveries.length > 0 && caused.deliveries.every((d) => d.outcome === 'delivered')"
+expect_trace "trace: no hop carries data, and every hop has the contract's fields only" "hops.length > 0 && hops.every((h) => !('data' in h) && Object.keys(h).every((k) => ['id', 'type', 'stream', 'seq', 'cause', 'at', 'recorded_at', 'delivered_at', 'lag_ms', 'attempt', 'deliveries'].includes(k)))"
+check "trace: no response body carries the order's note or a data field" "! grep -qF -- '$TRACE_NOTE' '$TMP/trace_bodies.txt' && ! grep -qF -- '\"data\"' '$TMP/trace_bodies.txt'"
+get_as trace_none R "/v1/sandboxes/$RID/trace?after=$TRACE_CURSOR"
+expect_json trace_none "b.cursor === $TRACE_CURSOR && b.more === false"
+
+# The socket: its snapshot, the ping's pong, and a batch that arrives while it is open.
+TRACE_PROBE=("$ROOT/scripts/ws-probe.mjs" --url "$WS/v1/sandboxes/$RID/trace/ws" --jar "$TMP/R.jar" --origin "$STOREFRONT")
+node "${TRACE_PROBE[@]}" --raw '{"t":"ping","v":1}' --hold 0 > "$TMP/trace_ws.out" &
+WS_T=$!
+trace_ws_ok() {
+  node -e "
+    const lines = require('fs').readFileSync(process.argv[1], 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const frames = lines.filter((l) => l.frame).map((l) => l.frame);
+    const closed = (lines.find((l) => l.closed) || {}).closed;
+    const snapshot = frames[0] && frames[0].t === 'snapshot' ? frames[0] : undefined;
+    const batches = frames.filter((f) => f.t === 'hops');
+    if (!($1)) process.exit(1);" "$TMP/trace_ws.out" 2>/dev/null
+}
+expect_trace_ws() {
+  if trace_ws_ok "$2"; then pass "$1"; else fail "$1 ($(head -c 300 "$TMP/trace_ws.out" | tr '\n' ' '))"; fi
+}
+for _ in $(seq 1 40); do trace_ws_ok "snapshot && frames.some((f) => f.t === 'pong')" && break; sleep 0.25; done
+expect_trace_ws "trace socket: the snapshot first, protocol v1, holding the order's OrderPlaced hop" "snapshot && snapshot.v === 1 && typeof snapshot.cursor === 'number' && snapshot.hops.some((h) => h.type === 'OrderPlaced' && h.cause === '$TRACE_KEY') && snapshot.hops.every((h) => !('data' in h))"
+expect_trace_ws "trace socket: a ping is answered pong by the auto-response" "frames.some((f) => f.t === 'pong' && f.v === 1)"
+TRACE_KEY_2="$(ulid)"
+KEY="$TRACE_KEY_2"
+command_as trace_order_2 R 192.0.2.46 POST "/v1/sandboxes/$RID/orders" "{\"kind\":\"pickup\",\"slot\":\"$RSLOT\",\"lines\":[{\"variant\":\"$RVARIANT\",\"qty\":1}]}"
+unset KEY
+expect_status trace_order_2 201
+for _ in $(seq 1 80); do trace_ws_ok "batches.some((f) => f.hops.some((h) => h.cause === '$TRACE_KEY_2'))" && break; sleep 0.25; done
+expect_trace_ws "trace socket: the second order's OrderPlaced arrives as a hops frame, after the snapshot's cursor" "batches.some((f) => f.v === 1 && f.cursor > snapshot.cursor && f.hops.some((h) => h.type === 'OrderPlaced' && h.cause === '$TRACE_KEY_2'))"
+
+# The dead letter of the kitchen fault above, end to end: the demo sandbox's trace holds the
+# faulted OrderPlaced's retried hops, then the dead hop the dead-letter queue's consumer reported
+# (the Kitchen refused every attempt, so it and every class after it are `dead_lettered`), then
+# the redriven delivery. The dead letter is observed when it is kept, never counted.
+D_CURSOR=0
+: > "$TMP/trace_d.json"
+for _ in $(seq 1 20); do
+  get_as trace_d D "/v1/sandboxes/$DID/trace?after=$D_CURSOR"
+  node -e "const b = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); console.log(JSON.stringify(b.hops))" "$TMP/trace_d.body" >> "$TMP/trace_d.json"
+  D_CURSOR="$(json_field trace_d b.cursor)"
+  [[ "$(json_field trace_d b.more)" == true ]] || break
+done
+dead_ok() {
+  node -e "
+    const all = require('fs').readFileSync(process.argv[1], 'utf8').split('\n').filter(Boolean).flatMap((l) => JSON.parse(l));
+    const hops = all.filter((h) => h.id === '$EVENT');
+    const isDead = (h) => h.deliveries.length > 0 && h.deliveries.every((d) => d.outcome === 'dead_lettered');
+    const di = hops.findIndex(isDead);
+    const dead = hops[di];
+    const tried = hops.slice(0, Math.max(di, 0));
+    const after = hops.slice(di + 1);
+    if (!($1)) process.exit(1);" "$TMP/trace_d.json" 2>/dev/null
+}
+check "trace: the faulted OrderPlaced's hops before its dead letter were retried at the Kitchen" "dead_ok \"di > 0 && tried.every((h) => h.deliveries[0].to === 'Kitchen' && h.deliveries.every((d) => d.outcome === 'retried'))\""
+check "trace: its dead hop marks the Kitchen and every class after it dead_lettered" "dead_ok \"dead && JSON.stringify(dead.deliveries.map((d) => d.to)) === JSON.stringify(['Kitchen', 'Crm', 'Inbox']) && dead.attempt === tried[tried.length - 1].attempt\""
+check "trace: the redriven event's hop after it is delivered everywhere" "dead_ok \"after.some((h) => h.deliveries.every((d) => d.outcome === 'delivered'))\""
+
+# Another sandbox's guest, and the upgrade's own checks.
+command_as trace_other R2 192.0.2.47 POST /v1/sandboxes '{"turnstile_token":"pass-1","replace":false}'
+expect_status trace_other 201
+R2ID="$(json_field trace_other b.id)"
+get_as trace_foreign R2 "/v1/sandboxes/$RID/trace"
+expect_status trace_foreign 404
+trace_upgrade() {
+  local name="$1" jar_name="$2" id="$3"; shift 3
+  local cookies; cookies="$(jar "$jar_name")"
+  local nonce; nonce="$(printf 'smoke-orders-prob' | base64)"
+  local args=(--max-time 2 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13'
+    -H "Sec-WebSocket-Key: $nonce" -H "CF-Connecting-IP: 192.0.2.61")
+  if [[ -n "$cookies" ]]; then args+=(-H "Cookie: $cookies"); fi
+  request "$name" "${args[@]}" "$@" "$BASE/v1/sandboxes/$id/trace/ws"
+}
+trace_upgrade trace_ws_foreign R2 "$RID" -H "Origin: $STOREFRONT"
+expect_status trace_ws_foreign 404
+trace_upgrade trace_ws_no_origin R "$RID"
+expect_problem trace_ws_no_origin 403 origin
+get_as trace_ws_plain R "/v1/sandboxes/$RID/trace/ws"
+expect_problem trace_ws_plain 426 upgrade
+
+# ---------- end of the flight recorder ----------
+
 # ---------- simulated traffic ----------
 
 command_as traffic_guest G 192.0.2.41 POST "/v1/sandboxes/$GID/traffic" '{"rate":1}'
@@ -897,9 +1065,18 @@ command_as wipe_e E 192.0.2.43 DELETE "/v1/sandboxes/$SID_E"
 expect_status wipe_e 200
 command_as wipe_guest G 192.0.2.41 DELETE "/v1/sandboxes/$GID"
 expect_status wipe_guest 200
+# The flight recorder's two sandboxes (above): the wipe says bye to the open trace socket.
+command_as trace_wipe R 192.0.2.46 DELETE "/v1/sandboxes/$RID"
+expect_status trace_wipe 200
+for _ in $(seq 1 40); do trace_ws_ok "closed" && break; sleep 0.25; done
+kill -TERM "$WS_T" 2>/dev/null || true
+wait "$WS_T" 2>/dev/null || true
+expect_trace_ws "trace socket: the wipe says bye wiped and closes it with 1001" "frames.some((f) => f.t === 'bye' && f.reason === 'wiped') && closed && closed.code === 1001"
+command_as trace_wipe_2 R2 192.0.2.47 DELETE "/v1/sandboxes/$R2ID"
+expect_status trace_wipe_2 200
 sleep 1
 list_objects list_wiped
-check "list-objects: exits 0 after the wipes: every child is empty, the Simulators too" "(( LIST_EXIT == 0 ))"
+check "list-objects: exits 0 after the wipes: every child is empty, the Simulators and the Recorders too" "(( LIST_EXIT == 0 )) && grep -q '\"class\":\"Recorder\"' '$TMP/list_wiped.out'"
 
 # ---------- the tax rate (2026-11-09) ----------
 # The rate is published with the menu: set it, see the menu carry it, place an order and see the
@@ -957,6 +1134,7 @@ awk '/^=== Worker ready/ { on = 1 } on' "$LOG" > "$runtime_log"
 check "the Worker's log holds no order note" "! grep -q 'Two boxes' '$runtime_log'"
 check "the Worker's log holds no refused note" "! grep -qF -- '$NOTE_CANARY' '$runtime_log'"
 check "the Worker's log holds no password" "! grep -qF -- '$CANARY' '$runtime_log'"
+check "the Worker's log holds no traced order's note" "! grep -qF -- '$TRACE_NOTE' '$runtime_log'"
 check "the relay logged its sends" "grep -q '\"event\":\"relay\",\"object\":\"Order\"' '$runtime_log'"
 check "the Simulator's events went through its outbox" "grep -q '\"event\":\"relay\",\"object\":\"Simulator\"' '$runtime_log'"
 
