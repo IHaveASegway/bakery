@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Self-test for scripts/lighthouse-pages.sh. No network, no Chromium, no Lighthouse: a fake `lhci`
-# on PATH answers the script's calls, and each case sets how it fails. Run it by hand:
+# on PATH answers the script's calls, and each case sets how it fails. ci.yml's `verify` job runs
+# it, and so can anyone:
 #
 #   scripts/lighthouse-pages.test.sh
 #

@@ -76,7 +76,9 @@ for page in "$@"; do
     # Remove only the reports this failed collect saved: the ones that were not there before it.
     after="$(reports)"
     comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after") | while IFS= read -r file; do
-      [ -n "$file" ] && rm -f -- "$dir/$file"
+      if [ -n "$file" ]; then
+        rm -f -- "$dir/$file"
+      fi
     done
     retried=$((retried + 1))
     if ! collect "$url"; then
