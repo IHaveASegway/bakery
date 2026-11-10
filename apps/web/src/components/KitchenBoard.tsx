@@ -23,6 +23,8 @@ const ACTION_WORDS = {
 
 const RULES: Record<string, string> = {
   'out-of-order': 'the order is not in the right state for that',
+  // The sandbox's command budget, 60 at once then one a second (objects/kitchen.rs).
+  'rate-limit': 'too many moves at once; wait a moment and press it again',
 };
 
 /** `country-loaf/whole` as "country loaf, whole". */
@@ -68,7 +70,8 @@ function IdTail({ id }: { id: string }) {
   );
 }
 
-function commandText(c: Command): string {
+/** The line under the board for a command the page sent. */
+export function commandText(c: Command): string {
   const what = `${ACTION_WORDS[c.action]} for ${shortId(c.order)}`;
   switch (c.status) {
     case 'sent':

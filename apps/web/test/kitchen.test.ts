@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test, vi } from 'vitest';
-import { CardView } from '../src/components/KitchenBoard';
+import { CardView, commandText } from '../src/components/KitchenBoard';
 import GuestNote from '../src/components/GuestNote';
 import {
   EMPTY_BOARD,
@@ -329,6 +329,17 @@ describe('a delivery’s van and stop', () => {
     const signedIn = draw(true);
     expect(signedIn).toContain(`Start production for order ${ORDER.slice(-6)}`);
     expect(signedIn).toContain(`More for order ${ORDER.slice(-6)}`);
+  });
+
+  test('a refused move says its rule in plain words, the budget’s included', () => {
+    const base = { id: 'C1', order: ORDER, action: 'mark_ready' as const, status: 'nack' as const };
+    expect(commandText({ ...base, rule: 'rate-limit' })).toBe(
+      `Mark ready for ${ORDER.slice(-6)}: refused, too many moves at once; wait a moment and press it again.`,
+    );
+    expect(commandText({ ...base, rule: 'out-of-order' })).toContain(
+      'the order is not in the right state for that',
+    );
+    expect(commandText({ ...base, rule: 'something-new' })).toContain('refused, something-new.');
   });
 
   test('the guest note says what a sign-in adds, the board’s own sentence when it has one', () => {
