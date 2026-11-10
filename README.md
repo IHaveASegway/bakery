@@ -1,24 +1,43 @@
 # bakery
 
-Proof of Concept Bakery, the made-up bakery that [ihaveasegway.com's lab](https://ihaveasegway.com/lab/) simulates, built as a real business system: ordering, pickup and delivery scheduling, catering, billing through Stripe's sandbox, and a CRM with campaigns, every backend in Rust on Cloudflare Workers, its state in SQLite-backed Durable Objects (DOs), with a private sandbox for every visitor that is wiped every night, and every decision written down in public. It is a portfolio demo of architecture, modelled on [Joseph Peterson's site](https://github.com/IHaveASegway/website), and it is built in the open.
+Proof of Concept Bakery, the made-up bakery that [ihaveasegway.com's lab](https://ihaveasegway.com/lab/) simulates, built as a real business system: ordering, pickup and delivery scheduling, catering, billing through Stripe's sandbox, and a CRM with campaigns, every backend in Rust on Cloudflare Workers, its state in SQLite-backed Durable Objects (DOs), with a private sandbox for every visitor that is wiped every night, and every decision written down in public. It is a portfolio demo of architecture, modelled on [the site's own repository](https://github.com/IHaveASegway/website), and it is built in the open. The point is the tools and principles working together, and for each tool, why it is used here and when it would be the wrong one.
+
+## Where to look first
+
+For a reviewer with ten minutes:
+
+- **The live site**, `https://bakery.ihaveasegway.com`: order something as a guest, then watch the notes the guide opens beside what you pressed.
+- **The tools page**, `/how-its-built/tools/`: every tool in the build, why it is here, when it would be wrong, and what was not chosen, each sentence restating a record.
+- **How it's built**, `/how-its-built/`: each principle with its decision record and an essay on how the bakery runs it for real.
+- **The decision records**, [docs/adr/README.md](docs/adr/README.md): the index, ADR 0001 to ADR 0016 as of 2026-11-10, each with the options that lost.
+- **An aggregate**, [crates/domain/src/order.rs](crates/domain/src/order.rs): the Order's commands, events and state machine as plain Rust, tested natively, with no platform code.
+- **Its Durable Object**, [workers/api/src/objects/order.rs](workers/api/src/objects/order.rs): the adapter that loads the aggregate, decides a command and stores what it returns.
+- **The outbox and the Queue**, [workers/api/src/objects/stream.rs](workers/api/src/objects/stream.rs) and [workers/api/src/queue.rs](workers/api/src/queue.rs): events and outbox rows in one transaction, the relay, and the one consumer that routes each event by the table in [crates/app/src/routing.rs](crates/app/src/routing.rs).
+- **A smoke script**, [scripts/smoke-orders.sh](scripts/smoke-orders.sh): the whole order path proved over HTTP and the socket on `wrangler dev`, check by check.
 
 ## What the demo shows
 
 Each visitor gets a private sandbox, seeded with synthetic history (made-up customers, orders and catering events) and wiped every night. In it a visitor can:
 
-- order from the menu, watch the kitchen board move over a live socket, and pay with one of Stripe's test cards (Stripe's sandbox, so no money moves);
+- order from the menu through a three-step checkout (how you get it, when, pay) and pay with one of Stripe's test cards (Stripe's sandbox, so no money moves), then follow the order on its own page, `/order/`;
+- watch the order on the kitchen board, which moves over a live socket;
 - schedule pickups and deliveries against slots, read the bake list, and advance the business clock to tomorrow;
 - take a catering event from inquiry to quote, deposit, delivery and paid balance;
 - run a CRM with segments, campaigns and an inbox, whose projections can be rebuilt from the event log;
 - plan deliveries in a dispatch screen, where VROOM runs in the browser beside the server's own proposal;
-- be shown around by a guided tour on every screen, and make the same calls through the API with the sandbox's own bearer token (the API reference is at `/docs/api/`);
-- read the status page (`/status/`), which shows live counters, and the How it's built page (`/how-its-built/`), which links each screen's principle to its decision record and to an essay on how the bakery does it for real.
+- work in the staff console, seven pages under `/app/` as of 2026-11-10, one workspace each: the kitchen, the menu, catering, customers, money, dispatch and the system;
+- read what just happened in the guide, "Under the hood" ([ADR 0014](docs/adr/0014-a-live-guide-in-place-of-the-tour.md)). A press that writes opens a note beside the control: the request or the socket frame, the object that decided it, the events it produced as they arrive, why this tool and when it is the wrong one, and the essay. Hotspots open the same notes on demand, a recorder panel lists the last actions for a keyboard or a screen reader, and "Show me around" walks a few steps a screen and is never required. The guide is on by default and can be switched off for the tab;
+- read the server's flight recorder for the sandbox ([ADR 0015](docs/adr/0015-a-lossy-flight-recorder-beside-the-event-path.md)): which subscribers the Queue's consumer delivered each event to, on which attempt and how long after it was written, through `GET /v1/sandboxes/{id}/trace` and its socket. It is lossy by design and sits in no command's path; the page's guide does not read it yet;
+- make the same calls through the API with the sandbox's own bearer token (the API reference is at `/docs/api/`);
+- read the status page (`/status/`), the tools page (`/how-its-built/tools/`) and How it's built (`/how-its-built/`), with its fourteen essays (as of 2026-11-10, `apps/web/src/pages/how-its-built/`).
+
+**Without an account**, a guest gets a sandbox behind Turnstile and can browse, order and pay with a test card ([product.md](docs/product.md#decided), Q45 · Q-guest-scope). A guest can also move their own order across the kitchen board. Signing in with Google, GitHub or a demo account unlocks the console's other writes (menu edits, campaigns, publishing a route), the API token, simulated traffic, and a sandbox that follows the account across devices.
 
 ## Status
 
-As of 2026-11-08 ([roadmap.md](docs/roadmap.md#phases-and-pull-requests)), all 18 planned pull requests are built and merged: PRs 1 to 16 (the plan, the foundation, accounts and the wipe, orders, payments, scheduling, catering, the CRM, dispatch, the tour and the API, the launch, the lab links and How it's built, the status page, and the essays for every principle), PR 17 (the 15-minute cron breaker, #51) and PR 18 (the breaker's essay, #53), the last two on 2026-11-06. The breaker's code has met only a fake and has not run against Cloudflare ([roadmap.md](docs/roadmap.md#pr-17-the-cron-breaker)). The audit day of 2026-11-08 shipped as pull requests #54 to #71 and is numbered PR 19 ([roadmap.md](docs/roadmap.md#ui-audit-of-2026-11-08)).
+As of 2026-11-10, from [roadmap.md](docs/roadmap.md#phases-and-pull-requests): the planned pull requests PR 1 to PR 18 are merged, the last on 2026-11-06; the UI audit of 2026-11-08 shipped as PR 19, and the remaining work of 2026-11-09 as PR 20. PR 21, the interface and the live guide, is under way: the design system, the console's seven pages, the shop's pages, the guide, the tools page and the flight recorder are on `main`. What is left, and who owns each item, is the roadmap's [Remaining work](docs/roadmap.md#remaining-work). The cron breaker is built but its secrets are not set in production, so it reports `unconfigured` ([ADR 0010](docs/adr/0010-workers-paid-with-the-sites-guardrails.md)'s postscript, as of 2026-11-09).
 
-**Live since 2026-11-06:** the storefront at https://bakery.ihaveasegway.com and the API at https://api.bakery.ihaveasegway.com. Deploys happen on merge ([delivery.md](docs/delivery.md#before-launch)). As of 2026-11-09 the last deploy is #72's (commit 28aa7b3, read from `GET /v1/health`): every merge since #73 has stopped at the deploy's Turnstile key guard, before either stage, until the repository variable is set ([delivery.md](docs/delivery.md#the-jobs-as-written)); the status page at `/status/` shows the counters and, from PR 17, the breaker's state. The questions Joseph has answered are in [docs/product.md](docs/product.md#decided).
+**Live since 2026-11-06:** the storefront at https://bakery.ihaveasegway.com and the API at https://api.bakery.ihaveasegway.com. Deploys happen on merge ([delivery.md](docs/delivery.md#the-jobs-as-written)); the commit the API runs is the `commit` field of `GET /v1/health`. The status page at `/status/` shows the counters and the breaker's state. The questions the owner has answered are in [docs/product.md](docs/product.md#decided).
 
 - [docs/README.md](docs/README.md) is the index and gives a reading order.
 - [docs/product.md](docs/product.md) covers why the bakery exists, who it is for, the milestones, and the open and decided questions.
@@ -30,17 +49,18 @@ As of 2026-11-08 ([roadmap.md](docs/roadmap.md#phases-and-pull-requests)), all 1
 - [docs/delivery.md](docs/delivery.md) covers the repository layout, the pipeline, deploys and rollbacks.
 - [docs/operations.md](docs/operations.md) covers access setup, observability and the runbooks.
 - [docs/roadmap.md](docs/roadmap.md) lists what gets built, in which pull request, and when it counts as done.
-- [docs/adr/](docs/adr/README.md) holds the architecture decision records.
+- [docs/adr/](docs/adr/README.md) holds the architecture decision records, among them the guide (0014), the flight recorder (0015) and the alternatives weighed after the build (0016).
 
 ## Setup
 
 Both Workers run on `wrangler dev` on your machine for local work (the launch, PR 11, deployed them on 2026-11-06). The tool versions below are as of 2026-11-06 and have one source each, which CI reads too; when they move, they move there.
 
-1. **Rust**, through `rust-toolchain.toml` (stable 1.97; rustup installs it on first use), then the WebAssembly target and the two cargo tools, each `--locked` and pinned to the exact version in `Cargo.toml`'s `[workspace.metadata.tools]`, because without both `cargo install` resolves today's dependencies, not the audited ones ([delivery.md](docs/delivery.md#hardening-rules), rule 12):
+1. **Rust**, through `rust-toolchain.toml` (stable 1.97; rustup installs it on first use), then the WebAssembly target and the three cargo tools, each `--locked` and pinned to the exact version in `Cargo.toml`'s `[workspace.metadata.tools]`, because without both `cargo install` resolves today's dependencies, not the audited ones ([delivery.md](docs/delivery.md#hardening-rules), rule 12):
    ```sh
    rustup target add wasm32-unknown-unknown
    cargo install worker-build --locked --version 0.8.7   # compiles a worker crate into a Worker module (stack.md)
    cargo install cargo-deny --locked --version 0.20.2    # licenses, advisories, bans, sources
+   cargo install cargo-audit --locked --version 0.22.2   # RustSec advisories
    ```
 2. **Node 26**, from `.nvmrc` (`nvm use`), and **pnpm, pinned by `packageManager`** (11.28.6). Any pnpm switches itself to the pinned version in this repository; with none installed, `npx pnpm@<version>` does the same. Then `pnpm install`. The scripts and fakes under `scripts/` need Node 22 or later and have no dependencies.
 3. **The hooks**, once per clone: `git config core.hooksPath .githooks`. `pnpm install` warns until they are on. The pre-commit hook runs the content firewall on staged changes, checks your commit identity and refuses an image or PDF that carries metadata; the pre-push hook refuses pushes to `main` and scans what you push.
@@ -64,6 +84,7 @@ All of these run locally; nothing here touches Cloudflare. CI runs the Rust chec
 | `cargo clippy --workspace --all-targets -- -D warnings`                       | Lints the whole workspace; a warning fails                                                                                                                                                                                                                 |
 | `cargo fmt --all --check`                                                     | Checks Rust formatting                                                                                                                                                                                                                                     |
 | `cargo deny check`                                                            | Licenses, advisories, bans and sources for every crate ([stack.md](docs/stack.md))                                                                                                                                                                         |
+| `cargo audit --deny warnings`                                                 | RustSec advisories, warnings included, as `verify` runs it                                                                                                                                                                                                 |
 | `cargo run -q --locked -p bakery-contracts --bin openapi -- --check`          | Checks that the OpenAPI document in `apps/web/public/docs/api/` is the one the route table and schemas generate                                                                                                                                            |
 | `pnpm dev`                                                                    | Astro's dev server for the storefront at http://localhost:4321                                                                                                                                                                                             |
 | `pnpm build`                                                                  | Builds the storefront into `apps/web/dist/` (it first fetches and verifies the dispatch solver, `scripts/fetch-solver.mjs`)                                                                                                                                |
@@ -96,16 +117,16 @@ All of these run locally; nothing here touches Cloudflare. CI runs the Rust chec
 
 **Deploy:** merge the pull request (the launch, PR 11, was deployed on 2026-11-06). CI builds once, runs the gates, and, while the repository variable `LAUNCHED` is `true`, deploys the API Worker first and the storefront Worker second, so the page never calls an endpoint that does not exist yet, and then runs `prod-smoke` against both hostnames. The pipeline, its previews and its gates are in [delivery.md](docs/delivery.md#pipeline); the launch-day steps are in [operations.md](docs/operations.md#launch).
 
-**Roll back:** per Worker, with the `rollback` job: `gh workflow run ci.yml --ref main -f worker=<web|api> -f rollback_to=<version-id> -f reason="<why>"`, to a version id the `prod-verdict` issue or the last deploy summary names. Rolling back the storefront changes only static files. Rolling back the API has one limit: a rollback cannot cross a Durable Object migration (a class added, renamed or deleted), so a release that carries one rolls forward. The steps are in [operations.md](docs/operations.md#rollback) and [delivery.md](docs/delivery.md#deploy-verify-roll-back). None of this has run against the account yet.
+**Roll back:** per Worker, with the `rollback` job: `gh workflow run ci.yml --ref main -f worker=<web|api> -f rollback_to=<version-id> -f reason="<why>"`, to a version id the `prod-verdict` issue or the last deploy summary names. Rolling back the storefront changes only static files. Rolling back the API has one limit: a rollback cannot cross a Durable Object migration (a class added, renamed or deleted), so a release that carries one rolls forward. The steps are in [operations.md](docs/operations.md#rollback) and [delivery.md](docs/delivery.md#deploy-verify-roll-back). No rollback of either Worker has been rehearsed ([ADR 0011](docs/adr/0011-github-actions-owns-deploys-for-both-workers.md)'s postscript, as of 2026-11-09).
 
 ## Privacy
 
-What a visitor should know: Proof of Concept is a sandbox. Every visitor gets a private copy of the made-up bakery, filled with synthetic customers and orders. It holds no personal data by construction: no email, no name, no real address. Sign-in with Google or GitHub learns only an opaque identifier, and the bakery never stores your name or email. Payments use Stripe's test cards and never move money. Everything in a sandbox is wiped every night at 10:00 UTC (03:00 Mountain standard time, 04:00 in summer), with a 36-hour backstop on every object. The full promise and its inventory are in [security.md](docs/security.md#privacy-and-data-inventory); the privacy page, `/privacy/` on the bakery's site, is built and goes live in the launch pull request.
+What a visitor should know: Proof of Concept is a sandbox. Every visitor gets a private copy of the made-up bakery, filled with synthetic customers and orders. It holds no personal data by construction: no email, no name, no real address. Sign-in with Google or GitHub learns only an opaque identifier, and the bakery never stores your name or email. Payments use Stripe's test cards and never move money. Everything in a sandbox is wiped every night at 10:00 UTC (03:00 Mountain standard time, 04:00 in summer), with a 36-hour backstop on every object. The full promise and its inventory are in [security.md](docs/security.md#privacy-and-data-inventory); the privacy page, `/privacy/` on the bakery's site, has been live since the launch on 2026-11-06, and it also says that Cloudflare keeps deleted storage restorable for 30 days and that the bakery never restores a sandbox ([ADR 0005](docs/adr/0005-a-private-sandbox-per-visitor-wiped-nightly.md)).
 
 ## How it's built
 
-Every decision that is costly to reverse is written down in public before it is built on, as an [architecture decision record](docs/adr/README.md) with the options that lost. The storefront's How it's built page, `/how-its-built/`, links each principle to its record and to the lab page that explains it, and carries essays on the principles the bakery runs for real (idempotency, sagas, leases, admission control, the outbox, the cache, rebuilds, routing and single-writer objects). The page and the essays are served once the storefront is deployed; their sources are in `apps/web/src/pages/how-its-built/`, and the plan that scheduled them is [docs/roadmap.md](docs/roadmap.md).
+Every decision that is costly to reverse is written down in public before it is built on, as an [architecture decision record](docs/adr/README.md) with the options that lost. The storefront's How it's built page, `/how-its-built/`, links each principle to its record and to the lab page that explains it, carries fourteen essays on the principles the bakery runs for real (among them idempotency, sagas, leases, admission control, the outbox, the cache, rebuilds, routing, single-writer objects, time travel and the breaker), and has a decision table from the guide's entries. The tools page beside it, `/how-its-built/tools/`, lists every tool in the build and what was not chosen. Their sources are in `apps/web/src/pages/how-its-built/` and `apps/web/src/data/tools.ts`, and the plan that scheduled them is [docs/roadmap.md](docs/roadmap.md).
 
 ## License
 
-The code and the docs are MIT-licensed: [LICENSE](LICENSE) is the MIT License's text. Joseph chose MIT in the plan's first pull request, and [product.md](docs/product.md#decided) records it as decided under Q35 (Q-license).
+The code and the docs are MIT-licensed: [LICENSE](LICENSE) is the MIT License's text. The owner chose MIT in the plan's first pull request, and [product.md](docs/product.md#decided) records it as decided under Q35 (Q-license).
