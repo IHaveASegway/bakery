@@ -25,6 +25,8 @@ import {
   routePoints,
   solveOptions,
   statusText,
+  stopStateText,
+  FOLLOW_UP_MS,
   stopMarks,
   stopNumbers,
   stopRows,
@@ -378,10 +380,41 @@ describe('the stop numbering', () => {
 
   test('a stop out for delivery says so, and can still be completed', () => {
     expect(statusText('out_for_delivery')).toBe('Out for delivery');
-    expect(statusText('confirmed')).toBe('Confirmed');
+    expect(statusText('confirmed')).toBe('To plan');
     expect(statusText('completed')).toBe('Delivered');
     const d = day([stop(1, 1, 5, { van: 1, stop: 1, status: 'out_for_delivery' })]);
     expect(completable(d).map((r) => r.stop)).toEqual([1]);
+  });
+});
+
+describe('the Stops table says the stop’s own state', () => {
+  test('each state in words, a paid stop telling whether the published plan holds it', () => {
+    const text = (status: Parameters<typeof statusText>[0], stop: number | null = null) =>
+      stopStateText({ status, stop });
+    expect(text('provisional')).toBe('Not paid yet');
+    expect(text('confirmed')).toBe('To plan');
+    expect(text('confirmed', 3)).toBe('Published, leaves when ready');
+    expect(text('out_for_delivery', 3)).toBe('Out for delivery');
+    expect(text('completed', 3)).toBe('Delivered');
+    expect(text('removed')).toBe('Removed (expired or cancelled)');
+    // None of them is an order's state on the board, so the column cannot be read as one.
+    for (const word of ['Confirmed', 'In production', 'Ready']) {
+      for (const s of [
+        'provisional',
+        'confirmed',
+        'out_for_delivery',
+        'removed',
+        'completed',
+      ] as const) {
+        expect(text(s)).not.toBe(word);
+        expect(text(s, 1)).not.toBe(word);
+      }
+    }
+  });
+
+  test('a publish is followed by two quiet reads within five seconds, then the ten-second look', () => {
+    expect(FOLLOW_UP_MS.length).toBe(2);
+    expect(Math.max(...FOLLOW_UP_MS)).toBeLessThan(5_000);
   });
 });
 
