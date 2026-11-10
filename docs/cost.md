@@ -177,10 +177,12 @@ Added on 2026-11-09 ([ADR 0015](adr/0015-a-lossy-flight-recorder-beside-the-even
 | Meter | Per batch | Arithmetic |
 |---|---|---|
 | DO requests | 1 | The `/_record`; the consumer's own Worker request is the batch's, already counted |
-| Rows written | 1, or 2 once the ring is full | The batch row; from the 201st batch on, the trim deletes the oldest. A hop not delivered everywhere adds 1 (its retry count), and 1 more when it is delivered or dead-lettered. No AUTOINCREMENT, so no sequence row |
+| Rows written | 1, or 2 once the ring is full | The batch row; from the 201st batch on, the trim deletes the oldest. A hop not delivered everywhere adds 1 (its `retries` row), and 1 more when it is delivered or its dead hop arrives; the `retries` rows are kept to the newest 200, so a row whose sequel never came is trimmed (1 more delete) rather than kept to the wipe. No AUTOINCREMENT, so no sequence row |
 | Rows read | about 1 a hop, + 1 | Each hop's retry lookup by key, and the newest `seq` |
 | Socket messages | 0 billed | A `hops` frame to each open socket is an outgoing message, free; a client's `ping` is 1/20 of a request; each upgrade is 1 request |
 | Stored data | at most 200 rows | About 450 B a hop as JSON, up to 10 hops a batch: under 1 MB a sandbox at the worst |
+
+**A dead letter** (since 2026-11-10) adds one `POST /_dead` from the dead-letter queue's consumer per sandbox per dead-letter batch: 1 request, 1 batch row and the `retries` row's delete, 2 or 3 rows written. Dead letters come from a fault or a broken subscriber, not from a visitor's ordinary session, so the per-sandbox figures below carry none.
 
 Its birth and its wipe add, per sandbox: 1 request and 3 rows at seeding (the `meta` row, the backstop timer and its `setAlarm()`), and 1 request and one row removed per row held at the wipe.
 
