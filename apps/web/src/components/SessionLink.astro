@@ -1,8 +1,10 @@
 ---
-// The header's "Sign in" link becomes "Console" when the API says there is a session. The link is
-// plain HTML in Base.astro, correct with no script. This script runs only on pages that carry the
-// guide's island, which are the pages the page policy lets call the API; the essays, the about page and
-// the 404 have no script at all (ADR 0008) and keep "Sign in".
+// The header's "Your bakery" link goes straight to the console when the API says there is a
+// session. Its words are the same on every page (audit F14, 2026-11-10); only its address changes.
+// The link is plain HTML in Base.astro, to the sign-in page, which with no script is still right:
+// that page tells a visitor who has a sandbox so. This script runs only on pages that carry the
+// guide's island, which are the pages the page policy lets call the API; the essays, the about page
+// and the 404 have no script at all (ADR 0008).
 ---
 
 <script>

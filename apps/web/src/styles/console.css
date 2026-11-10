@@ -33,6 +33,30 @@
   font-size: var(--type-12);
 }
 
+/* A chip that opens a panel (the sandbox, the clock) is drawn as the bar's other buttons are, with
+   a chevron that turns when it is open, so it reads as something to press (audit F22). */
+.chip-caret {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-right: -2px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--text-muted);
+}
+
+.topbar-chip[aria-expanded='true'] .chip-caret {
+  transform: rotate(180deg);
+}
+
+.topbar-name {
+  font-size: var(--type-13);
+  white-space: nowrap;
+}
+
 .topbar-muted {
   color: var(--text-muted);
   font-weight: 400;
