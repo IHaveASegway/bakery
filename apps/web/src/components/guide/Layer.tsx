@@ -50,6 +50,10 @@ import {
   watchSentence,
 } from './Views';
 
+/** A menu open over the page, which an Escape closes before it closes any note. */
+const OPEN_MENUS =
+  '.board details.menu[open], .popover > [aria-expanded="true"], .guide-extra[data-open], .guide-full[data-open]';
+
 /** The element with the focus, if it is part of the page and not the page itself. */
 const focusInPage = (): Element | null => {
   const active = document.activeElement;
@@ -339,6 +343,10 @@ export default function Layer({
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
+      // A menu open over the page (a board card's "…", the top bar's popovers, the guide's own
+      // menu) is nearer: its own Escape closes it, and the next Escape comes here. Read on the
+      // way down, before the page's own listeners have closed it.
+      if (document.querySelector(OPEN_MENUS) !== null) return;
       if (live !== null || standing !== null) {
         setLive(null);
         setStanding(null);
@@ -348,8 +356,8 @@ export default function Layer({
         onClosePanel();
       }
     };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    document.addEventListener('keydown', onKey, { capture: true });
+    return () => document.removeEventListener('keydown', onKey, { capture: true });
   }, [live, standing, path.open, panel, pathEnd, onClosePanel]);
 
   // The panel opens under the top bar or masthead showing now (guide.css reads --guide-top), so

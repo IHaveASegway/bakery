@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { clockOfText, shortWhen, whenText, windowText } from '../lib/when';
+import { businessNowMs, clockOfText, shortWhen, whenText, windowText } from '../lib/when';
 import {
   STAGE_LABEL,
   STAGE_TONE,
@@ -19,10 +19,10 @@ import Receipt from './Receipt';
 const shortId = (id: string) => id.slice(-6);
 
 /** "Pickup Tue 10 Nov, 2:30 pm" or "Delivery Tue 10 Nov, 9:00 am to 11:00 am". */
-function whenLine(track: Track): string {
+export function whenLine(track: Track, now?: number): string {
   const { kind, slot } = track.order;
-  if (kind === 'pickup') return `Pickup ${shortWhen(slot)}`;
-  return `Delivery ${shortWhen(slot).split(', ')[0]}, ${windowText(slot)}`;
+  if (kind === 'pickup') return `Pickup ${shortWhen(slot, { now })}`;
+  return `Delivery ${shortWhen(slot, { now }).split(', ')[0]}, ${windowText(slot)}`;
 }
 
 /** One sentence on where the page's news comes from. */
@@ -267,7 +267,7 @@ export default function OrderStatus() {
         </div>
         <p className="order-when">
           <time dateTime={order.slot} title={whenText(order.slot)}>
-            {whenLine(track)}
+            {whenLine(track, businessNowMs(offsetS))}
           </time>
         </p>
 
@@ -317,7 +317,7 @@ export default function OrderStatus() {
         </p>
       </section>
 
-      <Receipt order={order} menu={menu} paid={isPaid(track.status)} />
+      <Receipt order={order} menu={menu} paid={isPaid(track.status)} now={businessNowMs(offsetS)} />
     </div>
   );
 }

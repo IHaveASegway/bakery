@@ -31,7 +31,7 @@ import { useCart } from '../lib/use-cart';
 import { useSchedule } from '../lib/use-schedule';
 import { useLiveMenu } from '../lib/use-live-menu';
 import { useSandboxPhase } from '../lib/use-session';
-import { shortWhen, windowText } from '../lib/when';
+import { businessNowMs, shortWhen, windowText } from '../lib/when';
 import CartLines from './CartLines';
 import { StartHere } from './Guest';
 import Message from './Message';
@@ -105,11 +105,14 @@ function Step({
 const zoneWords = (zone: string | null) =>
   zone === null ? 'Delivery to your zone' : `Delivery to zone ${zone.slice(1)}`;
 
-/** "Tue 10 Nov, 9:15 am" for a pickup, "Tue 10 Nov, 9:00 am to 11:00 am" for a delivery. */
-function slotWords(kind: 'pickup' | 'delivery', start: string): string {
+/**
+ * "Tue 10 Nov, 9:15 am" for a pickup, "Tue 10 Nov, 9:00 am to 11:00 am" for a delivery; the year
+ * is said when it is not the bakery's year at `now`, the sandbox's business time.
+ */
+export function slotWords(kind: 'pickup' | 'delivery', start: string, now?: number): string {
   return kind === 'pickup'
-    ? shortWhen(start)
-    : `${shortWhen(start).split(', ')[0]}, ${windowText(start)}`;
+    ? shortWhen(start, { now })
+    : `${shortWhen(start, { now }).split(', ')[0]}, ${windowText(start)}`;
 }
 
 /**
@@ -422,7 +425,9 @@ export default function Checkout() {
             state={state('when')}
             summary={
               whenStart === null ? undefined : (
-                <time dateTime={whenStart}>{slotWords(kind, whenStart)}</time>
+                <time dateTime={whenStart}>
+                  {slotWords(kind, whenStart, businessNowMs(offsetS))}
+                </time>
               )
             }
           >

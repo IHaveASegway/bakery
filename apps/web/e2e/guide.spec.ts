@@ -100,6 +100,18 @@ test('a card’s button on the board opens a note: the frame, the event and its 
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expectNoAxeViolations(page);
 
+  // A card's "…" menu open over the board is nearer than the note: the first Escape closes the
+  // menu alone, the next the note. The menu is another column's, so the note covers none of it.
+  const cardMenu = page
+    .locator('section[aria-labelledby="board-in_production"] details.menu > summary')
+    .first();
+  if (await cardMenu.isVisible()) {
+    await cardMenu.click();
+    await expect(page.locator('.board details.menu[open]')).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.board details.menu[open]')).toHaveCount(0);
+    await expect(note).toBeVisible();
+  }
   await page.keyboard.press('Escape');
   await expect(note).toHaveCount(0);
 
