@@ -203,7 +203,7 @@ const page = buildPage(doc as unknown as OpenApiDoc);
     <h2 id="schemas-heading">Schemas</h2>
     <p>{page.schemas.length} types, each once. A type in a table above links here.</p>
     {page.schemas.map((schema) => (
-      <section id={`schema-${schema.name}`} aria-labelledby={`sh-${schema.name}`}>
+      <section id={`schema-${schema.name}`} class="api-schema" aria-labelledby={`sh-${schema.name}`}>
         <h3 id={`sh-${schema.name}`}><code>{schema.name}</code></h3>
         <p><Spans spans={schema.description} /></p>
         <SchemaTable view={schema} label={`Schema ${schema.name}`} />
