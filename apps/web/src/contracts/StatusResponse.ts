@@ -9,8 +9,9 @@
  *
  * The field order is fixed and is the wire order: the day and the sandbox count and cap
  * (PR 2), then the guest and demo-account counts and caps (PR 3), then the status page's
- * counters with their time and state (PR 13), then the breaker's state (PR 17), then the flag.
- * Readers go by name, so PR 2's smoke check still passes; a new field is added before `flag`.
+ * counters with their time and state (PR 13), then the breaker's state (PR 17), then the count
+ * of sandboxes past their wipe (2026-11-10), then the flag. Readers go by name, so PR 2's
+ * smoke check still passes; a new field is added before `flag`.
  *
  * The counters are a snapshot of the kept Analytics Engine queries that the 15-minute cron
  * refreshes, never a query per request (docs/operations.md, "Observability").
@@ -58,6 +59,14 @@ export interface StatusResponse {
    * The most sandboxes admitted in one UTC day.
    */
   sandbox_cap: number;
+  /**
+   * Sandboxes not wiped more than 2 hours after their nightly wipe, the first 10:00 UTC after
+   * each was made (added 2026-11-10). A sandbox made after today's wipe is due at tomorrow's,
+   * so it is not counted. `Control` counts at each 15-minute sweep, so the route reads one
+   * stored number; `null` when the sweep has not counted in the last 20 minutes. Anything above
+   * 0 means a wipe failed (docs/operations.md, "The nightly wipe").
+   */
+  sandboxes_past_wipe: number | null;
   /**
    * Sandboxes admitted today, guests' included.
    */

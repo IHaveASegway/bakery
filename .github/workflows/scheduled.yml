@@ -1,6 +1,7 @@
 # The scheduled jobs (docs/delivery.md, "From launch"; docs/operations.md, "The nightly wipe"):
 # bakery-objects, the morning object check after the 10:00 UTC wipe (the baseline run at 04:47
-# before it; at 12:17, the comparison and the dead-letter and breaker checks), audit, the
+# before it; at 12:17, the wipe, dead-letter and breaker checks on the status route and the
+# listing's comparison), audit, the
 # Monday audit, and smokes, the Monday and Thursday run of every scripts/smoke-*.sh (since
 # 2026-11-09).
 #
@@ -47,6 +48,14 @@ on:
         type: choice
         options: [bakery-objects, audit, smokes]
         required: true
+      phase:
+        # bakery-objects only. `before` takes the day's baseline listing by hand, as the 04:47 run
+        # does; it is compared with only if taken before that day's 10:00 UTC wipe.
+        description: bakery-objects only, before (take today's baseline listing) or after (the 12:17 checks)
+        type: choice
+        options: [after, before]
+        default: after
+        required: false
 
 permissions: {} # rule 1
 
@@ -56,14 +65,15 @@ concurrency:
 
 jobs:
   bakery-objects:
-    # Each Durable Object namespace of bakery-api, listed through the account API with the read
-    # token (scripts/bakery-objects.mjs). The API gives an object's id and whether it holds data,
-    # never its age, so the baseline run (04:47) keeps a listing and the 12:17 run compares with it:
-    # an object that held data before the wipe and still does after it survived the wipe. Objects
-    # holding data at 12:17 that were not in the baseline listing are visitors' new sandboxes. The
-    # baseline keeps its real start time too: GitHub can start a scheduled run hours late, and a
-    # baseline taken after the wipe proves nothing, so the 12:17 run then says so and counts every
-    # object holding data, as when no baseline exists. Ids
+    # The 12:17 run's finding is sandboxes_past_wipe on the public status route (since 2026-11-10,
+    # roadmap R74): Control's count of sandboxes not wiped 2 hours after their wipe, which needs
+    # no baseline, so a run GitHub starts hours late still reads it right (scripts/wipe-check.sh).
+    # The listing is a second opinion: each Durable Object namespace of bakery-api, listed through
+    # the account API with the read token (scripts/bakery-objects.mjs). The API gives an object's
+    # id and whether it holds data, never its age, so the baseline run (04:47, or a dispatch with
+    # phase before) keeps a listing with its real start time, and the 12:17 run compares with it
+    # only when it started before the 10:00 wipe: an object that held data then and still does
+    # survived the wipe. Without such a baseline the listing is not compared and opens nothing. Ids
     # never reach a log, an artifact or an issue, which are public here: only classes, counts and
     # hashes do.
     if: >-
@@ -77,7 +87,7 @@ jobs:
       actions: read # the baseline listing, an artifact of that run
       issues: write # "Objects survived the wipe", "Messages dead-lettered", "Breaker tripped"
     env:
-      PHASE: ${{ github.event.schedule == '47 4 * * *' && 'before' || 'after' }}
+      PHASE: ${{ (github.event.schedule == '47 4 * * *' || (github.event_name == 'workflow_dispatch' && inputs.phase == 'before')) && 'before' || 'after' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -95,7 +105,8 @@ jobs:
         run: |
           day="$(date -u +%F)"
           found=false
-          for run in $(gh run list --repo "$REPO" --workflow scheduled.yml --event schedule \
+          # Any event: a baseline dispatched by hand with phase before counts as the 04:47 run's.
+          for run in $(gh run list --repo "$REPO" --workflow scheduled.yml \
             --status success --created ">=$day" --limit 20 --json databaseId --jq '.[].databaseId'); do
             if gh run download "$run" --repo "$REPO" --name "objects-before-$day" --dir "$RUNNER_TEMP/before" 2> /dev/null; then
               found=true
@@ -104,7 +115,7 @@ jobs:
           done
           echo "found=$found" >> "$GITHUB_OUTPUT"
           if [ "$found" != true ]; then
-            echo "::warning::No baseline listing for $day: an object holding data now cannot be told from a sandbox made after the wipe."
+            echo "::notice::No baseline listing for $day, so the listing is not compared: the wipe check reads sandboxes_past_wipe from the status route instead."
             exit 0
           fi
           # The baseline's real start time (UTC HH:MM). One taken at or after the 10:00 wipe, or one
@@ -113,7 +124,7 @@ jobs:
           echo "taken=${taken:-unknown}" >> "$GITHUB_OUTPUT"
           if [ -z "$taken" ] || [ "$taken" \> "09:59" ]; then
             echo "late=true" >> "$GITHUB_OUTPUT"
-            echo "::warning::The baseline run for $day started at ${taken:-an unknown time} UTC, not before the 10:00 wipe, so it is not compared with: an object holding data now cannot be told from a sandbox made after the wipe."
+            echo "::notice::The baseline run for $day started at ${taken:-an unknown time} UTC, not before the 10:00 wipe, so the listing is not compared with it: the wipe check reads sandboxes_past_wipe from the status route instead."
           else
             echo "late=false" >> "$GITHUB_OUTPUT"
           fi
@@ -158,6 +169,10 @@ jobs:
             ${{ runner.temp }}/taken-at.txt
           retention-days: 2
       - name: Open or update the issue when an object survived the wipe
+        # A second opinion beside the status route's count (the next step): only an object that
+        # held data in a baseline taken before the day's wipe, and holds data still, is a finding.
+        # With no such baseline the listing cannot tell a survivor from a sandbox made after the
+        # wipe (issue 99, 2026-11-09), so the step says so in a notice and opens nothing.
         if: env.PHASE == 'after' && steps.list.outputs.code == '1'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -169,18 +184,15 @@ jobs:
         run: |
           title="Objects survived the wipe"
           survivors="$(jq -r '.survivors | to_entries | map("\(.key): \(.value)") | join(", ")' "$RUNNER_TEMP/summary.json")"
+          if [ "$BEFORE_FOUND" != true ] || [ "$BEFORE_LATE" != false ]; then
+            echo "Listing: objects holding data, by class: $survivors. No baseline taken before the wipe, so they were not compared and nothing was opened; the wipe check below is the finding." >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::no baseline taken before today's wipe, so the listing's objects holding data ($survivors) were not compared and no issue was opened"
+            exit 0
+          fi
           {
             echo "$(date -u +%F), the 12:17 UTC check ($RUN):"
             echo
-            if [ "$BEFORE_FOUND" = true ] && [ "$BEFORE_LATE" = false ]; then
-              echo "Objects that held data in the baseline run ($BEFORE_TAKEN UTC) and still do after the 10:00 wipe, by class: $survivors."
-            elif [ "$BEFORE_FOUND" = true ]; then
-              echo "The baseline was taken after the wipe: its run started at $BEFORE_TAKEN UTC, so nothing was compared with it, and every object holding data is counted, by class: $survivors."
-              echo "Some may be sandboxes made after the wipe."
-            else
-              echo "No baseline listing to compare with, so every object holding data is counted, by class: $survivors."
-              echo "Some may be sandboxes made after the wipe."
-            fi
+            echo "Objects that held data in the baseline run ($BEFORE_TAKEN UTC) and still do after the 10:00 wipe, by class: $survivors."
             echo
             echo "Runbook: docs/operations.md, \"The nightly wipe\". The objects' ids are in the dashboard, not here."
           } > "$RUNNER_TEMP/body.md"
@@ -193,6 +205,20 @@ jobs:
           fi
           echo "::error::an object survived the wipe: $survivors"
           exit 1
+
+      - name: Fail and open the issue when a sandbox is past its wipe (the public status route)
+        # The 12:17 run's wipe check, which needs no baseline (roadmap R74, 2026-11-10): Control
+        # counts, at each 15-minute sweep, the sandboxes not wiped more than 2 hours after the
+        # first 10:00 UTC after their birth, and GET /v1/status serves the number as
+        # sandboxes_past_wipe. No secret. It runs even when the steps above failed, so neither
+        # finding hides the other. The cases are in scripts/wipe-check.sh and its test.
+        if: ${{ !cancelled() && env.PHASE == 'after' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          STATUS_URL: https://api.bakery.ihaveasegway.com/v1/status # prod-smoke's API hostname
+        run: bash scripts/wipe-check.sh
 
       - name: Open or update the issue when a message was dead-lettered (the public status route)
         # The 12:17 run only: the count is a 24-hour one, so once a day is enough. It runs even when
