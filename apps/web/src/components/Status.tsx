@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from 'react';
 import { getStatus } from '../lib/api';
+import { observations } from '../lib/trace';
 import {
   breakerWords,
   browserStorage,
@@ -7,6 +8,7 @@ import {
   failureLabel,
   failureStatus,
   formatTime,
+  flagWords,
   loadSnapshot,
   pastWipeWords,
   readStatus,
@@ -72,6 +74,12 @@ export function StatusView({ model }: { model: Model }) {
             <strong>Breaker:</strong> {breakerWords(data.breaker)}
           </p>
 
+          {flagWords(data.flag) !== null && (
+            <p data-testid="status-flag" data-tour="status-flag">
+              <strong>Kill switch:</strong> {flagWords(data.flag)}
+            </p>
+          )}
+
           <p data-testid="status-past-wipe">
             <strong>Sandboxes past their wipe:</strong> {pastWipeWords(data.sandboxes_past_wipe)}
           </p>
@@ -132,6 +140,9 @@ export default function Status() {
         if (data !== null) {
           const fetchedAt = new Date().toISOString();
           saveSnapshot(store, data, fetchedAt);
+          if (flagWords(data.flag) !== null) {
+            observations.set('flag', { value: data.flag, from: 'GET /v1/status', at: Date.now() });
+          }
           setModel({ kind: 'answered', data, fetchedAt });
         } else {
           const status = failureStatus(failure);
