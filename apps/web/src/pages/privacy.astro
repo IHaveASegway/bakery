@@ -62,54 +62,84 @@ import Base from '../layouts/Base.astro';
       </thead>
       <tbody>
         <tr>
-          <th scope="row">Session cookie</th>
-          <td>24 hours, or until you sign out</td>
-          <td>It lets you into your sandbox. The browser keeps it; page scripts cannot read it.</td>
+          <th scope="row" data-label="What">
+            Session cookie
+          </th>
+          <td data-label="Kept for">24 hours, or until you sign out</td>
+          <td data-label="Why">
+            It lets you into your sandbox. The browser keeps it; page scripts cannot read it.
+          </td>
         </tr>
         <tr>
-          <th scope="row">Sign-in transaction cookie</th>
-          <td>10 minutes</td>
-          <td>It holds the one-time values that make Google or GitHub sign-in safe.</td>
+          <th scope="row" data-label="What">
+            Sign-in transaction cookie
+          </th>
+          <td data-label="Kept for">10 minutes</td>
+          <td data-label="Why">
+            It holds the one-time values that make Google or GitHub sign-in safe.
+          </td>
         </tr>
         <tr>
-          <th scope="row">
+          <th scope="row" data-label="What">
             Account id (a keyed hash), and for a demo account the username and password hash
           </th>
-          <td>Deleted 30 days after your last sign-in</td>
-          <td>One sandbox across your devices.</td>
+          <td data-label="Kept for">Deleted 30 days after your last sign-in</td>
+          <td data-label="Why">One sandbox across your devices.</td>
         </tr>
         <tr>
-          <th scope="row">Sandbox contents</th>
-          <td>Until 10:00 UTC. A backstop deletes anything left after 36 hours.</td>
-          <td>The demo itself. Its few free-text fields say they are wiped tonight.</td>
+          <th scope="row" data-label="What">
+            Sandbox contents
+          </th>
+          <td data-label="Kept for">
+            Until 10:00 UTC. A backstop deletes anything left after 36 hours.
+          </td>
+          <td data-label="Why">
+            The demo itself. Its few free-text fields say they are wiped tonight.
+          </td>
         </tr>
         <tr>
-          <th scope="row">Your IP address, as a hash with a salt that changes daily</th>
-          <td>In logs for 7 days. The address itself is never stored or logged.</td>
-          <td>Rate limits, daily caps and abuse review.</td>
+          <th scope="row" data-label="What">
+            Your IP address, as a hash with a salt that changes daily
+          </th>
+          <td data-label="Kept for">
+            In logs for 7 days. The address itself is never stored or logged.
+          </td>
+          <td data-label="Why">Rate limits, daily caps and abuse review.</td>
         </tr>
         <tr>
-          <th scope="row">Country and continent</th>
-          <td>In logs for 7 days</td>
-          <td>Capacity and abuse review. Never a city, region or coordinates.</td>
+          <th scope="row" data-label="What">
+            Country and continent
+          </th>
+          <td data-label="Kept for">In logs for 7 days</td>
+          <td data-label="Why">Capacity and abuse review. Never a city, region or coordinates.</td>
         </tr>
         <tr>
-          <th scope="row">Turnstile’s signals</th>
-          <td>Under Cloudflare’s policy</td>
-          <td>It checks that you are a person when you make a sandbox or an account.</td>
+          <th scope="row" data-label="What">
+            Turnstile’s signals
+          </th>
+          <td data-label="Kept for">Under Cloudflare’s policy</td>
+          <td data-label="Why">
+            It checks that you are a person when you make a sandbox or an account.
+          </td>
         </tr>
         <tr>
-          <th scope="row">That you turned “Under the hood” off</th>
-          <td>In this browser tab, until you close it</td>
-          <td>
+          <th scope="row" data-label="What">
+            That you turned “Under the hood” off
+          </th>
+          <td data-label="Kept for">In this browser tab, until you close it</td>
+          <td data-label="Why">
             So the guide stays off as you move between pages. It is kept in the tab’s own storage
             and never sent anywhere.
           </td>
         </tr>
         <tr>
-          <th scope="row">Stripe sandbox objects, from the payments pull request (PR 5)</th>
-          <td>Customers and drafts until the wipe; the rest until Stripe’s sandbox is reset</td>
-          <td>Test payments. The details are synthetic.</td>
+          <th scope="row" data-label="What">
+            Stripe sandbox objects, from the payments pull request (PR 5)
+          </th>
+          <td data-label="Kept for">
+            Customers and drafts until the wipe; the rest until Stripe’s sandbox is reset
+          </td>
+          <td data-label="Why">Test payments. The details are synthetic.</td>
         </tr>
       </tbody>
     </table>

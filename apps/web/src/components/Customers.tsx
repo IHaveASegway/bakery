@@ -63,7 +63,7 @@ export default function Customers({
             <tbody>
               {customers.map((c) => (
                 <tr key={c.customer}>
-                  <th scope="row">
+                  <th scope="row" data-label="Customer">
                     <button
                       type="button"
                       className="link"
@@ -74,11 +74,15 @@ export default function Customers({
                     </button>
                     {c.customer === personaId && <span className="hint"> (you)</span>}
                   </th>
-                  <td>{zoneLabel(c.home_zone)}</td>
-                  <td>{c.marketing ? 'Yes' : 'No'}</td>
-                  <td className="num">{c.loyalty_points}</td>
-                  <td className="num">{c.orders}</td>
-                  <td>
+                  <td data-label="Zone">{zoneLabel(c.home_zone)}</td>
+                  <td data-label="Consent">{c.marketing ? 'Yes' : 'No'}</td>
+                  <td className="num" data-label="Points">
+                    {c.loyalty_points}
+                  </td>
+                  <td className="num" data-label="Orders">
+                    {c.orders}
+                  </td>
+                  <td data-label="Last order">
                     {c.last_order_at ? (
                       <time dateTime={c.last_order_at} title={whenText(c.last_order_at)}>
                         {shortWhen(c.last_order_at)}

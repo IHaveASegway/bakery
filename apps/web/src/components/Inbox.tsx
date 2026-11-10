@@ -132,9 +132,9 @@ export default function Inbox() {
                     <tbody>
                       {messages.map((m) => (
                         <tr key={m.message}>
-                          <td>{kindLabel(m.kind)}</td>
-                          <td>{recipientName(names, m.to)}</td>
-                          <th scope="row">
+                          <td data-label="Kind">{kindLabel(m.kind)}</td>
+                          <td data-label="To">{recipientName(names, m.to)}</td>
+                          <th scope="row" data-label="Subject">
                             <button
                               type="button"
                               className="link"
@@ -144,11 +144,11 @@ export default function Inbox() {
                               {m.subject}
                             </button>
                           </th>
-                          <td>
+                          <td data-label="Delivered">
                             <time dateTime={m.delivered_at}>{whenText(m.delivered_at)}</time>
                           </td>
-                          <td>{m.opened_at ? whenText(m.opened_at) : '–'}</td>
-                          <td>{m.clicked_at ? whenText(m.clicked_at) : '–'}</td>
+                          <td data-label="Opened">{m.opened_at ? whenText(m.opened_at) : ''}</td>
+                          <td data-label="Clicked">{m.clicked_at ? whenText(m.clicked_at) : ''}</td>
                         </tr>
                       ))}
                     </tbody>

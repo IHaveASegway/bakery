@@ -697,18 +697,6 @@ td {
   }
 }
 
-/* The principle table on /how-its-built/: on a phone its rows stack (the table rule below), so each
-   stacked cell carries its column's name, as the tools page labels its lines. */
-@media (max-width: 40rem) {
-  .decisions td[data-label]::before {
-    content: attr(data-label);
-    display: block;
-    padding-top: var(--space-2);
-    font-size: var(--type-14);
-    font-weight: 600;
-  }
-}
-
 /* The tools page (/how-its-built/tools/): one article a tool, three labelled lines in a label
    column beside the text on a wide screen and stacked on a phone, and a closed list of what was
    not chosen. */
@@ -962,31 +950,81 @@ td {
   margin: 0;
 }
 
-/* On a phone the table's rows become blocks, so nothing scrolls sideways at 320 px. */
+/* On a phone a table's rows become blocks, so nothing scrolls sideways at 320 px. Each stacked
+   cell names its column from its `data-label`, in a label column beside the value, as the tools
+   page labels its lines; an empty cell takes no line. A table narrow enough to fit a phone as a
+   grid (a few short columns of figures) says so with `table-fits` and keeps its rows. */
 @media (max-width: 40rem) {
-  table,
-  thead,
-  tbody,
-  tr,
-  th,
-  td {
+  :where(table:not(.table-fits)),
+  :where(table:not(.table-fits)) > :where(thead, tbody, tr),
+  :where(table:not(.table-fits)) > :where(thead, tbody) > tr,
+  :where(table:not(.table-fits)) > :where(thead, tbody) > tr > :where(th, td) {
     display: block;
   }
-  thead {
+  :where(table:not(.table-fits)) > thead {
     position: absolute;
     width: 1px;
     height: 1px;
     overflow: hidden;
     clip-path: inset(50%);
   }
-  tr {
+  :where(table:not(.table-fits)) > tbody > tr {
     padding: var(--space-3) 0;
     border-bottom: 1px solid var(--border);
   }
-  th,
-  td {
+  table:not(.table-fits) > tbody > tr > :is(th, td) {
     border: 0;
     padding: 0 0 var(--space-1);
+    text-align: left;
+  }
+  table:not(.table-fits) > tbody > tr > :is(th, td).num {
+    text-align: left;
+  }
+  table:not(.table-fits) > tbody > tr > :is(th, td):empty {
+    display: none;
+  }
+  table:not(.table-fits) > tbody > tr > :is(th, td)[data-label],
+  :is(.schema-table, .params-table) > tbody > tr > :is(th, td) {
+    position: relative;
+    padding-left: 7.5rem;
+  }
+  table:not(.table-fits) > tbody > tr > :is(th, td)[data-label]::before,
+  :is(.schema-table, .params-table) > tbody > tr > :is(th, td)::before {
+    content: attr(data-label);
+    position: absolute;
+    top: 0.1em;
+    left: 0;
+    width: 7rem;
+    color: var(--text-muted);
+    font-size: var(--type-13);
+    font-weight: 600;
+    line-height: inherit;
+  }
+  /* The API reference repeats two table shapes hundreds of times, so their labels are said here
+     once rather than on every cell (the page's HTML stays under its size test). */
+  .schema-table > tbody > tr > :nth-child(1)::before,
+  .params-table > tbody > tr > :nth-child(1)::before {
+    content: 'Name';
+  }
+  .schema-table > tbody > tr > :nth-child(2)::before {
+    content: 'Type';
+  }
+  .schema-table > tbody > tr > :nth-child(3)::before,
+  .params-table > tbody > tr > :nth-child(3)::before {
+    content: 'Required';
+  }
+  .schema-table > tbody > tr > :nth-child(4)::before {
+    content: 'Limits';
+  }
+  .schema-table > tbody > tr > :nth-child(5)::before,
+  .params-table > tbody > tr > :nth-child(5)::before {
+    content: 'Meaning';
+  }
+  .params-table > tbody > tr > :nth-child(2)::before {
+    content: 'In';
+  }
+  .params-table > tbody > tr > :nth-child(4)::before {
+    content: 'Type';
   }
   dl {
     grid-template-columns: 1fr;

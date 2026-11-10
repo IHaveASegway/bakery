@@ -97,12 +97,12 @@ export default function Ledger({ sandboxId, refresh }: { sandboxId: string; refr
                 <tbody>
                   {entries.map((e, i) => (
                     <tr key={`${e.stripe_id ?? e.at}-${i}`}>
-                      <td>
+                      <td data-label="When">
                         <time dateTime={e.at} title={whenText(e.at)}>
                           {shortWhen(e.at)}
                         </time>
                       </td>
-                      <td>
+                      <td data-label="Entry">
                         <span
                           className="badge"
                           data-tone={e.kind === 'payment' ? 'ready' : 'pending'}
@@ -110,11 +110,13 @@ export default function Ledger({ sandboxId, refresh }: { sandboxId: string; refr
                           {e.kind === 'payment' ? 'Payment' : 'Refund'}
                         </span>
                       </td>
-                      <td>
+                      <td data-label="For">
                         {PURPOSES[e.purpose] ?? e.purpose} <code>{e.ref.slice(-6)}</code>
                       </td>
-                      <td>{ledgerSource(e) === '' ? 'Stripe' : 'Billing (seeded)'}</td>
-                      <td className="num">
+                      <td data-label="Recorded by">
+                        {ledgerSource(e) === '' ? 'Stripe' : 'Billing (seeded)'}
+                      </td>
+                      <td className="num" data-label="Amount">
                         {e.kind === 'payment' ? '+' : '−'}
                         {dollars(Math.abs(e.amount_cents))}
                       </td>

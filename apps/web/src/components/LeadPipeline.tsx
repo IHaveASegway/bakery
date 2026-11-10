@@ -47,7 +47,7 @@ export default function LeadPipeline({
         error === null && <p aria-live="polite">Loading the pipeline…</p>
       ) : (
         <div className="table-scroll">
-          <table className="table">
+          <table className="table table-fits">
             <caption className="sr-only">Leads by stage</caption>
             <thead>
               <tr>
