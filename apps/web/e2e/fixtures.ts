@@ -473,7 +473,7 @@ export async function expectNoAxeViolations(
   // three reads at most, and the last one stands. A real finding is there on every read.
   const readOnce = async () => {
     const before = await atRest(page);
-    const { violations } = await builder.analyze();
+    const { violations } = await readLaidOut(page, () => builder.analyze());
     const after = await page.evaluate(movement);
     return { violations, moved: after.started !== before || after.running };
   };
@@ -488,6 +488,32 @@ export async function expectNoAxeViolations(
   );
   expect(lines, 'no axe violation').toEqual([]);
   return reads;
+}
+
+/**
+ * Runs a read with every part of the page laid out. A page may tell the browser to skip what is far
+ * from the window (`content-visibility: auto`, the API reference's operations and schemas), and axe
+ * measures targets from boxes: on 2026-11-10 it called a few links in skipped sections too close to
+ * their neighbours on that page (rule target-size) although each is 24 px tall once laid out, the
+ * state a visitor sees on scrolling there. Skipped text is in the accessibility tree all the same;
+ * only the geometry differs. A constructable stylesheet is used because the page's policy refuses a
+ * style element added from outside; it is removed after the read.
+ */
+async function readLaidOut<T>(page: Page, read: () => Promise<T>): Promise<T> {
+  await page.evaluate(() => {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync('* { content-visibility: visible !important; }');
+    (window as Window & { __axeLaidOut?: CSSStyleSheet }).__axeLaidOut = sheet;
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+  });
+  try {
+    return await read();
+  } finally {
+    await page.evaluate(() => {
+      const sheet = (window as Window & { __axeLaidOut?: CSSStyleSheet }).__axeLaidOut;
+      document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== sheet);
+    });
+  }
 }
 
 type AxeViolation = Awaited<ReturnType<AxeBuilder['analyze']>>['violations'][number];
