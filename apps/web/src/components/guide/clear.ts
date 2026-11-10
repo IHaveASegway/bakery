@@ -54,6 +54,21 @@ export function headingLine(target: Element): Box | null {
   return last === null ? null : boxOf(last);
 }
 
+/** The box of the last line of a target's own text, in window terms: where a sentence ends. */
+export function textEnd(target: Element): Box | null {
+  const range = document.createRange();
+  range.selectNodeContents(target);
+  const lines = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0);
+  const last = lines.reduce<DOMRect | null>(
+    (best, r) =>
+      best === null || r.bottom > best.bottom || (r.bottom === best.bottom && r.right > best.right)
+        ? r
+        : best,
+    null,
+  );
+  return last === null ? null : boxOf(last);
+}
+
 /** The boxes of an element's own lines of text: its direct text, not its children's. */
 function ownLines(element: Element): Box[] {
   const lines: Box[] = [];

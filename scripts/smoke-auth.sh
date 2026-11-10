@@ -521,7 +521,10 @@ request cron_wipe_again "$BASE/cdn-cgi/local/scheduled?cron=0+10+*+*+*"
 expect_status cron_wipe_again 200
 sleep 1
 request status_after_sweep "$BASE/v1/status"
-check "the sweep and a second wipe leave the day's counts unchanged" "cmp -s '$TMP/status_before_sweep.body' '$TMP/status_after_sweep.body'"
+# The day's counts, by name: the status answer gains fields (the sweep's own sandboxes_past_wipe,
+# null until a sweep has counted, since 2026-11-10), so the whole bodies are not compared.
+DAY_COUNTS="['day', 'sandboxes_today', 'sandbox_cap', 'guests_today', 'guest_cap', 'demo_accounts_today', 'demo_account_cap']"
+check "the sweep and a second wipe leave the day's counts unchanged" "node -e \"const r = (n) => JSON.parse(require('fs').readFileSync('$TMP/' + n + '.body', 'utf8')); const a = r('status_before_sweep'), b = r('status_after_sweep'); process.exit($DAY_COUNTS.every((k) => k in a && a[k] === b[k]) ? 0 : 1)\""
 list_objects list_after_sweep
 check "list-objects: still exits 0 after the sweep" "(( LIST_EXIT == 0 ))"
 
