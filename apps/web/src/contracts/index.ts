@@ -88,3 +88,6 @@ export type { TokenResponse } from './TokenResponse';
 export type { TrafficRequest } from './TrafficRequest';
 export type { TrafficResponse } from './TrafficResponse';
 export type { WipedResponse } from './WipedResponse';
+export type { TraceDelivery, TraceHop, TraceOutcome } from './TraceHop';
+export type { TraceResponse } from './TraceResponse';
+export type { TraceByeReason, TraceFrame } from './TraceFrame';

@@ -21,6 +21,8 @@ export const CONSOLE_ORDER = [
   'console-sandbox',
   'console-token',
   'kitchen-board',
+  'kitchen-rate-limit',
+  'kitchen-guest',
   'kitchen-refund',
   'kitchen-bake',
   'kitchen-ledger',

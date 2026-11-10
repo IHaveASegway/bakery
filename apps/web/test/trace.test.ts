@@ -1,16 +1,15 @@
 // The guide's trace store (src/lib/trace.ts): which evidence belongs to the visitor's action, and
 // what a note may call observed. The page's sources push into it; these tests push by hand.
+import type { TraceHop } from '../src/contracts';
 import { describe, expect, test } from 'vitest';
 import {
   GESTURE_MS,
   KEEP_TRACES,
   createTraceStore,
   expectedHops,
-  fromRecorder,
+  fromHop,
   pushSource,
-  recorderSource,
   type Evidence,
-  type RecorderRecord,
 } from '../src/lib/trace';
 
 // Synthetic ids: ULID-shaped, made up for these tests.
@@ -44,6 +43,22 @@ const event = (
   seq: 1,
   cause,
   at: T0 + 200,
+  ...over,
+});
+
+/** A recorder hop, as `GET .../trace` gives it; only what a test names differs. */
+const hop = (over: Partial<TraceHop> & { deliveries?: TraceHop['deliveries'] } = {}): TraceHop => ({
+  id: EVENT,
+  type: 'OrderPlaced',
+  stream: 'order:sbx-one:ord-one',
+  seq: 1,
+  cause: SENT,
+  at: '2026-11-09T08:00:00-07:00',
+  recorded_at: '2026-11-09T15:00:01Z',
+  delivered_at: '2026-11-09T15:00:02Z',
+  lag_ms: 40,
+  attempt: 1,
+  deliveries: [{ to: 'Kitchen', outcome: 'delivered' }],
   ...over,
 });
 
@@ -209,6 +224,98 @@ describe('a story read: the menu’s, traced with what its answer said', () => {
   });
 });
 
+describe('the flight recorder’s hops, matched by cause', () => {
+  const placed = () => {
+    const store = createTraceStore();
+    store.gesture({}, T0 - 300);
+    store.record(call({ key: SENT }));
+    return store;
+  };
+  const events = (store: ReturnType<typeof createTraceStore>) =>
+    store.getSnapshot().traces[0]?.events ?? [];
+
+  test('a key with one event: the hop the command wrote joins its trace', () => {
+    const store = placed();
+    store.record(fromHop(hop({ id: 'evt-placed', type: 'OrderPlaced', cause: SENT }), T0 + 400));
+    expect(events(store).map((e) => e.type)).toEqual(['OrderPlaced']);
+  });
+
+  test('a chain of reactions: an event caused by the first joins too, whichever arrives first', () => {
+    const store = placed();
+    // The reaction's hop arrives before its cause's: it waits, then joins.
+    store.record(
+      fromHop(hop({ id: 'evt-held', type: 'SlotReserved', cause: 'evt-placed' }), T0 + 500),
+    );
+    expect(events(store)).toHaveLength(0);
+    store.record(fromHop(hop({ id: 'evt-placed', type: 'OrderPlaced', cause: SENT }), T0 + 600));
+    expect(events(store).map((e) => e.type)).toEqual(['OrderPlaced', 'SlotReserved']);
+  });
+
+  test('a hop that never arrives leaves the event expected, never denied', () => {
+    const store = placed();
+    const trace = store.getSnapshot().traces[0];
+    if (trace === undefined) throw new Error('no trace');
+    const hops = expectedHops(['OrderPlaced'], trace);
+    expect(hops).toEqual([{ type: 'OrderPlaced', state: 'expected', event: null }]);
+  });
+
+  test('two attempts: the later hop’s deliveries stand, whichever order the hops arrive in', () => {
+    const store = placed();
+    const second = hop({
+      id: 'evt-placed',
+      type: 'OrderPlaced',
+      cause: SENT,
+      attempt: 2,
+      deliveries: [{ to: 'Kitchen', outcome: 'delivered' }],
+    });
+    const first = hop({
+      id: 'evt-placed',
+      type: 'OrderPlaced',
+      cause: SENT,
+      attempt: 1,
+      deliveries: [{ to: 'Kitchen', outcome: 'retried' }],
+    });
+    store.record(fromHop(second, T0 + 900));
+    store.record(fromHop(first, T0 + 950));
+    expect(events(store)[0]?.deliveries).toEqual([{ to: 'Kitchen', outcome: 'ok', attempt: 2 }]);
+  });
+
+  test('a dead hop is final: no later attempt’s hop takes its place', () => {
+    const store = placed();
+    store.record(
+      fromHop(
+        hop({
+          id: 'evt-placed',
+          type: 'OrderPlaced',
+          cause: SENT,
+          attempt: 4,
+          deliveries: [{ to: 'Kitchen', outcome: 'dead_lettered' }],
+        }),
+        T0 + 900,
+      ),
+    );
+    store.record(
+      fromHop(
+        hop({
+          id: 'evt-placed',
+          type: 'OrderPlaced',
+          cause: SENT,
+          attempt: 3,
+          deliveries: [{ to: 'Kitchen', outcome: 'retried' }],
+        }),
+        T0 + 950,
+      ),
+    );
+    expect(events(store)[0]?.deliveries).toEqual([{ to: 'Kitchen', outcome: 'dead', attempt: 4 }]);
+  });
+
+  test('a hop whose cause is no action of this page is kept aside, never shown', () => {
+    const store = placed();
+    store.record(fromHop(hop({ id: 'evt-other', type: 'OrderPlaced', cause: 'someone-else' }), T0));
+    expect(events(store)).toHaveLength(0);
+  });
+});
+
 describe('the activity feed: weaker evidence, said as such', () => {
   const entry = (type: string, at: string) => ({ type, at, summary: `${type} happened` });
 
@@ -302,37 +409,34 @@ describe('sources behind one interface', () => {
     expect(store.getSnapshot().traces).toHaveLength(2);
   });
 
-  test('the recorder is typed and connects to nothing yet', () => {
-    expect(recorderSource.kind).toBe('recorder');
-    const stop = recorderSource.connect(createTraceStore());
-    expect(typeof stop).toBe('function');
-  });
-
-  test('a recorder record becomes an event with its lag and deliveries, merged with the socket’s', () => {
-    const record: RecorderRecord = {
-      id: EVENT,
-      type: 'OrderProductionStarted',
-      stream: 'order:sbx-one:ord-one',
-      seq: 3,
-      cause: SENT,
-      recorded_at: '2026-11-09T15:00:01Z',
-      delivered_at: '2026-11-09T15:00:02Z',
-      lag_ms: 212,
-      deliveries: [
-        { to: 'kitchen', outcome: 'ok', attempt: 1 },
-        { to: 'crm', outcome: 'retry', attempt: 2 },
-      ],
-    };
+  test('a recorder hop becomes an event with its lag and deliveries, merged with the socket’s', () => {
     const store = createTraceStore();
     store.record({ kind: 'command', key: SENT, action: 'start_production', order: 'o', at: T0 });
     store.record(event(EVENT, 'OrderProductionStarted', SENT, { seq: 3 }));
-    store.record(fromRecorder(record, T0 + 400));
+    store.record(
+      fromHop(
+        hop({
+          id: EVENT,
+          type: 'OrderProductionStarted',
+          cause: SENT,
+          seq: 3,
+          lag_ms: 212,
+          deliveries: [
+            { to: 'Kitchen', outcome: 'delivered' },
+            { to: 'Crm', outcome: 'delivered' },
+          ],
+        }),
+        T0 + 400,
+      ),
+    );
     const events = store.getSnapshot().traces[0]?.events ?? [];
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ seq: 3, lagMs: 212, source: 'recorder' });
-    expect(events[0]?.deliveries).toHaveLength(2);
+    expect(events[0]?.deliveries).toEqual([
+      { to: 'Kitchen', outcome: 'ok', attempt: 1 },
+      { to: 'Crm', outcome: 'ok', attempt: 1 },
+    ]);
   });
-
   test('a listener hears each change, and the snapshot is stable between changes', () => {
     const store = createTraceStore();
     let heard = 0;

@@ -13,6 +13,10 @@ export const routeIdOf = (trace: Trace): string | null =>
 export function entryForTraces(group: readonly Trace[], screen: ScreenId, anchor: unknown) {
   const first = group[0];
   if (first === undefined) return null;
+  // The board's command budget: a move refused with the rule rate-limit is that entry's story.
+  if (first.transport === 'socket' && first.rule === 'rate-limit') {
+    return ALL_ENTRIES.find((e) => e.id === 'kitchen-rate-limit') ?? null;
+  }
   const types = group.flatMap((t) => t.events.map((e) => e.type));
   const inTarget = (target: string) =>
     typeof Element !== 'undefined' &&

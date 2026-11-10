@@ -11,12 +11,14 @@ import { liveToken, tokenStore } from '../../lib/token-store';
 import {
   expectedHops,
   storyReads,
+  type Delivery,
   type FeedArrival,
   type ReadFacts,
   type HeardEvent,
   type Listening,
   type Trace,
 } from '../../lib/trace';
+import type { RecorderState } from '../../lib/recorder';
 import { useSandboxPhase } from '../../lib/use-session';
 import { ROUTE_SHAPES } from '../../guide';
 import { routeIdOf } from './match';
@@ -128,7 +130,42 @@ export function readSentence(trace: Trace): string {
   return `The API answered with ${etag} and no Bakery-Cache header.`;
 }
 
+/**
+ * Where an event's deliveries stand, in plain words: each subscriber class it reached, with the
+ * attempt when it took more than one, and a retry or a dead letter said as what it is. The
+ * attempt is the recorder's own count, a lower bound on the Queue's (ADR 0015).
+ */
+export function deliveryWords(deliveries: readonly Delivery[]): string {
+  const ok = deliveries.filter((d) => d.outcome === 'ok').map((d) => d.to);
+  const retry = deliveries.filter((d) => d.outcome === 'retry').map((d) => d.to);
+  const dead = deliveries.filter((d) => d.outcome === 'dead').map((d) => d.to);
+  const attempt = Math.max(...deliveries.map((d) => d.attempt));
+  const parts: string[] = [];
+  if (ok.length > 0) {
+    parts.push(`delivered to ${ok.join(', ')}${attempt > 1 ? ` on attempt ${attempt}` : ''}`);
+  }
+  if (retry.length > 0) parts.push(`${retry.join(', ')} retried after attempt ${attempt}`);
+  if (dead.length > 0) parts.push(`dead-lettered for ${dead.join(', ')} after attempt ${attempt}`);
+  return parts.join('; ');
+}
+
 // ---- Views ----
+
+/** What the recorder could not promise for this note, when it matters: a ring that moved on, a wipe. */
+export function RecorderSays({ state }: { state: Pick<RecorderState, 'missed' | 'wiped'> }) {
+  if (state.wiped) {
+    return <p className="guide-meta">The sandbox was wiped: there is nothing more to read.</p>;
+  }
+  if (state.missed) {
+    return (
+      <p className="guide-meta">
+        Older hops left the recorder’s ring of 200 batches before this read: what they held is not
+        known.
+      </p>
+    );
+  }
+  return null;
+}
 
 /** The note's head: an eyebrow, the title, and the pin and close buttons. */
 export function NoteHead({
@@ -239,11 +276,14 @@ export function TraceChain({
   traces,
   expected,
   feed,
+  reading = 'idle',
 }: {
   traces: readonly Trace[];
   /** The event types the action should make (match.ts, expectedFor). */
   expected: readonly string[];
   feed: readonly FeedArrival[];
+  /** The recorder's reads for this note: once done, an event no hop showed is "not seen yet". */
+  reading?: 'idle' | 'reading' | 'done';
 }) {
   const first = traces[0];
   if (first === undefined) return null;
@@ -303,20 +343,21 @@ export function TraceChain({
                 <span className="guide-meta">
                   {event.seq !== null && <>seq {event.seq}</>}
                   {event.stream !== null && <> on {objectOf(event.stream)}</>}
-                  {event.lagMs !== undefined && <>, {event.lagMs} ms after it was written</>}
+                  {event.lagMs !== undefined && (
+                    <>, taken by the Queue’s consumer {event.lagMs} ms after it was written</>
+                  )}
                 </span>
               ) : (
                 <span className="guide-meta">
-                  {hop.state === 'seen-in-feed' ? 'in the activity feed' : 'expected'}
+                  {hop.state === 'seen-in-feed'
+                    ? 'in the activity feed'
+                    : reading === 'done'
+                      ? 'not seen yet: the recorder may have missed it'
+                      : 'expected'}
                 </span>
               )}
               {delivered.length > 0 && (
-                <span className="guide-meta">
-                  to{' '}
-                  {delivered
-                    .map((d) => `${d.to}${d.attempt > 1 ? ` (attempt ${d.attempt})` : ''}`)
-                    .join(', ')}
-                </span>
+                <span className="guide-meta guide-deliveries">{deliveryWords(delivered)}</span>
               )}
             </span>
           </li>
@@ -327,7 +368,13 @@ export function TraceChain({
 }
 
 /** Why this tool, and when it would be the wrong one, with the essay that argues it. */
-export function WhyLines({ entry, read = true }: { entry: GuideEntry; read?: boolean }) {
+export function WhyLines({
+  entry,
+  read = true,
+}: {
+  entry: Pick<GuideEntry, 'why' | 'whenNot' | 'principle'>;
+  read?: boolean;
+}) {
   const essay = read ? entry.principle.essay : undefined;
   return (
     <div className="guide-why">
