@@ -398,6 +398,10 @@ pub struct SandboxResponse {
     /// The persona's synthetic address, from the seed: the Payment Element's billing address,
     /// so the visitor types none (ADR 0007, decision 6).
     pub persona_address: PersonaAddress,
+    /// The persona's delivery zone, `z1` to `z3`: their place's, which a delivery goes to (since
+    /// 2026-11-10, roadmap R69). `null` only when the persona's place is not known.
+    #[serde(default)]
+    pub persona_zone: Option<String>,
     /// Business time minus wall time, in seconds (docs/architecture.md, "Time travel").
     pub clock_offset_s: i64,
     /// Bumped by every clock advance.
@@ -533,7 +537,9 @@ pub struct OrderRequest {
     /// The pickup slot's or delivery window's start, a business time such as
     /// `2026-11-07T09:45:00-07:00`.
     pub slot: String,
-    /// `z1`, `z2` or `z3` for a delivery; absent for a pickup.
+    /// A delivery's zone, which the customer's place decides (since 2026-11-10, roadmap R69): left
+    /// out, the server uses the persona's (`persona_zone` on the sandbox); named, it must be that
+    /// zone, or the order is 422 `order` with the rule `wrong-zone`. Absent for a pickup.
     #[serde(default)]
     pub zone: Option<String>,
     /// 1 to 20 lines.
@@ -2391,6 +2397,7 @@ mod tests {
                 postal_code: "84101".into(),
                 country: "US".into(),
             },
+            persona_zone: Some("z2".into()),
             clock_offset_s: 0,
             clock_v: 0,
             token_v: 0,
@@ -2399,7 +2406,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&sandbox).unwrap(),
-            r#"{"id":"01JC8Z6K3W9QF2N4T7XRB5M0HD","kind":"guest","state":"live","born":"2026-11-05T09:55:00.000Z","wipe_at":"2026-11-05T10:00:00.000Z","seed":42,"persona":"01JC8Z6F0WQ3E5R7T9Y1V3K5P7","persona_name":"Drizzle Trowel","persona_address":{"line1":"p17, unit 1 (synthetic)","city":"Salt Lake City","state":"UT","postal_code":"84101","country":"US"},"clock_offset_s":0,"clock_v":0,"token_v":0,"faults":{"inbox":false,"kitchen":false},"children":0}"#
+            r#"{"id":"01JC8Z6K3W9QF2N4T7XRB5M0HD","kind":"guest","state":"live","born":"2026-11-05T09:55:00.000Z","wipe_at":"2026-11-05T10:00:00.000Z","seed":42,"persona":"01JC8Z6F0WQ3E5R7T9Y1V3K5P7","persona_name":"Drizzle Trowel","persona_address":{"line1":"p17, unit 1 (synthetic)","city":"Salt Lake City","state":"UT","postal_code":"84101","country":"US"},"persona_zone":"z2","clock_offset_s":0,"clock_v":0,"token_v":0,"faults":{"inbox":false,"kitchen":false},"children":0}"#
         );
         for (state, text) in [
             (SandboxState::Seeding, "seeding"),

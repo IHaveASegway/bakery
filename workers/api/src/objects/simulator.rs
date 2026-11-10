@@ -938,6 +938,7 @@ impl Simulator {
             Some(&RegisterOrder {
                 key: d.key.clone(),
                 date: Some(BakeryDate::of(d.slot)),
+                customer: Some(d.customer),
             }),
         )
         .await?;
@@ -948,6 +949,12 @@ impl Simulator {
         };
         let name = order::name(sandbox, slot.order);
         let body_hash = crate::http::body_hash(&serde_json::to_string(d)?);
+        // A delivery goes to its customer's own zone, as a visitor's does (roadmap R69); the
+        // drawn zone stands only when the persona's place is not known.
+        let zone = match d.kind {
+            OrderKind::Delivery => slot.zone.clone().or_else(|| d.zone.clone()),
+            OrderKind::Pickup => None,
+        };
         // The same hold a visitor's order takes, before the Order decides. A refusal is logged
         // and the order skipped, never retried.
         let Some(day) = slot.schedule.clone() else {
@@ -964,7 +971,7 @@ impl Simulator {
             slot.order,
             d.kind,
             d.slot,
-            d.zone.clone(),
+            zone.clone(),
             &d.lines,
             menu,
             expires_at,
@@ -1015,7 +1022,7 @@ impl Simulator {
                 customer: d.customer,
                 kind: d.kind,
                 slot: d.slot,
-                zone: d.zone.clone(),
+                zone,
                 lines: d.lines.clone(),
                 note: None,
                 menu: menu.clone(),
