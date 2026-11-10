@@ -117,7 +117,7 @@ describe('the comparison', () => {
 
   test('what the minutes leave out and the method moved to the guide’s browser-plan entry', () => {
     const out = html(both, 'ready');
-    expect(out).not.toContain('Clarke and Wright');
+    expect(out).not.toContain('Operations Research, 1964');
     const plan = ALL_ENTRIES.find((e) => e.id === 'dispatch-plan');
     const said = (plan?.facts ?? []).join(' ');
     expect(said).toContain('no waiting for a window to open');
