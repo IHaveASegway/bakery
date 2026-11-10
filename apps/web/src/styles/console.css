@@ -793,3 +793,21 @@ details.capacity-group .capacity-table {
   color: var(--text-muted);
   font-size: var(--type-12);
 }
+
+/* A question asked in the page before something is deleted (ConfirmStep.tsx): Wipe now, New
+   sandbox, Rotate. Edged like the token's reveal box, in the danger color, so it reads as the
+   one thing to answer before going on. */
+.confirm-step {
+  margin: var(--space-2) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--danger);
+  border-radius: var(--radius-md);
+}
+
+.confirm-step > p {
+  margin: 0 0 var(--space-2);
+}
+
+.confirm-step > p:last-child {
+  margin-bottom: 0;
+}
