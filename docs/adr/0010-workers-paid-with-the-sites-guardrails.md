@@ -89,6 +89,12 @@ As built, 2026-11-09: the account moved to Workers Paid on 2026-11-06, with the 
 
 Decided on 2026-11-09 by the session, under Joseph's delegation of the same day; revisable: the row, DO-request and Queue budgets of `Control` are struck from [cost.md](../cost.md#guardrails): they were never built, and the breaker's five meters are the guardrail (roadmap R27). As built that is close to alternative C above, Paid without `Control`'s budgets, which this record rejected because the breaker acts after the money is spent; what narrows the gap is `Control`'s counts, the Simulator's caps and the 15-minute breaker, and the breaker is `unconfigured` until its secrets are set (roadmap R4). If the breaker is not configured soon, this amendment is the one to revisit. The Workers Paid date, 2026-11-06 above, stays Joseph's to confirm (roadmap R12).
 
+## Postscript 2026-11-10
+
+Corrected on 2026-11-10 by the session, under the owner's delegation of 2026-11-09; revisable. Each line names a sentence above that the build or a later record contradicts, and gives what is true, with its source. The decision text above is not rewritten.
+
+- Context says email sends to the owner's verified address are free on either plan (Q22 · Q-email). Email Service was struck on 2026-11-09, there is no Email Service binding, and the bakery sends no real email ([stack.md](../stack.md#the-stack), the Mail row; roadmap R23).
+
 ## Patterns and further reading
 
 - Denial of wallet: ["Denial of Wallet: Defining a Looming Threat to Serverless Computing"](https://arxiv.org/abs/2104.08031) (arXiv, 2021).

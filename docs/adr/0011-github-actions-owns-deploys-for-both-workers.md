@@ -79,6 +79,12 @@ Two-way. Moving either Worker to Workers Builds is a dashboard connection and a 
 
 As built, 2026-11-09: stage 1's own check is health and CORS, and `prod-smoke` runs once after both stages (`.github/workflows/ci.yml`). Before either stage `deploy` refuses a storefront bundle with Turnstile's test site key, so every merge since #73 has stopped there until the repository variable is set ([delivery.md](../delivery.md#the-jobs-as-written)). No rollback of either Worker has been rehearsed, and no ruleset protects `main` (read through the GitHub API on 2026-11-09).
 
+## Postscript 2026-11-10
+
+Corrected on 2026-11-10 by the session, under the owner's delegation of 2026-11-09; revisable. Each line names a sentence above that the build or a later record contradicts, and gives what is true, with its source. The decision text above is not rewritten.
+
+- Alternatives' Workers Builds row says its docs describe no way to make a preview wait for GitHub checks. Checked on 2026-11-10 against Cloudflare's Workers documentation, the pages "Builds", "Git integration" and "Configuration", read that day: none describes a way to make a build, a preview or a deploy wait for other checks. "Git integration" says Workers Builds reports to GitHub through pull request comments and check runs, which is the reverse direction. The reason holds as of 2026-11-10, and the verdict stands.
+
 ## Patterns and further reading
 
 - Deployment pipeline and build once: *Continuous Delivery* (book, 2010), [continuousdelivery.com](https://continuousdelivery.com/).

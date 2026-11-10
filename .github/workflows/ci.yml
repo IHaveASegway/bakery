@@ -605,8 +605,10 @@ jobs:
       - name: Lighthouse against the preview's pages
         working-directory: apps/web
         # The container's default shell is sh. The first run, 2026-11-06, died there on a bash array
-        # with "Syntax error: ( unexpected" before Lighthouse started, so the step names bash. The
-        # pages are now arguments to scripts/lighthouse-pages.sh, which is bash too.
+        # with "Syntax error: ( unexpected" before Lighthouse started, so the step names bash. It
+        # reads apps/web/lighthouse-pages.txt into a bash array and passes the pages as arguments to
+        # scripts/lighthouse-pages.sh, which is bash too. The list is a file, not a line here,
+        # because a pull request that changes this workflow gets no preview to measure.
         shell: bash
         env:
           URL: ${{ needs.preview.outputs.url }}
@@ -615,7 +617,8 @@ jobs:
           export CHROME_PATH
           PATH="$PWD/../../tools/lighthouse/node_modules/.bin:$PATH"
           export PATH
-          ../../scripts/lighthouse-pages.sh "${URL%/}" / /menu/ /catering/ /checkout/ /privacy/ /signin/ /about/ /how-its-built/ /how-its-built/single-writer/ /how-its-built/outbox/ /how-its-built/cache/ /how-its-built/rebuild/ /how-its-built/routes/ /how-its-built/idempotency/ /how-its-built/sagas/ /how-its-built/leases/ /how-its-built/admission/ /how-its-built/time-travel/ /how-its-built/lag/ /how-its-built/sandbox/ /how-its-built/api/ /how-its-built/breaker/ /status/ /docs/api/
+          mapfile -t pages < <(grep -vE '^[[:space:]]*(#|$)' lighthouse-pages.txt)
+          ../../scripts/lighthouse-pages.sh "${URL%/}" "${pages[@]}"
       - name: Keep the reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
