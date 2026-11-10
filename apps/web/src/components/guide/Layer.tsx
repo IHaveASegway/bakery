@@ -1,5 +1,7 @@
 import { createPortal } from 'react-dom';
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -10,6 +12,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { PATHS, entriesFor } from '../../guide';
+import { BOARD_MOVES } from '../../guide/kitchen';
 import {
   NEEDS_SIGN_IN,
   PATH_CLOSED,
@@ -26,7 +29,8 @@ import { followWrite, sandboxOf, useRecorderState } from '../../lib/recorder';
 import { traces, type Trace } from '../../lib/trace';
 import { useSandboxPhase } from '../../lib/use-session';
 import {
-  entryForTraces,
+  entryForGroup,
+  writesToFollow,
   expectedFor,
   gesturesIn,
   noteToOpen,
@@ -38,12 +42,15 @@ import {
   type WatchNews,
 } from './match';
 import { clearOfPage, headingLine, textEnd } from './clear';
-import { Note, around, barBoxes, resolveAnchor, topInset } from './Note';
-import Panel from './Panel';
+import { Note, around, barBoxes, flowPlace, resolveAnchor, topInset } from './Note';
+// The recorder panel is drawn only when the visitor opens it, so it is a load of its own then,
+// not part of what every page with the guide on brings.
+const Panel = lazy(() => import('./Panel'));
 import {
   EntryBody,
   NoteHead,
   TraceChain,
+  BreakableText,
   WatchChain,
   ReadStory,
   ReasonsOnce,
@@ -94,6 +101,9 @@ function afterSettling(kept: () => boolean, fold: () => void): () => void {
   return () => cancelAnimationFrame(frame);
 }
 
+/** The narrowest a note in a board column may be, in CSS pixels; narrower, it waits as its line. */
+const NARROWEST = 150;
+
 /** The width at and under which the guide's control and folded line sit in the masthead's row. */
 const PHONE_ROW = '(max-width: 48rem)';
 
@@ -101,13 +111,22 @@ const PHONE_ROW = '(max-width: 48rem)';
 const OPEN_MENUS =
   '.board details.menu[open], .popover > [aria-expanded="true"], .guide-extra[data-open], .guide-full[data-open]';
 
-/** The element with the focus, if it is part of the page and not the page itself. */
+/**
+ * The element with the focus, if it is part of the page and not the page itself, nor anything of
+ * the guide's own (a note's Pin, a control inside a note in the page's flow).
+ */
 const focusInPage = (): Element | null => {
   const active = document.activeElement;
-  return active instanceof Element && active !== document.body && active.closest('main') !== null
+  return active instanceof Element &&
+    active !== document.body &&
+    active.closest('main') !== null &&
+    active.closest('[data-guide-root]') === null
     ? active
     : null;
 };
+
+/** How long after a press what it made in the page is noted (a new card, a table). */
+const MADE_MS = 2_000;
 
 interface Standing {
   target: string;
@@ -167,15 +186,49 @@ export default function Layer({
     [snapshot, live],
   );
   const liveEntry = useMemo(
-    () =>
-      live === null ? null : entryForTraces(group, screenGroup, traces.anchorOf(live.gesture)),
+    () => (live === null ? null : entryForGroup(group, screenGroup)),
     // The entry is chosen once the first request is known; later evidence does not change it.
     [live?.gesture, group[0]?.id, screenGroup],
   );
   // The pressed element; once it has gone (a card drawn again in its new column), the element the
   // page put the focus on; while the focus is elsewhere (the recorder), the last such element; and
   // only then the entry's own element.
-  const lastFocused = useRef<Element | null>(null);
+  // The element the focus was on when the pressed control went, taken once for each press and
+  // kept while it is in the page: a later move of the focus never moves a note.
+  const fallback = useRef<{ gesture: number; el: Element } | null>(null);
+  // What each press made in the page's main column in the 2 s after it: a note in the flow goes
+  // below the last of it, so the thing the press produced comes first.
+  const made = useRef(new WeakMap<Element, Element[]>());
+  // The part of the page each press was made in (its card, row, form or panel), taken at the
+  // click: a control the page replaces with another (Schedule, which becomes Unschedule) leaves its
+  // note with the part it was in, not at the entry's whole element far away.
+  const homes = useRef(new WeakMap<Element, Element>());
+  useEffect(() => {
+    const press = (event: MouseEvent) => {
+      const el = event.target instanceof Element ? event.target.closest('button, a[href]') : null;
+      const home = el?.parentElement?.closest('li, tr, article, form, fieldset, section, .panel');
+      // Only a part of the page's main column: a control in the top bar or a menu over the page
+      // has no part of the page to sit in.
+      if (el && home && home.closest('main') !== null) {
+        homes.current.set(el, home);
+      }
+      const main = document.querySelector('main');
+      if (el === null || el === undefined || main === null) return;
+      const seen: Element[] = [];
+      made.current.set(el, seen);
+      const watch = new MutationObserver((records) => {
+        for (const r of records) {
+          for (const n of r.addedNodes) {
+            if (n instanceof Element && n.closest('[data-guide-root]') === null) seen.push(n);
+          }
+        }
+      });
+      watch.observe(main, { childList: true, subtree: true });
+      window.setTimeout(() => watch.disconnect(), MADE_MS);
+    };
+    document.addEventListener('click', press, { capture: true });
+    return () => document.removeEventListener('click', press, { capture: true });
+  }, []);
   const story =
     live !== null && group[0]?.read !== undefined && traces.anchorOf(live.gesture) === null;
   // A story read whose entry is another screen's (the order page reads the menu for its lines'
@@ -185,47 +238,63 @@ export default function Layer({
   // with no place clear of the page's controls, or a phone's sheet the visitor scrolled or tapped
   // past. The line opens it again.
   const [lineFor, setLineFor] = useState<number | null>(null);
-  const asLine = story || (live !== null && lineFor === live.gesture);
+  // On the sign-in page every way in is a control, side by side, and a press there replaces its
+  // own form: its note opens as its line, over nothing, and in full when the visitor taps it
+  // (drawn first beside its form, it lay over Google's and GitHub's buttons).
+  const asLine = story || (live !== null && (lineFor === live.gesture || screenGroup === 'signin'));
   const liveAnchor = useCallback(() => {
-    const focused = focusInPage();
-    if (focused !== null) lastFocused.current = focused;
     const target = () => (liveEntry === null ? null : targetOf(liveEntry.target));
     // A story read the page made by itself (the menu's first load, or Ask again in the note) has no
     // pressed element: its note sits by what it explains, wherever the focus is.
     if (story) return resolveAnchor(null, [target]);
     // A request whose pressed control has gone (a refunded card leaves the board) sits by what the
     // page says came of it, an element marked data-guide-result, before anything the focus is on:
-    // ringing a card the focus fell to would tie the note to the wrong order (audit G2).
+    // ringing a card the focus fell to would tie the note to the wrong order.
     const pressed = live === null ? null : traces.anchorOf(live.gesture);
     const gone = !(pressed instanceof Element && pressed.isConnected);
+    // A board move's note belongs to the card that moved: found by the order the command named.
+    const order = group[0]?.transport === 'socket' ? group[0].order : null;
+    const card =
+      order === null || order === undefined
+        ? null
+        : document.querySelector(`.board li.card[data-order="${CSS.escape(order)}"]`);
+    if (card !== null) return resolveAnchor(card, []);
     const result = () =>
       gone && group[0]?.transport === 'http' ? resultInPage(liveEntry?.target ?? null) : null;
-    return resolveAnchor(pressed, [result, () => focused, () => lastFocused.current, target]);
+    const home = () =>
+      pressed instanceof Element && gone ? (homes.current.get(pressed) ?? null) : null;
+    const focused = () => {
+      if (!gone || live === null) return null;
+      const kept = fallback.current;
+      if (kept !== null && kept.gesture === live.gesture)
+        return kept.el.isConnected ? kept.el : null;
+      const el = focusInPage();
+      if (el !== null) fallback.current = { gesture: live.gesture, el };
+      return el;
+    };
+    return resolveAnchor(pressed, [result, home, focused, target]);
   }, [live, liveEntry, story, group]);
   useEffect(() => {
-    lastFocused.current = null;
+    fallback.current = null;
   }, [live?.gesture]);
-  // The recorder: once the visitor's write is answered 2xx, read its hops a few times, until
-  // every event the note expects is observed (lib/recorder.ts holds the bounds and the cost).
+  // The recorder: once a write the visitor made is answered 2xx, read its hops a few times, until
+  // every event its action makes is observed (lib/recorder.ts holds the bounds and the cost). Every
+  // such write is followed, with a note open or not (the recorder panel open, a note folded), so
+  // the panel's row and the note say the same of it: the reading state is the trace's own.
   const recorder = useRecorderState();
-  const followed = useRef<number | null>(null);
-  const writeDone =
-    group[0]?.transport === 'http' && group[0].outcome === 'ok' && group[0].read === undefined;
+  const followed = useRef(gesturesIn(traces.getSnapshot().traces, Date.now()));
   useEffect(() => {
-    if (!on || live === null || !writeDone || followed.current === live.gesture) return;
-    // A write to the sandbox itself (its wipe) leaves nothing to read: the recorder goes with it.
-    const path = group[0]?.path ?? '';
-    const sandbox = sandboxOf(path);
-    if (sandbox === null || /^\/v1\/sandboxes\/[^/?]+$/.test(path)) return;
-    followed.current = live.gesture;
-    const expected = expectedFor(liveEntry, group);
-    const gesture = live.gesture;
-    void followWrite(sandbox, () => {
-      const mine = traces.getSnapshot().traces.filter((t) => t.gesture === gesture);
-      const seen = new Set(mine.flatMap((t) => t.events.map((e) => e.type)));
-      return expected.every((type) => seen.has(type));
-    });
-  }, [on, live, writeDone, group, liveEntry]);
+    for (const { group: mine, sandbox } of writesToFollow(snapshot.traces, followed.current)) {
+      const head = mine[0] as Trace;
+      const expected = expectedFor(entryForGroup(mine, screenGroup), mine);
+      const gesture = head.gesture as number;
+      void followWrite(sandbox, head.id, () => {
+        const now = traces.getSnapshot().traces.filter((t) => t.gesture === gesture);
+        const seen = new Set(now.flatMap((t) => t.events.map((e) => e.type)));
+        return expected.every((type) => seen.has(type));
+      });
+    }
+  }, [snapshot.traces, screenGroup]);
 
   // One sentence, once, when the first answer is in.
   const first = group[0];
@@ -242,7 +311,7 @@ export default function Layer({
   // A note the page has nothing to set beside arrives folded to its line, never in a corner over
   // the page: the press was on the page before this one, or, once the answer is in, the pressed
   // control has gone with nothing on the page saying what came of it (the console's "Create a
-  // sandbox", replaced by the board; audit F6). A board's move keeps its note by the moved card.
+  // sandbox", replaced by the board). A board's move keeps its note by the moved card.
   const answered = group[0] !== undefined && group[0].outcome !== 'pending';
   useLayoutEffect(() => {
     if (live === null || story || group.length === 0) return;
@@ -257,10 +326,16 @@ export default function Layer({
     // moved, not the entry's own element), it folds. Later, the note itself folds if its element
     // goes (Note.tsx).
     const gesture = live.gesture;
+    // On a phone a sheet by a fallback lies over what the page drew in the pressed control's
+    // place, the next thing pressed (the menu's Add buttons after Start ordering): there
+    // the note waits as its line unless the page wrote a result line for it.
+    const small = window.matchMedia('(max-width: 40rem)').matches;
+    const target = liveEntry?.target ?? null;
     return afterSettling(
       () => {
         const now = traces.anchorOf(gesture);
-        return (now instanceof Element && now.isConnected) || liveAnchor() !== null;
+        if (now instanceof Element && now.isConnected) return true;
+        return small ? resultInPage(target) !== null : liveAnchor() !== null;
       },
       () => setLineFor(gesture),
     );
@@ -268,31 +343,49 @@ export default function Layer({
   }, [live?.gesture, group.length > 0, answered]);
   const foldIfGone = useCallback((): boolean => {
     if (live === null) return false;
+    // The sign-in page's ways in sit side by side, every one a control: a note with no place
+    // clear of them all waits as its line at once, never over Google's and GitHub's buttons
+    // even while its own button still says it is working.
+    if (screenGroup === 'signin') {
+      setLineFor(live.gesture);
+      setStoryOpen(false);
+      return true;
+    }
     const pressed = traces.anchorOf(live.gesture);
     if (pressed instanceof Element && pressed.isConnected) return false;
     if (group[0]?.transport === 'socket') return false;
     // Not before the answer: a refund's card leaves the board on the socket's news before the
     // answer lands and the page writes its result line.
     if (group[0]?.outcome === 'pending') return false;
-    // The page says what came of it: the note stays open by that, the least in the way (G2). The
+    // The page says what came of it: the note stays open by that, the least in the way. The
     // page writes its result line as the answer lands, a frame or two after the trace has it, so
     // the fold is judged once the page has drawn the answer; the note keeps its place till then.
     if (resultInPage(liveEntry?.target ?? null) !== null) return false;
     const gesture = live.gesture;
     const target = liveEntry?.target ?? null;
+    // While the page settles the note is not shown at all (Note.tsx hides it while this says
+    // true): drawn at its fallback place meanwhile, it lay over the sign-in page's provider
+    // buttons for a second or more before it folded.
+    if (judging.current === gesture) return true;
+    judging.current = gesture;
     afterSettling(
       () => {
         const now = traces.anchorOf(gesture);
-        return resultInPage(target) !== null || (now instanceof Element && now.isConnected);
+        const kept = resultInPage(target) !== null || (now instanceof Element && now.isConnected);
+        // Kept: the next placing judges afresh, and shows the note where it now belongs.
+        if (kept) judging.current = null;
+        return kept;
       },
       () => {
+        judging.current = null;
         setLineFor(gesture);
         setStoryOpen(false);
       },
     );
-    return false;
-  }, [live, group, liveEntry]);
-  // What the live note must never cover (audit G3): the control that was pressed, the thing that
+    return true;
+  }, [live, group, liveEntry, screenGroup]);
+  const judging = useRef<number | null>(null);
+  // What the live note must never cover: the control that was pressed, the thing that
   // shows the result (the card where it is now, the readout that changed, the line that appeared:
   // the note's anchor and any data-guide-result), and what a visitor presses next (the same control
   // again, the same control on the next card of its column, the control the page put the focus on).
@@ -352,6 +445,36 @@ export default function Layer({
       return { top: r.top, left: r.left, width: r.width, height: r.height };
     });
   }, [live, liveAnchor, group, liveEntry]);
+  // On the console's workspaces a live note goes in the page's flow under what it explains.
+  const liveFlow = useCallback(
+    (anchorEl: Element | null) => {
+      if (live === null || story || anchorEl === null) return null;
+      const pressed = traces.anchorOf(live.gesture);
+      const there = pressed instanceof Element && pressed.isConnected;
+      // With the pressed control gone, only a part of the page that says what came of it (its
+      // result line, the moved card, the card or row it was pressed in) takes the note into its
+      // flow; a fallback such as the page's main column does not, and the note floats or waits as
+      // its line as before.
+      if (!there && !anchorEl.matches('[data-guide-result], li, tr')) return null;
+      const place = flowPlace(
+        anchorEl,
+        there ? pressed : null,
+        // What the press made counts only while the control is there: with it gone (a refund's
+        // card off the board), the board's redrawn cards are not the press's making.
+        there && pressed instanceof Element ? (made.current.get(pressed) ?? []) : [],
+      );
+      // A card's column too narrow to read a note in (under NARROWEST px, as the board's five
+      // columns are at their narrowest window): the note waits as its line instead.
+      if (place !== null && 'after' in place && place.after.matches('.cards > li')) {
+        if (place.after.getBoundingClientRect().width < NARROWEST) {
+          setLineFor(live.gesture);
+          return null;
+        }
+      }
+      return place;
+    },
+    [live, story],
+  );
   const foldLive = useCallback(() => {
     if (live === null) return;
     setLineFor(live.gesture);
@@ -510,6 +633,16 @@ export default function Layer({
     return () => document.removeEventListener('keydown', onKey, { capture: true });
   }, [live, standing, path.open, panel, pathEnd, onClosePanel]);
 
+  // While the panel is open the page makes room for it: on a wide screen it is a column
+  // beside the page, which narrows and stays usable; on a narrow one the page can scroll every
+  // control clear of its sheet (guide.css reads data-guide-panel on the root).
+  useLayoutEffect(() => {
+    if (!panel) return;
+    const html = document.documentElement;
+    html.setAttribute('data-guide-panel', '');
+    return () => html.removeAttribute('data-guide-panel');
+  }, [panel]);
+
   // The panel opens under the top bar or masthead showing now (guide.css reads --guide-top), so
   // the switch that opened it stays in sight.
   const root = useRef<HTMLDivElement>(null);
@@ -547,6 +680,13 @@ export default function Layer({
     () => false,
   );
   const showLive = on && live !== null && group.length > 0 && !offStory;
+  // What restarts the live note's timer: its own traces changing, not every event the page sees.
+  const liveChanged = group
+    .map(
+      (t) =>
+        `${t.outcome}:${t.events.length}:${t.reading}:${t.events.map((e) => e.deliveries?.length ?? -1).join(',')}`,
+    )
+    .join('|');
   const folded = showLive && asLine && !storyOpen;
   // The line stays while its note is open (the page does not jump under the visitor's finger).
   const lined = showLive && asLine;
@@ -653,7 +793,7 @@ export default function Layer({
               anchor={watchAnchor}
               label={`Under the hood: ${watchEntry.title}`}
               pinned={watch.pinned}
-              changed={snapshot.version}
+              changed={`${snapshot.heard[0]?.id ?? ''}|${snapshot.listening?.how ?? ''}`}
               onClose={closeWatch}
             >
               <NoteHead
@@ -671,7 +811,7 @@ export default function Layer({
             </Note>
           )}
           {/* The floating line is the note's handle: while the note is open it is not shown, so it
-              never sits on its own note (audit G2). In the masthead it stays, in the page's flow. */}
+              never sits on its own note.  In the masthead it stays, in the page's flow. */}
           {line !== null && lineSlot === null && !storyOpen && line}
           {showLive && !folded && (
             <Note
@@ -679,13 +819,14 @@ export default function Layer({
               anchor={liveAnchor}
               label={`Under the hood: ${liveEntry?.title ?? 'your last action'}`}
               pinned={live.pinned}
-              changed={snapshot.version}
+              changed={liveChanged}
               onClose={closeLive}
               // With no place clear of the page's controls, a note whose pressed control has gone
               // (the checkout's gate, replaced by the steps) waits as its line. One by a control
               // still there stays beside it, the least in the way, as a board's move does.
               onCrowded={asLine ? undefined : foldIfGone}
               keepClear={keepClear}
+              flow={liveFlow}
             >
               <NoteHead
                 eyebrow="Under the hood · just now"
@@ -698,10 +839,15 @@ export default function Layer({
                 traces={group}
                 expected={expectedFor(liveEntry, group)}
                 feed={snapshot.feed}
-                reading={followed.current === live.gesture ? recorder.reading : 'idle'}
+                seen={snapshot.seen}
               />
+              {group[0]?.transport === 'socket' && BOARD_MOVES[group[0].action ?? ''] && (
+                <p className="guide-happened">
+                  <BreakableText text={BOARD_MOVES[group[0].action ?? ''] ?? ''} />
+                </p>
+              )}
               {unfollowable(group) !== null && <p className="guide-meta">{unfollowable(group)}</p>}
-              <RecorderSays state={recorder} />
+              <RecorderSays state={recorder} sandbox={sandboxOf(group[0]?.path ?? '')} />
               {group[0]?.read !== undefined && <ReadStory trace={group[0]} />}
               {liveEntry?.happened !== undefined && (
                 <p className="guide-happened">{liveEntry.happened}</p>
@@ -738,15 +884,19 @@ export default function Layer({
             </Note>
           )}
           {panel && (
-            <Panel
-              screen={screenGroup}
-              entries={entries}
-              traces={snapshot.traces.filter((t) => t.gesture !== null)}
-              feed={snapshot.feed}
-              heard={snapshot.heard}
-              listening={snapshot.listening}
-              onClose={onClosePanel}
-            />
+            <Suspense fallback={null}>
+              <Panel
+                screen={screenGroup}
+                entries={entries}
+                traces={snapshot.traces.filter((t) => t.gesture !== null)}
+                feed={snapshot.feed}
+                hops={snapshot.hops}
+                seen={snapshot.seen}
+                heard={snapshot.heard}
+                listening={snapshot.listening}
+                onClose={onClosePanel}
+              />
+            </Suspense>
           )}
         </div>,
         document.body,
@@ -931,7 +1081,7 @@ function Hotspots({
           }}
           type="button"
           className="guide-spot"
-          // Not a Tab stop (audit G10): the marks live at the page's end in the document, so Tab
+          // Not a Tab stop: the marks live at the page's end in the document, so Tab
           // would reach them after the footer, far from their words. A keyboard reaches every
           // entry in the Recorder, the dock's last stop; a pointer or a touch opens the mark.
           tabIndex={-1}

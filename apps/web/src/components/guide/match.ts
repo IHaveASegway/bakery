@@ -1,7 +1,8 @@
 // Which route a trace was and which entry explains it: shared by the live note and the recorder.
 import { ALL_ENTRIES, ROUTE_SHAPES } from '../../guide';
 import { pickEntry, routeMatcher, type GuideEntry, type ScreenId } from '../../lib/guide';
-import type { HeardEvent, Listening, Trace } from '../../lib/trace';
+import { sandboxOf } from '../../lib/recorder';
+import { traces, type HeardEvent, type Listening, type Trace } from '../../lib/trace';
 
 const routeOf = routeMatcher(ROUTE_SHAPES);
 
@@ -29,6 +30,23 @@ export function entryForTraces(group: readonly Trace[], screen: ScreenId, anchor
   return pickEntry(ALL_ENTRIES, screen, routeIdOf(first), types, inTarget);
 }
 
+/**
+ * The entry for a click's traces, as both the live note and the recorder panel choose it: by the
+ * element the click pressed, which the store keeps. One choice, so the two expect the same events.
+ */
+export const entryForGroup = (group: readonly Trace[], screen: ScreenId) =>
+  entryForTraces(group, screen, traces.anchorOf(group[0]?.gesture ?? null));
+
+/** The visitor's traces grouped by the click that made them, newest click first. */
+export function byGesture(traces: readonly Trace[]): Trace[][] {
+  const groups = new Map<number, Trace[]>();
+  for (const trace of traces) {
+    if (trace.gesture === null) continue;
+    groups.set(trace.gesture, [trace, ...(groups.get(trace.gesture) ?? [])]);
+  }
+  return [...groups.entries()].sort(([a], [b]) => b - a).map(([, group]) => group);
+}
+
 /** The element an entry explains, if the page is showing it. */
 export const targetOf = (target: string) =>
   document.querySelector<HTMLElement>(`[data-tour="${CSS.escape(target)}"]`);
@@ -41,12 +59,13 @@ export const COMMAND_EVENT: Record<string, string> = {
 };
 
 /**
- * What a route's write writes by itself, where it is less than its entry's events (audit G4,
+ * What a route's write writes by itself, where it is less than its entry's events (since
  * 2026-11-10): the rest comes later, from another hand. Paying makes a payment intent; Stripe's
  * webhook pays it after the card is confirmed, which is another press. Issuing a token at the same
  * version writes nothing; rotating it writes ApiTokenRotated. Starting traffic writes
  * TrafficStarted; its orders come a minute or more later. Scheduling a campaign writes
- * CampaignScheduled; it is sent at its time.
+ * CampaignScheduled; it is sent at its time. Publishing a plan writes RoutePublished; an order on
+ * it goes out for delivery when the kitchen makes it ready, a later press (LATER).
  */
 export const ROUTE_WRITES: Record<string, readonly string[]> = {
   pay: ['PaymentIntentCreated'],
@@ -55,6 +74,18 @@ export const ROUTE_WRITES: Record<string, readonly string[]> = {
   'rotate-token': ['ApiTokenRotated'],
   'start-traffic': ['TrafficStarted'],
   'schedule-campaign': ['CampaignScheduled'],
+  'publish-dispatch': ['RoutePublished'],
+};
+
+/**
+ * An entry's event that a route's write does not make by itself, and what makes it, in words a
+ * note shows under the events it waits for, so it waits for nothing the press did not start.
+ */
+export const LATER: Record<string, { type: string; when: string }> = {
+  'publish-dispatch': {
+    type: 'OrderOutForDelivery',
+    when: 'goes out when its order is made ready on the board, a later press',
+  },
 };
 
 /** The sandbox a write names in its path, or null (`/v1/sandboxes` itself, the auth routes). */
@@ -63,7 +94,7 @@ const sandboxIn = (path: string) =>
 
 /**
  * The events a note waits for after what the visitor did, each one the action writes and the
- * recorder can show (audit G4). A board command makes its one event; a read makes none. A write
+ * recorder can show. A board command makes its one event; a read makes none. A write
  * that names no sandbox (a new sandbox, a demo account) or is the sandbox's own wipe cannot be
  * followed on the recorder, which is read by sandbox and goes with it: it waits for none. Any other
  * write waits for what its route writes (ROUTE_WRITES), else its entry's events.
@@ -77,8 +108,8 @@ export function expectedFor(entry: GuideEntry | null, group: readonly Trace[]): 
   if (first !== undefined && first.transport !== 'socket') {
     const bare = first.path.split('?')[0] ?? first.path;
     if (/^\/v1\/sandboxes\/[^/]+$/.test(bare) || sandboxIn(bare) === null) return [];
-    // A write sent with no Idempotency-Key (a price draft's PATCH): the server makes its own key,
-    // so the recorder's events name a cause this page never saw and cannot be tied to it here.
+    // A write whose answer named no cause (an API older than Bakery-Cause, a PATCH sent with no
+    // key): its events name a cause this page never saw, so none is waited for.
     if (first.key === null) return [];
     const route = routeIdOf(first);
     const writes = route === null ? undefined : ROUTE_WRITES[route];
@@ -99,12 +130,39 @@ export function unfollowable(group: readonly Trace[]): string | null {
     return 'The recorder is the sandbox’s own, so it goes with the sandbox: no event of this is shown here.';
   }
   if (first.key === null && first.method !== 'GET' && sandboxIn(bare) !== null) {
-    return 'This call carries no Idempotency-Key, so the server named its own and the events it wrote cannot be tied to it here; the Recorder panel lists them as they arrive.';
+    const set = first.method === 'PATCH' || first.method === 'PUT';
+    return `${set ? 'Setting a value twice leaves it as setting it once does, so this call needs no key to be safe to repeat. ' : ''}Its answer named no cause, so its events are not followed here; the Recorder panel lists them as they arrive.`;
   }
   if (sandboxIn(bare) === null && first.method !== 'GET') {
     return 'The recorder is read by sandbox and this call names none, so its events are not followed here; the Recorder panel shows them once the sandbox is yours.';
   }
   return null;
+}
+
+/**
+ * Which of the visitor's writes to follow on the recorder now: each click's first request, once
+ * answered, once. An answered write that is not a 2xx, a read, a socket command or a write to the
+ * sandbox itself (its wipe, which takes the recorder with it) is marked done and not followed.
+ * `followed` holds the clicks already decided and is updated in place.
+ */
+export function writesToFollow(
+  traces: readonly Trace[],
+  followed: Set<number>,
+): { group: Trace[]; sandbox: string }[] {
+  const out: { group: Trace[]; sandbox: string }[] = [];
+  // Every click's, however many came after it: an old write answered late is followed too.
+  for (const group of byGesture(traces)) {
+    const head = group[0];
+    if (head === undefined || head.gesture === null || followed.has(head.gesture)) continue;
+    if (head.transport !== 'http' || head.read !== undefined || head.outcome === 'pending')
+      continue;
+    followed.add(head.gesture);
+    if (head.outcome !== 'ok') continue;
+    const sandbox = sandboxOf(head.path);
+    if (sandbox === null || /^\/v1\/sandboxes\/[^/?]+$/.test(head.path)) continue;
+    out.push({ group, sandbox });
+  }
+  return out;
 }
 
 /**

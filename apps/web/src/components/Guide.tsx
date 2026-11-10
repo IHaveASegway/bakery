@@ -4,9 +4,9 @@ import { PATHS } from '../guide/paths';
 import { SWITCH_KEY, switchOn, type PageId } from '../lib/guide';
 import '../styles/guide.css';
 
-// The layer (notes, hotspots, the recorder panel, the short path) and the entries it reads are
-// loaded after the island mounts, so a page's first paint never waits for them, and only while the
-// guide is on or the recorder is open.
+// The layer (notes, hotspots, the short path, and the recorder panel, itself loaded when it is
+// opened) and the entries it reads are loaded after the island mounts, so a page's first paint
+// never waits for them, and only while the guide is on or the recorder is open.
 const Layer = lazy(() => import('./guide/Layer'));
 
 /** sessionStorage may be missing, full or blocked: the guide is then on, and forgets nothing. */
@@ -71,7 +71,7 @@ export default function Guide({
 
   // On a wide screen the dock floats at the window's foot, so it is moved to the end of the page
   // once the island has hydrated: a keyboard reaches it after the main content and the footer, and
-  // nothing of the guide stands between the page's nav and its main action (audit G10). On a phone
+  // nothing of the guide stands between the page's nav and its main action. On a phone
   // it stays in the masthead's own row, where it is seen.
   const [floating, setFloating] = useState(false);
   useEffect(() => {
@@ -153,7 +153,7 @@ export default function Guide({
             <span className="guide-switch-track" aria-hidden="true">
               <span className="guide-switch-thumb" />
             </span>
-            {/* Words a stranger reads without pressing anything (audit G6). */}
+            {/* Words a stranger reads without pressing anything. */}
             <span className="guide-compact-text" aria-hidden="true">
               Under the hood
             </span>

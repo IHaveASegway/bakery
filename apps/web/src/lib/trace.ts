@@ -43,11 +43,18 @@ export interface ReadFacts {
   asked: string | null;
 }
 
+/**
+ * How far the recorder's reads for a write have got (lib/recorder.ts, followWrite): none yet, under
+ * way, past the first three (late), finished, or stopped because the sandbox was wiped. Kept on the trace, so a note and the recorder
+ * panel say the same of an event not yet seen.
+ */
+export type Reading = 'idle' | 'reading' | 'late' | 'done' | 'wiped';
+
 /** One piece of evidence, whichever source saw it. Times are wall-clock milliseconds. */
 export type Evidence =
   | {
       kind: 'call';
-      /** The request's Idempotency-Key, or null for a call that sent none. */
+      /** The cause its events carry (Bakery-Cause), else the Idempotency-Key sent, else null. */
       key: string | null;
       method: string;
       /** The path as sent, query string included. */
@@ -79,7 +86,10 @@ export type Evidence =
       /** From the recorder: how long after it was written the event was delivered. */
       lagMs?: number;
       deliveries?: Delivery[];
-    };
+      /** From the recorder: its own count of this event's hops (ADR 0015), a lower bound. */
+      attempt?: number;
+    }
+  | { kind: 'reads'; key: string; state: Reading };
 
 /**
  * A page that watches one order (the order's status page, lib/use-order-watch.ts) reports what it
@@ -171,6 +181,7 @@ export function fromHop(hop: TraceHop, at: number): Evidence {
     cause: hop.cause ?? null,
     at,
     lagMs: hop.lag_ms,
+    attempt: hop.attempt,
     deliveries: hop.deliveries.map((d) => ({
       to: d.to,
       outcome: OUTCOME[d.outcome],
@@ -226,8 +237,27 @@ export interface Trace {
   rule: string | null;
   startedAt: number;
   events: TracedEvent[];
+  /** The recorder's reads for this write; `idle` for a trace nobody follows. */
+  reading: Reading;
   /** A story read's facts; absent on every other trace. */
   read?: ReadFacts;
+}
+
+/**
+ * A hop the flight recorder reported, as the recorder panel lists it, one line an event at its
+ * furthest hop. `trace` is the visitor's trace that holds the event, by the store's one rule
+ * (the trace's events include it), else null: the panel and a note cannot disagree on it.
+ */
+export interface RecorderHop {
+  id: string;
+  type: string;
+  stream: string | null;
+  cause: string | null;
+  attempt: number;
+  lagMs: number;
+  deliveries: readonly Delivery[];
+  at: number;
+  trace: string | null;
 }
 
 /** A feed entry that arrived after the feed was first read: its type and when the page saw it. */
@@ -244,7 +274,23 @@ export interface TraceSnapshot {
   heard: readonly HeardEvent[];
   /** How that page is listening, or null on a page that watches no order. */
   listening: Listening | null;
+  /** The recorder's hops this page has heard, newest first, whoever caused them. */
+  hops: readonly RecorderHop[];
+  /**
+   * The last events this page saw from any source, newest first, whoever caused them: what lets a
+   * note say a move was already made under another command, so its own wrote nothing.
+   */
+  seen: readonly SeenEvent[];
   version: number;
+}
+
+/** An event the page saw, by its type, stream and cause. */
+export interface SeenEvent {
+  id: string | null;
+  type: string;
+  stream: string | null;
+  cause: string | null;
+  at: number;
 }
 
 /** A click the visitor made: its number, when, and the element they pressed (opaque here). */
@@ -265,10 +311,18 @@ export const GESTURE_MS = 2_000;
 export const SKEW_MS = 5;
 /** How many traces and orphan events are kept. */
 export const KEEP_TRACES = 20;
-/** How many events one trace keeps: its own, then their reactions. */
-export const KEEP_EVENTS = 12;
+/**
+ * How many events one trace keeps: its own, then their reactions. Generous, so the events an
+ * action is waited on for are never cut by its reactions (a published menu's CapsRefreshed, one a
+ * day): the view folds and cuts rows (Views.tsx), the store does not. Past it an event is not the
+ * trace's at all, so the panel never calls an event the trace's that its note cannot show.
+ */
+export const KEEP_EVENTS = 60;
 const KEEP_ORPHANS = 100;
 const KEEP_FEED = 50;
+/** How many of the recorder's hops are kept for the panel, one an event. */
+export const KEEP_HOPS = 40;
+const KEEP_SEEN = 50;
 
 export interface TraceStore extends TraceSink {
   subscribe(listener: () => void): () => void;
@@ -298,8 +352,10 @@ export function createTraceStore(
   let feed: FeedArrival[] = [];
   let heard: HeardEvent[] = [];
   let listening: Listening | null = null;
+  let hops: RecorderHop[] = [];
+  let seen: SeenEvent[] = [];
   let version = 0;
-  let snapshot: TraceSnapshot = { traces, feed, heard, listening, version };
+  let snapshot: TraceSnapshot = { traces, feed, heard, listening, hops, seen, version };
   const owner = new Map<string, string>();
   let orphans: Extract<Evidence, { kind: 'event' }>[] = [];
   let last: Gesture | null = null;
@@ -311,8 +367,38 @@ export function createTraceStore(
 
   const changed = () => {
     version++;
-    snapshot = { traces, feed, heard, listening, version };
+    // The one rule, read once: a hop is a trace's when that trace holds its event.
+    const holder = new Map<string, string>();
+    for (const trace of traces) {
+      for (const e of trace.events) if (e.id !== null) holder.set(e.id, trace.id);
+    }
+    hops = hops.map((h) => {
+      const trace = holder.get(h.id) ?? null;
+      return trace === h.trace ? h : { ...h, trace };
+    });
+    snapshot = { traces, feed, heard, listening, hops, seen, version };
     for (const listener of listeners) listener();
+  };
+
+  /** A recorder hop for the panel: one line an event, kept at its furthest hop. */
+  const listHop = (event: Extract<Evidence, { kind: 'event' }>) => {
+    if (event.source !== 'recorder' || event.id === null) return;
+    const line: RecorderHop = {
+      id: event.id,
+      type: event.type,
+      stream: event.stream,
+      cause: event.cause,
+      attempt: event.attempt ?? Math.max(1, ...(event.deliveries ?? []).map((d) => d.attempt)),
+      lagMs: event.lagMs ?? 0,
+      deliveries: event.deliveries ?? [],
+      at: event.at,
+      trace: null,
+    };
+    const before = hops.find((h) => h.id === line.id);
+    if (before !== undefined && deliveryRank(before.deliveries) > deliveryRank(line.deliveries)) {
+      return;
+    }
+    hops = [line, ...hops.filter((h) => h.id !== line.id)].slice(0, KEEP_HOPS);
   };
 
   const update = (id: string, change: (trace: Trace) => Trace) => {
@@ -344,13 +430,17 @@ export function createTraceStore(
       ...(event.lagMs === undefined ? {} : { lagMs: event.lagMs }),
       ...(event.deliveries === undefined ? {} : { deliveries: event.deliveries }),
     };
+    let kept = true;
     update(traceId, (trace) => {
       // The same event from a second source (the socket, then the recorder) is one event,
       // with what each source knew.
       const same = trace.events.findIndex((e) => e.id !== null && e.id === event.id);
       if (same < 0) {
         // A chain is kept short: the action's events and their reactions, up to a fixed number.
-        if (trace.events.length >= KEEP_EVENTS) return trace;
+        if (trace.events.length >= KEEP_EVENTS) {
+          kept = false;
+          return trace;
+        }
         return { ...trace, events: [...trace.events, traced] };
       }
       return {
@@ -367,6 +457,7 @@ export function createTraceStore(
         }),
       };
     });
+    if (!kept) return false;
     if (event.id !== null) {
       owner.set(event.id, traceId);
       const waiting = orphans.filter((o) => o.cause === event.id);
@@ -411,6 +502,7 @@ export function createTraceStore(
             rule: null,
             startedAt: evidence.at - evidence.ms,
             events: traces.find((t) => t.id === id)?.events ?? [],
+            reading: traces.find((t) => t.id === id)?.reading ?? 'idle',
             ...(evidence.read === undefined ? {} : { read: evidence.read }),
           });
           // Events that arrived before the answer did (the socket is quick) join now.
@@ -435,6 +527,7 @@ export function createTraceStore(
             rule: null,
             startedAt: evidence.at,
             events: [],
+            reading: 'idle',
           });
           break;
         case 'answer':
@@ -451,13 +544,23 @@ export function createTraceStore(
             ms: trace.ms ?? Math.max(0, Math.round(evidence.at - trace.startedAt)),
           }));
           break;
-        case 'event':
-          if (!attach(evidence)) {
-            if (evidence.cause === null || evidence.cause.startsWith('sim:')) return;
-            orphans = [...orphans, evidence].slice(-KEEP_ORPHANS);
-            return;
-          }
+        case 'reads':
+          if (!traces.some((t) => t.id === evidence.key)) return;
+          update(evidence.key, (trace) => ({ ...trace, reading: evidence.state }));
           break;
+        case 'event': {
+          // Every recorder hop is listed for the panel, whoever caused it; it is a trace's only
+          // when the trace holds it (`changed`).
+          listHop(evidence);
+          if (evidence.id === null || !seen.some((e) => e.id === evidence.id)) {
+            const { id, type, stream, cause, at } = evidence;
+            seen = [{ id, type, stream, cause, at }, ...seen].slice(0, KEEP_SEEN);
+          }
+          if (attach(evidence)) break;
+          const tieable = evidence.cause !== null && !evidence.cause.startsWith('sim:');
+          if (tieable) orphans = [...orphans, evidence].slice(-KEEP_ORPHANS);
+          break;
+        }
       }
       changed();
     },
@@ -492,6 +595,8 @@ export function createTraceStore(
       feed = [];
       heard = [];
       listening = null;
+      hops = [];
+      seen = [];
       orphans = [];
       owner.clear();
       changed();

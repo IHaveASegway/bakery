@@ -20,11 +20,11 @@
 import { useSyncExternalStore } from 'react';
 import type { TraceFrame, TraceResponse } from '../contracts';
 import { ApiError, getTrace, traceSocketUrl } from './api';
-import { fromHop, recorderSource } from './trace';
+import { fromHop, recorderSource, type Reading } from './trace';
 
 /**
  * The gaps between a note's reads of the recorder, after its write is answered: three in the first
- * 3 s, when an event usually shows, then more spaced out until about 30 s (audit G4, 2026-11-10).
+ * 3 s, when an event usually shows, then more spaced out until about 30 s (since 2026-11-10).
  * An event not seen after the first three is said to be late, and listened for until the last.
  */
 export const NOTE_READS_MS = [400, 800, 1_800, 3_000, 5_000, 8_000, 12_000] as const;
@@ -36,46 +36,37 @@ const MORE_PAGES = 2;
 export const PANEL_POLL_MS = 5_000;
 
 export interface RecorderState {
-  /** A note's reads: none yet, under way, or done (what was not seen by then stays expected). */
-  reading: 'idle' | 'reading' | 'late' | 'done';
   /** Older hops left the ring between two reads: what they held is not known. */
   missed: boolean;
-  /** The sandbox is wiped: nothing more is read. */
-  wiped: boolean;
+  /**
+   * The sandboxes this page heard were wiped (a 410 on a read, `bye` `wiped` on the socket):
+   * nothing more is read for them. A sandbox's fact, not the page's: the console replaces a
+   * sandbox in place, and the next one is read as usual.
+   */
+  wiped: readonly string[];
   /** The panel's link: its socket, polling because the socket was refused, or nothing. */
   panel: 'off' | 'socket' | 'polling';
-  /** The last events heard, one line each at its latest hop, newest first, whoever caused them. */
-  recent: readonly RecentHop[];
 }
 
-/** A hop as the panel lists it: what the event was, how far its delivery got, how late. */
-export interface RecentHop {
-  id: string;
-  type: string;
-  stream: string;
-  attempt: number;
-  lagMs: number;
-  /** Each class with its outcome on this attempt. */
-  deliveries: readonly { to: string; outcome: 'delivered' | 'retried' | 'dead_lettered' }[];
-}
-
-/** How many hops the panel lists. */
-const KEEP_RECENT = 8;
-
+// The hops themselves are not kept here: they go to the trace store (lib/trace.ts), which holds
+// both what a note shows and what the panel lists, by one rule (since 2026-11-10).
 let state: RecorderState = {
-  reading: 'idle',
   missed: false,
-  wiped: false,
+  wiped: [],
   panel: 'off',
-  recent: [],
 };
 const listeners = new Set<() => void>();
 const set = (change: Partial<RecorderState>) => {
   state = { ...state, ...change };
   for (const listener of listeners) listener();
 };
+const wipe = (sandboxId: string) => {
+  if (!state.wiped.includes(sandboxId)) set({ wiped: [...state.wiped, sandboxId] });
+};
 export const recorderState = {
   get: () => state,
+  /** Whether this page heard that sandbox was wiped. */
+  wipedFor: (sandboxId: string | null) => sandboxId !== null && state.wiped.includes(sandboxId),
   subscribe(listener: () => void) {
     listeners.add(listener);
     return () => listeners.delete(listener);
@@ -91,33 +82,35 @@ const cursors = new Map<string, number>();
 function take(sandboxId: string, page: Pick<TraceResponse, 'hops' | 'cursor'>, missed: boolean) {
   const now = Date.now();
   for (const hop of page.hops) recorderSource.emit(fromHop(hop, now));
-  if (page.hops.length > 0) {
-    const heard: RecentHop[] = page.hops.map((h) => ({
-      id: h.id,
-      type: h.type,
-      stream: h.stream,
-      attempt: h.attempt,
-      lagMs: h.lag_ms,
-      deliveries: h.deliveries,
-    }));
-    // One line an event: a later hop of the same event (its next attempt, its dead letter)
-    // takes the earlier one's place.
-    const fresh = heard.reverse();
-    const ids = new Set(fresh.map((h) => h.id));
-    set({
-      recent: [
-        ...fresh.filter((h, i) => fresh.findIndex((o) => o.id === h.id) === i),
-        ...state.recent.filter((h) => !ids.has(h.id)),
-      ].slice(0, KEEP_RECENT),
-    });
-  }
   // The first read of a sandbox starts from the oldest batch kept, so `missed` says nothing there.
   if (missed && cursors.has(sandboxId)) set({ missed: true });
   cursors.set(sandboxId, page.cursor);
 }
 
-/** One read, with up to MORE_PAGES follow-on pages; false when the sandbox is gone. */
-async function readOnce(sandboxId: string): Promise<boolean> {
+/**
+ * One read, with up to MORE_PAGES follow-on pages; false when the sandbox is gone. Two notes
+ * whose reads fall due together share one read in flight: the second waits for the first.
+ */
+const inFlight = new Map<string, Promise<boolean>>();
+/** A read that ended this recently serves a follow due now, as one in flight does. */
+const FRESH_MS = 150;
+const lastRead = new Map<string, { at: number; ok: boolean }>();
+function readOnce(sandboxId: string): Promise<boolean> {
+  const running = inFlight.get(sandboxId);
+  if (running !== undefined) return running;
+  const last = lastRead.get(sandboxId);
+  if (last !== undefined && Date.now() - last.at < FRESH_MS) return Promise.resolve(last.ok);
+  const read = readPages(sandboxId)
+    .then((ok) => {
+      lastRead.set(sandboxId, { at: Date.now(), ok });
+      return ok;
+    })
+    .finally(() => inFlight.delete(sandboxId));
+  inFlight.set(sandboxId, read);
+  return read;
+}
+
+async function readPages(sandboxId: string): Promise<boolean> {
   try {
     for (let page = 0; page <= MORE_PAGES; page++) {
       const answer = await getTrace(sandboxId, cursors.get(sandboxId) ?? 0);
@@ -127,7 +120,7 @@ async function readOnce(sandboxId: string): Promise<boolean> {
     return true;
   } catch (e) {
     if (e instanceof ApiError && e.status === 410) {
-      set({ wiped: true, reading: 'done' });
+      wipe(sandboxId);
       return false;
     }
     // Offline, or the API refused: the note keeps its expected events, and says nothing worse.
@@ -141,26 +134,50 @@ export function sandboxOf(path: string): string | null {
   return m === null ? null : decodeURIComponent(m[1] ?? '');
 }
 
-let follow = 0;
+/** Resolves when the tab is shown, at once if it is. */
+function shown(): Promise<void> {
+  return new Promise((done) => {
+    if (typeof document === 'undefined' || !document.hidden) {
+      done();
+      return;
+    }
+    const look = () => {
+      if (document.hidden) return;
+      document.removeEventListener('visibilitychange', look);
+      done();
+    };
+    document.addEventListener('visibilitychange', look);
+  });
+}
 
 /**
  * After the visitor's write is answered: read the recorder at most NOTE_READS_MS.length times (late
- * after NOTE_READS_ON_TIME of them),
- * stopping as soon as `seen` says every expected event is observed, or the tab is hidden, or a
- * newer note's reads begin.
+ * after NOTE_READS_ON_TIME of them), stopping as soon as `seen` says every expected event is
+ * observed. How far the reads got is told to the trace store as evidence on the write's trace
+ * (`key`), so the note and the recorder panel read it from one place. While the tab is hidden it
+ * reads nothing and claims nothing, and goes on with the reads it has left once the tab is shown
+ * again. A wiped sandbox ends it with its own word, `wiped`, never "not seen in 30 s". A newer
+ * write's reads run beside these; a read both are due for is shared.
  */
-export async function followWrite(sandboxId: string, seen: () => boolean): Promise<void> {
-  const mine = ++follow;
-  set({ reading: 'reading', missed: false });
+export async function followWrite(
+  sandboxId: string,
+  key: string,
+  seen: () => boolean,
+): Promise<void> {
+  const say = (reading: Reading) => recorderSource.emit({ kind: 'reads', key, state: reading });
+  set({ missed: false });
+  say('reading');
   for (const [i, gap] of NOTE_READS_MS.entries()) {
     await new Promise((done) => setTimeout(done, gap));
-    if (mine !== follow || state.wiped) return;
-    if (typeof document !== 'undefined' && document.hidden) break;
-    if (!(await readOnce(sandboxId))) return;
+    await shown();
+    if (recorderState.wipedFor(sandboxId) || !(await readOnce(sandboxId))) {
+      say('wiped');
+      return;
+    }
     if (seen()) break;
-    if (i + 1 === NOTE_READS_ON_TIME) set({ reading: 'late' });
+    if (i + 1 === NOTE_READS_ON_TIME) say('late');
   }
-  if (mine === follow) set({ reading: 'done' });
+  say('done');
 }
 
 /**
@@ -210,7 +227,7 @@ export function tailForPanel(sandboxId: string): () => void {
       if (frame.t === 'snapshot' || frame.t === 'hops') {
         take(sandboxId, frame, false);
       } else if (frame.t === 'bye' && frame.reason === 'wiped') {
-        set({ wiped: true });
+        wipe(sandboxId);
         stop();
       }
     };

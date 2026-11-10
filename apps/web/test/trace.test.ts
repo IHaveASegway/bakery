@@ -483,3 +483,35 @@ describe('a page watching an order: what it heard and how it listens', () => {
     expect(store.getSnapshot().listening).toEqual({ how: 'reading', why: 'yielded', at: T0 + 9 });
   });
 });
+
+describe('the cap on a trace’s events never breaks the one rule', () => {
+  test('a thirteenth event of a type the action expects is observed by the note and tied in the panel', () => {
+    const store = createTraceStore();
+    store.gesture(null, T0);
+    store.record(call());
+    // Twelve reactions first (as a published menu's CapsRefreshed, one a day), then the event the
+    // action itself is waited for on.
+    for (let i = 0; i < 12; i++) {
+      store.record(
+        fromHop(
+          hop({
+            id: `01JC9A0K6R2B6Y8C4V1N3K7Q${String(i).padStart(2, 'A')}`,
+            type: 'CapsRefreshed',
+            cause: SENT,
+          }),
+          T0 + 300,
+        ),
+      );
+    }
+    const LATE = '01JC9A0K7S2B6Y8C4V1N3K7QZZ';
+    store.record(fromHop(hop({ id: LATE, type: 'OrderPlaced', cause: SENT }), T0 + 400));
+    const snap = store.getSnapshot();
+    const [trace] = snap.traces;
+    expect(expectedHops(['OrderPlaced'], trace!).find((h) => h.type === 'OrderPlaced')?.state).toBe(
+      'observed',
+    );
+    expect(snap.hops.find((h) => h.id === LATE)?.trace).toBe(SENT);
+    // No hop the trace owns is listed as nobody's.
+    expect(snap.hops.filter((h) => h.cause === SENT && h.trace === null)).toEqual([]);
+  });
+});
