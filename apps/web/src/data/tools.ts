@@ -93,7 +93,8 @@ export const TOOLS: Tool[] = [
       'When Durable Object RPC, Workflows or a first-party object test harness matter, which workers-rs does not give.',
     records: [{ adr: '0002' }, after('1')],
     ownersRule: 'rule',
-    notMeasured: 'A TypeScript Worker with the same objects beside the Rust one (roadmap R78).',
+    notMeasured:
+      'A TypeScript Worker with all the bakery’s objects, and CPU time on the edge; a twin of spike S1’s one-class Worker was measured locally on 2026-11-10 (roadmap R78).',
     packages: ['bakery-domain', 'bakery-app', 'bakery-seed'],
     alternatives: [
       {
@@ -147,7 +148,7 @@ export const TOOLS: Tool[] = [
         after: true,
         never: {
           kind: 'measured',
-          text: 'A TypeScript Worker with the same objects; spike S1 measured only the Rust one (roadmap R78).',
+          text: 'A TypeScript Worker with all the bakery’s objects; a twin of spike S1’s one-class Worker, measured locally on 2026-11-10, uploads 8.14 KiB against 475.87 KiB and timed level (roadmap R78).',
         },
       },
     ],

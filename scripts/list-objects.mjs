@@ -8,7 +8,8 @@
 // Run:   node scripts/list-objects.mjs <persist-dir>      (Node 22 or later, no dependencies)
 //
 // Wrangler 4.157.0 keeps each object in <persist-dir>/v3/do/<worker>-<Class>/<64 hex id>.sqlite,
-// beside one metadata.sqlite per class (observed on 2026-11-05). Each file is opened read-only.
+// beside one metadata.sqlite per class (observed on 2026-11-05). Each file is opened read-only, and
+// a read waits up to 5 s for an object that is writing at that moment (BUSY_TIMEOUT_MS below).
 // An object holds data when a table of its own has a row: SQLite's tables (sqlite_*), the
 // runtime's (_cf_*) and Miniflare's (__miniflare_*) are not its data. An object that ran
 // deleteAll() has no tables left at all.
@@ -24,6 +25,11 @@ process.removeAllListeners('warning');
 const { DatabaseSync } = await import('node:sqlite');
 
 const KEPT_CLASSES = new Set(['Control', 'Account']);
+// How long a read waits for an object that is writing at that moment. Without it, a listing taken
+// while any object commits (a sandbox seeding, a consumer's delivery, an alarm) fails at once with
+// "database is locked" and exits 2: seen on 2026-11-10 in 1 of 40 listings taken a tenth of a
+// second apart while one sandbox seeded, and behind three smoke failures that day.
+const BUSY_TIMEOUT_MS = 5000;
 const NOT_DATA = /^(sqlite_|_cf_|__miniflare_)/;
 
 const dir = process.argv[2];
@@ -40,7 +46,7 @@ if (!existsSync(root)) {
 const quote = (name) => `"${name.replaceAll('"', '""')}"`;
 
 function inspect(file) {
-  const db = new DatabaseSync(file, { readOnly: true });
+  const db = new DatabaseSync(file, { readOnly: true, timeout: BUSY_TIMEOUT_MS });
   try {
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")

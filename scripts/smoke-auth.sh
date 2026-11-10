@@ -450,6 +450,13 @@ expect_json status_after_replay "b.sandboxes_today === $before + 1 && b.guests_t
 
 request status_before_wipe "$BASE/v1/status"
 day_count="$(json_field status_before_wipe b.sandboxes_today)"
+# The replayed sandbox's seeding done first, as for the orphan below: the listing then reads
+# sandboxes that are live, not one whose children are still being written.
+for _ in $(seq 1 150); do
+  get_as replay_state S3 "/v1/sandboxes/$replay_id"
+  [[ "$(json_field replay_state b.state)" == live ]] && break
+  sleep 0.2
+done
 list_objects list_before_wipe
 check "list-objects: exits 1 while sandboxes are live" "(( LIST_EXIT == 1 ))"
 request cron_wipe "$BASE/cdn-cgi/local/scheduled?cron=0+10+*+*+*"
@@ -486,7 +493,7 @@ for _ in $(seq 1 150); do
 done
 list_objects list_orphan
 check "list-objects: exits 1 with one sandbox holding data" "(( LIST_EXIT == 1 ))"
-check "list-objects: names the orphan" "grep -q \"sandbox:$orphan_id\" '$TMP/list_orphan.out' && grep \"sandbox:$orphan_id\" '$TMP/list_orphan.out' | grep -q '\"has_data\":true'"
+check "list-objects: names the orphan" "grep -q \"sandbox:$orphan_id\" '$TMP/list_orphan.out' && grep \"sandbox:$orphan_id\" '$TMP/list_orphan.out' | grep '\"has_data\":true' > /dev/null"
 cp "$TMP/list_orphan.out" "$TMP/report_orphan.out"
 
 # "Wipe now", as a guest: the sandbox goes, and with it the guest's session.
@@ -577,6 +584,9 @@ stop_worker
 # ---------- What the logs hold ----------
 
 # Only what the Worker wrote at run time: the build output before "Ready" is not request data.
+# Under pipefail a pipe never ends in `grep -q`: it exits at its first match, and the grep feeding
+# it, still writing, dies of SIGPIPE and fails the pipe (or, behind `!`, passes it). The last grep
+# reads all its input instead, its output thrown away.
 runtime_log="$TMP/runtime.log"
 awk '/^=== .*: Worker ready/ { on = 1 } on' "$LOG" > "$runtime_log"
 for needle in '@' 'fake-sub' 'Fake Person' 'picture' 'example.com' 'fake-login' '1234567' "$CANARY" "$username"; do
@@ -586,8 +596,8 @@ for needle in '@' 'fake-sub' 'Fake Person' 'picture' 'example.com' 'fake-login' 
   check "the Worker's log holds no $label" "! grep -qF -- '$needle' '$runtime_log'"
 done
 check "the Worker's log has one request line per request" "grep -q '\"type\":\"request\",\"route\":\"/v1/auth/google/callback\"' '$runtime_log'"
-check "no request line holds a query string" "! grep '\"type\":\"request\"' '$runtime_log' | grep -q '\"route\":\"[^\"]*?'"
-check "the request lines carry an IP hash, never the address" "grep '\"type\":\"request\",\"route\":\"/v1/sandboxes\"' '$runtime_log' | grep -q '\"ip_hash\":\"[0-9a-f]\\{64\\}\"' && ! grep -q '192\\.0\\.2\\.31' '$runtime_log'"
+check "no request line holds a query string" "! grep '\"type\":\"request\"' '$runtime_log' | grep '\"route\":\"[^\"]*?' > /dev/null"
+check "the request lines carry an IP hash, never the address" "grep '\"type\":\"request\",\"route\":\"/v1/sandboxes\"' '$runtime_log' | grep '\"ip_hash\":\"[0-9a-f]\\{64\\}\"' > /dev/null && ! grep -q '192\\.0\\.2\\.31' '$runtime_log'"
 
 echo
 echo "list-objects after the wipe:"
