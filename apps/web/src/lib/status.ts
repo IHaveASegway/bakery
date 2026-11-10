@@ -235,13 +235,13 @@ export function breakerWords(b: BreakerStatus): string {
  */
 export function pastWipeWords(count: number | null): string {
   if (count === null) {
-    return 'not known right now: the check runs every 15 minutes, and none has reported in the last 20.';
+    return 'not known right now. The check runs every 15 minutes, and none has reported in the last 20.';
   }
   if (count === 0) {
     return 'none. No sandbox is still here more than 2 hours after its nightly 10:00 UTC wipe.';
   }
   const many = count === 1 ? '1 sandbox is' : `${count} sandboxes are`;
-  return `${many} still here more than 2 hours after the nightly 10:00 UTC wipe: a wipe failed, or never started.`;
+  return `${many} still here more than 2 hours after the nightly 10:00 UTC wipe. A wipe failed, or never started.`;
 }
 
 /** The bold label for a failed look: an answer that was an error is not an unreachable API. */

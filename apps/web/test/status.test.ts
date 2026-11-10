@@ -155,9 +155,9 @@ describe('the breaker', () => {
     );
     expect(pastWipeWords(1)).toMatch(/^1 sandbox is still here more than 2 hours after/);
     expect(pastWipeWords(3)).toMatch(
-      /^3 sandboxes are still here .*a wipe failed, or never started\.$/,
+      /^3 sandboxes are still here .* wipe\. A wipe failed, or never started\.$/,
     );
-    expect(pastWipeWords(null)).toContain('not known right now');
+    expect(pastWipeWords(null)).toMatch(/^not known right now\. The check runs every 15 minutes/);
     // An API, or a kept answer, from before the count existed reads as not known, never as 0.
     expect(data().sandboxes_past_wipe).toBeNull();
     expect(data({ sandboxes_past_wipe: 0 }).sandboxes_past_wipe).toBe(0);
