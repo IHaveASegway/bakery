@@ -1,13 +1,27 @@
 ---
 import Base from '../../layouts/Base.astro';
-import Console from '../../components/Console';
+import KitchenWorkspace from '../../components/workspaces/Kitchen';
 ---
 
 <Base
-  title="Console | Proof of Concept Bakery"
-  description="Your sandbox: when it is deleted, a fault to switch on, and a button to wipe it now."
+  title="Kitchen | Proof of Concept Bakery"
+  description="Your sandbox's kitchen: the live board of today's orders, the activity feed and the bake list."
   screen="console"
 >
-  <h1>Console</h1>
-  <Console client:load />
+  <h1>Kitchen</h1>
+  <KitchenWorkspace client:load />
 </Base>
+
+<script>
+  // Until 2026-11-09 the console was one page and its sections were anchors of it; the tour's and
+  // the docs' links still name them (/app/#ledger-heading). Such an anchor goes to the section's
+  // own page now; the kitchen's stay here.
+  // A link within this page (the tour's, say) changes only the hash, so it is read then too.
+  import { movedAnchor } from '../../lib/console-sections';
+  const follow = () => {
+    const to = movedAnchor(window.location.hash);
+    if (to !== null) window.location.replace(to);
+  };
+  follow();
+  window.addEventListener('hashchange', follow);
+</script>

@@ -21,8 +21,7 @@ test('the catering queue lists the seeded events, and a storefront inquiry joins
   const count = seeded.body.events.length;
   expect(count, 'the seed holds catering events').toBeGreaterThan(0);
 
-  await page.goto('/app/');
-  await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+  await page.goto('/app/catering/');
   const queue = page.getByRole('region', { name: 'Catering queue' });
   await expect(queue.getByText(new RegExp(`^${count} events:`))).toBeVisible();
   await expect(queue.locator('ul.queue > li')).toHaveCount(count);
@@ -46,7 +45,7 @@ test('the catering queue lists the seeded events, and a storefront inquiry joins
   await expectNoAxeViolations(page);
 
   // The staff queue has it, among the seeded ones, with the quote its state allows.
-  await page.goto('/app/');
+  await page.goto('/app/catering/');
   await expect(queue.getByText(new RegExp(`^${count + 1} events:`))).toBeVisible();
   const card = queue.locator('ul.queue > li').filter({ hasText: `Brief: ${BRIEF}` });
   await expect(card).toHaveCount(1);

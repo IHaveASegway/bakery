@@ -158,11 +158,6 @@ export default function CateringQueue({
       <h3 id="catering-queue-heading" tabIndex={-1} data-tour="crm-catering-queue">
         Catering queue
       </h3>
-      <p>
-        Inquiries move through quote, deposit, production, delivery and the balance invoice. Each
-        step is one object’s transaction; the deposit and the balance are confirmed only by Stripe’s
-        webhooks.
-      </p>
       {isGuest && <GuestNote />}
       <Message error={error} />
       {events === null ? (

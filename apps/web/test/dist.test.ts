@@ -55,6 +55,11 @@ describe('dist', () => {
   test.each([
     ['signin/index.html', '/signin/*'],
     ['app/index.html', '/app/*'],
+    ['app/money/index.html', '/app/*'],
+    ['app/menu/index.html', '/app/*'],
+    ['app/catering/index.html', '/app/*'],
+    ['app/customers/index.html', '/app/*'],
+    ['app/system/index.html', '/app/*'],
     ['app/dispatch/index.html', '/app/dispatch/*'],
     ['index.html', '/*'],
     ['privacy/index.html', '/privacy/*'],
@@ -79,6 +84,11 @@ describe('dist', () => {
     ['menu/index.html', 'menu'],
     ['checkout/index.html', 'checkout'],
     ['app/index.html', 'console'],
+    ['app/money/index.html', 'console'],
+    ['app/menu/index.html', 'console'],
+    ['app/catering/index.html', 'console'],
+    ['app/customers/index.html', 'console'],
+    ['app/system/index.html', 'console'],
     ['catering/index.html', 'catering'],
     ['inbox/index.html', 'inbox'],
     ['app/dispatch/index.html', 'dispatch'],
@@ -135,14 +145,23 @@ describe('dist', () => {
     for (const file of htmlFiles()) {
       const html = page(file);
       expect(html, file).toContain('class="site-name" href="/"');
-      for (const href of [
-        '/menu/',
-        '/catering/',
-        '/how-its-built/',
-        '/about/',
-        '/status/',
-        '/signin/',
-      ]) {
+      // The console's pages (the app shell, 2026-11-09) link back to the shop once, and list the
+      // seven workspaces instead of the shop's nav; every other page has the shop's nav.
+      const app = file.startsWith('app/') && !file.startsWith('app/dispatch/solver/');
+      const nav = app
+        ? [
+            '/menu/',
+            '/app/',
+            '/app/money/',
+            '/app/menu/',
+            '/app/catering/',
+            '/app/customers/',
+            '/app/dispatch/',
+            '/app/system/',
+          ]
+        : ['/menu/', '/catering/', '/how-its-built/', '/about/', '/status/', '/signin/'];
+      if (app) expect(html, file).toContain('>The shop</a>');
+      for (const href of nav) {
         expect(html, `${file}: ${href}`).toContain(`href="${href}"`);
       }
       for (const href of [
@@ -398,9 +417,8 @@ describe('dist', () => {
   });
 
   test('the console links to the dispatch screen', () => {
-    const files = readdirSync(`${dist}_astro`).filter((f) => f.startsWith('Console.'));
-    expect(files.length).toBeGreaterThan(0);
-    expect(files.map((f) => page(`_astro/${f}`)).join('')).toContain('/app/dispatch/');
+    // The sidebar is the server's HTML on every console page since 2026-11-09.
+    expect(page('app/index.html')).toMatch(/<a href="\/app\/dispatch\/"/);
   });
 
   // The solver is fetched by the build's prebuild step and copied from public/ into dist/. Without
@@ -481,9 +499,10 @@ describe('dist', () => {
       const scripts = [...html().matchAll(/<script[^>]*>/g)].map((m) => m[0]);
       const external = scripts.filter((tag) => /\ssrc="/.test(tag));
       for (const tag of external) expect(tag).toMatch(/src="\/_astro\//);
-      const copy = readdirSync(`${dist}_astro`).filter((f) =>
-        f.startsWith('index.astro_astro_type_script'),
-      );
+      // The page's own script, by the name Astro gives a page script (another page, /app/, has one too).
+      const copy = external
+        .map((tag) => tag.match(/src="\/_astro\/([^"]+)"/)?.[1] ?? '')
+        .filter((f) => f.startsWith('index.astro_astro_type_script'));
       expect(copy).toHaveLength(1);
       const code = page(`_astro/${copy[0]}`);
       expect(code).toContain('data-copy');
@@ -525,11 +544,20 @@ describe('dist', () => {
       order: { budget: 123 * KB, pages: ['order/index.html'] },
       storefront: { budget: 129 * KB, pages: ['menu/index.html', 'signin/index.html'] },
       checkout: { budget: 149 * KB, pages: ['checkout/index.html'] },
+      // Re-measured 2026-11-09 after the console became seven pages (the largest is the kitchen,
+      // 122,195 B; it was 137,999 B as one page): each page now loads its own workspace and the
+      // frame they share, which reads the session and draws the top bar. The budget is that plus
+      // a quarter, down from 170,000 B.
       console: {
-        budget: 170 * KB,
+        budget: 153 * KB,
         pages: [
           'app/index.html',
+          'app/money/index.html',
+          'app/menu/index.html',
+          'app/catering/index.html',
+          'app/customers/index.html',
           'app/dispatch/index.html',
+          'app/system/index.html',
           'catering/index.html',
           'inbox/index.html',
         ],

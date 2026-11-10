@@ -14,6 +14,7 @@ import { whenText } from '../lib/when';
 import GuestNote from './GuestNote';
 import Message from './Message';
 import { HOW } from '../tour/how';
+import HowItWorks from './HowItWorks';
 
 /**
  * Time travel: the business clock shown live, and four steps that move it forward. Business time
@@ -26,7 +27,10 @@ export default function ClockControl({
   offsetSeconds,
   isGuest,
   onAdvanced,
+  variant = 'panel',
 }: {
+  /** "popover": the top bar's, with no heading of its own (the System page's panel has it). */
+  variant?: 'panel' | 'popover';
   sandboxId: string;
   offsetSeconds: number;
   isGuest: boolean;
@@ -72,17 +76,18 @@ export default function ClockControl({
 
   return (
     <>
-      <h3 id="clock-heading" tabIndex={-1} data-tour="controls-clock">
-        Clock
-      </h3>
+      {variant === 'panel' && (
+        <h3 id="clock-heading" tabIndex={-1} data-tour="controls-clock">
+          Clock
+        </h3>
+      )}
       <p>
         Business time is{' '}
         <strong>
           <time dateTime={now.iso}>{now.text}</time>
         </strong>{' '}
-        (Mountain). It runs {formatOffset(offset)} ahead of the wall clock; the most it may run
-        ahead is {formatOffset(MAX_OFFSET_S)}, so {formatOffset(left)} is left. Business time only
-        moves forward.
+        (Mountain), {formatOffset(offset)} ahead of the wall clock, with {formatOffset(left)} of{' '}
+        {formatOffset(MAX_OFFSET_S)} left.
       </p>
       <p className="actions">
         {STEPS.map(({ step, label, says }) => (
@@ -105,7 +110,11 @@ export default function ClockControl({
       </p>
       {isGuest && <GuestNote />}
       <Message error={error}>{said && <p className="hint">{said}</p>}</Message>
-      <p className="hint">How this works: {HOW.clock}</p>
+      {variant === 'panel' && (
+        <HowItWorks>
+          <p>{HOW.clock}</p>
+        </HowItWorks>
+      )}
     </>
   );
 }

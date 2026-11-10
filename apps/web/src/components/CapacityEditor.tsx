@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ScheduleResponse } from '../contracts';
 import { setCapacity } from '../lib/api';
 import {
@@ -27,8 +27,59 @@ function slotWords(start: string): string {
   return clockLabel(l.hour * 60 + l.minute);
 }
 
-/** The day's places and caps as the Schedule reports them, with the counts that matter. */
-function Day({ schedule }: { schedule: ScheduleResponse }) {
+/**
+ * How full a place is, as a thin bar: a tenth's step of taken over capacity, drawn by one of
+ * eleven classes (console.css), since the page policy allows no style attribute. The numbers
+ * beside it say the same, so the bar is hidden from assistive technology.
+ */
+function Fill({ taken, capacity }: { taken: number; capacity: number }) {
+  const tenths = capacity <= 0 ? 10 : Math.min(10, Math.round((taken / capacity) * 10));
+  return (
+    <span className="bar-track" aria-hidden="true">
+      <span className={`bar-fill bar-${tenths}`} />
+    </span>
+  );
+}
+
+/** Whether the window is wide enough to show the day's tables open (60rem, the phone's edge). */
+const WIDE = '(min-width: 60rem)';
+
+function useWide(): boolean {
+  const [wide, setWide] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(WIDE).matches,
+  );
+  useEffect(() => {
+    const query = window.matchMedia(WIDE);
+    const change = () => setWide(query.matches);
+    change();
+    query.addEventListener('change', change);
+    return () => query.removeEventListener('change', change);
+  }, []);
+  return wide;
+}
+
+/**
+ * One of the day's tables under a summary that says its total in one line. Open on a wide screen,
+ * closed on a phone, where the three tables would run to many screens; either way a press opens or
+ * closes it, and it is announced as what it is.
+ */
+function Group({ line, wide, children }: { line: string; wide: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(wide);
+  useEffect(() => setOpen(wide), [wide]);
+  return (
+    <details className="capacity-group" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>{line}</summary>
+      {children}
+    </details>
+  );
+}
+
+const sum = (values: number[]) => values.reduce((n, v) => n + v, 0);
+
+/** The day's places and caps as the Schedule reports them, as compact tables. */
+export function Day({ schedule }: { schedule: ScheduleResponse }) {
+  const wide = useWide();
+  const capped = schedule.items.filter((i) => i.daily_cap !== null && i.daily_cap !== undefined);
   return (
     <>
       <p className="hint">
@@ -37,42 +88,123 @@ function Day({ schedule }: { schedule: ScheduleResponse }) {
           : 'The bakery is closed this day: it refuses every hold.'}{' '}
         Menu version {schedule.menu_version} set the item caps.
       </p>
-      <h5>Pickup slots</h5>
-      <ul className="choices">
-        {schedule.slots.map((s) => (
-          <li key={s.start}>
-            <strong>{slotWords(s.start)}</strong>: {s.taken} of {s.capacity} taken, {s.free} free
-          </li>
-        ))}
-      </ul>
-      <h5>Delivery zones</h5>
-      <ul className="choices">
-        {schedule.zones.map((z) => (
-          <li key={z.zone}>
-            <strong>Zone {z.zone.slice(1)}</strong>: {z.taken} of {z.capacity} stops taken, {z.free}{' '}
-            free, in {z.windows.length} windows
-          </li>
-        ))}
-      </ul>
-      <h5>Item caps</h5>
+      <Group
+        wide={wide}
+        line={`Pickup slots: ${sum(schedule.slots.map((s) => s.taken))} of ${sum(schedule.slots.map((s) => s.capacity))} taken`}
+      >
+        <table className="table capacity-table">
+          <caption className="sr-only">Pickup slots</caption>
+          <thead>
+            <tr>
+              <th scope="col">Time</th>
+              <th scope="col" className="num">
+                Taken
+              </th>
+              <th scope="col" className="num">
+                Free
+              </th>
+              <th scope="col">
+                <span className="sr-only">How full</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {schedule.slots.map((s) => (
+              <tr key={s.start}>
+                <th scope="row">{slotWords(s.start)}</th>
+                <td className="num">
+                  {s.taken} of {s.capacity}
+                </td>
+                <td className="num">{s.free}</td>
+                <td>
+                  <Fill taken={s.taken} capacity={s.capacity} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Group>
+      <Group
+        wide={wide}
+        line={`Delivery zones: ${sum(schedule.zones.map((z) => z.taken))} of ${sum(schedule.zones.map((z) => z.capacity))} stops taken`}
+      >
+        <table className="table capacity-table">
+          <caption className="sr-only">Delivery zones</caption>
+          <thead>
+            <tr>
+              <th scope="col">Zone</th>
+              <th scope="col" className="num">
+                Stops taken
+              </th>
+              <th scope="col" className="num">
+                Free
+              </th>
+              <th scope="col">
+                <span className="sr-only">How full</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {schedule.zones.map((z) => (
+              <tr key={z.zone}>
+                <th scope="row">
+                  Zone {z.zone.slice(1)}{' '}
+                  <span className="hint-inline">{z.windows.length} windows</span>
+                </th>
+                <td className="num">
+                  {z.taken} of {z.capacity}
+                </td>
+                <td className="num">{z.free}</td>
+                <td>
+                  <Fill taken={z.taken} capacity={z.capacity} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Group>
       {schedule.items.length === 0 ? (
         <p className="hint">No item has a cap or a use this day.</p>
       ) : (
-        <ul className="choices">
-          {schedule.items.map((i) => (
-            <li key={i.item}>
-              <strong>{itemWords(i.item)}</strong>:{' '}
-              {i.daily_cap === null || i.daily_cap === undefined
-                ? `${i.used} used, no cap`
-                : `${i.used} of ${i.daily_cap} used, ${Math.max(0, i.daily_cap - i.used)} free`}
-            </li>
-          ))}
-        </ul>
+        <Group
+          wide={wide}
+          line={`Item caps: ${sum(capped.map((i) => i.used))} of ${sum(capped.map((i) => i.daily_cap ?? 0))} used`}
+        >
+          <table className="table capacity-table">
+            <caption className="sr-only">Item caps</caption>
+            <thead>
+              <tr>
+                <th scope="col">Item</th>
+                <th scope="col" className="num">
+                  Used
+                </th>
+                <th scope="col" className="num">
+                  Free
+                </th>
+                <th scope="col">
+                  <span className="sr-only">How full</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {schedule.items.map((i) => {
+                const cap = i.daily_cap ?? null;
+                return (
+                  <tr key={i.item}>
+                    <th scope="row">{itemWords(i.item)}</th>
+                    <td className="num">{cap === null ? i.used : `${i.used} of ${cap}`}</td>
+                    <td className="num">{cap === null ? 'no cap' : Math.max(0, cap - i.used)}</td>
+                    <td>{cap !== null && <Fill taken={i.used} capacity={cap} />}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Group>
       )}
-      <h5>Catering</h5>
-      <p>
-        {schedule.catering.taken} of {schedule.catering.capacity} events taken,{' '}
-        {Math.max(0, schedule.catering.capacity - schedule.catering.taken)} free.
+      <p className="capacity-catering">
+        <strong>Catering:</strong> {schedule.catering.taken} of {schedule.catering.capacity} events
+        taken, {Math.max(0, schedule.catering.capacity - schedule.catering.taken)} free.
       </p>
     </>
   );
@@ -170,10 +302,8 @@ export default function CapacityEditor({
       <h3 id="capacity-heading" tabIndex={-1} data-tour="controls-capacity">
         Capacity
       </h3>
-      <p>
-        Each slot, zone, item and the catering line has a capacity the Schedule enforces: held plus
-        reserved places never pass it. Staff can change a capacity for a day. A lowered capacity
-        never drops a reservation; it only stops new ones.
+      <p className="hint">
+        Held and reserved places never pass a capacity; lowering one stops new ones.
       </p>
       {isGuest && <GuestNote />}
       <p>

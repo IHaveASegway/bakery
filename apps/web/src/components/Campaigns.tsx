@@ -42,6 +42,7 @@ import { describeError, type Message as Text } from '../lib/messages';
 import GuestNote from './GuestNote';
 import Message from './Message';
 import { HOW } from '../tour/how';
+import HowItWorks from './HowItWorks';
 
 /** The business time now, from the wall clock and the sandbox's offset. */
 const businessNow = (offsetS: number) => Date.now() + offsetS * 1000;
@@ -138,9 +139,9 @@ export default function Campaigns({
       <h3 id="campaigns-heading" tabIndex={-1} data-tour="crm-campaigns">
         Campaigns
       </h3>
-      <p>
-        Compose a campaign from the templates, schedule it, then move the clock past its send time.
-        It goes to the sandbox’s <a href="/inbox/">inbox</a>; nothing leaves the sandbox.
+      <p className="hint">
+        Schedule one, move the clock past its send time, and find it in the{' '}
+        <a href="/inbox/">inbox</a>.
       </p>
       {isGuest && <GuestNote />}
 
@@ -249,7 +250,9 @@ export default function Campaigns({
         </ul>
       )}
 
-      <p className="hint">How this works: {HOW.campaigns}</p>
+      <HowItWorks>
+        <p>{HOW.campaigns}</p>
+      </HowItWorks>
     </section>
   );
 }

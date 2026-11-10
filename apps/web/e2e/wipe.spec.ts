@@ -23,7 +23,9 @@ test('Wipe now deletes the sandbox at once', async ({ page }) => {
   await page.goto('/app/');
   await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
 
+  // Wipe now is in the top bar's sandbox menu, on every console page.
   page.once('dialog', (dialog) => void dialog.accept());
+  await page.getByRole('button', { name: /^Sandbox / }).click();
   await page.getByRole('button', { name: 'Wipe now' }).click();
   // Two answers race, both right: the button's own "wiped", or the console reloading first
   // because the Kitchen closed the board's socket with "wiped" and the session names no sandbox.
@@ -93,7 +95,9 @@ test('Wipe now asks nothing more when the socket closes before the wipe answers'
 
   await page.goto('/app/');
   await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+  // Wipe now is in the top bar's sandbox menu, on every console page.
   page.once('dialog', (dialog) => void dialog.accept());
+  await page.getByRole('button', { name: /^Sandbox / }).click();
   await page.getByRole('button', { name: 'Wipe now' }).click();
   await expect(
     page

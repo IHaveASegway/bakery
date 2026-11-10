@@ -25,13 +25,19 @@ export default function DispatchPlan({ plan, title }: { plan: PlanView; title: s
         )}
       </p>
       <div className="table-scroll" role="region" aria-label={title} tabIndex={0}>
-        <table>
+        <table className="table">
           <thead>
             <tr>
               <th scope="col">Van</th>
-              <th scope="col">Stops</th>
-              <th scope="col">Units</th>
-              <th scope="col">Drive minutes</th>
+              <th scope="col" className="num">
+                Stops
+              </th>
+              <th scope="col" className="num">
+                Units
+              </th>
+              <th scope="col" className="num">
+                Drive minutes
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -41,9 +47,9 @@ export default function DispatchPlan({ plan, title }: { plan: PlanView; title: s
                   <span className={`swatch swatch-${vanClass(van.van)}`} aria-hidden="true" />
                   Van {van.van}
                 </th>
-                <td>{van.stops.length}</td>
-                <td>{van.units}</td>
-                <td>{van.minutes}</td>
+                <td className="num">{van.stops.length}</td>
+                <td className="num">{van.units}</td>
+                <td className="num">{van.minutes}</td>
               </tr>
             ))}
           </tbody>

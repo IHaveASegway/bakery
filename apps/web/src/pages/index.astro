@@ -1,11 +1,11 @@
 ---
 import Base from '../layouts/Base.astro';
-import { ONE_LINE, RECRUITER_LINE } from '../lib/how-its-built';
-import { HOW_PATH, SITE_LAB } from '../lib/links';
+import RequestPath from '../components/RequestPath.astro';
+import { HOW_PATH } from '../lib/links';
 
-// The launch home (docs/product.md, "Who it serves": something to click that works in a minute,
-// and a sentence to repeat). The copy is a draft for the owner to edit. The two data-tour anchors are the
-// home screen's tour (tour/simple.ts, HOME).
+// The landing page (design brief, 2026-11-09): what this is in one sentence, the first action,
+// and the path one click takes, drawn. The two data-tour anchors are the home screen's tour
+// (tour/simple.ts, HOME): the opening sentence, and the ways to try it.
 ---
 
 <Base
@@ -13,44 +13,69 @@ import { HOW_PATH, SITE_LAB } from '../lib/links';
   description="A made-up bakery built as a real business system in Rust on Cloudflare: order with a test card, watch the kitchen, move the clock. Nothing here is real."
   screen="home"
 >
-  <div class="prose">
-    <h1>Proof of Concept Bakery</h1>
-    <p class="statement" data-tour="home-intro">
-      {ONE_LINE}
-    </p>
-    <p>{RECRUITER_LINE}</p>
-
-    <section aria-labelledby="try-title" data-tour="home-links">
-      <h2 id="try-title">Try it in a minute</h2>
-      <ol class="try-steps">
-        <li>
-          <a href="/signin/">Sign in, or try it as a guest</a>. Either one makes your own sandbox: a
-          private copy of the bakery, deleted tonight.
-        </li>
-        <li>
-          Open <a href="/menu/">the menu</a> and put a loaf or a box of pastries in the cart.
-        </li>
-        <li>
-          Check out: choose a pickup slot and pay with Stripe’s test card,{' '}
-          <code>4242 4242 4242 4242</code>, with any future date and any CVC. No money moves.
-        </li>
-        <li>
-          Find the receipt in <a href="/inbox/">the inbox</a>. The bakery holds no email address for
-          anyone, so every message it sends lands there.
-        </li>
-        <li>
-          Open <a href="/app/">the console</a>: your sandbox, the kitchen board with your order on
-          it, and, once you are signed in, the clock, which you can move forward to see tomorrow.
-        </li>
-      </ol>
-      <p>
-        Every screen has a tour that says what you are looking at and how to do the same from a
-        terminal. <a href={HOW_PATH}>How it’s built</a> explains each technique, and{' '}
-        <a href={SITE_LAB} rel="noopener">
-          the lab on ihaveasegway.com
-        </a>{' '}
-        shows the principles behind them as simulations.
+  <div class="home">
+    <header class="hero" data-tour="home-intro">
+      <p class="eyebrow">An open-source proof of concept</p>
+      <h1>A made-up bakery, built as a real system you can order from and look inside.</h1>
+      <p class="hero-stack">
+        Rust on Cloudflare Workers <span aria-hidden="true">·</span> state in Durable Objects{' '}
+        <span aria-hidden="true">·</span> a private sandbox for you, wiped every night
       </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="/menu/">
+          Order something
+        </a>
+        <a class="btn btn-secondary" href={HOW_PATH}>
+          See how it is built
+        </a>
+      </div>
+    </header>
+
+    <section class="path" aria-labelledby="path-title">
+      <h2 id="path-title">What one click does</h2>
+      <p class="path-lead">Each part is a link to why it is built that way.</p>
+      <RequestPath />
+    </section>
+
+    <section class="roles" aria-labelledby="roles-title" data-tour="home-links">
+      <h2 id="roles-title" class="sr-only">
+        Three ways to look
+      </h2>
+      <ul class="role-cards">
+        <li class="role">
+          <svg class="role-mark" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 9h16l-1.5 10h-13z M8 9l4-5 4 5"></path>
+          </svg>
+          <h3>Be the customer</h3>
+          <p>
+            Order a loaf, pay with the test card <code>4242 4242 4242 4242</code>, and find the
+            receipt in the inbox.
+          </p>
+          <a class="role-link" href="/menu/">
+            Open the menu
+          </a>
+        </li>
+        <li class="role">
+          <svg class="role-mark" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 4h18v16H3z M9 4v16 M15 4v16"></path>
+          </svg>
+          <h3>Be the kitchen</h3>
+          <p>Watch your order arrive on the live board. Signed in, move the clock to tomorrow.</p>
+          <a class="role-link" href="/app/">
+            Open the console
+          </a>
+        </li>
+        <li class="role">
+          <svg class="role-mark" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 5h6a2 2 0 0 1 2 2v13a2 2 0 0 0-2-2H4z M20 5h-6a2 2 0 0 0-2 2v13a2 2 0 0 1 2-2h6z"></path>
+          </svg>
+          <h3>Read the reasoning</h3>
+          <p>Why each tool was chosen, the options that lost, and when each would be wrong.</p>
+          <a class="role-link" href={HOW_PATH}>
+            How it’s built
+          </a>
+        </li>
+      </ul>
     </section>
 
     <p class="draft">
