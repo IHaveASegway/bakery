@@ -2,6 +2,8 @@
 @import 'tailwindcss' source('../');
 @import './tokens.css';
 @import './components.css';
+@import './shop.css';
+@import './checkout.css';
 @import './console.css';
 
 /* System fonts: the bakery fetches no face (design brief, 2026-11-09). tokens.css names these
@@ -1193,7 +1195,7 @@ html.tour-open {
   font-weight: 600;
 }
 
-.cart-lines .qty {
+.cart-lines .stepper {
   grid-area: qty;
   margin: 0;
   font-weight: 400;
@@ -1204,7 +1206,7 @@ html.tour-open {
   text-align: right;
 }
 
-.cart-lines button {
+.cart-lines .remove {
   grid-area: remove;
 }
 

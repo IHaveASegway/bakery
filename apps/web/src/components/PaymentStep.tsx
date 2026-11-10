@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { OrderResponse } from '../contracts';
 import { createPayment, getOrder } from '../lib/api';
-import { dollars } from '../lib/money';
+import { holdText } from '../lib/order-track';
 import { isPaid, waitForPaid } from '../lib/payment';
-import type { useLiveMenu } from '../lib/use-live-menu';
 import PaymentPanel from './PaymentPanel';
-import Receipt from './Receipt';
 
 type After =
   | { name: 'paying' }
@@ -16,22 +14,33 @@ type After =
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/** The order's own status page, where a paid order goes. */
+export const orderPage = (id: string) => `/order/?id=${encodeURIComponent(id)}`;
+
 /**
- * The checkout's payment step, after the order is placed: the Payment Element with no billing
- * fields (PaymentPanel), then a wait for the webhook to mark the order paid. Stripe.js is loaded
- * there and nowhere else, and only when there is a key.
+ * The checkout's third step, after the order is placed: the hold's time left, the Payment
+ * Element with no billing fields (PaymentPanel), then a wait for the webhook to mark the order
+ * paid, and on to the order's status page. Stripe.js is loaded there and nowhere else, and only
+ * when there is a key.
  */
 export default function PaymentStep({
   sandboxId,
   order,
-  menu,
+  offsetS,
 }: {
   sandboxId: string;
   order: OrderResponse;
-  menu: ReturnType<typeof useLiveMenu>;
+  /** Business time minus wall time, in seconds: the hold is counted on the bakery's clock. */
+  offsetS: number;
 }) {
   const [step, setStep] = useState<After>({ name: 'paying' });
   const [waitId, setWaitId] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(timer);
+  }, []);
 
   // After the confirm: look every second for up to 30 seconds. The webhook marks the order paid,
   // never this page.
@@ -52,25 +61,19 @@ export default function PaymentStep({
     };
   }, [waitId, sandboxId, order.id]);
 
-  if (step.name === 'paid') {
-    return <Receipt order={step.order} menu={menu} paid={isPaid(step.order.status)} />;
-  }
+  // Paid: the order's own page follows it from here.
+  const paid = step.name === 'paid' && isPaid(step.order.status);
+  useEffect(() => {
+    if (paid) window.location.assign(orderPage(order.id));
+  }, [paid, order.id]);
 
   return (
-    <section aria-labelledby="pay-heading" data-tour="checkout-pay">
-      <h2 id="pay-heading">Pay for your order</h2>
-      <dl className="totals">
-        <dt>Order</dt>
-        <dd>
-          <code>{order.id}</code>
-        </dd>
-        <dt>Total</dt>
-        <dd>
-          <strong>{dollars(order.total_cents)}</strong>
-        </dd>
-      </dl>
-      <p className="hint">
-        An unpaid order is held for 15 minutes of bakery time and then expires.
+    <div className="pay-step" data-tour="checkout-pay">
+      <p className="hold-line">
+        <span className="badge" data-tone="pending">
+          Held
+        </span>{' '}
+        {holdText(order.held_until, now + offsetS * 1000)}
       </p>
 
       {step.name === 'paying' && (
@@ -79,6 +82,7 @@ export default function PaymentStep({
           intentKey={order.id}
           createIntent={() => createPayment(sandboxId, order.id)}
           unconfigured="The order is placed and held, and nothing here asks for a card."
+          returnTo={orderPage(order.id)}
           onSubmitted={() => {
             setStep({ name: 'waiting' });
             setWaitId((n) => n + 1);
@@ -90,11 +94,11 @@ export default function PaymentStep({
         {step.name === 'waiting' && (
           <p>Payment received by Stripe. Waiting for the bakery to confirm it…</p>
         )}
+        {step.name === 'paid' && <p>Paid. Taking you to your order…</p>}
         {step.name === 'timeout' && (
           <p>
-            <strong>Your payment is being confirmed.</strong> It has not shown up here yet. Check
-            the <a href="/app/">console</a> in a minute: the order moves to Confirmed when the
-            webhook arrives.
+            <strong>Your payment is being confirmed.</strong> It has not shown up here yet. Your{' '}
+            <a href={orderPage(order.id)}>order’s page</a> moves to Paid when the webhook arrives.
           </p>
         )}
         {step.name === 'closed' && (
@@ -104,6 +108,10 @@ export default function PaymentStep({
           </p>
         )}
       </div>
-    </section>
+
+      <p className="hint">
+        <a href={orderPage(order.id)}>Follow this order</a> on its own page, paid or not.
+      </p>
+    </div>
   );
 }

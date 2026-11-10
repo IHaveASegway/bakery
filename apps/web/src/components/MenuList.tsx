@@ -10,6 +10,7 @@ import {
 } from '../lib/menu';
 import { dollars } from '../lib/money';
 import { mountainLocal } from '../lib/slots';
+import { hydrating, useMounted } from '../lib/use-mounted';
 import Glyph from './Glyphs';
 
 const ORDER: Weekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -56,6 +57,8 @@ export default function MenuList({ menu, onAdd }: Props) {
   // The season is read from the clock after mount, so the server's HTML and the first render match.
   const [now, setNow] = useState<number | null>(null);
   useEffect(() => setNow(Date.now()), []);
+  // Add is off until the island has hydrated, so an early click waits rather than vanishing.
+  const mounted = useMounted();
 
   return (
     <div className="menu">
@@ -105,7 +108,8 @@ export default function MenuList({ menu, onAdd }: Props) {
                             <button
                               type="button"
                               className="btn btn-primary btn-sm"
-                              disabled={unavailable}
+                              disabled={unavailable || !mounted}
+                              {...hydrating(mounted || unavailable)}
                               aria-label={`Add ${item.name}, ${variant.label}, to the cart`}
                               onClick={() => onAdd(variant.slug, `${item.name}, ${variant.label}`)}
                             >

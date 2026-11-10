@@ -17,8 +17,12 @@ interface Props {
   screen?: ScreenId;
   /** The shell, when the page's path does not say it (src/lib/shell.ts). */
   shell?: Shell;
+  /** A page that is one visitor's own (an order's status): kept out of search and the sitemap. */
+  noindex?: boolean;
+  /** A page with an island that calls the API but no tour: it runs the session link's script. */
+  session?: boolean;
 }
-const { title, description, screen } = Astro.props;
+const { title, description, screen, noindex = false, session = false } = Astro.props;
 
 // The public shell: the bakery's name, the nav and the footer, on every page. Plain links; a page
 // with the tour also runs the small script that turns "Sign in" into "Console" (SessionLink.astro).
@@ -44,7 +48,7 @@ const shell = Astro.props.shell ?? shellFor(here);
 // The page's address as the site states it, and the share tags that repeat its title and
 // description. The 404 is no page to point at, so it carries neither the canonical link nor the URL.
 const isNotFound = /^\/404(\.html|\/)?$/.test(here);
-const canonical = isNotFound ? null : new URL(here, Astro.site).href;
+const canonical = isNotFound || noindex ? null : new URL(here, Astro.site).href;
 const current = (href: string) => (here === href || here.startsWith(href) ? 'page' : undefined);
 
 // The browser chrome takes the page's background: one theme-color meta per OS scheme, read from
@@ -67,6 +71,7 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
     ))}
     <title>{title}</title>
     <meta name="description" content={description} />
+    {noindex && <meta name="robots" content="noindex" />}
     {canonical && <link rel="canonical" href={canonical} />}
     <meta property="og:site_name" content="Proof of Concept Bakery" />
     <meta property="og:type" content="website" />
@@ -158,6 +163,6 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
       </div>
     </footer>
     {screen && <Tour screen={screen} client:idle />}
-    {screen && <SessionLink />}
+    {(screen || session) && <SessionLink />}
   </body>
 </html>

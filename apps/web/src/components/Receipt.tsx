@@ -1,10 +1,18 @@
 import type { OrderResponse } from '../contracts';
 import { findVariant } from '../lib/menu';
 import { dollars } from '../lib/money';
-import { whenText } from '../lib/when';
+import { shortWhen, whenText, windowText } from '../lib/when';
 import type { useLiveMenu } from '../lib/use-live-menu';
 
-/** What the API answered about an order: its numbers, not the page's. Paid once the webhook says so. */
+function lineName(menu: ReturnType<typeof useLiveMenu>, variant: string): string {
+  const found = findVariant(menu.menu, variant);
+  return found ? `${found.item.name}, ${found.variant.label.toLowerCase()}` : variant;
+}
+
+/**
+ * What the API answered about an order: its numbers, not the page's. Paid once the webhook says
+ * so. The order's status page (OrderStatus.tsx) shows it beside the tracker.
+ */
 export default function Receipt({
   order,
   menu,
@@ -15,57 +23,53 @@ export default function Receipt({
   paid: boolean;
 }) {
   return (
-    <section aria-labelledby="receipt-heading" aria-live="polite" data-tour="checkout-receipt">
-      <h2 id="receipt-heading">{paid ? 'Paid, with thanks' : 'Order placed'}</h2>
-      <dl>
+    <section
+      aria-labelledby="receipt-heading"
+      className="panel receipt"
+      data-tour="checkout-receipt"
+    >
+      <h2 id="receipt-heading">Your order</h2>
+      <dl className="receipt-facts">
         <dt>Order</dt>
-        <dd>
+        <dd className="receipt-id">
           <code>{order.id}</code>
         </dd>
-        <dt>Status</dt>
-        <dd>{order.status}</dd>
-        <dt>{order.kind === 'pickup' ? 'Pickup' : `Delivery, zone ${order.zone ?? ''}`}</dt>
+        <dt>
+          {order.kind === 'pickup' ? 'Pickup' : `Delivery, zone ${(order.zone ?? '').slice(1)}`}
+        </dt>
         <dd>
-          <time dateTime={order.slot}>{whenText(order.slot)}</time>
+          <time dateTime={order.slot} title={whenText(order.slot)}>
+            {order.kind === 'pickup'
+              ? shortWhen(order.slot)
+              : `${shortWhen(order.slot).split(', ')[0]}, ${windowText(order.slot)}`}
+          </time>
         </dd>
         <dt>Menu version</dt>
         <dd>{order.menu_version}</dd>
       </dl>
-      <ul className="cart-lines">
+      <ul className="receipt-lines">
         {order.lines.map((line) => (
           <li key={line.variant}>
-            <span className="line-name">
-              {findVariant(menu.menu, line.variant)?.item.name ?? line.variant}
-              {' × '}
-              {line.qty}
+            <span>
+              {line.qty} × {lineName(menu, line.variant)}
             </span>
             <span className="price">{dollars(line.unit_cents * line.qty)}</span>
           </li>
         ))}
       </ul>
-      <dl className="totals">
+      <dl className="summary-totals">
         <dt>Subtotal</dt>
         <dd>{dollars(order.subtotal_cents)}</dd>
         <dt>Tax</dt>
         <dd>{dollars(order.tax_cents)}</dd>
-        <dt>Total</dt>
-        <dd>
-          <strong>{dollars(order.total_cents)}</strong>
-        </dd>
+        <dt className="total">Total</dt>
+        <dd className="total">{dollars(order.total_cents)}</dd>
       </dl>
       {paid && (
-        <p>
+        <p className="hint">
           <strong>Paid in Stripe’s sandbox.</strong> No money moved: it was a test payment.
         </p>
       )}
-      <p className="actions">
-        <a className="btn btn-primary" href="/app/">
-          Watch it on the kitchen board
-        </a>
-        <a className="btn btn-secondary" href="/menu/">
-          Order something else
-        </a>
-      </p>
     </section>
   );
 }

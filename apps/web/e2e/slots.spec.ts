@@ -99,17 +99,19 @@ test('a past slot and a full slot are not offered, and a free one is chosen', as
     .click();
   await expect(page.getByText(`Added ${item.name}, ${variant.label}.`)).toBeVisible();
   await page.goto('/checkout/');
+  // Step 1 is pickup already; its one action opens step 2, the day and the time.
+  await page.getByRole('button', { name: 'Continue' }).click();
   const picker = page.getByRole('group', { name: 'Pickup time' });
-  await expect(page.locator('#day')).toHaveValue(day);
+  await expect(page.locator('input[name="day"]:checked')).toHaveValue(day);
   await expect(picker.getByText(/^\d+ of 32 slots open\./)).toBeVisible();
 
   const input = (start: string) => `input[type="radio"][value="${start}"]`;
   const radio = (start: string) => picker.locator(input(start));
   const label = (start: string) => picker.locator('label', { has: page.locator(input(start)) });
   await expect(radio(past)).toBeDisabled();
-  await expect(label(past)).toContainText('(too soon)');
+  await expect(label(past)).toContainText('too soon');
   await expect(radio(full)).toBeDisabled();
-  await expect(label(full)).toHaveText('2:45 pm, full');
+  await expect(label(full)).toHaveText('2:45 pm · full');
   await expect(radio(free)).toBeEnabled();
   await expectNoAxeViolations(page);
 

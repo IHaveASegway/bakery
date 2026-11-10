@@ -67,6 +67,7 @@ describe('dist', () => {
     ['menu/index.html', '/menu/*'],
     ['inbox/index.html', '/inbox/*'],
     ['status/index.html', '/status/*'],
+    ['order/index.html', '/order/*'],
     ['checkout/index.html', '/checkout/*'],
     ['catering/index.html', '/catering/*'],
   ])('%s: every inline script and style has its hash in %s', (file, path) => {
@@ -129,9 +130,15 @@ describe('dist', () => {
       (f): f is string => typeof f === 'string' && f.endsWith('.html'),
     );
 
-  test('no page asks not to be indexed: the production hostnames are meant to be found', () => {
+  test('no page asks not to be indexed but an order’s status: the rest are meant to be found', () => {
     // Previews on workers.dev carry X-Robots-Tag: noindex from Cloudflare (ci.yml requires it).
-    for (const file of htmlFiles()) expect(page(file), file).not.toMatch(/name="robots"/);
+    // /order/ is one visitor's own order, read from their sandbox, so it alone stays out of search
+    // (2026-11-09).
+    for (const file of htmlFiles()) {
+      if (file === 'order/index.html') {
+        expect(page(file)).toContain('<meta name="robots" content="noindex">');
+      } else expect(page(file), file).not.toMatch(/name="robots"/);
+    }
   });
 
   test('every page carries the shell: the name, the nav, the footer and the one line that says it is made up', () => {
@@ -524,6 +531,9 @@ describe('dist', () => {
   // an app screen or the checkout) are not met today: every island page carries the tour, and its
   // React runtime is 65,840 B of the total. The budgets here hold the line where the pages are and
   // fail a page that grows by a quarter. A page that is not named below must load no script.
+  //
+  // The order's status page (/order/, 2026-11-09) is a class of its own: 97,911 B measured, which
+  // buys the order's read, its watch on the kitchen socket and the tracker; it carries no tour.
   describe('JavaScript per page', () => {
     const KB = 1_000;
     const BUDGETS: Record<string, { budget: number; pages: string[] }> = {
@@ -531,6 +541,7 @@ describe('dist', () => {
       tour: { budget: 118 * KB, pages: ['index.html', 'privacy/index.html'] },
       api: { budget: 118 * KB, pages: ['docs/api/index.html'] },
       status: { budget: 121 * KB, pages: ['status/index.html'] },
+      order: { budget: 123 * KB, pages: ['order/index.html'] },
       storefront: { budget: 129 * KB, pages: ['menu/index.html', 'signin/index.html'] },
       checkout: { budget: 149 * KB, pages: ['checkout/index.html'] },
       // Re-measured 2026-11-09 after the console became seven pages (the largest is the kitchen,
