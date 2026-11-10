@@ -14,6 +14,7 @@ import {
   failureStatus,
   formatTime,
   loadSnapshot,
+  pastWipeWords,
   readStatus,
   saveSnapshot,
   stateLabel,
@@ -146,6 +147,24 @@ describe('the breaker', () => {
       'tripped: off since an unknown time',
     );
     expect(breakerWords(data().breaker)).toBe('not configured');
+  });
+
+  test('sandboxes past their wipe: none, some, or not known, in the page’s own words', () => {
+    expect(pastWipeWords(0)).toBe(
+      'none. No sandbox is still here more than 2 hours after its nightly 10:00 UTC wipe.',
+    );
+    expect(pastWipeWords(1)).toMatch(/^1 sandbox is still here more than 2 hours after/);
+    expect(pastWipeWords(3)).toMatch(
+      /^3 sandboxes are still here .*a wipe failed, or never started\.$/,
+    );
+    expect(pastWipeWords(null)).toContain('not known right now');
+    // An API, or a kept answer, from before the count existed reads as not known, never as 0.
+    expect(data().sandboxes_past_wipe).toBeNull();
+    expect(data({ sandboxes_past_wipe: 0 }).sandboxes_past_wipe).toBe(0);
+    expect(data({ sandboxes_past_wipe: 'x' }).sandboxes_past_wipe).toBeNull();
+    const page = html(answered(data({ sandboxes_past_wipe: 0 })));
+    expect(page).toContain('Sandboxes past their wipe:');
+    expect(page).toContain('none. No sandbox is still here');
   });
 
   test('the page shows one Breaker line, in words, for each state', () => {

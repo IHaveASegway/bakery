@@ -8,6 +8,7 @@ import {
   failureStatus,
   formatTime,
   loadSnapshot,
+  pastWipeWords,
   readStatus,
   saveSnapshot,
   stateLabel,
@@ -69,6 +70,10 @@ export function StatusView({ model }: { model: Model }) {
 
           <p data-testid="status-breaker" data-tour="status-breaker">
             <strong>Breaker:</strong> {breakerWords(data.breaker)}
+          </p>
+
+          <p data-testid="status-past-wipe">
+            <strong>Sandboxes past their wipe:</strong> {pastWipeWords(data.sandboxes_past_wipe)}
           </p>
 
           <h2>The last 24 hours</h2>
