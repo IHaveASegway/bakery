@@ -35,7 +35,7 @@ import {
   watchToOpen,
   type WatchNews,
 } from './match';
-import { clearOfPage, headingLine } from './clear';
+import { clearOfPage, headingLine, textEnd } from './clear';
 import { Note, barBoxes, resolveAnchor, topInset } from './Note';
 import Panel from './Panel';
 import {
@@ -604,6 +604,8 @@ function Hotspots({
           { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
           view,
           headingLine(element),
+          // A sentence's own end, only for a target that is one paragraph of text.
+          element.matches('p') ? textEnd(element) : null,
         ).find((place) => spotFits(place, view, taken) && clearOfPage(spotBox(place)));
         if (at === undefined) continue;
         taken.push(spotBox(at));
@@ -626,7 +628,11 @@ function Hotspots({
     sizes?.observe(document.body);
     const main = document.querySelector('main');
     const changes = typeof MutationObserver === 'undefined' ? null : new MutationObserver(soon);
-    if (main !== null) changes?.observe(main, { childList: true, subtree: true });
+    // A line's own text moves the mark placed at its end (spotPlaces, `tail`), so a change of text
+    // alone is a change too.
+    if (main !== null) {
+      changes?.observe(main, { childList: true, subtree: true, characterData: true });
+    }
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener('scroll', soon, { capture: true });

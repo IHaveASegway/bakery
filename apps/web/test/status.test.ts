@@ -12,6 +12,7 @@ import {
   createPoller,
   failureLabel,
   failureStatus,
+  flagWords,
   formatTime,
   loadSnapshot,
   pastWipeWords,
@@ -67,6 +68,16 @@ class MemoryStore {
 }
 
 describe('readStatus', () => {
+  test('keeps the kill switch’s three values, and reads anything else as no flag', () => {
+    expect(data().flag).toBe('live');
+    expect(data({ flag: 'read-only' }).flag).toBe('read-only');
+    expect(data({ flag: 'off' }).flag).toBe('off');
+    expect(data({ flag: 'paused' }).flag).toBeNull();
+    const older: Record<string, unknown> = wire();
+    delete older.flag;
+    expect(readStatus(older)?.flag).toBeNull();
+  });
+
   test('reads a full response', () => {
     const d = data();
     expect(d.counters?.orders_24h).toBe(18);
@@ -459,5 +470,28 @@ describe('the poller', () => {
     poller.visibilityChanged();
     expect(load).toHaveBeenCalledTimes(1);
     expect(state.timers.size).toBe(0);
+  });
+});
+
+describe('the kill switch’s line', () => {
+  test('says what each flag lets through since the flag reached every route', () => {
+    expect(flagWords('live')).toBe('live. Every route answers.');
+    expect(flagWords('read-only')).toContain('nothing in them changed');
+    expect(flagWords('read-only')).toContain('Wipe now still work');
+    expect(flagWords('off')).toContain('Stripe’s webhook');
+    expect(flagWords('off')).not.toContain('Wipe now');
+  });
+
+  test('an answer without the field, or with a value it does not know, says nothing', () => {
+    for (const none of [null, undefined, '', 'paused']) expect(flagWords(none)).toBeNull();
+  });
+
+  test('is drawn by the breaker’s line only when the answer carries a flag', () => {
+    const shown = html(answered(data({ flag: 'read-only' })));
+    expect(shown).toContain('data-tour="status-flag"');
+    expect(shown).toContain('Kill switch:');
+    const older: Record<string, unknown> = wire();
+    delete older.flag;
+    expect(html(answered(readStatus(older) as StatusData))).not.toContain('status-flag');
   });
 });
