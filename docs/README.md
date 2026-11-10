@@ -2,7 +2,7 @@
 
 This folder is the plan and the decision record for Proof of Concept Bakery, a made-up bakery run as a real business system: ordering, pickup and delivery scheduling, catering, billing through Stripe's sandbox, and a CRM with campaigns. Every backend is Rust on Cloudflare Workers, and state lives in SQLite-backed Durable Objects (DOs). The docs say what the demo is for, how it is built, shipped, secured, paid for and run, and why each choice beat its alternatives. They are also a study guide: every decision names its pattern, the quality attributes it trades, whether it is a one-way or a two-way door, and a source to read next.
 
-Status: Updated 2026-11-09
+Status: Updated 2026-11-10
 
 PR 1 wrote these docs before any code, and Joseph answered the blocking questions on 2026-11-04; the docs below carry his answers. They have been revised as each pull request built its part, the bakery has been live since 2026-11-06, and on 2026-11-09 every doc was reconciled with the code; [stack.md](stack.md#techniques-as-built) lists the techniques as built. An Accepted ADR is a commitment and a Proposed one is still open to argument, and the [ADR index](adr/README.md) is the one place that says which is which. Every ADR was Proposed until 2026-11-09, when all thirteen were Accepted by delegation, each as amended by its dated postscript (roadmap R12). Everything else here changes by pull request, in the doc that owns the topic.
 
@@ -11,6 +11,7 @@ PR 1 wrote these docs before any code, and Joseph answered the blocking question
 1. [product.md](product.md): read **Why** and **Open decisions** (5 minutes). The blocking questions were answered on 2026-11-04, and the rest proceed on their recommendations until Joseph moves them.
 2. [architecture.md](architecture.md): the diagrams only (2 minutes).
 3. [roadmap.md](roadmap.md): the phases, what each PR ships, and what blocks it (3 minutes).
+4. For why each tool is used and what was not chosen: the table and the rejected list in [stack.md](stack.md#the-stack), the alternatives weighed after the build in [ADR 0016](adr/0016-alternatives-weighed-after-the-build.md), and the storefront's tools page, `/how-its-built/tools/`, which restates them.
 
 Then change any answer in the PR review, with the question number and the option letter. Anything the firewall touches goes in the private record instead ([product.md](product.md#content-firewall)), because reviews and comments are public from the repository's first push. Every other doc can wait until the PR it serves comes up.
 
@@ -32,7 +33,7 @@ Purpose first, then the language of the business, then the shape, then the parts
 | 6 | [cost.md](cost.md) | What does it cost, and what keeps it there? Price sheet, formulas, the per-sandbox meter, scenarios, the plan decision, guardrails, denial of wallet |
 | 7 | [delivery.md](delivery.md) | How does a change reach production? Repository layout, toolchain pins, the pipeline, environments, deploy and rollback for each Worker, quality gates, dependency policy |
 | 8 | [operations.md](operations.md) | How is it run alone? Access setup, observability, alerting, runbooks (deploy, rollback, wipe, kill switch, secret rotation, leak response), the maintenance calendar |
-| 9 | [roadmap.md](roadmap.md) | In what order? How we work, the definition of done, pull requests 1 to 18 and the UI audit of 2026-11-08 (numbered PR 19) with scope and estimates, spikes S1 to S7, decision gates, risks, what is explicitly later |
+| 9 | [roadmap.md](roadmap.md) | In what order? How we work, the definition of done, pull requests 1 to 18, the UI audit of 2026-11-08 (numbered PR 19), the remaining work of 2026-11-09 (PR 20) and the interface and live guide (PR 21) with scope and estimates, the remaining-work list, spikes S1 to S7, decision gates, risks, what is explicitly later |
 | 10 | [adr/README.md](adr/README.md) | Which decisions are hard to reverse? The ADR format, the template, and the index of every ADR with its status |
 
 This table lists docs, not ADRs. The ADR index is the one owner of ADR titles and statuses. Copying it here would give the same facts two owners, the drift this plan avoids everywhere else.
