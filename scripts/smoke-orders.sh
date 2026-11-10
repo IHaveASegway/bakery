@@ -11,7 +11,8 @@
 # drafts route after a price edit and after the publish. Since 2026-11-09 it places for a time
 # that is not a slot (422 `no-such-slot`) and for a Monday (422 `order`, not baked that day). Since
 # 2026-11-09 it reads the flight recorder's trace and its socket for an order it places. Since
-# 2026-11-10 it prices one variant of an item alone (roadmap R86). It
+# 2026-11-10 it prices one variant of an item alone (roadmap R86), and reads each step's time in
+# a paid order's answer (roadmap R94). It
 # proves each line of docs/roadmap.md's PR 4 "Done when" that can be proven locally, prints ok or
 # FAIL per check as scripts/smoke-auth.sh does, and exits non-zero on any failure.
 #
@@ -676,6 +677,9 @@ GC1="$(ulid)"
 probe G "$GID" --cmd "$GC1:$GCARD:start_production" --wait-evt OrderProductionStarted --evt-order "$GCARD" --timeout 10 > "$TMP/ws_guest_move.out" || true
 expect_probe "a guest's start_production is acked on its own board, and its socket hears the move" "$TMP/ws_guest_move.out" "frames.some((f) => f.t === 'ack' && f.id === '$GC1') && evts.some((e) => e.type === 'OrderProductionStarted' && e.cause === '$GC1')"
 check "the guest's move reads back over HTTP: in production, one event more ($GSEQ before)" "wait_order g_moved G '$GID' '$GCARD' in_production 'b.events_seq === ${GSEQ:-0} + 1'"
+# Each step's time in the order's answer (roadmap R94): the seeded paid order's paid time, and its
+# production time, which is not before it; steps not taken are null.
+expect_json g_moved "typeof b.step_times.paid === 'string' && typeof b.step_times.in_production === 'string' && Date.parse(b.step_times.in_production) >= Date.parse(b.step_times.paid) && b.step_times.placed === b.placed_at && b.step_times.ready === null && b.step_times.picked_up === null"
 
 # ---------- the kitchen socket ----------
 
@@ -934,6 +938,9 @@ expect_status trace_pay 200
 RPI="$(json_field trace_pay "b.client_secret.split('_secret_')[0]")"
 request trace_confirm -X POST -H "Authorization: Bearer rk_test_not_a_key" -H 'Content-Type: application/x-www-form-urlencoded' --data "payment_method=pm_card_visa" "$STRIPE/v1/payment_intents/$RPI/confirm"
 expect_json trace_confirm "b.status === 'succeeded'"
+# The webhook confirms it: the answer says when it was paid, not before it was placed (R94).
+check "the paid order's answer carries its paid time" "wait_order trace_paid R '$RID' '$ROID' confirmed 'typeof b.step_times.paid === \"string\"'"
+expect_json trace_paid "Date.parse(b.step_times.paid) >= Date.parse(b.step_times.placed) && b.step_times.placed === b.placed_at && b.step_times.in_production === null"
 
 # trace_read: pages GET .../trace from cursor 0 (or $TRACE_CURSOR) while `more`, appending every
 # hop to $TMP/trace_hops.json, one JSON array per page.

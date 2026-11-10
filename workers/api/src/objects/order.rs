@@ -43,7 +43,7 @@ use std::cell::Cell;
 
 use bakery_app::Clock;
 use bakery_app::analytics::{Event, Point};
-use bakery_contracts::{OrderLineResponse, OrderResponse};
+use bakery_contracts::{OrderLineResponse, OrderResponse, OrderStepTimes};
 use bakery_domain::catalog::MenuView;
 use bakery_domain::dispatch::{DispatchEvent, deliveries};
 use bakery_domain::order::{
@@ -912,6 +912,27 @@ fn decide_delivery(
     }
 }
 
+/// When each step happened (roadmap R94, 2026-11-10): the `at` of the first event of each step's
+/// type in the order's own stream, the business time `placed_at` is read from. The stream is the
+/// object's log, so nothing new is stored; a step with no event yet is `None`.
+pub fn step_times(events: &[Envelope]) -> OrderStepTimes {
+    let at = |event_type: &str| {
+        events
+            .iter()
+            .find(|e| e.event_type == event_type)
+            .map(|e| e.at.to_string())
+    };
+    OrderStepTimes {
+        placed: at("OrderPlaced"),
+        paid: at("OrderPaid"),
+        in_production: at("OrderProductionStarted"),
+        ready: at("OrderReady"),
+        picked_up: at("OrderPickedUp"),
+        out_for_delivery: at("OrderOutForDelivery"),
+        delivered: at("OrderDelivered"),
+    }
+}
+
 pub fn response_of(state: &OrderState, events: &[Envelope]) -> Option<OrderResponse> {
     let r = state.record()?;
     Some(OrderResponse {
@@ -941,6 +962,7 @@ pub fn response_of(state: &OrderState, events: &[Envelope]) -> Option<OrderRespo
         note: r.note.clone(),
         menu_version: r.menu_version,
         events_seq: events.last().map_or(0, |e| e.seq),
+        step_times: step_times(events),
     })
 }
 
@@ -1016,6 +1038,94 @@ mod tests {
         assert_eq!(r.events_seq, 1);
         assert_eq!(r.lines[0].unit_cents, 950);
         assert_eq!(r.total_cents, 2_090);
+    }
+
+    /// `events` as the object's stream holds them: one envelope each, `seq` from 1, the first at
+    /// 09:00 and each a quarter hour after the last.
+    fn stream_of(order: Ulid, events: &[OrderEvent]) -> Vec<Envelope> {
+        let t: BusinessTime = "2026-11-07T09:00:00-07:00".parse().unwrap();
+        events
+            .iter()
+            .enumerate()
+            .map(|(i, event)| Envelope {
+                v: 1,
+                id: Ulid::from_parts(1, 100 + i as u128),
+                sandbox: Ulid::from_parts(1, 1),
+                stream: name(Ulid::from_parts(1, 1), order),
+                seq: i as u64 + 1,
+                event_type: event.name().into(),
+                at: t.plus_minutes(15 * i as i64).unwrap(),
+                recorded_at: WallTime::from_unix_ms(1_794_067_200_000).unwrap(),
+                data: event.to_data(),
+                cause: None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn each_step_taken_has_its_time_and_none_other() {
+        let order = Ulid::from_parts(1, 2);
+        let events = a_ready_delivery(order);
+        let stream = stream_of(order, &events);
+        let times = step_times(&stream);
+        assert_eq!(times.placed.as_deref(), Some("2026-11-07T09:00:00-07:00"));
+        assert_eq!(times.paid.as_deref(), Some("2026-11-07T09:15:00-07:00"));
+        assert_eq!(
+            times.in_production.as_deref(),
+            Some("2026-11-07T09:30:00-07:00")
+        );
+        assert_eq!(times.ready.as_deref(), Some("2026-11-07T09:45:00-07:00"));
+        assert_eq!(times.picked_up, None);
+        assert_eq!(times.out_for_delivery, None);
+        assert_eq!(times.delivered, None);
+        // Read before payment: only placed.
+        let placed = step_times(&stream[..1]);
+        assert_eq!(placed.placed.as_deref(), Some("2026-11-07T09:00:00-07:00"));
+        assert_eq!(placed.paid, None);
+    }
+
+    #[test]
+    fn the_steps_times_follow_the_steps_order() {
+        let order = Ulid::from_parts(1, 2);
+        let mut events = a_ready_delivery(order);
+        events.push(OrderEvent::OrderOutForDelivery {
+            route: "van-1".into(),
+            stop: 1,
+        });
+        events.push(OrderEvent::OrderDelivered { at_stop: Some(1) });
+        let times = step_times(&stream_of(order, &events));
+        let at = |t: &Option<String>| t.as_deref().unwrap().parse::<BusinessTime>().unwrap();
+        let order_of_steps = [
+            &times.placed,
+            &times.paid,
+            &times.in_production,
+            &times.ready,
+            &times.out_for_delivery,
+            &times.delivered,
+        ];
+        for pair in order_of_steps.windows(2) {
+            assert!(at(pair[0]) <= at(pair[1]), "{pair:?}");
+        }
+        assert_eq!(times.picked_up, None);
+    }
+
+    #[test]
+    fn the_answer_carries_the_steps_times() {
+        let order = Ulid::from_parts(1, 2);
+        let events = a_ready_delivery(order);
+        let stream = stream_of(order, &events);
+        let state = replay::<OrderAggregate>(&events);
+        let r = response_of(&state, &stream).unwrap();
+        assert_eq!(r.step_times, step_times(&stream));
+        assert_eq!(r.step_times.placed.as_deref(), Some(r.placed_at.as_str()));
+        let wire = serde_json::to_value(&r).unwrap();
+        assert_eq!(wire["step_times"]["paid"], "2026-11-07T09:15:00-07:00");
+        assert!(wire["step_times"]["delivered"].is_null());
+        // An answer from before the field reads as no times at all.
+        let mut old = wire.clone();
+        old.as_object_mut().unwrap().remove("step_times");
+        let read: OrderResponse = serde_json::from_value(old).unwrap();
+        assert_eq!(read.step_times, OrderStepTimes::default());
     }
 
     /// A paid delivery made ready: its log from `OrderPlaced` to `OrderReady`.
