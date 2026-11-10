@@ -54,11 +54,12 @@ pub fn city_matrix() -> TravelMatrix {
     TravelMatrix::from_json(CITY_MATRIX_JSON).expect("the committed fixture is a valid matrix")
 }
 
-/// Each of the 64 places' delivery zone, by its drive from the bakery in the city's fixture: the
-/// nearest third (21 places) `z1`, the next 21 `z2`, the farthest 22 `z3`, ties by place number.
-/// A customer's zone is the zone of their place (roadmap R69, decided 2026-11-09 as R24), so one
-/// place is in one zone, and the server derives a delivery's zone from it. The bakery's own place,
-/// `p1`, is the nearest.
+/// Each place's delivery zone, by its drive from the bakery in the city's fixture. The 63 places a
+/// customer can have, `p2` to `p64` (roadmap R65), fall in thirds: the nearest 21 `z1`, the next
+/// 21 `z2`, the farthest 21 `z3`, ties by place number. A customer's zone is the zone of their
+/// place (roadmap R69, decided 2026-11-09 as R24), so one place is in one zone, and the server
+/// derives a delivery's zone from it. The bakery's own square, `p1`, is no customer's place since
+/// 2026-11-10; it keeps `z1` only for a sandbox seeded before then, until its wipe.
 fn zones() -> &'static [&'static str] {
     static ZONES_BY_PLACE: OnceLock<Vec<&'static str>> = OnceLock::new();
     ZONES_BY_PLACE.get_or_init(|| {
@@ -66,6 +67,7 @@ fn zones() -> &'static [&'static str] {
         let depot = m.depot();
         let n = m.len();
         let mut by_drive: Vec<(u32, usize)> = (0..n)
+            .filter(|&i| i != usize::from(depot))
             .map(|i| {
                 let place = PlaceIndex::try_from(i).unwrap_or(depot);
                 (m.minutes(depot, place).unwrap_or(0), i)
@@ -73,7 +75,7 @@ fn zones() -> &'static [&'static str] {
             .collect();
         by_drive.sort_unstable();
         let mut zones = vec![crate::ZONES[0]; n];
-        let third = n / 3;
+        let third = by_drive.len() / 3;
         for (rank, &(_, i)) in by_drive.iter().enumerate() {
             zones[i] = crate::ZONES[(rank / third).min(crate::ZONES.len() - 1)];
         }
@@ -245,9 +247,14 @@ mod tests {
         let m = city_matrix();
         let labels: Vec<String> = (1..=PLACE_COUNT).map(|n| format!("p{n}")).collect();
         let zone = |l: &str| zone_of_place(l).unwrap();
-        let count = |z: &str| labels.iter().filter(|l| zone(l) == z).count();
-        assert_eq!((count("z1"), count("z2"), count("z3")), (21, 21, 22));
-        assert_eq!(zone("p1"), "z1", "the bakery's own place is the nearest");
+        let customers: Vec<&String> = labels.iter().filter(|l| *l != "p1").collect();
+        let count = |z: &str| customers.iter().filter(|l| zone(l) == z).count();
+        assert_eq!((count("z1"), count("z2"), count("z3")), (21, 21, 21));
+        assert_eq!(
+            zone("p1"),
+            "z1",
+            "the bakery's own square, for a sandbox seeded before R65"
+        );
         let drive = |l: &str| m.minutes(m.depot(), place_index(l).unwrap()).unwrap();
         let farthest = |z: &str| {
             labels
