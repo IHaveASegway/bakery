@@ -113,7 +113,15 @@ export function clearOfPage(box: Box): boolean {
       continue;
     }
     if (under.closest(CONTROLS) !== null) return false;
-    if (ownLines(under).some((line) => meets(line, box))) return false;
+    // The mark as drawn, inside its box's margin, against the lines of text: a wrapped heading's
+    // first line ends a pixel or two into the margin of a mark set after its last line.
+    const drawn = {
+      top: box.top + inset,
+      left: box.left + inset,
+      width: box.width - 2 * inset,
+      height: box.height - 2 * inset,
+    };
+    if (ownLines(under).some((line) => meets(line, drawn))) return false;
   }
   return true;
 }

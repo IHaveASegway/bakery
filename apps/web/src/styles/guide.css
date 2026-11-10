@@ -521,7 +521,8 @@
   display: inline;
 }
 
-.guide-curl summary {
+.guide-curl summary,
+.guide-reasons summary {
   min-height: 24px;
   color: var(--guide-accent);
   font-weight: 600;
@@ -660,13 +661,14 @@
   outline-offset: 3px;
 }
 
-/* ---- A narrow screen: the dock is one 48 px button, never over the page's primary column ----
+/* ---- A narrow screen: the dock is one button, never over the page's primary column ----
 
-   It shows the switch's state and opens the whole control on a tap. Where the page has its own
-   bottom bar (the menu's cart bar), the button sits at that bar's left end, in the same row, so
-   the column of Add buttons at the right never passes under it; where it has none, the button
-   sits in the masthead's first row and scrolls away with it, over nothing. */
-@media (max-width: 60rem) {
+   It shows the switch's state and opens the whole control on a tap. Between a phone and a wide
+   screen, where the page has its own bottom bar (the menu's cart bar), the button sits at that
+   bar's left end, in the same row, so the column of Add buttons never passes under it. On a phone
+   (48rem and under) it is a labelled button in a row of the masthead's own, the same place on
+   every page, cart bar or not (audit G6, 2026-11-10). */
+@media (min-width: 48.01rem) and (max-width: 60rem) {
   body:has(.cart-bar) .guide-bar-dock {
     padding: 0;
     border: 0;
@@ -824,29 +826,135 @@
     text-align: left;
   }
 
-  /* In the nav's row, left of the session link, in the row's flow: nothing touches it. */
-  body:not(:has(.cart-bar)) .masthead-guide {
+  /* A row of its own under the masthead's links, in the page's flow: nothing touches it, and it
+     reads "Under the hood" beside its switch, so a stranger finds it without pressing anything. */
+  .masthead-guide {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    /* The row's height is the server's: the control and up to three short lines of the folded
+       line beside it, so the line's arrival after load moves nothing. */
+    min-height: 46px;
+    order: 4;
+  }
+
+  /* The guide's row: its control, then the folded line beside it in the room the control's row
+     already has (40 px), so a line arriving after load moves nothing (pull request #143). */
+  .masthead .guide-line-slot {
+    flex: 1 1 0;
+    min-width: 0;
+    order: 5;
+  }
+
+  .masthead .guide-line-slot:empty {
     display: block;
+  }
+
+  .guide-line-docked .guide-line {
+    max-width: 100%;
+    padding-block: 0;
+    font-size: 12px;
+    line-height: 15px;
+  }
+
+  /* Beside the control there is room for the title alone: the answer's chip is read out, not
+     shown, and the opened note shows it whole. */
+  .guide-line-docked .guide-line .guide-chip {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .guide-line-docked .guide-icon {
     flex: none;
-    margin-left: 8px;
+    min-width: 28px;
+    min-height: 28px;
   }
 
-  body:not(:has(.cart-bar)) .guide-layer .guide-bar-dock .guide-compact {
-    width: 44px;
-    height: 44px;
+  .guide-layer.guide-line-docked .guide-line-open {
+    min-height: 38px;
+    padding: 2px 4px 2px 8px;
+    row-gap: 0;
   }
 
-  body:not(:has(.cart-bar)) .guide-bar-dock {
+  .guide-line-docked .guide-line {
+    gap: 0;
+  }
+
+  .guide-line-docked .guide-icon {
+    width: 28px;
+  }
+
+  .guide-layer .guide-bar-dock .guide-compact {
+    display: inline-flex;
+    gap: 8px;
+    width: auto;
+    height: 40px;
+    padding: 0 12px 0 10px;
+    box-shadow: none;
+  }
+
+  .guide-compact-text {
+    color: var(--guide-text);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  /* On the narrowest phones the folded line beside the control keeps its title's room: its close
+     button is left to the opened note, which has its own. */
+  @media (max-width: 22.5rem) {
+    .guide-line-docked .guide-line .guide-icon {
+      display: none;
+    }
+  }
+
+  .guide-bar-dock {
     position: relative;
     right: auto;
     bottom: auto;
+    left: auto;
     z-index: 30;
   }
 
-  body:not(:has(.cart-bar)) .guide-bar-dock .guide-full[data-open] {
+  .guide-bar-dock .guide-full[data-open] {
     top: calc(100% + 8px);
-    right: 0;
+    left: 0;
   }
+}
+
+/* ---- Room for a mark at the end of the words it explains ----
+
+   A mark sits after the last word of its target's heading or paragraph (lib/guide.ts,
+   spotPlaces). The room is kept in the page's own layout, in the first-load stylesheet, so it
+   never depends on how wide the system's font sets the words and never shifts the page when the
+   guide loads: an inline end of 48 px (the mark, its 18 px gap and a margin) joined to the last
+   word by a word joiner, so a full line wraps the last word together with the room rather than
+   leave none (pull request #143: in DejaVu Sans the catering gate's title filled its line at
+   390 px and its mark was not drawn). The room is there with the guide off too, so turning it on
+   or off moves nothing. */
+:is(
+  [data-tour]:is(h1, h2, h3, h4, p),
+  [data-tour] > :is(h1, h2, h3, h4),
+  [data-tour] > * > :is(h1, h2, h3, h4):first-child,
+  [data-tour] .start-title
+)::after {
+  /* Empty alternative text: the joiner is layout, not a word, and stays out of the heading's
+     accessible name ("Customers" must not read as "Customers" plus a joiner). A browser that
+     does not know the alternative-text form drops that declaration and keeps the plain one
+     before it, so the room is still there. */
+  content: '\2060';
+  content: '\2060' / '';
+  padding-inline-end: 48px;
+}
+
+/* An entry's reasons after its first note in a visit: one line that opens them (G12). */
+.guide-reasons {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--guide-border);
 }
 
 /* ---- A note the page caused by itself, folded to one line ----
@@ -895,6 +1003,16 @@
   min-height: 44px;
   border-color: transparent;
   text-align: left;
+}
+
+/* On the console the guide sits in the top bar, not at the window's foot: the line waits under
+   the top bar's right end, over the page's headings and live words, not over the foot of the
+   board's columns and their buttons (F6, 2026-11-10). */
+@media (min-width: 60.01rem) {
+  .shell-app .guide-layer:not(.guide-line-docked) > .guide-line {
+    top: calc(var(--guide-top, 56px) + 8px);
+    bottom: auto;
+  }
 }
 
 /* The line is the guide's one visible line, so it reads whole wherever it sits: its title and its

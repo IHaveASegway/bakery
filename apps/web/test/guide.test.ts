@@ -44,6 +44,7 @@ import {
   STORY_READ_ROUTES,
 } from '../src/guide';
 import { STORY_READS } from '../src/lib/trace';
+import { COMMAND_EVENT, ROUTE_WRITES } from '../src/components/guide/match';
 import { DECISIONS, decisionRows } from '../src/guide/decisions';
 import { CONSOLE_PAGES, PAGES } from '../src/lib/guide';
 
@@ -200,6 +201,25 @@ describe('events, principles and targets', () => {
     expect(catalog.size).toBeGreaterThan(60);
     expect(catalog.has('OrderPlaced')).toBe(true);
     expect(catalog.has('ApiTokenRotated')).toBe(true);
+  });
+
+  test('every event a note waits for is an event type the code routes (audit G4)', () => {
+    // The routing table in crates/app/src/routing.rs lists every event the Queue carries, which is
+    // what the recorder can show: a name not in it would wait for ever.
+    const routed = new Set(
+      [
+        ...read('../../../crates/app/src/routing.rs').matchAll(/^\s*\(\s*"([A-Z][A-Za-z]+)",/gm),
+      ].map((m) => m[1] as string),
+    );
+    expect(routed.size).toBeGreaterThan(60);
+    const waited = [
+      ...ALL_ENTRIES.flatMap((e) => e.events.map((name) => [e.id, name] as const)),
+      ...Object.entries(ROUTE_WRITES).flatMap(([route, names]) =>
+        names.map((name) => [route, name] as const),
+      ),
+      ...Object.entries(COMMAND_EVENT).map(([action, name]) => [action, name] as const),
+    ];
+    for (const [where, name] of waited) expect(routed.has(name), `${where}: ${name}`).toBe(true);
   });
 
   test('every event an entry names is in the catalog', () => {

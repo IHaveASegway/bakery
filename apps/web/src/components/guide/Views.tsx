@@ -268,6 +268,16 @@ export function ReadStory({ trace }: { trace: Trace }) {
 }
 
 /**
+ * What an event the note waits for says before it is seen (audit G4): waiting for the recorder at
+ * first; after about 3 s, late and still listened for; after about 30 s, not seen, in words.
+ */
+export function hopWait(reading: 'idle' | 'reading' | 'late' | 'done'): string {
+  if (reading === 'late') return 'not seen on the recorder yet; still listening';
+  if (reading === 'done') return 'not seen on the recorder in 30 s; it may have missed it';
+  return reading === 'reading' ? 'waiting for the recorder' : 'on its way';
+}
+
+/**
  * The chain of hops for the visitor's action: each request (or socket command) with its answer,
  * time and key; the object that decided it, once an event names it; then each event the entry
  * expects, observed with its sequence number, seen in the activity feed, or still expected; and
@@ -284,7 +294,7 @@ export function TraceChain({
   expected: readonly string[];
   feed: readonly FeedArrival[];
   /** The recorder's reads for this note: once done, an event no hop showed is "not seen yet". */
-  reading?: 'idle' | 'reading' | 'done';
+  reading?: 'idle' | 'reading' | 'late' | 'done';
 }) {
   const first = traces[0];
   if (first === undefined) return null;
@@ -350,11 +360,7 @@ export function TraceChain({
                 </span>
               ) : (
                 <span className="guide-meta">
-                  {hop.state === 'seen-in-feed'
-                    ? 'in the activity feed'
-                    : reading === 'done'
-                      ? 'not seen yet: the recorder may have missed it'
-                      : 'expected'}
+                  {hop.state === 'seen-in-feed' ? 'in the activity feed' : hopWait(reading)}
                 </span>
               )}
               {delivered.length > 0 && (
@@ -391,6 +397,31 @@ export function WhyLines({
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * The reasons once per entry in a visit (audit G12, 2026-11-10): the first note of an entry shows
+ * why this tool and when not; a later one of the same entry shows its trace and one line that
+ * opens them, since the second move teaches nothing new. Kept in this page's memory only.
+ */
+const reasonsShown = new Map<string, number>();
+export function ReasonsOnce({
+  entry,
+  note,
+}: {
+  entry: Pick<GuideEntry, 'id' | 'why' | 'whenNot' | 'principle'>;
+  /** The note's own key (its gesture): the note that first showed an entry keeps showing it. */
+  note: number;
+}) {
+  const first = reasonsShown.get(entry.id) ?? note;
+  if (!reasonsShown.has(entry.id)) reasonsShown.set(entry.id, note);
+  if (first === note) return <WhyLines entry={entry} />;
+  return (
+    <details className="guide-reasons">
+      <summary>Why this tool, and when not</summary>
+      <WhyLines entry={entry} />
+    </details>
   );
 }
 

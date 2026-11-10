@@ -323,9 +323,9 @@ main:focus {
     margin-left: 0;
   }
 
-  /* Two rows on a phone, every section in sight: the bakery's name with the guide's control and
-     the session link at its right end, then every link of the nav, wrapping onto another line
-     rather than scrolling out of sight. The nav's box gives way (its landmark stays in the
+  /* Rows on a phone, every section in sight: the bakery's name with the session link at its
+     right end, then every link of the nav, wrapping onto another line rather than scrolling out
+     of sight, then the guide's labelled control in a row of its own (audit G6, 2026-11-10). The nav's box gives way (its landmark stays in the
      markup) so its parts can sit in both rows; nothing lies over anything. */
   .masthead-inner {
     justify-content: flex-start;
@@ -342,7 +342,8 @@ main:focus {
   }
 
   .masthead .masthead-guide {
-    order: 1;
+    flex: 0 0 auto;
+    order: 4;
   }
 
   .masthead .site-nav-session {
@@ -363,8 +364,14 @@ main:focus {
     flex: none;
   }
 
+  /* The guide's folded line waits beside its control, in the row the control already holds, so
+     its arrival after load moves nothing (pull request #143). */
   .masthead .guide-line-slot {
-    order: 4;
+    display: flex;
+    flex: 1 1 0;
+    align-items: center;
+    min-height: 46px;
+    order: 5;
   }
 }
 

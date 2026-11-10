@@ -240,11 +240,33 @@ test('a new demo account reaches a live Kitchen board in one press, its two acti
   // The card's two actions stand apart, at both widths.
   const copy = page.getByRole('button', { name: 'Copy username' });
   const go = page.getByRole('link', { name: 'Continue to the console' });
+  await expect(copy).toBeVisible();
+  await expect(go).toBeVisible();
   for (const width of WIDTHS) {
     await page.setViewportSize({ width, height: HEIGHT[width] });
-    const a = (await copy.boundingBox())!;
-    const b = (await go.boundingBox())!;
-    const gap = Math.max(b.y - (a.y + a.height), b.x - (a.x + a.width));
+    // Both boxes in one read, two frames after the resize, so a reflow between two reads cannot
+    // be measured as a gap (pull request #143).
+    const [a, b] = await page.evaluate(
+      () =>
+        new Promise<{ x: number; y: number; width: number; height: number }[]>((done) =>
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              const box = (el: Element | null | undefined) => {
+                const r = el!.getBoundingClientRect();
+                return { x: r.x, y: r.y, width: r.width, height: r.height };
+              };
+              const copyButton = [...document.querySelectorAll('button')].find(
+                (el) => el.textContent?.trim() === 'Copy username',
+              );
+              const goLink = [...document.querySelectorAll('a')].find(
+                (el) => el.textContent?.trim() === 'Continue to the console',
+              );
+              done([box(copyButton), box(goLink)]);
+            }),
+          ),
+        ),
+    );
+    const gap = Math.max(b!.y - (a!.y + a!.height), b!.x - (a!.x + a!.width));
     expect(gap, `${width} px: ${gap} px between the two actions`).toBeGreaterThanOrEqual(8);
   }
   await page.setViewportSize({ width: 1280, height: 800 });
