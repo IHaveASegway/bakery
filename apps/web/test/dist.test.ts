@@ -342,6 +342,17 @@ describe('dist', () => {
       }
     });
 
+    test('cites its sources by title and venue, never by a person’s name (roadmap R71)', () => {
+      // An initial and a surname ("M. Jones"), or "by" and two capitalised words, is a work credited
+      // to a person. An eponym (the Clarke-Wright heuristic) is a thing's name and is not caught here.
+      const sources = html()
+        .split('<h2>Sources</h2>')[1]!
+        .split('</ul>')[0]!
+        .replace(/<[^>]+>/g, ' ');
+      expect(sources).not.toMatch(/\b[A-Z]\.(\s[A-Z]\.)?\s[A-Z][a-z]+/);
+      expect(sources).not.toMatch(/\bby\s+[A-Z][a-z]+\s+[A-Z][a-z]+/);
+    });
+
     test('is the length its brief sets, between its title and its sources', () => {
       const body = text().split(title).at(-1)!.split(' Sources ')[0]!;
       const words = body.trim().split(' ').length;

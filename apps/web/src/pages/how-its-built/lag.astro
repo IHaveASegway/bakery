@@ -12,13 +12,13 @@ const SOURCES = [
   {
     href: 'https://cqrs.wordpress.com/wp-content/uploads/2010/11/cqrs_documents.pdf',
     title: 'CQRS Documents',
-    by: 'Greg Young, 2010',
+    by: 'a self-published paper, 2010',
     for: 'a service split into a command side and a query side, with consistent transactions on the first and eventual consistency on the second, kept in step by events',
   },
   {
     href: 'https://www.enterpriseintegrationpatterns.com/patterns/messaging/Resequencer.html',
     title: 'Resequencer',
-    by: 'Gregor Hohpe and Bobby Woolf, Enterprise Integration Patterns (2003)',
+    by: 'Enterprise Integration Patterns (book, 2003), and its site',
     for: 'collecting messages that arrive out of order and publishing them in order, which the CRM deliberately does not do',
   },
   {
@@ -90,14 +90,14 @@ const SOURCES = [
 
     <h2>Two sides with different needs</h2>
     <p>
-      Greg Young’s <em>CQRS Documents</em> (2010) splits a service into a command side and a query
-      side because they want different things: commands want consistent data and a transaction,
-      while most systems can let the query side be eventually consistent. The bakery takes that
-      literally. The <code>Order</code>, <code>Customer</code> and <code>CateringEvent</code>{' '}
-      objects take commands and decide them. The <code>Crm</code> object keeps the views the console
-      reads, the customer list, the timelines, the activity feed, the lead pipeline and the campaign
-      stats, and no command ever writes them (<code>crates/domain/src/crm.rs</code>). The only thing
-      between the two sides is the Queue.
+      <em>CQRS Documents</em> (2010) splits a service into a command side and a query side because
+      they want different things: commands want consistent data and a transaction, while most
+      systems can let the query side be eventually consistent. The bakery takes that literally. The{' '}
+      <code>Order</code>, <code>Customer</code> and <code>CateringEvent</code> objects take commands
+      and decide them. The <code>Crm</code> object keeps the views the console reads, the customer
+      list, the timelines, the activity feed, the lead pipeline and the campaign stats, and no
+      command ever writes them (<code>crates/domain/src/crm.rs</code>). The only thing between the
+      two sides is the Queue.
     </p>
 
     <h2>How an event crosses</h2>
@@ -117,10 +117,11 @@ const SOURCES = [
       keeps the ids it applied, so a second delivery changes nothing. For each order, catering and
       customer stream it keeps the newest <code>seq</code> it applied and ignores anything not
       newer. It does not wait for gaps, because it receives only some of each stream’s events by
-      design. It is not Hohpe and Woolf’s resequencer, which buffers messages until the order is
-      whole. The one case it cannot apply is a later event for an order it has never seen, such as{' '}
-      <code>OrderPaid</code> ahead of <code>OrderPlaced</code>: it refuses it as an unknown
-      reference, and the Queue’s retry brings it back after the placement has arrived.
+      design. It is not the resequencer of <em>Enterprise Integration Patterns</em>, which buffers
+      messages until the order is whole. The one case it cannot apply is a later event for an order
+      it has never seen, such as <code>OrderPaid</code> ahead of <code>OrderPlaced</code>: it
+      refuses it as an unknown reference, and the Queue’s retry brings it back after the placement
+      has arrived.
     </p>
 
     <h2>The lag is the design</h2>
