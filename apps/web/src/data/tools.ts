@@ -456,7 +456,7 @@ export const TOOLS: Tool[] = [
       {
         name: 'An in-object broker, as the site’s Outbox Lab simulates',
         replaces: 'The queue between objects.',
-        whyNot: 'Across fourteen classes it becomes a central object every event passes through.',
+        whyNot: 'Across every class it becomes a central object every event passes through.',
         whenRight: 'It is fine for one object.',
         record: { adr: '0004' },
       },
