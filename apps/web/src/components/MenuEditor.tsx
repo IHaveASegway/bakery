@@ -172,7 +172,7 @@ export default function MenuEditor({
     });
 
   /** One variant's price field and its Set price, with the note of what waits for Publish. */
-  const priceRow = (item: ItemView, variant: VariantView, labelled: boolean) => {
+  const priceRow = (item: ItemView, variant: VariantView) => {
     const id = `price-${variant.slug.replaceAll('/', '-')}`;
     const name = priceFieldName(item, variant);
     const field = fields[variant.slug] ?? dollarsField(drafts[variant.slug] ?? variant.price_cents);
@@ -203,7 +203,7 @@ export default function MenuEditor({
     const input = (
       <input
         id={id}
-        aria-label={labelled ? undefined : `Price of ${name}, in dollars`}
+        aria-label={`Price of ${name}, in dollars`}
         type="text"
         inputMode="decimal"
         value={field}
@@ -363,7 +363,7 @@ export default function MenuEditor({
               const only = item.variants.length === 1 ? item.variants[0] : undefined;
               if (only !== undefined) {
                 // One variant: one field, as the editor has always shown it.
-                const row = priceRow(item, only, false);
+                const row = priceRow(item, only);
                 return (
                   <li key={item.slug}>
                     <p>
@@ -393,7 +393,7 @@ export default function MenuEditor({
                     <p className="actions">{pause}</p>
                   </div>
                   {item.variants.map((v) => {
-                    const row = priceRow(item, v, true);
+                    const row = priceRow(item, v);
                     return (
                       <div key={v.slug} className="price-row">
                         <label htmlFor={row.id}>
