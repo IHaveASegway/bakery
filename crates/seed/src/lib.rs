@@ -1329,8 +1329,8 @@ mod tests {
     }
 
     /// No persona lives at the bakery's own square, `p1` (roadmap R65): not the visitor's, the
-    /// first customer, nor any of the 60, over 500 seeds and two birth dates; and every one of the
-    /// 63 other places is drawn somewhere.
+    /// first customer, nor any of the 60, over 250 seeds on each of two birth dates (500 sandboxes);
+    /// and every one of the 63 other places is drawn somewhere.
     #[test]
     fn no_persona_is_at_the_bakery_over_many_seeds() {
         let mut drawn = HashSet::new();
