@@ -127,11 +127,11 @@ describe('the visitor’s own order on the board (G7)', () => {
 });
 
 describe('a card’s chip and its way forward (G9)', () => {
-  test('an event’s type breaks between its words', () => {
+  test('an event’s type is one name on the chip, never broken inside', () => {
     expect(eventWords('OrderProductionStarted')).toEqual(['Order', 'Production', 'Started']);
-    expect(eventWords('OrderOutForDelivery')).toEqual(['Order', 'Out', 'For', 'Delivery']);
     const html = draw({ ...card, state: 'in_production', last: 'OrderProductionStarted' });
-    expect(html).toContain('Order<wbr/>');
+    expect(html).not.toContain('<wbr/>');
+    expect(html).toContain('title="OrderProductionStarted">OrderProductionStarted</span>');
     expect(html).toContain('class="badge card-event"');
   });
 

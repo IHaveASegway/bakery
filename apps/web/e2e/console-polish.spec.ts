@@ -294,6 +294,15 @@ test('a chip stays in its card at every width, and a ready delivery says what it
     if (width === 390) await page.getByRole('button', { name: /^In production/ }).click();
     await expect(chip).toBeVisible();
     expect(await overrun(chip, own), `the chip at ${width} px`).toBeLessThanOrEqual(0.5);
+    // One name on one line: never "OrderProduction" over "Started".
+    expect(await linesOf(chip), `the chip's lines at ${width} px`).toBe(1);
+    if (width !== 1024) {
+      // Whole where the card has room for it: no ellipsis at 1280, nor on a phone's wide card.
+      expect(
+        await chip.evaluate((n) => n.scrollWidth <= n.clientWidth + 1),
+        `the chip is whole at ${width} px`,
+      ).toBe(true);
+    }
   }
 
   // The delivery made ready waits for its van, in words, with the way to Dispatch.

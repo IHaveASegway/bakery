@@ -534,7 +534,7 @@ fn the_activity_log_is_in_business_time_order_and_reads_only_named_fields() {
                 "Sandbox seeded from seed 42, born 2026-11-07"
             ),
             ("FaultSet", "Fault inbox turned on"),
-            ("MenuItemChanged", "Menu item an item changed"),
+            ("MenuItemChanged", "An item changed on the menu"),
         ]
     );
     assert_eq!(
@@ -1305,6 +1305,71 @@ fn counts_in_activity_rows_agree_with_their_noun() {
             "Routes proposed: 1 van, 1 minute",
             "Routes proposed: 2 vans, 41 minutes",
             "Simulated traffic stopped (stop) after 1 order",
+        ]
+    );
+}
+
+#[test]
+fn an_activity_row_names_things_as_a_person_does_never_by_their_keys() {
+    use super::{item_name, target_name};
+    assert_eq!(item_name("country-loaf"), "Country loaf");
+    assert_eq!(item_name("seeded-rye"), "Seeded rye");
+    assert_eq!(target_name("slot:07:45"), "the 7:45 am slot");
+    assert_eq!(target_name("slot:12:00"), "the 12:00 pm slot");
+    assert_eq!(target_name("slot:13:15"), "the 1:15 pm slot");
+    assert_eq!(target_name("zone:z2"), "zone 2");
+    assert_eq!(target_name("item:croissant"), "Croissant");
+    assert_eq!(target_name("catering"), "catering");
+    for odd in [
+        "slot:7",
+        "slot:25:00",
+        "zone:",
+        "item:",
+        "nothing",
+        "zone:zx",
+    ] {
+        assert!(!target_name(odd).contains(':'), "{odd}");
+    }
+    let mut p = CrmProjection::new(&directory());
+    let raw = |id: u128, ty: &str, data: serde_json::Value| Envelope {
+        v: 1,
+        id: ulid(id),
+        sandbox: ulid(SANDBOX),
+        stream: format!("sandbox:{}", ulid(SANDBOX)),
+        seq: id as u64,
+        event_type: ty.into(),
+        at: t(NOW),
+        recorded_at: WallTime::from_unix_ms(1_793_000_000_000).unwrap(),
+        data,
+        cause: None,
+    };
+    applied(
+        &mut p,
+        &[
+            raw(
+                1,
+                "MenuItemChanged",
+                serde_json::json!({ "item": "country-loaf", "fields": {} }),
+            ),
+            raw(
+                2,
+                "CapacityChanged",
+                serde_json::json!({ "target": "slot:07:45", "capacity": 3 }),
+            ),
+            raw(
+                3,
+                "TrafficStopped",
+                serde_json::json!({ "reason": "minutes-spent", "minutes": 30, "orders": 4 }),
+            ),
+        ],
+    );
+    let summaries: Vec<String> = activity_rows(&p).into_iter().map(|(_, s)| s).collect();
+    assert_eq!(
+        summaries,
+        [
+            "Country loaf changed on the menu",
+            "Capacity of the 7:45 am slot set to 3",
+            "Simulated traffic stopped (minutes spent) after 4 orders",
         ]
     );
 }

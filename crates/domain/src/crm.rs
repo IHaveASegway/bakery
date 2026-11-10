@@ -1263,6 +1263,52 @@ pub(crate) fn slug_text(slug: &str) -> String {
     }
 }
 
+/// A menu item's slug as its name: `country-loaf` is "Country loaf", the way the menu says it.
+pub(crate) fn item_name(slug: &str) -> String {
+    let words = slug_text(slug);
+    let mut chars = words.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => words,
+    }
+}
+
+/// A capacity target as a person says it: `slot:07:45` is "the 7:45 am slot", `zone:z2` is
+/// "zone 2", `item:croissant` is "Croissant", `catering` is "catering". Anything else is
+/// "a target", so no internal key reaches an activity row.
+pub(crate) fn target_name(target: &str) -> String {
+    let (kind, name) = target.split_once(':').unwrap_or((target, ""));
+    match kind {
+        "catering" if name.is_empty() => "catering".to_owned(),
+        "slot" => {
+            let parsed = name.split_once(':').and_then(|(h, m)| {
+                let h: u32 = h.parse().ok()?;
+                let m: u32 = m.parse().ok()?;
+                (h < 24 && m < 60 && name.len() == 5).then_some((h, m))
+            });
+            match parsed {
+                Some((h, m)) => {
+                    let half = if h < 12 { "am" } else { "pm" };
+                    let h12 = match h % 12 {
+                        0 => 12,
+                        h => h,
+                    };
+                    format!("the {h12}:{m:02} {half} slot")
+                }
+                None => "a slot".to_owned(),
+            }
+        }
+        "zone" => match name.strip_prefix('z') {
+            Some(n) if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => {
+                format!("zone {n}")
+            }
+            _ => "a zone".to_owned(),
+        },
+        "item" if is_slug(name) && !name.contains(':') => item_name(name),
+        _ => "a target".to_owned(),
+    }
+}
+
 fn is_slug(text: &str) -> bool {
     !text.is_empty()
         && text.len() <= 40
@@ -1317,10 +1363,13 @@ fn activity_summary(event_type: &str, data: &Value) -> String {
             }
         ),
         "ApiTokenRotated" => format!("API token rotated to version {}", n(num("token_v"))),
-        "MenuItemChanged" => format!("Menu item {} changed", or(slug("item"), "an item")),
+        "MenuItemChanged" => match slug("item") {
+            Some(item) => format!("{} changed on the menu", item_name(&item)),
+            None => "An item changed on the menu".to_owned(),
+        },
         "CapacityChanged" => format!(
             "Capacity of {} set to {}",
-            or(slug("target"), "a target"),
+            slug("target").map_or_else(|| "a target".to_owned(), |t| target_name(&t)),
             n(num("capacity"))
         ),
         "PaymentIntentCreated" => format!(
@@ -1345,7 +1394,7 @@ fn activity_summary(event_type: &str, data: &Value) -> String {
         ),
         "TrafficStopped" => format!(
             "Simulated traffic stopped ({}) after {}",
-            or(slug("reason"), "stop"),
+            slug("reason").map_or_else(|| "stop".to_owned(), |r| slug_text(&r)),
             count_text(num("orders"), "order", "orders")
         ),
         "CampaignSent" => format!(

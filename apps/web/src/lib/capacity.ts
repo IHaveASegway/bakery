@@ -8,6 +8,7 @@ import { ApiError } from './api';
 import { describeError, type Message } from './messages';
 import { pollUntil, type PollOptions, type Polled } from './payment';
 import { mountainLocal, ZONES } from './slots';
+import { targetText } from './words';
 
 /**
  * After a publish, reads the day until it reports the menu version that was published. The
@@ -67,11 +68,11 @@ export function buildTarget(kind: TargetKind, value: string): Built {
     case 'zone':
       return (ZONES as readonly string[]).includes(v)
         ? { ok: true, target: `zone:${v}` }
-        : { ok: false, reason: 'A zone is z1, z2 or z3.' };
+        : { ok: false, reason: 'A zone is zone 1, 2 or 3.' };
     case 'item':
       return /^[a-z0-9]+(-[a-z0-9]+)*$/.test(v)
         ? { ok: true, target: `item:${v}` }
-        : { ok: false, reason: 'An item is named by its slug, such as croissant or country-loaf.' };
+        : { ok: false, reason: 'Type an item’s short name, such as croissant or country-loaf.' };
   }
 }
 
@@ -114,7 +115,7 @@ export function standing(
 /** The line after a change. A lowered capacity never drops a reservation, and the line says so. */
 export function changedText(target: string, capacity: number, schedule: ScheduleResponse): string {
   const now = standing(schedule, target);
-  const base = `Capacity for ${target} is now ${capacity}.`;
+  const base = `Capacity for ${targetText(target)} is now ${capacity}.`;
   if (now === null) return base;
   return now.taken > capacity
     ? `${base} ${now.taken} already taken stay: a lowered capacity never drops a reservation, it only stops new ones.`

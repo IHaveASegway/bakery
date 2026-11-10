@@ -143,18 +143,18 @@ describe('the bake list', () => {
     expect(bakeLineText({ item: 'breakfast-spread', qty: 1 })).toBe(
       'Breakfast spread for 1 person',
     );
-    expect(bakeLineText({ item: 'country-loaf', qty: 12 })).toBe('12 × country loaf');
+    expect(bakeLineText({ item: 'country-loaf', qty: 12 })).toBe('12 × Country loaf');
   });
 
   test('the API’s catering flag decides, and a package slug still does for an older frame', () => {
     expect(bakeLineText({ item: 'spring-tasting', qty: 30, catering: true })).toBe(
-      'spring tasting for 30 people',
+      'Spring tasting for 30 people',
     );
     expect(bakeLineText({ item: 'breakfast-spread', qty: 40, catering: true })).toBe(
       'Breakfast spread for 40 people',
     );
     expect(bakeLineText({ item: 'country-loaf', qty: 12, catering: false })).toBe(
-      '12 × country loaf',
+      '12 × Country loaf',
     );
   });
 
@@ -184,7 +184,7 @@ describe('the bake list', () => {
     );
     expect(html).toContain('>7:00 am</time>');
     expect(html).toContain('Lunch boxes for 49 people');
-    expect(html).toContain('6 × croissant');
+    expect(html).toContain('6 × Croissant');
   });
 });
 
