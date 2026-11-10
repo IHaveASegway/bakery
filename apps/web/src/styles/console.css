@@ -585,3 +585,41 @@ details.how > summary:hover {
   display: block;
   width: 12ch;
 }
+
+/* The capacity card's three tables, each under a summary line of its total: open on a wide screen,
+   closed on a phone until asked for. */
+details.capacity-group {
+  margin-top: var(--space-3);
+}
+
+details.capacity-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  font-size: var(--type-13);
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+details.capacity-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.capacity-group > summary::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+}
+
+details.capacity-group[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+details.capacity-group .capacity-table {
+  margin-top: var(--space-1);
+}

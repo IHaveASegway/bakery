@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ScheduleResponse } from '../contracts';
 import { setCapacity } from '../lib/api';
 import {
@@ -41,8 +41,45 @@ function Fill({ taken, capacity }: { taken: number; capacity: number }) {
   );
 }
 
+/** Whether the window is wide enough to show the day's tables open (60rem, the phone's edge). */
+const WIDE = '(min-width: 60rem)';
+
+function useWide(): boolean {
+  const [wide, setWide] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(WIDE).matches,
+  );
+  useEffect(() => {
+    const query = window.matchMedia(WIDE);
+    const change = () => setWide(query.matches);
+    change();
+    query.addEventListener('change', change);
+    return () => query.removeEventListener('change', change);
+  }, []);
+  return wide;
+}
+
+/**
+ * One of the day's tables under a summary that says its total in one line. Open on a wide screen,
+ * closed on a phone, where the three tables would run to many screens; either way a press opens or
+ * closes it, and it is announced as what it is.
+ */
+function Group({ line, wide, children }: { line: string; wide: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(wide);
+  useEffect(() => setOpen(wide), [wide]);
+  return (
+    <details className="capacity-group" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>{line}</summary>
+      {children}
+    </details>
+  );
+}
+
+const sum = (values: number[]) => values.reduce((n, v) => n + v, 0);
+
 /** The day's places and caps as the Schedule reports them, as compact tables. */
 export function Day({ schedule }: { schedule: ScheduleResponse }) {
+  const wide = useWide();
+  const capped = schedule.items.filter((i) => i.daily_cap !== null && i.daily_cap !== undefined);
   return (
     <>
       <p className="hint">
@@ -51,81 +88,17 @@ export function Day({ schedule }: { schedule: ScheduleResponse }) {
           : 'The bakery is closed this day: it refuses every hold.'}{' '}
         Menu version {schedule.menu_version} set the item caps.
       </p>
-      <table className="table capacity-table">
-        <caption>Pickup slots</caption>
-        <thead>
-          <tr>
-            <th scope="col">Time</th>
-            <th scope="col" className="num">
-              Taken
-            </th>
-            <th scope="col" className="num">
-              Free
-            </th>
-            <th scope="col">
-              <span className="sr-only">How full</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {schedule.slots.map((s) => (
-            <tr key={s.start}>
-              <th scope="row">{slotWords(s.start)}</th>
-              <td className="num">
-                {s.taken} of {s.capacity}
-              </td>
-              <td className="num">{s.free}</td>
-              <td>
-                <Fill taken={s.taken} capacity={s.capacity} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <table className="table capacity-table">
-        <caption>Delivery zones</caption>
-        <thead>
-          <tr>
-            <th scope="col">Zone</th>
-            <th scope="col" className="num">
-              Stops taken
-            </th>
-            <th scope="col" className="num">
-              Free
-            </th>
-            <th scope="col">
-              <span className="sr-only">How full</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {schedule.zones.map((z) => (
-            <tr key={z.zone}>
-              <th scope="row">
-                Zone {z.zone.slice(1)}{' '}
-                <span className="hint-inline">{z.windows.length} windows</span>
-              </th>
-              <td className="num">
-                {z.taken} of {z.capacity}
-              </td>
-              <td className="num">{z.free}</td>
-              <td>
-                <Fill taken={z.taken} capacity={z.capacity} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {schedule.items.length === 0 ? (
-        <p className="hint">No item has a cap or a use this day.</p>
-      ) : (
+      <Group
+        wide={wide}
+        line={`Pickup slots: ${sum(schedule.slots.map((s) => s.taken))} of ${sum(schedule.slots.map((s) => s.capacity))} taken`}
+      >
         <table className="table capacity-table">
-          <caption>Item caps</caption>
+          <caption className="sr-only">Pickup slots</caption>
           <thead>
             <tr>
-              <th scope="col">Item</th>
+              <th scope="col">Time</th>
               <th scope="col" className="num">
-                Used
+                Taken
               </th>
               <th scope="col" className="num">
                 Free
@@ -136,19 +109,98 @@ export function Day({ schedule }: { schedule: ScheduleResponse }) {
             </tr>
           </thead>
           <tbody>
-            {schedule.items.map((i) => {
-              const cap = i.daily_cap ?? null;
-              return (
-                <tr key={i.item}>
-                  <th scope="row">{itemWords(i.item)}</th>
-                  <td className="num">{cap === null ? i.used : `${i.used} of ${cap}`}</td>
-                  <td className="num">{cap === null ? 'no cap' : Math.max(0, cap - i.used)}</td>
-                  <td>{cap !== null && <Fill taken={i.used} capacity={cap} />}</td>
-                </tr>
-              );
-            })}
+            {schedule.slots.map((s) => (
+              <tr key={s.start}>
+                <th scope="row">{slotWords(s.start)}</th>
+                <td className="num">
+                  {s.taken} of {s.capacity}
+                </td>
+                <td className="num">{s.free}</td>
+                <td>
+                  <Fill taken={s.taken} capacity={s.capacity} />
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
+      </Group>
+      <Group
+        wide={wide}
+        line={`Delivery zones: ${sum(schedule.zones.map((z) => z.taken))} of ${sum(schedule.zones.map((z) => z.capacity))} stops taken`}
+      >
+        <table className="table capacity-table">
+          <caption className="sr-only">Delivery zones</caption>
+          <thead>
+            <tr>
+              <th scope="col">Zone</th>
+              <th scope="col" className="num">
+                Stops taken
+              </th>
+              <th scope="col" className="num">
+                Free
+              </th>
+              <th scope="col">
+                <span className="sr-only">How full</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {schedule.zones.map((z) => (
+              <tr key={z.zone}>
+                <th scope="row">
+                  Zone {z.zone.slice(1)}{' '}
+                  <span className="hint-inline">{z.windows.length} windows</span>
+                </th>
+                <td className="num">
+                  {z.taken} of {z.capacity}
+                </td>
+                <td className="num">{z.free}</td>
+                <td>
+                  <Fill taken={z.taken} capacity={z.capacity} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Group>
+      {schedule.items.length === 0 ? (
+        <p className="hint">No item has a cap or a use this day.</p>
+      ) : (
+        <Group
+          wide={wide}
+          line={`Item caps: ${sum(capped.map((i) => i.used))} of ${sum(capped.map((i) => i.daily_cap ?? 0))} used`}
+        >
+          <table className="table capacity-table">
+            <caption className="sr-only">Item caps</caption>
+            <thead>
+              <tr>
+                <th scope="col">Item</th>
+                <th scope="col" className="num">
+                  Used
+                </th>
+                <th scope="col" className="num">
+                  Free
+                </th>
+                <th scope="col">
+                  <span className="sr-only">How full</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {schedule.items.map((i) => {
+                const cap = i.daily_cap ?? null;
+                return (
+                  <tr key={i.item}>
+                    <th scope="row">{itemWords(i.item)}</th>
+                    <td className="num">{cap === null ? i.used : `${i.used} of ${cap}`}</td>
+                    <td className="num">{cap === null ? 'no cap' : Math.max(0, cap - i.used)}</td>
+                    <td>{cap !== null && <Fill taken={i.used} capacity={cap} />}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Group>
       )}
       <p className="capacity-catering">
         <strong>Catering:</strong> {schedule.catering.taken} of {schedule.catering.capacity} events

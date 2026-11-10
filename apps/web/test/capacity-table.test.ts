@@ -14,12 +14,20 @@ describe('the capacity card’s day', () => {
   );
 
   test('is a table of slots: time, taken of capacity, free, and how full', () => {
-    expect(html).toContain('<caption>Pickup slots</caption>');
+    expect(html).toContain('<caption class="sr-only">Pickup slots</caption>');
     expect(html).toMatch(
       /<th scope="row">10:00 am<\/th><td class="num">3 of 6<\/td><td class="num">3<\/td>/,
     );
     expect(html).toContain('<span class="bar-fill bar-5"></span>');
     expect(html).toContain('<span class="bar-fill bar-10"></span>');
+  });
+
+  test('each table sits under a summary of its total, closed until the window is known to be wide', () => {
+    expect(html).toContain('<summary>Pickup slots: 9 of 192 taken</summary>');
+    expect(html).toMatch(/<summary>Delivery zones: \d+ of \d+ stops taken<\/summary>/);
+    // A static render has no window: the details render closed, as a phone shows them.
+    expect(html.match(/<details class="capacity-group">/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(html).not.toMatch(/<details class="capacity-group" open/);
   });
 
   test('draws its bars with classes and hides them from assistive technology', () => {
