@@ -332,7 +332,7 @@ export const CHECKOUT: GuideEntry[] = [
     what: 'The API derives a delivery’s zone from the persona’s place (delivery_zone, zone_of_place), so the order leaves it out. Naming the persona’s own zone is accepted; another is refused 422 with the rule wrong-zone.',
     facts: [
       'It was v1’s first breaking change: the request’s zone changed meaning, from the zone the caller chose to a claim that must match the persona’s, so a delivery naming another zone went from 201 to 422.',
-      'ADR 0013’s postscript of 2026-11-10 records it, and why it was taken without a /v2/: the choice it removed was a defect, one place served in three zones.',
+      'ADR 0013’s postscript of 2026-11-10 records it and four reasons it was taken without a /v2/. The first: the choice it removed was a defect, one place served in three zones.',
       'The page shows the zone before the order is placed from the sandbox’s persona_zone, and the placed order’s OrderPlaced carries it.',
     ],
     why: 'A value the server can derive is not asked of the client, so no client can get it wrong.',
