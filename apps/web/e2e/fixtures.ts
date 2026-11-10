@@ -212,8 +212,12 @@ export async function guestSandbox(page: Page): Promise<Sandbox> {
     button.click(),
   ]);
   expect(created.status()).toBe(201);
-  const id = ((await created.json()) as Sandbox).id;
+  // The page goes on as soon as the sandbox is made, so the id is read from the session after.
   await page.waitForURL((url) => url.pathname !== '/signin/');
+  const session = await api<{ kind: string; sandbox: string | null }>(page, 'GET', '/v1/session');
+  expect(session.body.kind).toBe('guest');
+  const id = session.body.sandbox ?? '';
+  expect(id).not.toBe('');
   let sandbox: Sandbox = { id, state: 'seeding' };
   await expect
     .poll(
