@@ -349,7 +349,7 @@ describe('where a hotspot sits', () => {
     // A full-width card on a phone: no gutter. Its heading "Breads" ends at x 92 on y 540 to 572.
     const card = { top: 580, left: 16, width: 358, height: 200 };
     const heading = { top: 540, left: 16, width: 76, height: 32 };
-    expect(spotPlaces(card, phone, heading)).toEqual([{ top: 542, left: 100, how: 'line' }]);
+    expect(spotPlaces(card, phone, heading)).toEqual([{ top: 542, left: 110, how: 'line' }]);
     // No heading, or one whose line has no room left: no place at all, so no mark.
     expect(spotPlaces(card, phone, null)).toEqual([]);
     expect(spotPlaces(card, phone, { ...heading, width: 340 })).toEqual([]);

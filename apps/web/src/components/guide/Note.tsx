@@ -141,10 +141,23 @@ export function Note({
       if (at.side === 'none') note.removeAttribute('data-side');
       else note.setAttribute('data-side', at.side);
     };
+    // More below the note's edge, and not yet scrolled to: the foot fades (guide.css).
+    const more = () => {
+      const left = note.scrollHeight - note.clientHeight - note.scrollTop;
+      if (left > 4) note.setAttribute('data-more', '');
+      else note.removeAttribute('data-more');
+    };
     const soon = () => {
-      if (frame === 0) frame = requestAnimationFrame(place);
+      if (frame === 0) {
+        frame = requestAnimationFrame(() => {
+          place();
+          more();
+        });
+      }
     };
     place();
+    more();
+    note.addEventListener('scroll', more, { passive: true });
     window.addEventListener('scroll', soon, { passive: true, capture: true });
     window.addEventListener('resize', soon);
     const sizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(soon);
@@ -161,6 +174,7 @@ export function Note({
       sizes?.disconnect();
       redraws?.disconnect();
       document.removeEventListener('focusin', soon);
+      note.removeEventListener('scroll', more);
       ring(null);
     };
   }, [anchor, changed]);

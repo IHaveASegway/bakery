@@ -279,6 +279,8 @@ export function placeNote(
 /** A hotspot's size, with the ring drawn around it, and the clear margin it keeps. */
 const SPOT = 28;
 const CLEAR = 8;
+/** After a heading's text, room for the mark's pulse (it grows to about 14 px past the mark). */
+const LINE_GAP = 18;
 
 /** Whether two boxes overlap. */
 export const overlaps = (a: Box, b: Box) =>
@@ -305,7 +307,7 @@ export function spotPlaces(
     places.push({ top: target.top, left: gutterLeft, how: 'gutter' });
   }
   if (line !== null) {
-    const left = line.left + line.width + CLEAR;
+    const left = line.left + line.width + LINE_GAP;
     if (left + SPOT + CLEAR <= view.width) {
       places.push({ top: line.top + (line.height - SPOT) / 2, left, how: 'line' });
     }
