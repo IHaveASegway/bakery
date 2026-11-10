@@ -18,7 +18,7 @@ import type {
 } from '../contracts';
 import { attemptFor, keepKeyAfter, type Attempt } from './attempt';
 import { pollUntil, type PollOptions, type Polled } from './payment';
-import { whenText } from './when';
+import { momentText, whenText } from './when';
 import { businessTime, mountainToMs } from './slots';
 
 // ---- Segments: a fixed list, evaluated by the API over its projection ----
@@ -200,9 +200,9 @@ export function sendAtFromInput(value: string): string | null {
   return wire.slice(0, 10) === date ? wire : null;
 }
 
-/** "Sunday 2026-11-08 at 9:30 am" for a send time; the wire text when it cannot be read. */
+/** "Sun 8 Nov, 9:30 am" for a send time; the wire text when it cannot be read. */
 export function sendAtText(wire: string): string {
-  return Number.isNaN(Date.parse(wire)) ? wire : whenText(wire);
+  return Number.isNaN(Date.parse(wire)) ? wire : momentText(wire);
 }
 
 // ---- The stats ----

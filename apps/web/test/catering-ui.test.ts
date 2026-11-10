@@ -51,7 +51,7 @@ describe('the figures', () => {
     expect(html).toContain('$145.00');
     expect(html).toContain('$435.00');
     expect(html).toContain('Quote valid until');
-    expect(html).toContain('7:00 am on Monday 2026-11-23');
+    expect(html).toContain('Mon 23 Nov, 7:00 am');
     expect(html).toContain('Breakfast spread');
   });
 

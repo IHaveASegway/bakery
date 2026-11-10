@@ -3,7 +3,7 @@ import type { DeadLetter } from '../contracts';
 import { getDeadLetters, redrive } from '../lib/api';
 import { redriveSaid, whileOffNote } from '../lib/dead-letters';
 import { describeError, type Message as Text } from '../lib/messages';
-import { whenText } from '../lib/when';
+import { momentText, whenText } from '../lib/when';
 import GuestNote from './GuestNote';
 import Message from './Message';
 
@@ -77,7 +77,9 @@ export default function DeadLetters({
               </p>
               {whileOffNote(letter) !== null && <p className="hint">{whileOffNote(letter)}</p>}
               <p className="hint">
-                <time dateTime={letter.at}>{whenText(letter.at, { seconds: true })}</time>
+                <time dateTime={letter.at} title={whenText(letter.at, { seconds: true })}>
+                  {momentText(letter.at, { seconds: true })}
+                </time>
               </p>
               <button
                 type="button"

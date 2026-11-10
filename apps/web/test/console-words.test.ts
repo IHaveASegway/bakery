@@ -24,7 +24,7 @@ describe('N8: the guide and the bake list say the same', () => {
 describe('N9: a scheduled campaign says it once', () => {
   test('the foot line does not repeat the card’s sentence', () => {
     const said = scheduledSaid('2026-11-08T14:30:00-07:00');
-    expect(said).toBe('Send time set: 2:30 pm on Sunday 2026-11-08.');
+    expect(said).toBe('Send time set: Sun 8 Nov, 2:30 pm.');
     expect(`${stateSays('scheduled')} ${said}`.match(/clock/g)).toHaveLength(1);
     expect(said).not.toContain('Scheduled');
   });

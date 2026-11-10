@@ -76,14 +76,14 @@ describe('names and words', () => {
   test('opens and clicks as they appear', () => {
     expect(engagementText({})).toBe('Not opened');
     expect(engagementText({ opened_at: '2026-11-07T10:15:00-07:00', clicked_at: null })).toBe(
-      'Opened 10:15 am on Saturday 2026-11-07',
+      'Opened Sat 7 Nov, 10:15 am',
     );
     expect(
       engagementText({
         opened_at: '2026-11-07T10:15:00-07:00',
         clicked_at: '2026-11-07T10:20:00-07:00',
       }),
-    ).toBe('Opened 10:15 am on Saturday 2026-11-07, clicked 10:20 am on Saturday 2026-11-07');
+    ).toBe('Opened Sat 7 Nov, 10:15 am, clicked Sat 7 Nov, 10:20 am');
   });
 
   test('how many are shown of how many there are', () => {

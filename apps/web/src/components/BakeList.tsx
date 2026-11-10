@@ -1,6 +1,5 @@
 import { bakeLineText, groupBakeLines, type BakeList as Day } from '../lib/kitchen';
-import { dateLabel } from '../lib/schedule';
-import { clockOfText } from '../lib/when';
+import { clockOfText, dayText } from '../lib/when';
 
 /**
  * The kitchen board's bake lists, one panel per bakery day, today first: what to have ready for
@@ -24,7 +23,7 @@ export default function BakeList({ lists, today }: { lists: Day[]; today: string
           return (
             <section key={day.date} aria-labelledby={`bake-${day.date}`} className="column">
               <h4 id={`bake-${day.date}`}>
-                {dateLabel(day.date)}
+                {dayText(day.date)}
                 {day.date === today && ' (today)'}
               </h4>
               <p className="hint">

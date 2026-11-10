@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ActivityEntry } from '../contracts';
 import { activityFeed } from '../lib/activity-feed';
 import { getActivity } from '../lib/api';
-import { timesIn, whenText } from '../lib/when';
+import { momentText, timesIn, whenText } from '../lib/when';
 import { describeError, type Message as Text } from '../lib/messages';
 import Message from './Message';
 
@@ -49,7 +49,10 @@ export default function Activity({ sandboxId, refresh }: { sandboxId: string; re
         <ol className="feed feed-scroll" aria-label="Activity, newest first" tabIndex={0}>
           {entries.map((e) => (
             <li key={`${e.at}-${e.type}-${e.summary}`}>
-              <time dateTime={e.at}>{whenText(e.at)}</time>: {timesIn(e.summary)}
+              <time dateTime={e.at} title={whenText(e.at)}>
+                {momentText(e.at)}
+              </time>
+              : {timesIn(e.summary)}
             </li>
           ))}
         </ol>

@@ -48,7 +48,7 @@ describe('one formatter for every time shown', () => {
 
   test('times inside a sentence the API wrote are put in words, the rest left as it is', () => {
     expect(timesIn('Clock moved from 2026-11-11T07:01:40-07:00 to 2026-11-12T07:01:40-07:00')).toBe(
-      'Clock moved from 7:01 am on Wednesday 2026-11-11 to 7:01 am on Thursday 2026-11-12',
+      'Clock moved from Wed 11 Nov, 7:01 am to Thu 12 Nov, 7:01 am',
     );
     expect(timesIn('Routes proposed: 2 vans')).toBe('Routes proposed: 2 vans');
   });

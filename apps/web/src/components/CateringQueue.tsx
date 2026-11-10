@@ -28,7 +28,7 @@ import { describeStaffError } from '../lib/catering-errors';
 import { describeError, type Message as Text } from '../lib/messages';
 import { usePoll } from '../lib/use-poll';
 import { dollars } from '../lib/money';
-import { dateLabel, startText } from '../lib/schedule';
+import { dayText, momentText } from '../lib/when';
 import CateringFigures from './CateringFigures';
 import GuestNote from './GuestNote';
 import Message from './Message';
@@ -206,8 +206,8 @@ export default function CateringQueue({
         <ol className="feed" aria-label="Reminders, soonest first">
           {reminders.map((r) => (
             <li key={`${r.catering}-${r.kind}`}>
-              <strong>{r.label}</strong>: <time dateTime={r.at}>{startText(r.at)}</time>,{' '}
-              {dateLabel(r.event.date)}, {packageLabel(r.event.package)} for {r.event.headcount}
+              <strong>{r.label}</strong>: <time dateTime={r.at}>{momentText(r.at)}</time>,{' '}
+              {dayText(r.event.date)}, {packageLabel(r.event.package)} for {r.event.headcount}
             </li>
           ))}
         </ol>
@@ -432,7 +432,7 @@ export function QueueCard({
 
       <Message error={error}>{said !== null && <p>{said}</p>}</Message>
       <p className="hint">
-        Updated <time dateTime={event.updated_at}>{startText(event.updated_at)}</time>.
+        Updated <time dateTime={event.updated_at}>{momentText(event.updated_at)}</time>.
       </p>
     </li>
   );

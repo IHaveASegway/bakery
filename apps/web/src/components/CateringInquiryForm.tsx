@@ -25,7 +25,7 @@ import {
 import { dateIn, describeCateringError, ruleOf } from '../lib/catering-errors';
 import { type Message as Text } from '../lib/messages';
 import { dollars } from '../lib/money';
-import { dateLabel } from '../lib/schedule';
+import { dayText } from '../lib/when';
 import Message from './Message';
 
 /** The ids a control is described by: its hint, then its error when it has one. */
@@ -128,7 +128,7 @@ export default function CateringInquiryForm({
             <option value="">Choose…</option>
             {dates.map((d) => (
               <option key={d} value={d}>
-                {dateLabel(d)}
+                {dayText(d)}
               </option>
             ))}
           </select>

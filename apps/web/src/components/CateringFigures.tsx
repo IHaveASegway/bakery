@@ -1,7 +1,7 @@
 import type { CateringResponse } from '../contracts';
 import { estimate, figuresOf, packageLabel, stateLabel, venueLabel } from '../lib/catering';
 import { dollars } from '../lib/money';
-import { dateLabel, startText } from '../lib/schedule';
+import { dayText, momentText } from '../lib/when';
 
 /**
  * One event's facts and figures as the API sent them: the day, package, headcount and venue, the
@@ -19,7 +19,7 @@ export default function CateringFigures({ event }: { event: CateringResponse }) 
         <strong>{stateLabel(event.state)}</strong>
       </dd>
       <dt>Day</dt>
-      <dd>{dateLabel(event.date)}</dd>
+      <dd>{dayText(event.date)}</dd>
       <dt>Package</dt>
       <dd>{packageLabel(event.package)}</dd>
       <dt>Headcount</dt>
@@ -48,7 +48,7 @@ export default function CateringFigures({ event }: { event: CateringResponse }) 
         <>
           <dt>Quote valid until</dt>
           <dd>
-            <time dateTime={event.valid_until}>{startText(event.valid_until)}</time>
+            <time dateTime={event.valid_until}>{momentText(event.valid_until)}</time>
           </dd>
         </>
       )}
@@ -65,7 +65,7 @@ export default function CateringFigures({ event }: { event: CateringResponse }) 
           <dt>Balance invoice</dt>
           <dd>
             <code>{event.invoice}</code>
-            {event.invoice_due && <>, due {dateLabel(event.invoice_due)}</>}
+            {event.invoice_due && <>, due {dayText(event.invoice_due)}</>}
           </dd>
         </>
       )}

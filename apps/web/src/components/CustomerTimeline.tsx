@@ -10,7 +10,7 @@ import {
   zoneLabel,
 } from '../lib/crm';
 import { describeCrmError } from '../lib/crm-errors';
-import { timesIn } from '../lib/when';
+import { momentText, timesIn } from '../lib/when';
 import { describeError, type Message as Text } from '../lib/messages';
 import Message from './Message';
 
@@ -111,7 +111,10 @@ export default function CustomerTimeline({
         <ol className="feed" aria-label={`Timeline of ${customer.display_name}, newest first`}>
           {newestFirst(entries).map((e) => (
             <li key={`${e.at}-${e.type}-${e.ref}`}>
-              <time dateTime={e.at}>{whenText(e.at)}</time>: {timesIn(e.label)}
+              <time dateTime={e.at} title={whenText(e.at)}>
+                {momentText(e.at)}
+              </time>
+              : {timesIn(e.label)}
             </li>
           ))}
         </ol>

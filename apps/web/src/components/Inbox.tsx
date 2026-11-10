@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { MessageResponse } from '../contracts';
 import { getMessage, listInbox } from '../lib/api';
-import { whenText } from '../lib/crm';
+import { momentText, whenText } from '../lib/when';
 import {
   ALL_KINDS,
   MESSAGE_KINDS,
@@ -145,10 +145,14 @@ export default function Inbox() {
                             </button>
                           </th>
                           <td data-label="Delivered">
-                            <time dateTime={m.delivered_at}>{whenText(m.delivered_at)}</time>
+                            <time dateTime={m.delivered_at} title={whenText(m.delivered_at)}>
+                              {momentText(m.delivered_at)}
+                            </time>
                           </td>
-                          <td data-label="Opened">{m.opened_at ? whenText(m.opened_at) : ''}</td>
-                          <td data-label="Clicked">{m.clicked_at ? whenText(m.clicked_at) : ''}</td>
+                          <td data-label="Opened">{m.opened_at ? momentText(m.opened_at) : ''}</td>
+                          <td data-label="Clicked">
+                            {m.clicked_at ? momentText(m.clicked_at) : ''}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -162,7 +166,7 @@ export default function Inbox() {
               <h2 id="message-heading">{open.subject}</h2>
               <p className="hint">
                 {kindLabel(open.kind)} to {recipientName(names, open.to)}, delivered{' '}
-                {whenText(open.delivered_at)}. {engagementText(open)}.
+                {momentText(open.delivered_at)}. {engagementText(open)}.
               </p>
               <p className="brief">{open.body}</p>
             </section>

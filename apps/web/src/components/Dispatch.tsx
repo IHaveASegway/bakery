@@ -39,9 +39,9 @@ import {
   type SolverFailure,
 } from '../lib/dispatch-errors';
 import { type Message as Text } from '../lib/messages';
-import { dateLabel, firstOpenDate, isOpenDate } from '../lib/schedule';
+import { firstOpenDate, isOpenDate } from '../lib/schedule';
 import { SolverUnavailable, createSolverClient, type SolverClient } from '../lib/solver';
-import { windowText } from '../lib/when';
+import { dayText, windowText } from '../lib/when';
 import { useSandboxPhase } from '../lib/use-session';
 import DispatchComparison from './DispatchComparison';
 import DispatchMap from './DispatchMap';
@@ -394,7 +394,7 @@ export default function Dispatch() {
         >
           {days.map((d) => (
             <option key={d} value={d}>
-              {`${dateLabel(d)}${isOpenDate(d) ? '' : ', closed'}`}
+              {`${dayText(d)}${isOpenDate(d) ? '' : ', closed'}`}
             </option>
           ))}
         </select>

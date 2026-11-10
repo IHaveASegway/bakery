@@ -12,7 +12,7 @@ import {
 import { describeCateringError } from '../lib/catering-errors';
 import { type Message as Text } from '../lib/messages';
 import { dollars } from '../lib/money';
-import { startText } from '../lib/schedule';
+import { momentText } from '../lib/when';
 import CateringFigures from './CateringFigures';
 import Message from './Message';
 import PaymentPanel from './PaymentPanel';
@@ -101,7 +101,7 @@ export default function CateringDetail({
       <h2 id="event-heading">Your event</h2>
       <p className="hint">
         Event <code>{event.catering}</code>, asked about at{' '}
-        <time dateTime={event.created_at}>{startText(event.created_at)}</time>.
+        <time dateTime={event.created_at}>{momentText(event.created_at)}</time>.
       </p>
       <CateringFigures event={event} />
       {event.brief && (

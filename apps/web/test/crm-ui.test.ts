@@ -57,7 +57,7 @@ describe('a campaign card', () => {
     expect(html).not.toContain('datetime-local');
     expect(html).not.toContain('>Edit<');
     expect(html).toContain('Unschedule (back to draft)');
-    expect(html).toContain('9:30 am on Sunday 2026-11-08');
+    expect(html).toContain('Sun 8 Nov, 9:30 am');
   });
 
   test('a sent one has no buttons and shows its numbers with their rates', () => {
