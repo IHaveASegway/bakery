@@ -231,7 +231,8 @@ const shared = (a: Box, b: Box) =>
  * the window) wins: a note never lies over the next thing to press when a place clear of it
  * exists. With no side clear, a corner of the window clear of the anchor and of `avoid` (the foot
  * first, where the view already stops short of the guide's bar), docked with no caret. With none
- * clear at all, the first place that fits, `clear` false, so the caller may fold the note instead.
+ * clear at all (a dense board has buttons on every side), the place beside the anchor that covers
+ * least of them, `clear` false: the note still sits by what was pressed.
  * A phone's sheet does not use this: CSS puts it at the foot.
  */
 export function placeNote(
@@ -307,8 +308,14 @@ export function placeNote(
   if (clearSide !== undefined) return { ...clearSide, clear: true };
   const clearCorner = corners.find((x) => x.covers === 0 && covering(x.c) === 0);
   if (clearCorner !== undefined) return { ...clearCorner.c, clear: true };
-  const first = places[0] ?? corners[0]?.c ?? { top: high, left: EDGE, side: 'none', caret: 0 };
-  return { ...first, clear: avoid.length === 0 };
+  // None clear: the place beside the anchor that covers least of the controls, so the note still
+  // sits by what was pressed (a dense board has buttons on every side).
+  const fallback =
+    places.length === 0
+      ? [corners[0]?.c ?? { top: high, left: EDGE, side: 'none' as const, caret: 0 }]
+      : places;
+  const least = fallback.reduce((best, p) => (covering(p) < covering(best) ? p : best));
+  return { ...least, clear: avoid.length === 0 };
 }
 
 /** A hotspot's size, with the ring drawn around it, and the clear margin it keeps. */

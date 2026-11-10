@@ -503,7 +503,6 @@ export default function Layer({
               pinned={live.pinned}
               changed={snapshot.version}
               onClose={closeLive}
-              onCrowded={asLine ? undefined : foldLive}
             >
               <NoteHead
                 eyebrow="Under the hood · just now"
@@ -594,12 +593,27 @@ function onGoingOn(then: () => void): () => void {
 
 /** A story read's answer in a chip: its status and, for a 200, whether the cache answered. */
 function lineStatus(trace: Trace): string {
+  // A board's move is answered on its socket, with no HTTP status: ack, or nack and its rule.
+  if (trace.transport === 'socket') {
+    if (trace.outcome === 'pending') return 'sent';
+    if (trace.outcome === 'ok') return 'ack';
+    return trace.outcome === 'refused' ? `nack ${trace.rule ?? ''}`.trim() : 'no answer';
+  }
   if (trace.status === null) return 'no answer';
   if (trace.status === 304) return '304, current';
   const cache = trace.read?.cache;
   return cache === 'hit' || cache === 'miss'
     ? `${trace.status}, cache ${cache}`
     : String(trace.status);
+}
+
+/**
+ * Whether the marks stand where the page's layout puts them now: `settling` from a change of the
+ * page (a scroll, a resize, a redraw, a text change) until the marks are measured and placed
+ * again, then `settled`. On the root element, for a check that must not read a mark mid-move.
+ */
+function settled(state: 'settling' | 'settled'): void {
+  document.documentElement.dataset.guideMarks = state;
 }
 
 interface Spot {
@@ -680,9 +694,14 @@ function Hotspots({
           left: Math.round(at.left + window.scrollX),
         });
       }
-      setShown((before) => (JSON.stringify(before) === JSON.stringify(next) ? before : next));
+      setShown((before) => {
+        if (JSON.stringify(before) !== JSON.stringify(next)) return next;
+        settled('settled');
+        return before;
+      });
     };
     const soon = () => {
+      settled('settling');
       if (frame === 0) frame = requestAnimationFrame(measure);
     };
     measure();
@@ -714,6 +733,7 @@ function Hotspots({
       mark.style.top = `${spot.top}px`;
       mark.style.left = `${spot.left}px`;
     }
+    settled('settled');
   }, [shown]);
 
   return (

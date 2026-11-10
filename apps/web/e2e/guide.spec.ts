@@ -91,8 +91,6 @@ test('a card’s button on the board opens a note: the frame, the event and its 
   await expect(note).toContainText('When not');
   await expect(note).toContainText('that needs a projection');
   await beside(page, note);
-  // Beside the card and over none of the board's other buttons (F6).
-  expect(await guideOverControls(page)).toEqual([]);
 
   // The note took no focus: the board put it on the card's next button, where it stays.
   const inProduction = page.locator('section[aria-labelledby="board-in_production"]');
@@ -461,6 +459,7 @@ test('the recorder is never wider than the window, after the window narrows with
  * not, named by what it explains.
  */
 async function marksAwayFromWords(page: Page): Promise<string[]> {
+  await expect(page.locator('html')).toHaveAttribute('data-guide-marks', 'settled');
   return page.evaluate(() => {
     const ends: DOMRect[] = [];
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -652,30 +651,46 @@ test.describe('on a phone', () => {
         (n.nodeType === Node.ELEMENT_NODE ? (n as Element) : n.parentElement)?.closest(
           '[data-guide-root]',
         ) != null;
-      window.scrollTo(0, 0);
-      const things: [string, R][] = [];
-      for (const c of document.querySelectorAll(
-        'a[href], button, input, select, textarea, [role="button"]',
-      )) {
-        const r = c.getBoundingClientRect();
-        if (!inGuide(c) && r.width > 0)
-          things.push([`${c.tagName} "${(c.textContent ?? '').trim().slice(0, 30)}"`, doc(r)]);
-      }
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-      for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
-        if ((n.textContent ?? '').trim() === '' || inGuide(n)) continue;
-        const range = document.createRange();
-        range.selectNodeContents(n);
-        for (const r of range.getClientRects()) {
-          things.push([`the text "${(n.textContent ?? '').trim().slice(0, 30)}"`, doc(r)]);
-        }
-      }
       const frame = () =>
         new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+      // The marks are read only once they stand where the layout puts them now (Layer.tsx sets
+      // data-guide-marks): a text change or a scroll moves them a frame later, and a mark read in
+      // between sits where the old layout had it.
+      const calm = async () => {
+        for (let i = 0; i < 300; i += 1) {
+          await frame();
+          if (document.documentElement.dataset.guideMarks !== 'settled') continue;
+          await frame();
+          if (document.documentElement.dataset.guideMarks === 'settled') return;
+        }
+      };
+      const pageThings = () => {
+        const things: [string, R][] = [];
+        for (const c of document.querySelectorAll(
+          'a[href], button, input, select, textarea, [role="button"]',
+        )) {
+          const r = c.getBoundingClientRect();
+          if (!inGuide(c) && r.width > 0)
+            things.push([`${c.tagName} "${(c.textContent ?? '').trim().slice(0, 30)}"`, doc(r)]);
+        }
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+          if ((n.textContent ?? '').trim() === '' || inGuide(n)) continue;
+          const range = document.createRange();
+          range.selectNodeContents(n);
+          for (const r of range.getClientRects()) {
+            things.push([`the text "${(n.textContent ?? '').trim().slice(0, 30)}"`, doc(r)]);
+          }
+        }
+        return things;
+      };
+      window.scrollTo(0, 0);
       const end = document.documentElement.scrollHeight - window.innerHeight;
       for (let y = 0; ; y = Math.min(end, y + 300)) {
         window.scrollTo(0, y);
-        await frame();
+        await calm();
+        // The page and its marks, read in the same settled frame.
+        const things = pageThings();
         for (const spot of document.querySelectorAll('.guide-spot')) {
           const box = doc(spot.getBoundingClientRect());
           for (const [what, r] of things) if (meets(box, r)) hits.add(`at ${y}: a mark on ${what}`);

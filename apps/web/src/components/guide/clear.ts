@@ -54,18 +54,29 @@ export function headingLine(target: Element): Box | null {
   return last === null ? null : boxOf(last);
 }
 
-/** The box of the last line of a target's own text, in window terms: where a sentence ends. */
+/**
+ * The box of the last line of a target's words, in window terms: where its sentence ends. Only
+ * text counts, not the boxes of the controls inside it, so a paragraph that ends in a button has
+ * its end inside that button, which the layer then refuses as a place.
+ */
 export function textEnd(target: Element): Box | null {
-  const range = document.createRange();
-  range.selectNodeContents(target);
-  const lines = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0);
-  const last = lines.reduce<DOMRect | null>(
-    (best, r) =>
-      best === null || r.bottom > best.bottom || (r.bottom === best.bottom && r.right > best.right)
-        ? r
-        : best,
-    null,
-  );
+  let last: DOMRect | null = null;
+  const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+    if ((n.textContent ?? '').trim() === '') continue;
+    const range = document.createRange();
+    range.selectNodeContents(n);
+    for (const r of range.getClientRects()) {
+      if (r.width === 0 || r.height === 0) continue;
+      if (
+        last === null ||
+        r.bottom > last.bottom ||
+        (r.bottom === last.bottom && r.right > last.right)
+      ) {
+        last = r;
+      }
+    }
+  }
   return last === null ? null : boxOf(last);
 }
 

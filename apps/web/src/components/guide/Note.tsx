@@ -31,6 +31,11 @@ export function barBoxes() {
   });
 }
 
+/** The room under a phone's sheet: the console's tab bar or the menu's cart bar, else a margin. */
+function footRoom(): number {
+  return document.querySelector('.shell-app, .cart-bar') !== null ? 72 : 8;
+}
+
 /** How long a note stays once its evidence stops changing, unless the pointer or focus is in it. */
 export const LINGER_MS = 8_000;
 
@@ -72,7 +77,6 @@ export function Note({
   pinned,
   changed,
   onClose,
-  onCrowded,
   children,
 }: {
   id: string;
@@ -83,20 +87,13 @@ export function Note({
   /** A value that changes when the note's content does, which restarts its timer. */
   changed: unknown;
   onClose: () => void;
-  /**
-   * Called when no place beside the anchor, nor a corner, is clear of the page's controls: the
-   * caller folds the note to its line rather than lay it over the next thing to press. Without
-   * it, the note takes the place that fits best (a note the visitor opened from its mark).
-   */
-  onCrowded?: (() => void) | undefined;
   children: ReactNode;
 }) {
   const box = useRef<HTMLElement>(null);
   const [inside, setInside] = useState({ pointer: false, focus: false });
   const [corner, setCorner] = useState(false);
-  const crowded = useRef(onCrowded);
-  crowded.current = onCrowded;
-  const placed = useRef(false);
+  /** The end of the window a phone's sheet took when it arrived. */
+  const sheet = useRef<'foot' | 'head' | null>(null);
 
   // Place the note beside its anchor, ring the anchor, and keep both right while the page
   // scrolls, resizes or redraws (a card that moved is a new element), one frame at a time.
@@ -120,19 +117,42 @@ export function Note({
         note.style.removeProperty('left');
         note.removeAttribute('data-side');
         setCorner(target === null);
-        // A phone's sheet sits at the foot; when what the visitor pressed is down there, under
-        // where the sheet would be, the sheet goes to the top instead, under the page's bars.
-        const anchorRect = target?.getBoundingClientRect();
-        const sheetTop = window.innerHeight - note.offsetHeight - 80;
-        if (
-          anchorRect !== undefined &&
-          window.matchMedia(PHONE).matches &&
-          anchorRect.bottom > sheetTop
-        ) {
-          note.setAttribute('data-sheet', 'top');
-        } else {
+        // A phone's sheet sits at the foot or at the top, under the page's bars. Where it arrives,
+        // it takes the end that covers fewer of the page's controls, the foot on a tie; never the
+        // end over what the visitor pressed. It keeps that end while the page scrolls, so it
+        // never jumps under a reading eye, unless the pressed control comes under it.
+        if (!window.matchMedia(PHONE).matches) {
           note.removeAttribute('data-sheet');
+          return;
         }
+        const h = note.offsetHeight;
+        const foot = {
+          top: window.innerHeight - h - footRoom(),
+          left: 0,
+          width: window.innerWidth,
+          height: h,
+        };
+        const head = { top: topInset() + 8, left: 0, width: window.innerWidth, height: h };
+        const a = target?.getBoundingClientRect();
+        const over = (box: typeof foot, r: { top: number; bottom: number }) =>
+          r.top < box.top + box.height && r.bottom > box.top;
+        const footBad = a !== undefined && over(foot, a);
+        const headBad = a !== undefined && over(head, a);
+        if (sheet.current === null || (sheet.current === 'foot' ? footBad : headBad)) {
+          const count = (box: typeof foot) =>
+            controlBoxes().filter((c) => over(box, { top: c.top, bottom: c.top + c.height }))
+              .length;
+          sheet.current =
+            footBad && !headBad
+              ? 'head'
+              : headBad && !footBad
+                ? 'foot'
+                : count(head) < count(foot)
+                  ? 'head'
+                  : 'foot';
+        }
+        if (sheet.current === 'head') note.setAttribute('data-sheet', 'top');
+        else note.removeAttribute('data-sheet');
         return;
       }
       const rect = target.getBoundingClientRect();
@@ -146,12 +166,6 @@ export function Note({
         },
         controlBoxes(),
       );
-      // Only where it arrives: a note the visitor is reading never folds away under them.
-      if (!at.clear && !placed.current && crowded.current !== undefined) {
-        crowded.current();
-        return;
-      }
-      placed.current = true;
       setCorner(false);
       note.style.top = `${Math.round(at.top)}px`;
       note.style.left = `${Math.round(at.left)}px`;
