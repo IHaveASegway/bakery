@@ -469,7 +469,10 @@ test.describe('a stranger at the gate', () => {
     // box is taller than a 1.2 line. There the two lines of this title overlapped by 0.4 px, and
     // the mark set level with the second was refused as lying on the first (pull request #143's
     // run of 2026-11-10). Any font does the same once its lines are tighter than its glyph box, so
-    // the lines are tightened here, through the style object, and the mark must stay.
+    // the lines are tightened here, through the style object, and the mark must stay. A tighter
+    // title is also a shorter one, which would bring the sentence under it up beneath the mark,
+    // and a mark is rightly refused on another element's words: the title's bottom margin grows by
+    // what its lines lost, so that sentence stays where it was and only the title's lines change.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/catering/');
     const mark = page.locator('[data-guide-target="start-here"]');
@@ -477,7 +480,11 @@ test.describe('a stranger at the gate', () => {
     const before = await mark.boundingBox();
     const title = page.locator('[data-tour="start-here"] .start-title');
     const overlap = await title.evaluate((element) => {
+      const tall = element.getBoundingClientRect().height;
       (element as HTMLElement).style.lineHeight = '1';
+      const lost = tall - element.getBoundingClientRect().height;
+      const margin = Number.parseFloat(getComputedStyle(element).marginBottom);
+      (element as HTMLElement).style.marginBottom = `${margin + lost}px`;
       window.dispatchEvent(new Event('resize'));
       const range = document.createRange();
       range.selectNodeContents(element);
@@ -657,8 +664,9 @@ test('after a fresh sandbox, a price draft and a move, no row of a note is left 
   await expect(fresh.locator('[data-state="expected"]')).toHaveCount(0);
   await page.keyboard.press('Escape');
 
-  // A price draft: the page sends it with no Idempotency-Key, so the server names its own and its
-  // MenuItemChanged cannot be tied to the press; the note says so and waits for nothing.
+  // A price draft: the page sends its PATCH with no Idempotency-Key, and the API's answer names
+  // the cause it wrote under in Bakery-Cause (ADR 0013's postscript of 2026-11-10), so the note
+  // follows its MenuItemChanged to the recorder like any write and is left waiting for nothing.
   await page.goto('/app/menu/');
   const field = page.getByRole('textbox', { name: /^Price of Country loaf, Whole/ });
   await expect(field).toBeVisible();
@@ -666,7 +674,10 @@ test('after a fresh sandbox, a price draft and a move, no row of a note is left 
   await page.getByRole('button', { name: /^Set the price of Country loaf, Whole/ }).click();
   const draft = page.locator('#guide-live');
   await expect(draft).toBeVisible();
-  await expect(draft).toContainText('no Idempotency-Key');
+  await expect(draft).not.toContainText('cannot be tied');
+  await expect(
+    draft.locator('[data-state="observed"]', { hasText: 'MenuItemChanged' }),
+  ).toBeVisible({ timeout: 10_000 });
   await expect(draft.locator('[data-state="expected"]')).toHaveCount(0);
 
   // A board move: its one event comes back over the socket.
