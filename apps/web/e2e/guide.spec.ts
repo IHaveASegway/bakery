@@ -1017,6 +1017,34 @@ test.describe('on a phone', () => {
     await expect(note).toBeVisible();
   });
 
+  /**
+   * A sheet on the screen hears the page from its first moment. The page sends the wheel itself,
+   * in the very task that draws the note: a wheel the suite sends arrives some milliseconds later,
+   * which hid the gap until one run on the runner (2026-11-10) sent its wheel 23 ms after the note
+   * showed. The listener was then attached in a passive effect, a moment after the note was drawn;
+   * that wheel went unheard, and the sheet stayed over the page until its time ran out.
+   */
+  test('a note’s sheet hears a wheel in the task that draws it', async ({ page }) => {
+    await demoAccount(page);
+    await liveSandbox(page);
+    await page.goto('/app/system/');
+    await page.evaluate(() => {
+      const drawn = new MutationObserver(() => {
+        if (document.getElementById('guide-live') === null) return;
+        drawn.disconnect();
+        const beneath = document.querySelector('main') ?? document.body;
+        beneath.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 200 }));
+      });
+      drawn.observe(document.body, { childList: true, subtree: true });
+    });
+    await page
+      .getByRole('button', { name: /^Advance 15 minutes/ })
+      .first()
+      .click();
+    await expect(page.locator('.guide-line')).toContainText('The clock');
+    await expect(page.getByRole('region', { name: 'Under the hood: The clock' })).toHaveCount(0);
+  });
+
   test('a live note opened by a control low on the screen does not cover that control', async ({
     page,
   }) => {
