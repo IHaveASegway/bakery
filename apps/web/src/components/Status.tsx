@@ -8,6 +8,7 @@ import {
   failureStatus,
   formatTime,
   loadSnapshot,
+  pastWipeWords,
   readStatus,
   saveSnapshot,
   stateLabel,
@@ -71,9 +72,15 @@ export function StatusView({ model }: { model: Model }) {
             <strong>Breaker:</strong> {breakerWords(data.breaker)}
           </p>
 
+          <p data-testid="status-past-wipe">
+            <strong>Sandboxes past their wipe:</strong> {pastWipeWords(data.sandboxes_past_wipe)}
+          </p>
+
           <h2>The last 24 hours</h2>
           {data.counters === null ? (
-            <p data-testid="status-counters">No counters yet.</p>
+            <p data-testid="status-counters">
+              No counts to show: no refresh of the counters has succeeded yet.
+            </p>
           ) : (
             <>
               <p className="hint">

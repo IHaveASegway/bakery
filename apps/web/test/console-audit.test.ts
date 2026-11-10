@@ -10,6 +10,7 @@ import type { CampaignResponse } from '../src/contracts';
 import BakeList from '../src/components/BakeList';
 import { CampaignCard } from '../src/components/Campaigns';
 import { CardView } from '../src/components/KitchenBoard';
+import { leaveLabel } from '../src/components/ConsoleTopBar';
 import { canRotate } from '../src/lib/api-token';
 import { stateSays } from '../src/lib/crm';
 import { proposedSaid, report, routeCredit, sameStops } from '../src/lib/dispatch';
@@ -280,5 +281,14 @@ describe('the catering pages look again on their own', () => {
     expect(nextPollMs(2)).toBe(40_000);
     expect(nextPollMs(3)).toBe(POLL_MAX_MS);
     expect(nextPollMs(9)).toBe(60_000);
+  });
+});
+
+describe('the way out of the console, by who is here', () => {
+  test('a guest leaves, since nothing can reach its sandbox again; a signed-in session signs out', () => {
+    expect(leaveLabel('guest')).toBe('Leave');
+    expect(leaveLabel('demo')).toBe('Sign out');
+    expect(leaveLabel('google')).toBe('Sign out');
+    expect(leaveLabel('github')).toBe('Sign out');
   });
 });

@@ -272,6 +272,58 @@
   white-space: nowrap;
 }
 
+/* The top bar holds one line from 1280 px up, for a guest and a signed-in session alike: nothing in
+   it wraps. As the window narrows past 1440 px, the gaps close, who is signed in shortens to its
+   kind ("Demo account") and the clock drops its date; under 1280 px the word "Console" goes
+   first, then under 1200 px the bakery's name, leaving its mark; at 960 px the bar takes two rows
+   (below). The long words stay for a screen reader. */
+.topbar .site-name span,
+.topbar-nav .site-nav a,
+.topbar-title {
+  white-space: nowrap;
+}
+
+.who-short {
+  display: none;
+}
+
+@media (min-width: 60.01rem) and (max-width: 90rem) {
+  .topbar {
+    gap: 12px;
+  }
+
+  .topbar .long-only,
+  .who-long {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .who-short {
+    display: inline;
+  }
+}
+
+@media (min-width: 60.01rem) and (max-width: 79.99rem) {
+  .topbar-title {
+    display: none;
+  }
+}
+
+@media (min-width: 60.01rem) and (max-width: 75rem) {
+  .topbar .site-name span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
 /* A phone: the sidebar becomes a tab bar at the foot of the window, four tabs and "More". */
 @media (max-width: 60rem) {
   /* Two rows: the mark, the shop and Sign out; then the sandbox, the clock and traffic, short. */

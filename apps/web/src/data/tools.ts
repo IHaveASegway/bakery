@@ -401,12 +401,14 @@ export const TOOLS: Tool[] = [
     id: 'websockets',
     name: 'Hibernatable WebSockets',
     group: 'state',
-    version: '`State::accept_web_socket` (`workers/api/src/objects/kitchen.rs`)',
-    doesHere: 'The kitchen board’s live connections, two-way.',
+    version:
+      '`State::accept_web_socket` (`workers/api/src/objects/kitchen.rs`, `workers/api/src/objects/recorder.rs`)',
+    doesHere:
+      'The kitchen board’s live connections, two-way, and since 2026-11-10 the flight recorder’s, which the guide’s recorder panel holds while it is open; a note reads the recorder at most three times instead.',
     whyHere: 'An idle socket costs no duration, and the board sends commands on the same socket.',
     whenNot:
       'Polling is the right shape where a screen can be seconds stale and the client cannot hold a connection.',
-    records: [{ adr: '0003' }, after('2')],
+    records: [{ adr: '0003' }, after('2'), { adr: '0015' }, { adr: '0014' }],
     essays: ['cqrs'],
     notMeasured: 'The duration cost or the code size of a polling board against the socket.',
     alternatives: [
@@ -554,8 +556,9 @@ export const TOOLS: Tool[] = [
     version: 'four namespaces (`workers/api/wrangler.jsonc`)',
     doesHere: 'Cheap refusals per IP hash, session or token before any object is asked.',
     whyHere: 'Cheap refusals before an object is asked.',
-    whenNot: 'Never as a budget: it counts approximately and per location.',
-    records: [{ adr: '0010' }],
+    whenNot:
+      'Not for one object’s frames, such as the kitchen board’s moves: a count kept in that object is exact, while the binding’s limits are approximate and kept per location, which suits requests that land anywhere.',
+    records: [{ adr: '0010' }, { doc: 'security' }],
     essays: ['admission'],
   },
   {
