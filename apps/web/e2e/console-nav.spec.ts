@@ -56,8 +56,8 @@ test.describe('on a phone', () => {
     page,
   }) => {
     await page.goto('/menu/');
-    // On a phone the guide's bar is one pill: the switch, and a menu for the rest.
-    await page.getByRole('button', { name: 'More of Under the hood' }).click();
+    // On a phone the guide's control is one button showing on or off; a tap opens the rest.
+    await page.getByRole('button', { name: /^Under the hood, (on|off)$/ }).click();
     await page.getByRole('button', { name: 'Show me around' }).click();
     const note = page.locator('#guide-path');
     await expect(note).toContainText('Add something to the cart.');

@@ -10,6 +10,7 @@ import DispatchComparison from '../src/components/DispatchComparison';
 import DispatchMap from '../src/components/DispatchMap';
 import DispatchPlan from '../src/components/DispatchPlan';
 import DispatchStops from '../src/components/DispatchStops';
+import { ALL_ENTRIES } from '../src/guide';
 import { report } from '../src/lib/dispatch';
 import { day, isochrones, plan, route, stop } from './dispatch-support';
 
@@ -106,19 +107,23 @@ describe('the comparison', () => {
     expect(out).toContain('The browser’s solver is not available here');
   });
 
-  test('says both plans keep to the delivery windows, and what the minutes leave out', () => {
+  test('keeps one sentence a reader needs for the table: the windows rule and the gap', () => {
     const out = html(both, 'ready');
     expect(out).toContain('Both plans keep to the delivery windows');
     expect(out).toContain('after its window closes');
-    expect(out).toContain('no waiting for a window to open');
+    expect(out).toContain('as a percentage of the browser’s');
+    expect(out).not.toContain('How this works');
   });
 
-  test('explains the method and names the Route Lab without a link', () => {
+  test('what the minutes leave out and the method moved to the guide’s browser-plan entry', () => {
     const out = html(both, 'ready');
-    expect(out).toContain('savings heuristic');
-    expect(out).toContain('The Dispatch object checks');
-    expect(out).toContain('The Route Lab is where the solver is explained');
-    expect(out).not.toContain('<a ');
+    expect(out).not.toContain('Operations Research, 1964');
+    const plan = ALL_ENTRIES.find((e) => e.id === 'dispatch-plan');
+    const said = (plan?.facts ?? []).join(' ');
+    expect(said).toContain('no waiting for a window to open');
+    expect(said).toContain('savings heuristic');
+    expect(said).toContain('the Dispatch object checks');
+    expect(said).toContain('The Route Lab is where the solver is explained');
   });
 });
 

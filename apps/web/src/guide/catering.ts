@@ -33,6 +33,12 @@ export const CATERING: GuideEntry[] = [
     events: ['CateringInquiryReceived'],
     principle: IDEMPOTENCY,
     triggers: ['create-catering', 'CateringInquiryReceived'],
+    happened:
+      'Your inquiry is the saga’s first step: the CateringEvent object wrote it in one transaction, and the next step waits for the staff’s quote.',
+    facts: [
+      'A catering event is a saga by alarm: the inquiry, the staff’s quote, your acceptance, the deposit’s webhook, the kitchen, the delivery and the balance invoice are each one object’s transaction.',
+      'Reminders are timers that fire when the sandbox’s clock passes them: advance the clock in the console to see one.',
+    ],
     api: {
       routeId: 'create-catering',
       method: 'POST',
@@ -52,6 +58,8 @@ export const CATERING: GuideEntry[] = [
     events: ['CateringQuoteAccepted', 'SlotHeld'],
     principle: LEASE,
     triggers: ['accept-quote', 'CateringQuoteAccepted'],
+    happened:
+      'Accepting placed a hold on one of the day’s two catering places, for 15 minutes of bakery time. If the deposit is not paid by then, an alarm releases the place.',
     api: {
       routeId: 'accept-quote',
       method: 'POST',
@@ -70,6 +78,11 @@ export const CATERING: GuideEntry[] = [
     events: ['PaymentIntentCreated', 'PaymentSucceeded', 'CateringDepositPaid'],
     principle: PAYMENTS,
     triggers: ['catering-deposit', 'CateringDepositPaid'],
+    happened:
+      'The deposit’s payment is under way. The place stays held until Stripe’s webhook says it succeeded, and the hold lapses after 15 minutes of bakery time without it.',
+    facts: [
+      'The deposit confirms the day’s place: until it is paid the place is only held, for 15 minutes of bakery time.',
+    ],
     api: {
       routeId: 'catering-deposit',
       method: 'POST',

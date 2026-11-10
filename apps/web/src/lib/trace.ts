@@ -34,6 +34,24 @@ export interface RecorderRecord {
   deliveries: Delivery[];
 }
 
+/**
+ * The reads a page's story needs, by name. Most reads change nothing and are not traced (a page that
+ * looks again every ten seconds would flood the recorder); one named here is, with what its answer
+ * said, and it opens its note when it happens, click or no click.
+ */
+export const STORY_READS = ['menu'] as const;
+export type ReadName = (typeof STORY_READS)[number];
+
+/** What a story read's answer said: the cache's header, the ETag, and the ETag the page sent. */
+export interface ReadFacts {
+  name: ReadName;
+  /** `Bakery-Cache`: `hit` or `miss`, or null when the API sent none. */
+  cache: string | null;
+  etag: string | null;
+  /** The `If-None-Match` the page sent, or null for a first read. */
+  asked: string | null;
+}
+
 /** One piece of evidence, whichever source saw it. Times are wall-clock milliseconds. */
 export type Evidence =
   | {
@@ -47,6 +65,8 @@ export type Evidence =
       status: number | null;
       ms: number;
       at: number;
+      /** For a story read: what its answer said. */
+      read?: ReadFacts;
     }
   | { kind: 'command'; key: string; action: string; order: string; at: number }
   | {
@@ -205,6 +225,8 @@ export interface Trace {
   rule: string | null;
   startedAt: number;
   events: TracedEvent[];
+  /** A story read's facts; absent on every other trace. */
+  read?: ReadFacts;
 }
 
 /** A feed entry that arrived after the feed was first read: its type and when the page saw it. */
@@ -278,6 +300,8 @@ export function createTraceStore(
   const owner = new Map<string, string>();
   let orphans: Extract<Evidence, { kind: 'event' }>[] = [];
   let last: Gesture | null = null;
+  /** The last number given to a click or to a story read the page made by itself. */
+  let counter = 0;
   const anchors = new Map<number, unknown>();
   const listeners = new Set<() => void>();
   const seenFeed = new Map<string, Set<string>>();
@@ -355,7 +379,11 @@ export function createTraceStore(
           start({
             id,
             key: evidence.key,
-            gesture: gestureFor(evidence.at - evidence.ms),
+            // A story read is a note of its own, click or no click: one it follows keeps that
+            // click's number, and one the page made itself (the menu's first load) gets a new one.
+            gesture:
+              gestureFor(evidence.at - evidence.ms) ??
+              (evidence.read === undefined ? null : ++counter),
             transport: 'http',
             method: evidence.method.toUpperCase(),
             path: evidence.path,
@@ -367,6 +395,7 @@ export function createTraceStore(
             rule: null,
             startedAt: evidence.at - evidence.ms,
             events: traces.find((t) => t.id === id)?.events ?? [],
+            ...(evidence.read === undefined ? {} : { read: evidence.read }),
           });
           // Events that arrived before the answer did (the socket is quick) join now.
           const waiting = orphans.filter((o) => o.cause === id);
@@ -422,7 +451,7 @@ export function createTraceStore(
     },
     getSnapshot: () => snapshot,
     gesture(anchor, at) {
-      const seq = (last?.seq ?? 0) + 1;
+      const seq = ++counter;
       last = { seq, at, anchor };
       anchors.set(seq, anchor);
       // Only the recent gestures' elements are kept, so a removed element can be collected.
@@ -498,6 +527,26 @@ export const socketSource = pushSource('socket');
 export const watchSource = pushSource('socket');
 /** The activity feed the console reads (lib/activity-feed.ts emits here). */
 export const feedSource = pushSource('feed');
+
+/**
+ * How a story read is asked again from a note: the island that owns the read registers its own
+ * repeat here (the menu's sends its ETag back as If-None-Match), and the note's button calls it.
+ */
+const repeats = new Map<ReadName, () => void>();
+export const storyReads = {
+  register(name: ReadName, repeat: () => void): () => void {
+    repeats.set(name, repeat);
+    return () => {
+      if (repeats.get(name) === repeat) repeats.delete(name);
+    };
+  },
+  repeat(name: ReadName): boolean {
+    const repeat = repeats.get(name);
+    repeat?.();
+    return repeat !== undefined;
+  },
+  has: (name: ReadName) => repeats.has(name),
+};
 
 /** The one store of the page, shared by every island because they share this module. */
 export const traces = createTraceStore({

@@ -10,7 +10,9 @@ import {
 import { liveToken, tokenStore } from '../../lib/token-store';
 import {
   expectedHops,
+  storyReads,
   type FeedArrival,
+  type ReadFacts,
   type HeardEvent,
   type Listening,
   type Trace,
@@ -99,7 +101,31 @@ export function traceSentence(trace: Trace, entry: GuideEntry | null): string {
   }
   const { sent, answer } = requestText(trace);
   const time = trace.ms === null ? '' : ` in ${trace.ms} ms`;
-  return `Under the hood. ${what}${sent} answered ${answer}${time}.`;
+  const read = trace.read === undefined ? '' : ` ${readSentence(trace)}`;
+  return `Under the hood. ${what}${sent} answered ${answer}${time}.${read}`;
+}
+
+/**
+ * What a story read's answer means, in one or two sentences with its real values: served from the
+ * cache, or the object answered and the cache was filled, or the copy in hand was current (304).
+ */
+export function readSentence(trace: Trace): string {
+  const read = trace.read;
+  if (read === undefined) return '';
+  const etag = read.etag === null ? 'no ETag' : `the ETag ${read.etag}`;
+  if (trace.status === 304) {
+    return `This page’s copy was current: it sent If-None-Match ${read.asked ?? '(none)'}, and the API answered 304 with no body.`;
+  }
+  if (trace.status === null || trace.status >= 400) {
+    return 'The read got no menu back, so the page shows the copy it had.';
+  }
+  if (read.cache === 'hit') {
+    return `Served from the cache: the API’s cache held this version, so the Catalog object was not asked. It came with ${etag}.`;
+  }
+  if (read.cache === 'miss') {
+    return `The Catalog object answered and the cache was filled, so the next read of this version is served from it. It came with ${etag}.`;
+  }
+  return `The API answered with ${etag} and no Bakery-Cache header.`;
 }
 
 // ---- Views ----
@@ -162,6 +188,47 @@ const CloseGlyph = () => (
   </svg>
 );
 
+/** A story read's headers, as the answer carried them. */
+function ReadHeaders({ read }: { read: ReadFacts }) {
+  return (
+    <>
+      {read.asked !== null && (
+        <span className="guide-meta">
+          sent <code>If-None-Match: {read.asked}</code>
+        </span>
+      )}
+      <code className="guide-chip">Bakery-Cache: {read.cache ?? 'not sent'}</code>
+      <code className="guide-chip">ETag: {read.etag ?? 'not sent'}</code>
+    </>
+  );
+}
+
+/**
+ * A story read's note body above its why and when not: what the answer means, and a button that
+ * asks again with the ETag in hand, while the island that owns the read is on the page.
+ */
+export function ReadStory({ trace }: { trace: Trace }) {
+  const read = trace.read;
+  if (read === undefined) return null;
+  return (
+    <div className="guide-read-story">
+      <p>{readSentence(trace)}</p>
+      {storyReads.has(read.name) && (
+        <p className="guide-actions">
+          <button
+            type="button"
+            className="guide-secondary"
+            onClick={() => storyReads.repeat(read.name)}
+          >
+            Ask again
+          </button>
+          <span className="guide-meta"> sends the ETag back; an unchanged menu answers 304.</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
 /**
  * The chain of hops for the visitor's action: each request (or socket command) with its answer,
  * time and key; the object that decided it, once an event names it; then each event the entry
@@ -209,6 +276,7 @@ export function TraceChain({
                   {trace.transport === 'socket' ? 'id' : 'key'} <code>{shortId(trace.key)}</code>
                 </span>
               )}
+              {trace.read !== undefined && <ReadHeaders read={trace.read} />}
             </span>
           </li>
         );
@@ -346,6 +414,13 @@ export function EntryBody({ entry }: { entry: GuideEntry }) {
   return (
     <div className="guide-body">
       <p>{entry.what}</p>
+      {entry.facts !== undefined && entry.facts.length > 0 && (
+        <ul className="guide-facts">
+          {entry.facts.map((fact) => (
+            <li key={fact}>{fact}</li>
+          ))}
+        </ul>
+      )}
       {entry.events.length === 0 ? (
         <p className="guide-meta">This makes no event of its own.</p>
       ) : (

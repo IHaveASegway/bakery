@@ -21,6 +21,7 @@ import {
   WhyLines,
   listeningText,
   objectOf,
+  readSentence,
   requestText,
   shortPath,
   traceSentence,
@@ -32,7 +33,9 @@ import {
   pathReduce,
   pickEntry,
   placeNote,
-  placeSpot,
+  spotBox,
+  spotFits,
+  spotPlaces,
   routeMatcher,
   switchOn,
   type GuideEntry,
@@ -334,42 +337,79 @@ describe('what a note says', () => {
 
 describe('where a hotspot sits', () => {
   const view = { width: 1440, height: 900 };
+  const phone = { width: 390, height: 844 };
   const topBar = { top: 0, left: 0, width: 1440, height: 56 };
 
-  test('outside its target’s top-right corner, or above its right end on a narrow window', () => {
-    expect(placeSpot({ top: 200, left: 300, width: 400, height: 80 }, view, [topBar])).toEqual({
-      top: 200,
-      left: 708,
-    });
-    const phone = { width: 390, height: 844 };
-    expect(placeSpot({ top: 200, left: 16, width: 358, height: 80 }, phone, [])).toEqual({
-      top: 172,
-      left: 350,
-    });
+  test('in the gutter outside its target’s top-right corner, where the window has room', () => {
+    const [first] = spotPlaces({ top: 200, left: 300, width: 400, height: 80 }, view, null);
+    expect(first).toEqual({ top: 200, left: 708, how: 'gutter' });
+  });
+
+  test('on a narrow window, in its heading’s own line after the text, never on the target’s edge', () => {
+    // A full-width card on a phone: no gutter. Its heading "Breads" ends at x 92 on y 540 to 572.
+    const card = { top: 580, left: 16, width: 358, height: 200 };
+    const heading = { top: 540, left: 16, width: 76, height: 32 };
+    expect(spotPlaces(card, phone, heading)).toEqual([{ top: 542, left: 110, how: 'line' }]);
+    // No heading, or one whose line has no room left: no place at all, so no mark.
+    expect(spotPlaces(card, phone, null)).toEqual([]);
+    expect(spotPlaces(card, phone, { ...heading, width: 340 })).toEqual([]);
   });
 
   test('not drawn under the top bar, the masthead or past the window, never pushed onto a bar', () => {
-    // A target scrolled up under the console's sticky top bar.
-    expect(placeSpot({ top: 20, left: 300, width: 400, height: 300 }, view, [topBar])).toBeNull();
-    // A target above the window, or below it.
-    expect(placeSpot({ top: -400, left: 300, width: 400, height: 80 }, view, [])).toBeNull();
-    expect(placeSpot({ top: 890, left: 300, width: 400, height: 80 }, view, [])).toBeNull();
+    const at = (top: number) => ({ top, left: 708 });
+    expect(spotFits(at(20), view, [topBar])).toBe(false);
+    expect(spotFits(at(-400), view, [])).toBe(false);
+    expect(spotFits(at(890), view, [])).toBe(false);
+    expect(spotFits(at(200), view, [topBar])).toBe(true);
   });
 
-  test('not drawn on a phone’s tab bar, its cart bar or the guide’s dock', () => {
-    const phone = { width: 390, height: 844 };
+  test('not drawn on a phone’s tab bar, its cart bar, the guide’s control, or another mark', () => {
     const tabBar = { top: 784, left: 0, width: 390, height: 60 };
-    const cartBar = { top: 700, left: 16, width: 358, height: 48 };
-    // The bake list's card starts just under the fold's tab bar: its mark would sit on "More".
-    expect(placeSpot({ top: 806, left: 16, width: 358, height: 200 }, phone, [tabBar])).toBeNull();
-    expect(placeSpot({ top: 720, left: 16, width: 358, height: 200 }, phone, [cartBar])).toBeNull();
-    // Scrolled into the open part of the window, it is drawn.
-    expect(
-      placeSpot({ top: 400, left: 16, width: 358, height: 200 }, phone, [tabBar, cartBar]),
-    ).toEqual({
-      top: 372,
-      left: 350,
+    const cartBar = { top: 780, left: 72, width: 302, height: 48 };
+    expect(spotFits({ top: 770, left: 100 }, phone, [tabBar])).toBe(false);
+    expect(spotFits({ top: 770, left: 100 }, phone, [cartBar])).toBe(false);
+    const mark = spotBox({ top: 300, left: 100 });
+    expect(spotFits({ top: 310, left: 110 }, phone, [mark])).toBe(false);
+    expect(spotFits({ top: 400, left: 100 }, phone, [tabBar, cartBar, mark])).toBe(true);
+  });
+});
+
+describe('what a story read’s note says', () => {
+  const read = (status: number, cache: string | null, asked: string | null = null) =>
+    trace({
+      key: null,
+      method: 'GET',
+      path: '/v1/sandboxes/sbx-one/menu',
+      status,
+      read: { name: 'menu', cache, etag: '"v3"', asked },
     });
+
+  test('served from the cache, or the object answered and filled it, with the ETag it saw', () => {
+    expect(readSentence(read(200, 'hit'))).toMatch(/^Served from the cache.*"v3"/);
+    expect(readSentence(read(200, 'miss'))).toMatch(
+      /^The Catalog object answered and the cache was filled.*"v3"/,
+    );
+    expect(readSentence(read(200, null))).toContain('no Bakery-Cache header');
+  });
+
+  test('a read expects no event: the menu’s events are its publisher’s', () => {
+    const entry = ALL_ENTRIES.find((e) => e.id === 'menu-how') ?? null;
+    expect(expectedFor(entry, [read(200, 'miss')])).toEqual([]);
+  });
+
+  test('asked again with the ETag: current, 304, no body', () => {
+    expect(readSentence(read(304, 'hit', '"v3"'))).toBe(
+      'This page’s copy was current: it sent If-None-Match "v3", and the API answered 304 with no body.',
+    );
+  });
+
+  test('the chain shows the headers it carried', () => {
+    const html = renderToStaticMarkup(
+      createElement(TraceChain, { traces: [read(304, 'hit', '"v3"')], expected: [], feed: [] }),
+    );
+    expect(html).toContain('Bakery-Cache: hit');
+    expect(html).toContain('ETag: &quot;v3&quot;');
+    expect(html).toContain('If-None-Match: &quot;v3&quot;');
   });
 });
 
@@ -474,6 +514,21 @@ describe('when a live note opens', () => {
 
   test('the page’s own calls (no click) never open one', () => {
     expect(noteToOpen([action(null, 'beat')], new Set(), { on: true, panel: false })).toBeNull();
+  });
+
+  test('a story read is never old news: the menu’s first load opens its note however late the layer comes', () => {
+    const menu = trace({
+      id: 'menu-read',
+      key: null,
+      gesture: 9,
+      method: 'GET',
+      path: '/v1/sandboxes/sbx-one/menu',
+      status: 200,
+      read: { name: 'menu', cache: 'miss', etag: '"v1"', asked: null },
+    });
+    const seen = gesturesIn([menu], T0 + 60_000);
+    expect(seen.size).toBe(0);
+    expect(noteToOpen([menu], seen, { on: true, panel: false })).toBe(9);
   });
 });
 

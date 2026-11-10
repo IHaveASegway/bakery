@@ -17,7 +17,6 @@ import CateringDetail from './CateringDetail';
 import CateringInquiryForm from './CateringInquiryForm';
 import Message from './Message';
 import StatusLine from './StatusLine';
-import { HOW } from '../guide/how';
 
 /**
  * The /catering/ island: the inquiry, the visitor's events, and the one open for reading. The list
@@ -166,8 +165,6 @@ export default function Catering() {
       {sandboxId !== null && open !== null && (
         <CateringDetail sandboxId={sandboxId} event={open} onChange={take} />
       )}
-
-      <p className="hint">How this works: {HOW.catering}</p>
     </>
   );
 }

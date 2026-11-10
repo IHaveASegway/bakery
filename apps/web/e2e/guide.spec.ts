@@ -244,8 +244,93 @@ test('with the switch off, a press opens no note and the layer is not loaded; on
 
   // With the recorder closed, the next press opens its note again.
   await advance.click();
-  await expect(page.getByRole('region', { name: 'Under the hood: The clock' })).toBeVisible();
+  const clock = page.getByRole('region', { name: 'Under the hood: The clock' });
+  await expect(clock).toBeVisible();
+  // What the press set off, said in the note now that the page no longer says it.
+  await expect(clock).toContainText('each one worked out its timers again');
+  await expect(page.getByText('How this works')).toHaveCount(0);
 });
+
+test('the menu’s read opens a note with what answered, and Ask again shows the 304', async ({
+  page,
+}) => {
+  await demoAccount(page);
+  await liveSandbox(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/menu/');
+  // No click: the page's own read is told when it happens, but folded to one line, over nothing.
+  const line = page.locator('.guide-line');
+  await expect(line).toContainText('Where the menu came from');
+  await expect(line).toContainText(/200, cache (hit|miss)/);
+  expect(await guideOverControls(page)).toEqual([]);
+  const note = page.getByRole('region', { name: 'Under the hood: Where the menu came from' });
+  await expect(note).toHaveCount(0);
+  await line.getByRole('button', { name: /Where the menu came from/ }).click();
+  await expect(note).toBeVisible();
+  await expect(note).toContainText('GET …/menu');
+  await expect(note).toContainText(/Bakery-Cache: (hit|miss)/);
+  await expect(note).toContainText('ETag: "');
+  await expect(note).toContainText(
+    /Served from the cache|The Catalog object answered and the cache was filled/,
+  );
+  await expect(note).toContainText('When not');
+  // The page itself no longer explains.
+  await expect(page.getByText('How this works')).toHaveCount(0);
+
+  await note.getByRole('button', { name: 'Ask again' }).click();
+  await expect(note).toContainText('304');
+  await expect(note).toContainText('If-None-Match: "');
+  await expect(note).toContainText('This page’s copy was current');
+  await expectNoAxeViolations(page);
+});
+
+/**
+ * The guide's notes and folded lines against the page's controls (buttons, inputs, links, the slot
+ * picker's labels), as boxes on the screen now: each that meets one, named.
+ */
+async function guideOverControls(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const boxes = [...document.querySelectorAll('.guide-note, .guide-line')].map((n) =>
+      n.getBoundingClientRect(),
+    );
+    const hits: string[] = [];
+    for (const c of document.querySelectorAll(
+      'a[href], button, input, select, textarea, label, [role="button"]',
+    )) {
+      if (c.closest('[data-guide-root]') !== null) continue;
+      const r = c.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      for (const b of boxes) {
+        if (r.left < b.right && r.right > b.left && r.top < b.bottom && r.bottom > b.top) {
+          hits.push(`${c.tagName} "${(c.textContent ?? '').trim().slice(0, 30)}"`);
+        }
+      }
+    }
+    return hits;
+  });
+}
+
+/** How many whole words of the folded line's title fit in the room the line gives it. */
+async function shownWords(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const title = document.querySelector('.guide-line-title');
+    const text = title?.firstChild;
+    if (!title || !text || text.nodeType !== Node.TEXT_NODE) return 0;
+    const room = title.getBoundingClientRect().right;
+    const words = (text.textContent ?? '').split(' ');
+    let end = 0;
+    let shown = 0;
+    for (const word of words) {
+      end += (shown === 0 ? 0 : 1) + word.length;
+      const range = document.createRange();
+      range.setStart(text, 0);
+      range.setEnd(text, end);
+      if (range.getBoundingClientRect().right > room + 0.5) break;
+      shown += 1;
+    }
+    return shown;
+  });
+}
 
 /**
  * The Recorder's button. In the app shell's top bar the guide is one pill and the Recorder sits in
@@ -327,4 +412,239 @@ test('on the order page, the kitchen’s move opens a note with the event heard,
   await expect(panel.getByText('evt OrderProductionStarted')).toBeVisible();
   await expect(panel.getByText(/Reading every 10 seconds/)).toBeVisible();
   for (const c of consoles) await c.close();
+});
+
+test.describe('on a phone', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  /**
+   * Every hotspot's box against every button, link and line of text on the page, at each step of a
+   * scroll through it. The page's boxes are read once, in page coordinates (a scroll moves none of
+   * them but the fixed bars, which a mark is kept off by design); the marks at every step.
+   */
+  async function spotsClearAllTheWay(page: Page): Promise<string[]> {
+    return page.evaluate(async () => {
+      const hits = new Set<string>();
+      type R = { l: number; t: number; r: number; b: number };
+      const doc = (rect: DOMRect): R => ({
+        l: rect.left + window.scrollX,
+        t: rect.top + window.scrollY,
+        r: rect.right + window.scrollX,
+        b: rect.bottom + window.scrollY,
+      });
+      const meets = (a: R, b: R) => a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t;
+      const inGuide = (n: Node) =>
+        (n.nodeType === Node.ELEMENT_NODE ? (n as Element) : n.parentElement)?.closest(
+          '[data-guide-root]',
+        ) != null;
+      window.scrollTo(0, 0);
+      const things: [string, R][] = [];
+      for (const c of document.querySelectorAll(
+        'a[href], button, input, select, textarea, [role="button"]',
+      )) {
+        const r = c.getBoundingClientRect();
+        if (!inGuide(c) && r.width > 0)
+          things.push([`${c.tagName} "${(c.textContent ?? '').trim().slice(0, 30)}"`, doc(r)]);
+      }
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+        if ((n.textContent ?? '').trim() === '' || inGuide(n)) continue;
+        const range = document.createRange();
+        range.selectNodeContents(n);
+        for (const r of range.getClientRects()) {
+          things.push([`the text "${(n.textContent ?? '').trim().slice(0, 30)}"`, doc(r)]);
+        }
+      }
+      const frame = () =>
+        new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+      const end = document.documentElement.scrollHeight - window.innerHeight;
+      for (let y = 0; ; y = Math.min(end, y + 300)) {
+        window.scrollTo(0, y);
+        await frame();
+        for (const spot of document.querySelectorAll('.guide-spot')) {
+          const box = doc(spot.getBoundingClientRect());
+          for (const [what, r] of things) if (meets(box, r)) hits.add(`at ${y}: a mark on ${what}`);
+        }
+        if (y >= end) break;
+      }
+      return [...hits];
+    });
+  }
+
+  test('no hotspot sits on a button, a link or a line of text, on the home page, the menu and the checkout', async ({
+    page,
+  }) => {
+    await demoAccount(page);
+    const sandbox = await liveSandbox(page);
+    const menu = await api<Parameters<typeof pickupOrder>[0]>(
+      page,
+      'GET',
+      `/v1/sandboxes/${sandbox.id}/menu`,
+    );
+    const want = pickupOrder(menu.body, sandbox.clock_offset_s ?? 0, 2);
+    for (const path of ['/', '/menu/', '/checkout/']) {
+      if (path === '/checkout/') {
+        await page.evaluate(
+          (cart) => sessionStorage.setItem('bakery.cart.v1', JSON.stringify(cart)),
+          {
+            lines: want.lines,
+            note: '',
+            kind: 'pickup',
+            zone: 'z1',
+            slot: '',
+          },
+        );
+      }
+      await page.goto(path);
+      await expect(page.locator('.guide-spot').first()).toBeVisible();
+      // The menu's own note is about its read; close it, so the page is what is measured.
+      const close = page.getByRole('button', { name: 'Close this note' });
+      if (await close.isVisible()) await close.click();
+      expect(await spotsClearAllTheWay(page), path).toEqual([]);
+    }
+  });
+
+  test('the guide’s control is one button that never sits over an Add button or a checkout step control', async ({
+    page,
+  }) => {
+    await demoAccount(page);
+    const sandbox = await liveSandbox(page);
+    const menu = await api<Parameters<typeof pickupOrder>[0]>(
+      page,
+      'GET',
+      `/v1/sandboxes/${sandbox.id}/menu`,
+    );
+    const want = pickupOrder(menu.body, sandbox.clock_offset_s ?? 0, 2);
+    const underIt = (selector: string) =>
+      page.evaluate(async (sel) => {
+        const hits: string[] = [];
+        const control = document.querySelector('.guide-bar-dock');
+        if (control === null) return ['no guide control'];
+        const frame = () =>
+          new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+        const end = document.documentElement.scrollHeight - window.innerHeight;
+        for (let y = 0; ; y = Math.min(end, y + 120)) {
+          window.scrollTo(0, y);
+          await frame();
+          const c = control.getBoundingClientRect();
+          for (const el of document.querySelectorAll(sel)) {
+            const r = el.getBoundingClientRect();
+            if (
+              r.width > 0 &&
+              r.left < c.right &&
+              r.right > c.left &&
+              r.top < c.bottom &&
+              r.bottom > c.top
+            ) {
+              hits.push(
+                `at ${y}: ${(el.textContent ?? el.getAttribute('aria-label') ?? '').trim().slice(0, 40)}`,
+              );
+            }
+          }
+          if (y >= end) break;
+        }
+        return hits;
+      }, selector);
+
+    await page.goto('/menu/');
+    const compact = page.getByRole('button', { name: /^Under the hood, (on|off)$/ });
+    await expect(compact).toBeVisible();
+    const box = await compact.boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(44);
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+    const close = page.getByRole('button', { name: 'Close this note' });
+    if (await close.isVisible()) await close.click();
+    // It sits at the cart bar's left end, in the same row, never over the column of Add buttons.
+    const bar = await page.locator('.cart-bar').boundingBox();
+    expect(
+      Math.abs((bar?.y ?? 0) + (bar?.height ?? 0) - ((box?.y ?? 0) + (box?.height ?? 0))),
+    ).toBeLessThanOrEqual(1);
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(bar?.x ?? 0);
+    expect(await underIt('button[aria-label^="Add "]')).toEqual([]);
+    // A tap opens the whole control: the switch, the short path and the recorder.
+    await compact.click();
+    await expect(page.getByRole('switch', { name: 'Under the hood' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Recorder' })).toBeVisible();
+    await compact.click();
+
+    await page.evaluate((cart) => sessionStorage.setItem('bakery.cart.v1', JSON.stringify(cart)), {
+      lines: want.lines,
+      note: '',
+      kind: 'pickup',
+      zone: 'z1',
+      slot: '',
+    });
+    await page.goto('/checkout/');
+    await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
+    // No cart bar here: the control sits in the masthead's first row and scrolls away with it.
+    expect(await underIt('form button, form input, form select, form label')).toEqual([]);
+    await expectNoAxeViolations(page);
+  });
+
+  test('a note the page caused by itself is one line, over no control, until it is opened', async ({
+    page,
+  }) => {
+    await demoAccount(page);
+    const sandbox = await liveSandbox(page);
+    const menu = await api<Parameters<typeof pickupOrder>[0]>(
+      page,
+      'GET',
+      `/v1/sandboxes/${sandbox.id}/menu`,
+    );
+    const want = pickupOrder(menu.body, sandbox.clock_offset_s ?? 0, 2);
+    const line = page.locator('.guide-line');
+
+    await page.goto('/menu/');
+    await expect(line).toContainText('Where the menu came from');
+    expect(await guideOverControls(page), 'menu').toEqual([]);
+    expect(await shownWords(page), 'menu').toBeGreaterThanOrEqual(3);
+
+    await page.evaluate((cart) => sessionStorage.setItem('bakery.cart.v1', JSON.stringify(cart)), {
+      lines: want.lines,
+      note: '',
+      kind: 'pickup',
+      zone: 'z1',
+      slot: '',
+    });
+    await page.goto('/checkout/');
+    await expect(line).toContainText('The menu this checkout read');
+    await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
+    expect(await guideOverControls(page), 'checkout, step one').toEqual([]);
+    expect(await shownWords(page), 'checkout').toBeGreaterThanOrEqual(3);
+    // Opened, it is a note in full; a press in the page folds it back to the line.
+    await line.getByRole('button', { name: /The menu this checkout read/ }).click();
+    const note = page.getByRole('region', { name: 'Under the hood: The menu this checkout read' });
+    await expect(note).toBeVisible();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await expect(note).toHaveCount(0);
+    await expect(line).toBeVisible();
+    // Step two: the slots are clear of it.
+    await expect(page.locator('input[name="slot"]').first()).toBeAttached();
+    expect(await guideOverControls(page), 'checkout, step two').toEqual([]);
+  });
+
+  test('a live note opened by a control low on the screen does not cover that control', async ({
+    page,
+  }) => {
+    await demoAccount(page);
+    await liveSandbox(page);
+    await page.goto('/app/system/');
+    const advance = page.getByRole('button', { name: /^Advance 15 minutes/ }).first();
+    await expect(advance).toBeVisible();
+    await advance.evaluate((el) =>
+      window.scrollTo(
+        0,
+        el.getBoundingClientRect().top + window.scrollY - window.innerHeight + 160,
+      ),
+    );
+    await advance.click();
+    const note = page.getByRole('region', { name: 'Under the hood: The clock' });
+    await expect(note).toBeVisible();
+    const pressed = await advance.boundingBox();
+    const sheet = await note.boundingBox();
+    expect(pressed).not.toBeNull();
+    expect(sheet).not.toBeNull();
+    if (pressed === null || sheet === null) return;
+    expect(pressed.y + pressed.height <= sheet.y || pressed.y >= sheet.y + sheet.height).toBe(true);
+  });
 });

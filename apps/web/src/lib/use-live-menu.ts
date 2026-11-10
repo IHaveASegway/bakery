@@ -1,9 +1,11 @@
 // The menu the storefront shows: the seed's static menu until a sandbox is live, then that
 // sandbox's own, from `GET /v1/sandboxes/{id}/menu`. The ETag of the copy in hand goes back as
-// `If-None-Match`, so asking again for an unchanged menu costs a 304 and no body. The two headers
-// the API exposes, `ETag` and `Bakery-Cache`, are kept for the "How this works" line.
+// `If-None-Match`, so asking again for an unchanged menu costs a 304 and no body. Each read is a
+// story read (lib/trace.ts): the guide's menu note shows its `ETag` and `Bakery-Cache`, and its
+// "Ask again" button calls `refresh` through the repeat this hook registers.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getMenu } from './api';
+import { storyReads } from './trace';
 import { describeError, type Message } from './messages';
 import { STATIC_MENU, type MenuView } from './menu';
 import type { Phase } from './use-session';
@@ -69,6 +71,10 @@ export function useLiveMenu(phase: Phase): LiveMenu {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  useEffect(() => {
+    if (id === null) return;
+    return storyReads.register('menu', () => void refresh());
+  }, [id, refresh]);
 
   return { ...state, checking, refresh };
 }

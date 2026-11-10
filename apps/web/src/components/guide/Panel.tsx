@@ -2,7 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import type { GuideEntry, ScreenId } from '../../lib/guide';
 import type { FeedArrival, HeardEvent, Listening, Trace } from '../../lib/trace';
 import { entryForTraces, expectedFor, routeIdOf, targetOf } from './match';
-import { EntryBody, TraceChain, WhyLines, listeningText, objectOf, requestText } from './Views';
+import {
+  EntryBody,
+  ReadStory,
+  TraceChain,
+  WhyLines,
+  listeningText,
+  objectOf,
+  requestText,
+} from './Views';
 
 /** The visitor's traces grouped by the click that made them, newest click first. */
 export function byGesture(traces: readonly Trace[]): Trace[][] {
@@ -99,6 +107,10 @@ export default function Panel({
                 {openRow === id && (
                   <div id={id} className="guide-row-body">
                     <TraceChain traces={group} expected={expectedFor(entry, group)} feed={feed} />
+                    {first.read !== undefined && <ReadStory trace={first} />}
+                    {entry?.happened !== undefined && (
+                      <p className="guide-happened">{entry.happened}</p>
+                    )}
                     {entry !== null && <WhyLines entry={entry} />}
                   </div>
                 )}
