@@ -18,6 +18,7 @@ import {
   spotFits,
   spotPlaces,
   screenOf,
+  type Box,
   type GuideEntry,
   type PageId,
 } from '../../lib/guide';
@@ -31,12 +32,13 @@ import {
   noteToOpen,
   routeIdOf,
   targetOf,
+  unfollowable,
   watchKeysBefore,
   watchToOpen,
   type WatchNews,
 } from './match';
 import { clearOfPage, headingLine, textEnd } from './clear';
-import { Note, barBoxes, resolveAnchor, topInset } from './Note';
+import { Note, around, barBoxes, resolveAnchor, topInset } from './Note';
 import Panel from './Panel';
 import {
   EntryBody,
@@ -44,11 +46,56 @@ import {
   TraceChain,
   WatchChain,
   ReadStory,
+  ReasonsOnce,
   RecorderSays,
   WhyLines,
   traceSentence,
   watchSentence,
 } from './Views';
+
+/**
+ * What the page says came of a request, when it marks it (data-guide-result: the board's sentence,
+ * the clock's readout), in the window or not: the one inside the entry's own element first.
+ */
+function resultInPage(target: string | null): Element | null {
+  const inTarget =
+    target === null
+      ? null
+      : document.querySelector(`[data-tour="${CSS.escape(target)}"] [data-guide-result]`);
+  return inTarget ?? document.querySelector('[data-guide-result]');
+}
+
+/**
+ * A control's name without the order it is for: "Start production for order 4KX2QF" and the same
+ * button on the next card are one control. Empty when it has no name.
+ */
+function controlName(el: Element): string {
+  const name = (el.getAttribute('aria-label') ?? el.textContent ?? '').trim();
+  return name.replace(/\s+for order\s+\S+$/i, '');
+}
+
+/**
+ * Watch the page for about a second after an answer, a frame at a time: as soon as `kept` says
+ * the note has something to sit by (its control, the page's result line), nothing happens;
+ * otherwise, once the page has settled, `fold`. A page writes its result line when its own code
+ * has handled the answer, some frames after the guide's trace has it (the board's one status line
+ * waits for the board's own state). Returns the stop.
+ */
+function afterSettling(kept: () => boolean, fold: () => void): () => void {
+  let frame = 0;
+  let left = 60;
+  const look = () => {
+    if (kept()) return;
+    left -= 1;
+    if (left <= 0) fold();
+    else frame = requestAnimationFrame(look);
+  };
+  frame = requestAnimationFrame(look);
+  return () => cancelAnimationFrame(frame);
+}
+
+/** The width at and under which the guide's control and folded line sit in the masthead's row. */
+const PHONE_ROW = '(max-width: 48rem)';
 
 /** A menu open over the page, which an Escape closes before it closes any note. */
 const OPEN_MENUS =
@@ -146,12 +193,15 @@ export default function Layer({
     // A story read the page made by itself (the menu's first load, or Ask again in the note) has no
     // pressed element: its note sits by what it explains, wherever the focus is.
     if (story) return resolveAnchor(null, [target]);
-    return resolveAnchor(live === null ? null : traces.anchorOf(live.gesture), [
-      () => focused,
-      () => lastFocused.current,
-      target,
-    ]);
-  }, [live, liveEntry, story]);
+    // A request whose pressed control has gone (a refunded card leaves the board) sits by what the
+    // page says came of it, an element marked data-guide-result, before anything the focus is on:
+    // ringing a card the focus fell to would tie the note to the wrong order (audit G2).
+    const pressed = live === null ? null : traces.anchorOf(live.gesture);
+    const gone = !(pressed instanceof Element && pressed.isConnected);
+    const result = () =>
+      gone && group[0]?.transport === 'http' ? resultInPage(liveEntry?.target ?? null) : null;
+    return resolveAnchor(pressed, [result, () => focused, () => lastFocused.current, target]);
+  }, [live, liveEntry, story, group]);
   useEffect(() => {
     lastFocused.current = null;
   }, [live?.gesture]);
@@ -189,22 +239,119 @@ export default function Layer({
     setLive(null);
     setStoryOpen(false);
   }, []);
-  // A note the page has nothing to set beside (the press was on the page before this one, or its
-  // element has gone) arrives folded to its line, never in a corner over the page.
+  // A note the page has nothing to set beside arrives folded to its line, never in a corner over
+  // the page: the press was on the page before this one, or, once the answer is in, the pressed
+  // control has gone with nothing on the page saying what came of it (the console's "Create a
+  // sandbox", replaced by the board; audit F6). A board's move keeps its note by the moved card.
+  const answered = group[0] !== undefined && group[0].outcome !== 'pending';
   useLayoutEffect(() => {
     if (live === null || story || group.length === 0) return;
-    if (liveAnchor() === null) setLineFor(live.gesture);
-    // Only when the note arrives: later evidence does not fold it.
-  }, [live?.gesture, group.length > 0]);
+    const pressed = traces.anchorOf(live.gesture);
+    if (pressed === null || liveAnchor() === null) {
+      setLineFor(live.gesture);
+      return;
+    }
+    if (!answered || group[0]?.transport === 'socket') return;
+    // Judged once the page has drawn the answer (its result line is set as the answer lands): with
+    // the pressed control gone and nothing at all to sit by (no result line, no focus the page
+    // moved, not the entry's own element), it folds. Later, the note itself folds if its element
+    // goes (Note.tsx).
+    const gesture = live.gesture;
+    return afterSettling(
+      () => {
+        const now = traces.anchorOf(gesture);
+        return (now instanceof Element && now.isConnected) || liveAnchor() !== null;
+      },
+      () => setLineFor(gesture),
+    );
+    // When the note arrives and when its answer does: later evidence does not fold it.
+  }, [live?.gesture, group.length > 0, answered]);
   const foldIfGone = useCallback((): boolean => {
     if (live === null) return false;
     const pressed = traces.anchorOf(live.gesture);
     if (pressed instanceof Element && pressed.isConnected) return false;
     if (group[0]?.transport === 'socket') return false;
-    setLineFor(live.gesture);
-    setStoryOpen(false);
-    return true;
-  }, [live, group]);
+    // Not before the answer: a refund's card leaves the board on the socket's news before the
+    // answer lands and the page writes its result line.
+    if (group[0]?.outcome === 'pending') return false;
+    // The page says what came of it: the note stays open by that, the least in the way (G2). The
+    // page writes its result line as the answer lands, a frame or two after the trace has it, so
+    // the fold is judged once the page has drawn the answer; the note keeps its place till then.
+    if (resultInPage(liveEntry?.target ?? null) !== null) return false;
+    const gesture = live.gesture;
+    const target = liveEntry?.target ?? null;
+    afterSettling(
+      () => {
+        const now = traces.anchorOf(gesture);
+        return resultInPage(target) !== null || (now instanceof Element && now.isConnected);
+      },
+      () => {
+        setLineFor(gesture);
+        setStoryOpen(false);
+      },
+    );
+    return false;
+  }, [live, group, liveEntry]);
+  // What the live note must never cover (audit G3): the control that was pressed, the thing that
+  // shows the result (the card where it is now, the readout that changed, the line that appeared:
+  // the note's anchor and any data-guide-result), and what a visitor presses next (the same control
+  // again, the same control on the next card of its column, the control the page put the focus on).
+  const keepClear = useCallback((): Box[] | null => {
+    if (live === null) return [];
+    // A note by a fallback (its pressed control gone, no result line on the page: the checkout's
+    // gate, replaced by the steps) keeps clear of every control, else waits as its line: null.
+    const pressedNow = traces.anchorOf(live.gesture);
+    if (
+      group[0]?.transport === 'http' &&
+      !(pressedNow instanceof Element && pressedNow.isConnected) &&
+      resultInPage(liveEntry?.target ?? null) === null
+    ) {
+      return null;
+    }
+    const els = new Set<Element>();
+    const pressed = traces.anchorOf(live.gesture);
+    const anchorEl = liveAnchor();
+    if (anchorEl !== null) {
+      els.add(anchorEl);
+      // What is pressed next is the controls of the part the note sits by: the step it opened,
+      // the card that moved, the panel whose readout changed (its other buttons).
+      const part = anchorEl.closest('section, article, li, tr, form, fieldset');
+      const box = part?.getBoundingClientRect();
+      // A part, not the page: the whole board is not one card.
+      const small =
+        box !== undefined && box.width * box.height < 0.4 * window.innerWidth * window.innerHeight;
+      if (part !== null && small) {
+        for (const c of part.querySelectorAll(
+          'button, a[href], input, select, textarea, label, summary',
+        )) {
+          els.add(c);
+        }
+      }
+    }
+    for (const r of document.querySelectorAll('[data-guide-result]')) els.add(r);
+    const focused = focusInPage();
+    if (focused !== null) els.add(focused);
+    if (pressed instanceof Element) {
+      if (pressed.isConnected) {
+        els.add(pressed);
+        els.add(around(pressed));
+        // Its row of controls: the clock's other steps beside the one pressed.
+        for (const c of pressed.parentElement?.querySelectorAll('button, a[href], summary') ?? []) {
+          els.add(c);
+        }
+      }
+      const same = controlName(pressed);
+      if (same !== '') {
+        for (const c of document.querySelectorAll('main button, main a[href], main summary')) {
+          if (controlName(c) === same) els.add(c);
+        }
+      }
+    }
+    return [...els].map((el) => {
+      const r = el.getBoundingClientRect();
+      return { top: r.top, left: r.left, width: r.width, height: r.height };
+    });
+  }, [live, liveAnchor, group, liveEntry]);
   const foldLive = useCallback(() => {
     if (live === null) return;
     setLineFor(live.gesture);
@@ -387,14 +534,23 @@ export default function Layer({
     };
   }, []);
 
+  // On a phone the folded line waits in the masthead's guide row; decided again whenever the
+  // window crosses that width, so the line never stays in a row the page no longer shows
+  // (pull request #143: it held the masthead 46 px taller after the window widened).
+  const narrow = useSyncExternalStore(
+    (changed) => {
+      const query = window.matchMedia(PHONE_ROW);
+      query.addEventListener('change', changed);
+      return () => query.removeEventListener('change', changed);
+    },
+    () => window.matchMedia(PHONE_ROW).matches,
+    () => false,
+  );
   const showLive = on && live !== null && group.length > 0 && !offStory;
   const folded = showLive && asLine && !storyOpen;
   // The line stays while its note is open (the page does not jump under the visitor's finger).
   const lined = showLive && asLine;
-  const lineSlot =
-    lined && window.matchMedia('(max-width: 60rem)').matches
-      ? document.querySelector('.guide-line-slot')
-      : null;
+  const lineSlot = lined && narrow ? document.querySelector('.guide-line-slot') : null;
   const line = lined ? (
     <p className="guide-line" role="group" aria-label="Under the hood, what this page read">
       <button
@@ -514,7 +670,9 @@ export default function Layer({
               <WhyLines entry={watchEntry} />
             </Note>
           )}
-          {line !== null && lineSlot === null && line}
+          {/* The floating line is the note's handle: while the note is open it is not shown, so it
+              never sits on its own note (audit G2). In the masthead it stays, in the page's flow. */}
+          {line !== null && lineSlot === null && !storyOpen && line}
           {showLive && !folded && (
             <Note
               id="guide-live"
@@ -527,6 +685,7 @@ export default function Layer({
               // (the checkout's gate, replaced by the steps) waits as its line. One by a control
               // still there stays beside it, the least in the way, as a board's move does.
               onCrowded={asLine ? undefined : foldIfGone}
+              keepClear={keepClear}
             >
               <NoteHead
                 eyebrow="Under the hood · just now"
@@ -541,12 +700,13 @@ export default function Layer({
                 feed={snapshot.feed}
                 reading={followed.current === live.gesture ? recorder.reading : 'idle'}
               />
+              {unfollowable(group) !== null && <p className="guide-meta">{unfollowable(group)}</p>}
               <RecorderSays state={recorder} />
               {group[0]?.read !== undefined && <ReadStory trace={group[0]} />}
               {liveEntry?.happened !== undefined && (
                 <p className="guide-happened">{liveEntry.happened}</p>
               )}
-              {liveEntry !== null && <WhyLines entry={liveEntry} />}
+              {liveEntry !== null && <ReasonsOnce entry={liveEntry} note={live.gesture} />}
             </Note>
           )}
           {on && !showLive && pathStep !== undefined && pathEntry !== null && (
@@ -771,6 +931,10 @@ function Hotspots({
           }}
           type="button"
           className="guide-spot"
+          // Not a Tab stop (audit G10): the marks live at the page's end in the document, so Tab
+          // would reach them after the footer, far from their words. A keyboard reaches every
+          // entry in the Recorder, the dock's last stop; a pointer or a touch opens the mark.
+          tabIndex={-1}
           data-guide-target={spot.target}
           data-guide-how={spot.how}
           aria-label={`Under the hood: ${spot.title}`}

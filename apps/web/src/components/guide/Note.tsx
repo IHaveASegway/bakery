@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { placeNote } from '../../lib/guide';
+import { placeNote, type Box } from '../../lib/guide';
 import { controlBoxes } from './clear';
 
 /** Below this width a note is a sheet over the lower third of the window, placed by CSS alone. */
@@ -78,6 +78,7 @@ export function Note({
   changed,
   onClose,
   onCrowded,
+  keepClear,
   children,
 }: {
   id: string;
@@ -94,6 +95,11 @@ export function Note({
    * to press, and says true; otherwise, or without it, the note takes the place that covers least.
    */
   onCrowded?: (() => boolean) | undefined;
+  /**
+   * What this note must never cover, in window boxes: the pressed control, the result it made, and
+   * what the visitor presses next (Layer.tsx). Without it, every control on the page.
+   */
+  keepClear?: (() => Box[] | null) | undefined;
   children: ReactNode;
 }) {
   const box = useRef<HTMLElement>(null);
@@ -101,9 +107,12 @@ export function Note({
   const [corner, setCorner] = useState(false);
   const crowded = useRef(onCrowded);
   crowded.current = onCrowded;
+  const keep = useRef(keepClear);
+  keep.current = keepClear;
   // Whether the note has a place by the element it is beside now; a new element (the pressed
   // control gone, a fallback in its place) is a new arrival, judged afresh.
   const arrived = useRef<Element | null>(null);
+  const arrivedAt = useRef(0);
   /** The end of the window a phone's sheet took when it arrived. */
   const sheet = useRef<'foot' | 'head' | null>(null);
 
@@ -124,9 +133,13 @@ export function Note({
       frame = 0;
       const target = anchor();
       ring(target);
+      // The element it sat by has gone and nothing stands in for it (a button the page replaced):
+      // the caller may fold it to its line rather than leave it in a corner over the page (F6).
+      if (target === null && arrived.current !== null && crowded.current?.() === true) return;
       if (window.matchMedia(PHONE).matches || target === null) {
         note.style.removeProperty('top');
         note.style.removeProperty('left');
+        note.style.removeProperty('max-height');
         note.removeAttribute('data-side');
         setCorner(target === null);
         // A phone's sheet sits at the foot or at the top, under the page's bars. Where it arrives,
@@ -167,19 +180,51 @@ export function Note({
         else note.removeAttribute('data-sheet');
         return;
       }
+      // A note never runs past the window's foot: taller than the room, it scrolls inside itself.
+      note.style.maxHeight = `${Math.max(160, window.innerHeight - BAR_ROOM - topInset() - 16)}px`;
       const rect = target.getBoundingClientRect();
-      const at = placeNote(
-        { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
-        { width: note.offsetWidth, height: note.offsetHeight },
-        {
-          width: document.documentElement.clientWidth,
-          height: window.innerHeight - BAR_ROOM,
-          top: topInset(),
-        },
-        controlBoxes(),
-      );
+      const anchorBox = { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
+      const size = { width: note.offsetWidth, height: note.offsetHeight };
+      const view = {
+        width: document.documentElement.clientWidth,
+        height: window.innerHeight - BAR_ROOM,
+        top: topInset(),
+      };
+      // Best, clear of every control on the page; else clear of what matters to this press (the
+      // pressed control, its result, what is pressed next: audit G3), beside the anchor or, with
+      // no room there, docked in the first corner clear of them, the same each time on a page.
+      // null: keep clear of every control (a note by a fallback), else of what matters to the press.
+      const asked = keep.current?.();
+      const matters = asked ?? [];
+      const everywhere = placeNote(anchorBox, size, view, [...controlBoxes(), ...matters]);
+      let at =
+        everywhere.clear || asked === undefined || asked === null
+          ? everywhere
+          : placeNote(anchorBox, size, view, matters);
+      // Too tall to sit clear of them (a wide result line across the board, a long chain): the
+      // note takes the larger band above or below its anchor and scrolls inside itself.
+      if (!at.clear && asked !== undefined && asked !== null) {
+        const below = view.height - (anchorBox.top + anchorBox.height) - 12 - 8;
+        const above = anchorBox.top - 12 - (view.top + 8);
+        const band = Math.max(below, above);
+        if (band >= 200 && band < size.height) {
+          note.style.maxHeight = `${Math.round(band)}px`;
+          at = placeNote(
+            anchorBox,
+            { width: note.offsetWidth, height: note.offsetHeight },
+            view,
+            matters,
+          );
+        }
+      }
       // Only where it arrives: a note the visitor is reading never folds away under them.
-      if (!at.clear && arrived.current !== target && crowded.current?.() === true) return;
+      // Judged where it arrives, and again while the page settles under it in its first 2 s (the
+      // checkout's steps drawn after the gate), never later under a reading eye.
+      const settling = performance.now() - arrivedAt.current < 2_000;
+      if (!at.clear && (arrived.current !== target || settling) && crowded.current?.() === true) {
+        return;
+      }
+      if (arrived.current !== target) arrivedAt.current = performance.now();
       arrived.current = target;
       setCorner(false);
       note.style.top = `${Math.round(at.top)}px`;

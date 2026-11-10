@@ -26,6 +26,6 @@ export const RECORDER: Pick<
     note: 'The hops after ?after=<cursor>, at most 50 batches, with the next cursor, more and missed. The socket at /trace/ws takes the session cookie only.',
   },
   reads:
-    'A note reads the recorder at most three times after your write is answered, and stops once it has seen every event it expects; this panel holds the recorder’s socket while it is open and the tab is shown, and reads every 5 seconds if the socket is refused.',
+    'A note reads the recorder up to seven times in about 30 s after your write is answered, three in the first 3 s, and stops once it has seen every event it expects; this panel holds the recorder’s socket while it is open and the tab is shown, and reads every 5 seconds if the socket is refused.',
   carries: 'No hop carries a note, a name or an amount: identifiers, types and times only.',
 };
