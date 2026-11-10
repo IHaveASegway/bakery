@@ -36,6 +36,7 @@ export interface WorkspaceProps {
 // Nothing here is stored in the browser: the session is the cookie, and every load asks the API.
 type View =
   | { name: 'loading' }
+  | { name: 'starting' }
   | { name: 'offline' }
   | { name: 'signedout' }
   | { name: 'failed'; error: Text }
@@ -52,9 +53,17 @@ type View =
 export default function Console({
   workspace,
   View,
+  start = false,
 }: {
   workspace: WorkspaceId;
   View: ComponentType<WorkspaceProps>;
+  /**
+   * The landing of a sign-in through the sign-in page (/app/start/, Google's and GitHub's return
+   * path): a session with no live sandbox gets one made here, without a press, then the console
+   * shows at /app/. Off everywhere else, so a session that outlives its sandbox and opens /app/
+   * still gets the empty state with its button.
+   */
+  start?: boolean;
 }) {
   const [view, setView] = useState<View>({ name: 'loading' });
   const [busy, setBusy] = useState(false);
@@ -89,9 +98,53 @@ export default function Console({
     }
   }, []);
 
+  /**
+   * /app/start/: the sign-in page promises each way in a sandbox (audit G11, 2026-11-10), and a
+   * first sign-in with Google or GitHub, or a return after the night's wipe, came back with none.
+   * The live sandbox the session names is shown as it is; with none, one is made, once: a refusal
+   * (a cap, the one-a-minute limit, the API out of reach) is said in the API's words over the
+   * empty state, whose button is the way on. No retry. Either way the address becomes /app/, so
+   * Back does not come here again. With no session, the sign-in page.
+   */
+  const begin = useCallback(async () => {
+    const landed = () =>
+      window.history.replaceState(window.history.state, '', `/app/${window.location.hash}`);
+    try {
+      const session = await readSession();
+      const sandboxId = session.sandbox ?? null;
+      if (sandboxId !== null) {
+        try {
+          const sandbox = await readSandbox(sandboxId);
+          landed();
+          return setView({ name: 'sandbox', session, sandbox });
+        } catch (e) {
+          // Gone or unknown: make one, as for a session that names none.
+          if (!(e instanceof ApiError && (e.status === 410 || e.status === 404))) throw e;
+        }
+      }
+      setView({ name: 'starting' });
+      try {
+        const sandbox = await createSandbox({ replace: false });
+        landed();
+        setView({ name: 'sandbox', session: { ...session, sandbox: sandbox.id }, sandbox });
+      } catch (e) {
+        setError(describeError(e));
+        landed();
+        setView({ name: 'none', session });
+      }
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        return window.location.replace(signinFor('/app/'));
+      }
+      landed();
+      if (e instanceof NetworkError) return setView({ name: 'offline' });
+      setView({ name: 'failed', error: describeError(e) });
+    }
+  }, []);
+
   useEffect(() => {
-    void load(false);
-  }, [load]);
+    void (start ? begin() : load(false));
+  }, [start, begin, load]);
 
   // The first alarm seeds a new sandbox (ADR 0005); until it is live, ask every second.
   const seedingId =
@@ -154,6 +207,8 @@ export default function Console({
   switch (view.name) {
     case 'loading':
       return <p aria-live="polite">Loading your session…</p>;
+    case 'starting':
+      return <p aria-live="polite">Starting your sandbox…</p>;
     case 'offline':
       return (
         <section className="empty">

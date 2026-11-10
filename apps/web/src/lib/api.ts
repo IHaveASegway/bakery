@@ -544,8 +544,15 @@ export const rotateToken = (id: string, key?: string) =>
   );
 
 /** The sign-in links are navigations through the API, not fetches (security.md, "Sign-in"). */
+/**
+ * Where "Continue with Google" and "Continue with GitHub" go. The API sends the visitor back to
+ * the return path, which may be any lower-case path and never a query (crates/app/src/auth/oauth.rs,
+ * `return_path`), so the way in has a landing of its own, /app/start/, which makes the account its
+ * sandbox when it has no live one; /app/ itself never does (audit G11, 2026-11-10).
+ */
+export const SIGNIN_RETURN = '/app/start/';
 export const signinUrl = (provider: 'google' | 'github') =>
-  `${apiOrigin}/v1/auth/${provider}/start?return=/app/`;
+  `${apiOrigin}/v1/auth/${provider}/start?return=${SIGNIN_RETURN}`;
 
 /** Where the kitchen board's socket is: the API's own origin with ws: or wss: (src/policy.ts). */
 /**

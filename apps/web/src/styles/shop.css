@@ -370,6 +370,16 @@
   width: 100%;
 }
 
+/* The new demo account's card: the line about its sandbox, then its two actions as a list with the
+   stack's gap, as the provider buttons are (audit G11, 2026-11-10: the two buttons touched). */
+.way-in .made {
+  margin: var(--space-3) 0 0;
+}
+
+.way-in section > .choices {
+  margin-top: var(--space-3);
+}
+
 @media (max-width: 60rem) {
   .ways-in {
     grid-template-columns: minmax(0, 1fr);
@@ -541,6 +551,22 @@
   scroll-margin-top: 72px;
 }
 
+/* The way to the cart after a pressed Add: hidden until it has the focus (.skip-inline), then a row
+   of its own under that variant, at the end, under the button it follows (audit G10, 2026-11-10). */
+.menu-shop .variants li {
+  position: relative;
+}
+
+.menu-shop .variants .to-cart:not(:focus) {
+  left: 0;
+}
+
+.menu-shop .variants .to-cart:focus {
+  grid-column: 1 / -1;
+  justify-self: end;
+  margin: var(--space-2) 0 0;
+}
+
 /* The cart: a panel beside the grid on a wide screen. The bar and the close button are the
    phone's. */
 .shop-split.menu-shop > .cart {
@@ -564,7 +590,10 @@
   font-size: var(--type-18);
 }
 
-.cart-head h2:focus {
+/* The heading takes the focus when the sheet opens or "Go to your cart" is pressed. A keyboard
+   visitor sees where it went, the ring hugging the words as the catering form's heading does; a
+   tap or a click draws none (2026-11-10). The flex row already sizes the heading to its words. */
+.cart-head h2:focus:not(:focus-visible) {
   outline: none;
 }
 
@@ -744,4 +773,43 @@
     clip-path: inset(50%);
     white-space: nowrap;
   }
+}
+
+/* ---------- The inbox: a message opens directly under its own row ---------- */
+
+/* At every width the open message is a row of its own under the subject that opened it, so it
+   opens where the visitor is looking (audit G1, 2026-11-10: on a phone it opened under the whole
+   list). The subject's row and the message read as one: no rule between them. */
+.inbox-table > tbody > tr[data-open],
+.inbox-table > tbody > tr[data-open] > :is(th, td) {
+  border-bottom: 0;
+}
+
+.inbox-table button.link[aria-expanded='true'] {
+  font-weight: 600;
+}
+
+.inbox-open section {
+  max-width: 44rem;
+  margin: 0 0 var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  scroll-margin-block: var(--space-4);
+}
+
+.inbox-open h2 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--type-18);
+}
+
+.inbox-open .hint {
+  margin: 0 0 var(--space-2);
+}
+
+.inbox-open .brief {
+  margin: 0 0 var(--space-3);
+  font-size: var(--type-16);
 }

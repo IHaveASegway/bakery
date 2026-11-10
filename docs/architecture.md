@@ -343,7 +343,9 @@ sequenceDiagram
   A->>A: RS256 against the cached JWKS,<br/>iss, aud, exp, nonce. Keep sub only
   A->>AC: sign in as HMAC of sub
   AC-->>A: current sandbox, if born after the last wipe
-  A-->>B: 303 to /app/, Set-Cookie __Host-session on the API host
+  A-->>B: 303 to the return path (/app/start/),<br/>Set-Cookie __Host-session on the API host
+  B->>A: no live sandbox: POST /v1/sandboxes
+  A-->>B: 201, the cookie re-issued with the sandbox
 ```
 
 - Only `sub` is used: always present, "unique among all Google Accounts and never reused"; `email` appears only with the `email` scope.[^google] Tokens are verified locally against the discovery document's `jwks_uri`, never `tokeninfo`.
@@ -352,6 +354,7 @@ sequenceDiagram
 - The redirect URI sent to Google (and to GitHub) is `API_ORIGIN` plus the callback path, not the request's host: `wrangler dev` rewrites the host to the route's, and the URI must match the registered one exactly.
 - **GitHub has the same shape** (Q23 · Q-auth): `GET /v1/auth/github/start`, a 302 to GitHub with `state` and PKCE (S256) and no scope requested, so no `user:email`; the callback exchanges the code, makes one `GET /user` with the token and discards it. Only the numeric `id` is kept, the durable one (a login can change), and the account is `HMAC(ACCOUNT_HMAC_KEY, "github:" + id)`.[^github] [security.md](security.md#github-with-the-numeric-user-id-alone) owns the details.
 - **Demo account:** after Turnstile, the router generates a username such as `baker-7f3k`, the visitor sets a password, and the `Account` stores an argon2 hash. No email, no recovery. [security.md](security.md) owns the parameters.
+- **Each way in ends with a sandbox** (since 2026-11-10, audit G11). The sign-in page says so, and until then a new account reached the console's "You have no sandbox" and needed one press more. The Google and GitHub links ask the API to come back to `/app/start/` (`signinUrl` in `apps/web/src/lib/api.ts`; the return path is a lower-case path and never a query, `return_path` in `crates/app/src/auth/oauth.rs`). That page is the Kitchen's console with one difference: when the session names no live sandbox it makes one (`POST /v1/sandboxes`, which needs no Turnstile for an account), first sign-in or a return after the night's wipe alike, and then shows itself at `/app/` with the address replaced. A refusal (a cap, the one-a-minute limit, the API out of reach) is shown in the API's words over the empty state, with no retry. The demo account's card makes the sandbox in the same press that makes the account, and says so. `/app/` itself never makes one: a session that outlives its sandbox and opens it gets the empty state and its New sandbox button.
 
 ### Creating a sandbox
 

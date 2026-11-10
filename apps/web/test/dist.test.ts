@@ -72,6 +72,7 @@ describe('dist', () => {
     ['app/catering/index.html', '/app/*'],
     ['app/customers/index.html', '/app/*'],
     ['app/system/index.html', '/app/*'],
+    ['app/start/index.html', '/app/*'],
     ['app/dispatch/index.html', '/app/dispatch/*'],
     ['index.html', '/*'],
     ['privacy/index.html', '/privacy/*'],
@@ -102,6 +103,7 @@ describe('dist', () => {
     ['app/catering/index.html', 'console-catering'],
     ['app/customers/index.html', 'console-customers'],
     ['app/system/index.html', 'console-system'],
+    ['app/start/index.html', 'console'],
     ['catering/index.html', 'catering'],
     ['inbox/index.html', 'inbox'],
     ['app/dispatch/index.html', 'dispatch'],
@@ -156,12 +158,14 @@ describe('dist', () => {
       (f): f is string => typeof f === 'string' && f.endsWith('.html'),
     );
 
-  test('no page asks not to be indexed but an order’s status: the rest are meant to be found', () => {
+  test('no page asks not to be indexed but an order’s status and the sign-in’s landing: the rest are meant to be found', () => {
     // Previews on workers.dev carry X-Robots-Tag: noindex from Cloudflare (ci.yml requires it).
-    // /order/ is one visitor's own order, read from their sandbox, so it alone stays out of search
-    // (2026-11-09).
+    // /order/ is one visitor's own order, read from their sandbox, so it stays out of search
+    // (2026-11-09); /app/start/ is a step of a Google or GitHub sign-in, which makes a sandbox, and
+    // not a page to land on from a search (2026-11-10).
+    const NOINDEX = ['order/index.html', 'app/start/index.html'];
     for (const file of htmlFiles()) {
-      if (file === 'order/index.html') {
+      if (NOINDEX.includes(file)) {
         expect(page(file)).toContain('<meta name="robots" content="noindex">');
       } else expect(page(file), file).not.toMatch(/name="robots"/);
     }
@@ -632,6 +636,8 @@ describe('dist', () => {
           'app/customers/index.html',
           'app/dispatch/index.html',
           'app/system/index.html',
+          // The sign-in's landing (2026-11-10): the Kitchen's page, which starts a sandbox first.
+          'app/start/index.html',
           'catering/index.html',
           'inbox/index.html',
         ],

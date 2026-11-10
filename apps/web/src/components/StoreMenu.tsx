@@ -10,6 +10,9 @@ import { StartHere } from './Guest';
 import MenuList from './MenuList';
 import StatusLine, { ORDERS_LIVE } from './StatusLine';
 
+/** Where the cart is a bar and a sheet rather than a panel beside the list (shop.css). */
+const SHEET = '(max-width: 60rem)';
+
 /** No sandbox yet, or one still seeding: the gate, the checkout's own, in the banner's place. */
 const gated = (phase: Phase) =>
   phase.name === 'nosession' || phase.name === 'nosandbox' || phase.name === 'seeding';
@@ -25,6 +28,8 @@ export default function StoreMenu() {
   const { cart, update } = useCart();
   const [said, setSaid] = useState('');
   const [open, setOpen] = useState(false);
+  // The variant whose Add was pressed last: the way to the cart follows that button alone.
+  const [added, setAdded] = useState<string | null>(null);
   const mounted = useMounted();
   const heading = useRef<HTMLHeadingElement>(null);
   const bar = useRef<HTMLButtonElement>(null);
@@ -41,12 +46,23 @@ export default function StoreMenu() {
   }, [phase]);
 
   function add(variant: string, label: string) {
+    setAdded(variant);
     if (addLine(cart, variant).refused) {
       setSaid('The cart holds at most 20 lines. Take one out first.');
       return;
     }
     update((c) => addLine(c, variant).cart);
     setSaid(`Added ${label}.`);
+  }
+
+  /**
+   * From the link after a pressed Add: on a wide screen the cart is the panel beside the list, and
+   * its heading takes the focus; on a phone the bar opens the cart as a sheet, which takes it.
+   */
+  function toCart() {
+    if (window.matchMedia(SHEET).matches) return setOpen(true);
+    heading.current?.focus({ preventScroll: true });
+    heading.current?.scrollIntoView({ block: 'nearest' });
   }
 
   // The sheet takes the focus when it opens and gives it back to the bar when it closes.
@@ -150,7 +166,7 @@ export default function StoreMenu() {
           {said}
         </p>
       </section>
-      <MenuList menu={menu.menu} onAdd={add} />
+      <MenuList menu={menu.menu} onAdd={add} added={added} onToCart={toCart} />
       {menu.error && (
         <p className="problem" role="alert">
           <strong>{menu.error.title}.</strong> {menu.error.detail}

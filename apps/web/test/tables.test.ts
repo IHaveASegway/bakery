@@ -38,6 +38,9 @@ describe('tables on a phone', () => {
           // A row header with no column name of its own (the decision table's tool) is the block's
           // title; every other cell carries its column's name.
           if (/scope="row"/.test(cell) && !/data-label/.test(cell)) continue;
+          // A cell that spans the row is a row of its own under the one above it (the inbox's open
+          // message, 2026-11-10), with no column to name.
+          if (/colSpan=/.test(cell)) continue;
           expect(cell, file).toMatch(/data-label=/);
         }
       }

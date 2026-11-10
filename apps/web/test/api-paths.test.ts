@@ -112,9 +112,13 @@ const CALLS: Record<string, () => Promise<unknown>> = {
   rotateToken: () => api.rotateToken(X),
 };
 
-/** Exports that are not request helpers: the origin, the two error classes, the two URL builders. */
+/**
+ * Exports that are not request helpers: the origin, the two error classes, the URL builders and
+ * the sign-in's return path.
+ */
 const NOT_REQUESTS = [
   'apiOrigin',
+  'SIGNIN_RETURN',
   'ApiError',
   'NetworkError',
   'signinUrl',
