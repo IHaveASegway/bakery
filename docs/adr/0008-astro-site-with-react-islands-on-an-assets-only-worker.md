@@ -82,6 +82,8 @@ As built on 2026-11-09, every page takes one of three shells, chosen from its pa
 
 As built on 2026-11-09, the live guide replaced the tour ([ADR 0014](0014-a-live-guide-in-place-of-the-tour.md)) and the budgets moved down to hold the first load only, measured with `apps/web/test/dist.test.ts`'s sum, gzipped. The first load is smaller than the tour's total, and with the guide on, the default, the page is larger, because the guide then loads a deferred layer of 22,603 B to 23,092 B, held by a budget of its own (29,000 B). Per class, first load / with the guide on / the tour's total: home and privacy 80,312 / 103,404 / 94,187 B; the API reference 80,565 / 103,657 / 94,440 B; status 83,086 / 106,178 / 96,960 B; the storefront 92,402 / 115,005 / 103,417 B; the checkout 108,672 / 131,275 / 119,472 B; the console 126,926 / 149,798 / 136,394 B. A visitor who turns the guide off loads only the first load on later pages.
 
+Measured again on 2026-11-10, after the checkout's three steps and the order's page (#101) merged and the guide reached that page: the deferred layer is 24,088 B to 24,578 B (budget 31,000 B). Per class, first load / with the guide on / the tour's total as last measured on main: home and privacy 80,413 / 104,991 / 94,187 B; the API reference 80,666 / 105,244 / 94,440 B; status 83,189 / 107,767 / 96,960 B; the storefront 92,739 / 116,827 / 103,417 B; the checkout 111,854 / 135,942 / 122,775 B; the console 128,204 / 152,562 / 137,999 B. The order's page had no tour (97,911 B); it is 103,825 B first and 127,913 B with the guide on.
+
 ## Patterns and further reading
 
 - Islands architecture: ["Islands Architecture"](https://jasonformat.com/islands-architecture/) (blog, 2020).
