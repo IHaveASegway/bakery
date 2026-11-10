@@ -942,7 +942,10 @@
   [data-tour] .start-title
 )::after {
   /* Empty alternative text: the joiner is layout, not a word, and stays out of the heading's
-     accessible name ("Customers" must not read as "Customers" plus a joiner). */
+     accessible name ("Customers" must not read as "Customers" plus a joiner). A browser that
+     does not know the alternative-text form drops that declaration and keeps the plain one
+     before it, so the room is still there. */
+  content: '\2060';
   content: '\2060' / '';
   padding-inline-end: 48px;
 }
