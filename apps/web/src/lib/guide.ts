@@ -12,6 +12,7 @@ export const SCREENS = [
   'signin',
   'menu',
   'checkout',
+  'order',
   'console',
   'catering',
   'inbox',
@@ -166,11 +167,6 @@ export interface Placement {
   side: 'left' | 'right' | 'top' | 'bottom' | 'none';
   /** The caret's offset along that side, from the note's corner. */
   caret: number;
-  /**
-   * Docked with no corner clear of the anchor: how far to scroll the page (down, in pixels) so the
-   * anchor sits above the note. Absent when nothing needs to move.
-   */
-  scroll?: number;
 }
 
 /** The gap between the anchor and the note, and the room kept from the window's edges. */
@@ -181,20 +177,12 @@ const CARET_MIN = 16;
 const clamp = (value: number, low: number, high: number) =>
   Math.min(Math.max(value, low), Math.max(low, high));
 
-const overlaps = (a: Box, top: number, left: number, size: { width: number; height: number }) =>
-  !(
-    left >= a.left + a.width ||
-    left + size.width <= a.left ||
-    top >= a.top + a.height ||
-    top + size.height <= a.top
-  );
-
 /**
  * Where a note of `note` size sits beside `anchor` in a `view` (all in window coordinates), never
  * over it: to the right if it fits, else to the left, else below, else above, with the caret
  * pointing at the anchor's middle. When no side has room it docks in a corner of the window (the
  * foot first, where the view already stops short of the guide's bar) that does not cover the
- * anchor, with no caret; the anchor keeps its ring so the eye still finds it. A phone's sheet does
+ * anchor, or covers least of it, with no caret; the anchor keeps its ring so the eye still finds it. A phone's sheet does
  * not use this: CSS puts it at the foot.
  */
 export function placeNote(
@@ -240,14 +228,19 @@ export function placeNote(
     { top: EDGE, left: right },
     { top: EDGE, left: EDGE },
   ];
-  const free = corners.find((c) => !overlaps(anchor, c.top, c.left, note));
-  if (free !== undefined) return { ...free, side: 'none', caret: 0 };
-  // No corner is clear: dock at the foot and bring the anchor up above the note, if it fits there.
-  const dock = corners[0]!;
-  const room = dock.top - GAP;
-  const scroll =
-    anchor.height <= room - EDGE ? Math.round(anchor.top + anchor.height - room) : undefined;
-  return { ...dock, side: 'none', caret: 0, ...(scroll === undefined ? {} : { scroll }) };
+  // The corner clear of the anchor; with none clear, the one that covers least of it. The page is
+  // never scrolled for the note: that would move what the visitor is looking at.
+  const covered = (c: { top: number; left: number }) =>
+    Math.max(
+      0,
+      Math.min(c.left + note.width, anchor.left + anchor.width) - Math.max(c.left, anchor.left),
+    ) *
+    Math.max(
+      0,
+      Math.min(c.top + note.height, anchor.top + anchor.height) - Math.max(c.top, anchor.top),
+    );
+  const best = corners.reduce((a, b) => (covered(b) < covered(a) ? b : a));
+  return { ...best, side: 'none', caret: 0 };
 }
 
 // ---- The short path ("Show me around") ----

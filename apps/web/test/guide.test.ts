@@ -73,6 +73,7 @@ describe('every screen has entries', () => {
         'catering',
         'checkout',
         'console',
+        'order',
         'dispatch',
         'home',
         'inbox',

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { GuideEntry, ScreenId } from '../../lib/guide';
-import type { FeedArrival, Trace } from '../../lib/trace';
+import type { FeedArrival, HeardEvent, Listening, Trace } from '../../lib/trace';
 import { entryForTraces, expectedFor, routeIdOf } from './match';
-import { EntryBody, TraceChain, WhyLines, requestText } from './Views';
+import { EntryBody, TraceChain, WhyLines, listeningText, objectOf, requestText } from './Views';
 
 /** The visitor's traces grouped by the click that made them, newest click first. */
 export function byGesture(traces: readonly Trace[]): Trace[][] {
@@ -26,12 +26,17 @@ export default function Panel({
   entries,
   traces,
   feed,
+  heard = [],
+  listening = null,
   onClose,
 }: {
   screen: ScreenId;
   entries: readonly GuideEntry[];
   traces: readonly Trace[];
   feed: readonly FeedArrival[];
+  /** On a page that watches an order: what it heard, and how it listens. */
+  heard?: readonly HeardEvent[];
+  listening?: Listening | null;
   onClose: () => void;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
@@ -97,6 +102,25 @@ export default function Panel({
             );
           })}
         </ul>
+      )}
+
+      {(heard.length > 0 || listening !== null) && (
+        <>
+          <h3 className="guide-section">Heard on this page</h3>
+          <p className="guide-meta">{listeningText(listening)}</p>
+          {heard.length > 0 && (
+            <ul className="guide-rows guide-heard">
+              {heard.map((event) => (
+                <li key={event.id}>
+                  <code className="guide-chip">evt {event.type}</code>{' '}
+                  <span className="guide-meta">
+                    seq {event.seq} on {objectOf(event.stream) ?? 'its stream'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
 
       <h3 className="guide-section">On this screen</h3>

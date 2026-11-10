@@ -16,6 +16,9 @@ export const PATHS: Partial<Record<ScreenId, PathStep[]>> = {
   checkout: [
     { entry: 'checkout-form', do: 'Pick a time and place the order.' },
     { entry: 'checkout-pay', do: 'Pay with Stripe’s test card.' },
+  ],
+  order: [
+    { entry: 'order-tracker', do: 'Watch your order move as the kitchen works it.' },
     { entry: 'checkout-receipt', do: 'Read the receipt, then open the console.' },
   ],
   console: [

@@ -93,11 +93,6 @@ export function Note({
         { width: document.documentElement.clientWidth, height: window.innerHeight - BAR_ROOM },
       );
       setCorner(false);
-      if (at.scroll !== undefined && at.scroll !== 0) {
-        // Docked, and the anchor was under the dock: move the page once so it shows above it.
-        // The scroll calls place again, which then finds the anchor clear.
-        window.scrollBy({ top: at.scroll, behavior: 'auto' });
-      }
       note.style.top = `${Math.round(at.top)}px`;
       note.style.left = `${Math.round(at.left)}px`;
       note.style.setProperty('--guide-caret', `${Math.round(at.caret)}px`);

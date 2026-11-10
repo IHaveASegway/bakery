@@ -254,44 +254,6 @@ export const CHECKOUT: GuideEntry[] = [
       note: 'Returns the PaymentIntent’s client secret for the Payment Element. The order’s id is the idempotency key, so asking twice gets the same intent.',
     },
   },
-  {
-    id: 'checkout-receipt',
-    screen: 'checkout',
-    target: 'checkout-receipt',
-    title: 'The receipt is the order, read back',
-    what: 'The page asks the API for the order until it is paid. What you read is the order object’s own state, not a guess made by this page.',
-    why: 'Reading the order itself means the receipt cannot claim a payment the webhook has not confirmed.',
-    whenNot:
-      'Not for long waits or many readers: polling repeats a request a socket would push once.',
-    events: ['OrderPaid'],
-    principle: PAYMENTS,
-    triggers: [],
-    api: {
-      routeId: 'get-order',
-      method: 'GET',
-      path: '/v1/sandboxes/{id}/orders/{oid}',
-      note: 'The order with its lines, totals and state.',
-    },
-  },
-  {
-    id: 'checkout-cancel',
-    screen: 'checkout',
-    target: 'checkout-receipt',
-    title: 'A hold is a lease',
-    what: 'A place held for an unpaid order is released when its lease runs out or the order is cancelled. The storefront has no cancel button yet; the API has.',
-    why: 'A lease with its end written down frees a place nobody paid for without anyone having to remember it.',
-    whenNot:
-      'Not for a hold that must never lapse, such as a paid order: there a release would be a refund.',
-    events: ['OrderCancelled', 'SlotReleased'],
-    principle: LEASE,
-    triggers: ['cancel-order'],
-    api: {
-      routeId: 'cancel-order',
-      method: 'POST',
-      path: '/v1/sandboxes/{id}/orders/{oid}/cancel',
-      note: 'Releases the held places. An order that is already paid or closed answers 409.',
-    },
-  },
 ];
 
 export const API_PAGE: GuideEntry[] = [

@@ -70,9 +70,50 @@ export type Evidence =
       deliveries?: Delivery[];
     };
 
+/**
+ * A page that watches one order (the order's status page, lib/use-order-watch.ts) reports what it
+ * hears about that order and how it is listening. Neither is a click's: the kitchen moves the card,
+ * and the page only listens, so these are kept apart from the traces.
+ */
+export type WatchEvidence =
+  | {
+      kind: 'heard';
+      id: string;
+      type: string;
+      stream: string;
+      seq: number;
+      cause: string | null;
+      at: number;
+    }
+  | {
+      kind: 'listening';
+      /** On the kitchen socket, reading every 10 s, paused while hidden, or finished. */
+      how: Listening['how'];
+      /** Why it reads instead of listening: it gave its socket up, was refused one, or lost it. */
+      why: Listening['why'];
+      at: number;
+    };
+
+/** How a page watching an order hears about it. */
+export interface Listening {
+  how: 'socket' | 'reading' | 'paused' | 'done';
+  why: 'yielded' | 'limit' | 'unavailable' | null;
+  at: number;
+}
+
+/** An event a watching page heard about its order. */
+export interface HeardEvent {
+  id: string;
+  type: string;
+  stream: string;
+  seq: number;
+  cause: string | null;
+  at: number;
+}
+
 /** Where a source sends what it sees. */
 export interface TraceSink {
-  record(evidence: Evidence): void;
+  record(evidence: Evidence | WatchEvidence): void;
 }
 
 /** A source of evidence: connected to a sink, it delivers until the returned function stops it. */
@@ -85,7 +126,9 @@ export interface TraceSource {
  * A source the page pushes into: the page's calls, the socket and the feed each own one and call
  * `emit` where they see something. Evidence emitted while nothing is connected is dropped.
  */
-export function pushSource(kind: SourceKind): TraceSource & { emit(evidence: Evidence): void } {
+export function pushSource(
+  kind: SourceKind,
+): TraceSource & { emit(evidence: Evidence | WatchEvidence): void } {
   const sinks = new Set<TraceSink>();
   return {
     kind,
@@ -174,6 +217,10 @@ export interface TraceSnapshot {
   /** Newest first. */
   traces: readonly Trace[];
   feed: readonly FeedArrival[];
+  /** What a page watching an order heard about it, newest first. */
+  heard: readonly HeardEvent[];
+  /** How that page is listening, or null on a page that watches no order. */
+  listening: Listening | null;
   version: number;
 }
 
@@ -217,8 +264,10 @@ export function createTraceStore(
   const now = options.now ?? (() => Date.now());
   let traces: Trace[] = [];
   let feed: FeedArrival[] = [];
+  let heard: HeardEvent[] = [];
+  let listening: Listening | null = null;
   let version = 0;
-  let snapshot: TraceSnapshot = { traces, feed, version };
+  let snapshot: TraceSnapshot = { traces, feed, heard, listening, version };
   const owner = new Map<string, string>();
   let orphans: Extract<Evidence, { kind: 'event' }>[] = [];
   let last: Gesture | null = null;
@@ -228,7 +277,7 @@ export function createTraceStore(
 
   const changed = () => {
     version++;
-    snapshot = { traces, feed, version };
+    snapshot = { traces, feed, heard, listening, version };
     for (const listener of listeners) listener();
   };
 
@@ -283,6 +332,16 @@ export function createTraceStore(
   const store: TraceStore = {
     record(evidence) {
       switch (evidence.kind) {
+        case 'heard': {
+          if (heard.some((h) => h.id === evidence.id)) return;
+          const { id, type, stream, seq, cause, at } = evidence;
+          heard = [{ id, type, stream, seq, cause, at }, ...heard].slice(0, KEEP_TRACES);
+          break;
+        }
+        case 'listening':
+          if (listening?.how === evidence.how && listening.why === evidence.why) return;
+          listening = { how: evidence.how, why: evidence.why, at: evidence.at };
+          break;
         case 'call': {
           const id = evidence.key ?? madeId();
           const ok = evidence.status !== null && evidence.status < 400;
@@ -379,6 +438,8 @@ export function createTraceStore(
     clear() {
       traces = [];
       feed = [];
+      heard = [];
+      listening = null;
       orphans = [];
       owner.clear();
       changed();
@@ -426,12 +487,14 @@ export function expectedHops(
 export const pageSource = pushSource('page');
 /** The kitchen socket's commands, answers and envelopes (lib/use-kitchen.ts emits here). */
 export const socketSource = pushSource('socket');
+/** A page watching one order (lib/use-order-watch.ts emits here). */
+export const watchSource = pushSource('socket');
 /** The activity feed the console reads (lib/activity-feed.ts emits here). */
 export const feedSource = pushSource('feed');
 
 /** The one store of the page, shared by every island because they share this module. */
 export const traces = createTraceStore({
-  sources: [pageSource, socketSource, feedSource, recorderSource],
+  sources: [pageSource, socketSource, watchSource, feedSource, recorderSource],
 });
 
 // The visitor's clicks, so a request that follows one is known as theirs. A click on a button (or a

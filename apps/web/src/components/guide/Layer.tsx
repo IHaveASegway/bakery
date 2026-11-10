@@ -11,10 +11,28 @@ import {
 import { PATHS, entriesFor } from '../../guide';
 import { PATH_CLOSED, pathReduce, type GuideEntry, type ScreenId } from '../../lib/guide';
 import { traces } from '../../lib/trace';
-import { entryForTraces, expectedFor, gesturesIn, noteToOpen, routeIdOf, targetOf } from './match';
+import {
+  entryForTraces,
+  expectedFor,
+  gesturesIn,
+  noteToOpen,
+  routeIdOf,
+  targetOf,
+  watchKeysBefore,
+  watchToOpen,
+  type WatchNews,
+} from './match';
 import { Note, resolveAnchor } from './Note';
 import Panel from './Panel';
-import { EntryBody, NoteHead, TraceChain, WhyLines, traceSentence } from './Views';
+import {
+  EntryBody,
+  NoteHead,
+  TraceChain,
+  WatchChain,
+  WhyLines,
+  traceSentence,
+  watchSentence,
+} from './Views';
 
 /** The element with the focus, if it is part of the page and not the page itself. */
 const focusInPage = (): Element | null => {
@@ -107,6 +125,34 @@ export default function Layer({
     announce(traceSentence(first, liveEntry));
   }, [live, first, liveEntry, announce]);
   const closeLive = useCallback(() => setLive(null), []);
+
+  // ---- The watch note: on a page that watches an order, what it heard and how it listens ----
+  const watchSeen = useRef(
+    watchKeysBefore(traces.getSnapshot().heard, traces.getSnapshot().listening, Date.now()),
+  );
+  const [watch, setWatch] = useState<{ news: WatchNews; pinned: boolean } | null>(null);
+  useEffect(() => {
+    const news = watchToOpen(snapshot.heard, snapshot.listening, watchSeen.current, { on, panel });
+    if (news === null) return;
+    setWatch({ news, pinned: false });
+    setLive(null);
+    setStanding(null);
+    announce(watchSentence(news.kind === 'heard' ? news.event : null, snapshot.listening));
+  }, [snapshot.heard, snapshot.listening, on, panel, announce]);
+  useEffect(() => {
+    if (!on || panel) setWatch(null);
+  }, [on, panel]);
+  const closeWatch = useCallback(() => setWatch(null), []);
+  const watchEntry =
+    watch === null
+      ? null
+      : (entries.find(
+          (e) => e.id === (watch.news.kind === 'reading' ? 'order-watch' : 'order-tracker'),
+        ) ?? null);
+  const watchAnchor = useCallback(
+    () => (watchEntry === null ? null : targetOf(watchEntry.target)),
+    [watchEntry],
+  );
 
   // ---- Hotspots and the standing note ----
   const [standing, setStanding] = useState<Standing | null>(null);
@@ -241,6 +287,29 @@ export default function Layer({
           <EntryBody entry={standingEntry} />
         </Note>
       )}
+      {on && watch !== null && watchEntry !== null && !showLive && (
+        <Note
+          id="guide-watch"
+          anchor={watchAnchor}
+          label={`Under the hood: ${watchEntry.title}`}
+          pinned={watch.pinned}
+          changed={snapshot.version}
+          onClose={closeWatch}
+        >
+          <NoteHead
+            eyebrow="Under the hood · heard just now"
+            title={watchEntry.title}
+            pinned={watch.pinned}
+            onPin={() => setWatch({ ...watch, pinned: !watch.pinned })}
+            onClose={closeWatch}
+          />
+          <WatchChain
+            heard={watch.news.kind === 'heard' ? watch.news.event : (snapshot.heard[0] ?? null)}
+            listening={snapshot.listening}
+          />
+          <WhyLines entry={watchEntry} />
+        </Note>
+      )}
       {showLive && (
         <Note
           id="guide-live"
@@ -298,6 +367,8 @@ export default function Layer({
           entries={entries}
           traces={snapshot.traces.filter((t) => t.gesture !== null)}
           feed={snapshot.feed}
+          heard={snapshot.heard}
+          listening={snapshot.listening}
           onClose={onClosePanel}
         />
       )}

@@ -299,3 +299,35 @@ describe('sources behind one interface', () => {
     expect(heard).toBe(1);
   });
 });
+
+describe('a page watching an order: what it heard and how it listens', () => {
+  test('a heard event is kept once, newest first, apart from the traces', () => {
+    const store = createTraceStore();
+    const heard = (id: string, seq: number) =>
+      ({
+        kind: 'heard',
+        id,
+        type: 'OrderProductionStarted',
+        stream: 'order:sbx-one:ord-one',
+        seq,
+        cause: 'staff-cmd',
+        at: T0 + seq,
+      }) as const;
+    store.record(heard('evt-a', 3));
+    store.record(heard('evt-a', 3));
+    store.record(heard('evt-b', 4));
+    expect(store.getSnapshot().heard.map((h) => h.seq)).toEqual([4, 3]);
+    expect(store.getSnapshot().traces).toEqual([]);
+  });
+
+  test('how it listens is kept as it changes, and a repeat is no news', () => {
+    const store = createTraceStore();
+    let heardChanges = 0;
+    store.subscribe(() => heardChanges++);
+    store.record({ kind: 'listening', how: 'socket', why: null, at: T0 });
+    store.record({ kind: 'listening', how: 'socket', why: null, at: T0 + 5 });
+    store.record({ kind: 'listening', how: 'reading', why: 'yielded', at: T0 + 9 });
+    expect(heardChanges).toBe(2);
+    expect(store.getSnapshot().listening).toEqual({ how: 'reading', why: 'yielded', at: T0 + 9 });
+  });
+});

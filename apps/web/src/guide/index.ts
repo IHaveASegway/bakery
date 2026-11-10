@@ -8,6 +8,7 @@ import { CRM } from './crm';
 import { DISPATCH } from './dispatch';
 import { INBOX } from './inbox';
 import { KITCHEN } from './kitchen';
+import { ORDER } from './order';
 import { API_PAGE, CHECKOUT, HOME, MENU, PRIVACY, SIGNIN, STATUS } from './simple';
 
 export { PATHS } from './paths';
@@ -66,6 +67,7 @@ export const ENTRIES: Record<ScreenId, GuideEntry[]> = {
   signin: SIGNIN,
   menu: MENU,
   checkout: CHECKOUT,
+  order: ORDER,
   console: inPageOrder([...CONSOLE, ...KITCHEN, ...CRM, ...CONTROLS], CONSOLE_ORDER),
   catering: CATERING,
   inbox: INBOX,

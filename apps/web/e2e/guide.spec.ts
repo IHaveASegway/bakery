@@ -12,6 +12,7 @@ import {
   expect,
   expectNoAxeViolations,
   liveSandbox,
+  payOrder,
   pickupOrder,
   test,
 } from './fixtures';
@@ -134,32 +135,32 @@ test('placing an order at checkout opens a note with the request, its status and
     }),
   );
   await demoAccount(page);
-  await liveSandbox(page);
-  await page.goto('/menu/');
-  await page
-    .getByRole('button', { name: /^Add .*, to the cart$/ })
-    .first()
-    .click();
+  const sandbox = await liveSandbox(page);
+  const menu = await api<Parameters<typeof pickupOrder>[0]>(
+    page,
+    'GET',
+    `/v1/sandboxes/${sandbox.id}/menu`,
+  );
+  const want = pickupOrder(menu.body, sandbox.clock_offset_s ?? 0, 2);
+  // The cart as the menu's Add buttons leave it in this tab (as order-status.spec.ts writes it).
+  await page.evaluate((cart) => sessionStorage.setItem('bakery.cart.v1', JSON.stringify(cart)), {
+    lines: want.lines,
+    note: '',
+    kind: 'pickup',
+    zone: 'z1',
+    slot: '',
+  });
   await page.goto('/checkout/');
 
-  // The first day on offer with a pickup time still open, once that day's schedule has been read.
-  const status = page.locator('#slot-status');
-  await expect(status).toHaveText(/slots open\.|closed that day|not baked that day/);
-  const days = await page.locator('#day option').count();
-  expect(days).toBeGreaterThan(1);
-  const picker = page.getByRole('group', { name: 'Pickup time' });
-  const open = picker.locator('input[type="radio"]:not([disabled])');
-  for (let i = 0; i < days; i++) {
-    await page.locator('#day').selectOption({ index: i });
-    const day = await page.locator('#day').inputValue();
-    // The day's own slots (a radio's value starts with its date), or the line that it is closed.
-    await expect(
-      picker.locator(`input[value^="${day}"]`).or(page.getByText('closed that day')).first(),
-    ).toBeVisible();
-    await expect(status).toHaveText(/slots open\.|closed that day|not baked that day/);
-    if ((await open.count()) > 0) break;
-  }
-  await open.first().check();
+  // The checkout's three steps (#101): how, when, then Place order.
+  const how = page.locator('section[aria-labelledby="how-heading"]');
+  await expect(how.getByRole('radio', { name: /^Pickup/ })).toBeChecked();
+  await how.getByRole('button', { name: 'Continue' }).click();
+  await expect(how.getByText('Pickup at the bakery')).toBeVisible();
+  await page.locator(`input[name="day"][value="${want.slot.slice(0, 10)}"]`).check();
+  const slot = page.locator(`input[name="slot"][value^="${want.slot.slice(0, 16)}"]`);
+  await expect(slot).toBeEnabled();
+  await slot.check();
   const place = page.getByRole('button', { name: 'Place order' });
   await expect(place).toBeEnabled();
   await place.click();
@@ -193,6 +194,9 @@ test('with the switch off, a press opens no note and the layer is not loaded; on
     'aria-checked',
     'false',
   );
+  // The console has hydrated: a click before that is replayed by React later, too late to be
+  // known as the visitor's press (GESTURE_MS).
+  await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
   // A write the visitor presses (the clock, one step) opens nothing while the guide is off.
   await page
     .getByRole('button', { name: /^Advance 15 minutes/ })
@@ -250,3 +254,66 @@ async function layerLoaded(page: Page): Promise<boolean> {
       .some((entry) => /\/_astro\/Layer\.[^/]+\.js$/.test(entry.name)),
   );
 }
+
+test('on the order page, the kitchen’s move opens a note with the event heard, and four sockets make the page read instead', async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(150_000);
+  await demoAccount(page);
+  const sandbox = await liveSandbox(page);
+  const menu = await api<Parameters<typeof pickupOrder>[0]>(
+    page,
+    'GET',
+    `/v1/sandboxes/${sandbox.id}/menu`,
+  );
+  const placed = await api<{ id: string }>(
+    page,
+    'POST',
+    `/v1/sandboxes/${sandbox.id}/orders`,
+    pickupOrder(menu.body, sandbox.clock_offset_s ?? 0, 2),
+  );
+  expect(placed.status, JSON.stringify(placed.body)).toBe(201);
+  const id = placed.body.id;
+  await payOrder(page, sandbox.id, id);
+  await page.goto(`/order/?id=${id}`);
+  await expect(page.getByText(/^Live: this page moves/)).toBeVisible();
+  await expect(page.getByRole('switch', { name: 'Under the hood' })).toBeEnabled();
+
+  // A staff page moves the card: the order page hears the event and the guide says so, beside
+  // the tracker, with the event's sequence, how the page listens, and why and when not.
+  const staff = await context.newPage();
+  await staff.goto('/app/');
+  await expect(staff.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+  await staff.getByRole('button', { name: `Start production for order ${id.slice(-6)}` }).click();
+  const note = page.locator('#guide-watch');
+  await expect(note).toContainText('evt OrderProductionStarted');
+  await expect(note).toContainText(/seq \d+ on Order/);
+  await expect(note).toContainText('listening only');
+  await expect(note).toContainText('Why this tool');
+  await expect(note).toContainText('When not');
+  await beside(page, note);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expectNoAxeViolations(page);
+
+  // Two more consoles make four sockets: the order page gives its own up, and the guide says why.
+  const consoles = [staff];
+  for (let i = 0; i < 2; i += 1) {
+    const c = await context.newPage();
+    await c.goto('/app/');
+    await expect(c.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+    consoles.push(c);
+  }
+  await expect(note).toContainText(
+    'the board reported four sockets open, so this page gave its own up',
+  );
+  await expect(note).toContainText('A guest on the kitchen’s socket');
+
+  // The recorder has the same, by keyboard.
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Recorder' }).click();
+  const panel = page.getByRole('region', { name: 'Recorder' });
+  await expect(panel.getByText('evt OrderProductionStarted')).toBeVisible();
+  await expect(panel.getByText(/Reading every 10 seconds/)).toBeVisible();
+  for (const c of consoles) await c.close();
+});

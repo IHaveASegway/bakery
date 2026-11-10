@@ -1,7 +1,7 @@
 // Which route a trace was and which entry explains it: shared by the live note and the recorder.
 import { ALL_ENTRIES, ROUTE_SHAPES } from '../../guide';
 import { pickEntry, routeMatcher, type GuideEntry, type ScreenId } from '../../lib/guide';
-import type { Trace } from '../../lib/trace';
+import type { HeardEvent, Listening, Trace } from '../../lib/trace';
 
 const routeOf = routeMatcher(ROUTE_SHAPES);
 
@@ -74,3 +74,52 @@ export const gesturesIn = (traces: readonly Trace[], now: number): Set<number> =
       t.gesture === null || t.startedAt > now - MOUNT_GRACE_MS ? [] : [t.gesture],
     ),
   );
+
+/** What a page watching an order has to tell: the newest event it heard, or its switch to reading. */
+export type WatchNews =
+  | { kind: 'heard'; key: string; event: HeardEvent }
+  | { kind: 'reading'; key: string; listening: Listening };
+
+/** The newest piece of watch news, if any: a heard event, or a fall back to reading. */
+export function newestWatchNews(
+  heard: readonly HeardEvent[],
+  listening: Listening | null,
+): WatchNews | null {
+  const event = heard[0];
+  const reading = listening !== null && listening.how === 'reading' ? listening : null;
+  if (reading !== null && (event === undefined || reading.at >= event.at)) {
+    return { kind: 'reading', key: `reading:${reading.why}:${reading.at}`, listening: reading };
+  }
+  return event === undefined ? null : { kind: 'heard', key: `heard:${event.id}`, event };
+}
+
+/**
+ * Which watch news opens a note now: the newest, once, with the guide on and the recorder closed,
+ * as for a click (noteToOpen). News from before the layer mounted, by more than MOUNT_GRACE_MS, is
+ * old. `seen` is updated in place.
+ */
+export function watchToOpen(
+  heard: readonly HeardEvent[],
+  listening: Listening | null,
+  seen: Set<string>,
+  state: { on: boolean; panel: boolean },
+): WatchNews | null {
+  const news = newestWatchNews(heard, listening);
+  if (news === null || seen.has(news.key)) return null;
+  seen.add(news.key);
+  return state.on && !state.panel ? news : null;
+}
+
+/** The watch news already old when the layer mounts. */
+export function watchKeysBefore(
+  heard: readonly HeardEvent[],
+  listening: Listening | null,
+  now: number,
+): Set<string> {
+  const keys = new Set<string>();
+  for (const event of heard) if (event.at <= now - MOUNT_GRACE_MS) keys.add(`heard:${event.id}`);
+  if (listening !== null && listening.how === 'reading' && listening.at <= now - MOUNT_GRACE_MS) {
+    keys.add(`reading:${listening.why}:${listening.at}`);
+  }
+  return keys;
+}

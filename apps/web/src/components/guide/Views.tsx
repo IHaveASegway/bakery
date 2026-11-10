@@ -8,7 +8,13 @@ import {
   type Principle as PrincipleData,
 } from '../../lib/guide';
 import { liveToken, tokenStore } from '../../lib/token-store';
-import { expectedHops, type FeedArrival, type Trace } from '../../lib/trace';
+import {
+  expectedHops,
+  type FeedArrival,
+  type HeardEvent,
+  type Listening,
+  type Trace,
+} from '../../lib/trace';
 import { useSandboxPhase } from '../../lib/use-session';
 import { ROUTE_SHAPES } from '../../guide';
 import { routeIdOf } from './match';
@@ -377,5 +383,75 @@ export function EntryBody({ entry }: { entry: GuideEntry }) {
         </p>
       </details>
     </div>
+  );
+}
+
+// ---- A page watching an order: what it heard, and how it listens ----
+
+/** How the page listens, in words, with the reason when it reads instead. */
+export function listeningText(listening: Listening | null): string {
+  if (listening === null) return 'Connecting to the kitchen’s socket.';
+  switch (listening.how) {
+    case 'socket':
+      return 'On the kitchen’s socket, listening only: this page sends nothing on it.';
+    case 'paused':
+      return 'Paused: the tab is hidden, and the page reads the order again when it shows.';
+    case 'done':
+      return 'Finished: the order is done, so the page no longer listens to the kitchen.';
+    case 'reading':
+      switch (listening.why) {
+        case 'yielded':
+          return 'Reading every 10 seconds: the board reported four sockets open, so this page gave its own up.';
+        case 'limit':
+          return 'Reading every 10 seconds: the kitchen already had four sockets and refused a fifth.';
+        default:
+          return 'Reading every 10 seconds: the socket closed, and the page tries it again a few times.';
+      }
+  }
+}
+
+/** The one sentence a screen reader hears when a watch note opens. */
+export function watchSentence(heard: HeardEvent | null, listening: Listening | null): string {
+  if (heard === null) return `Under the hood. ${listeningText(listening)}`;
+  const object = objectOf(heard.stream);
+  return `Under the hood. Heard ${heard.type}, event ${heard.seq}${object === null ? '' : ` of the ${object} object`}, over the kitchen’s socket.`;
+}
+
+/** The chain for a watching page: the event heard, with its sequence, and how the page listens. */
+export function WatchChain({
+  heard,
+  listening,
+}: {
+  heard: HeardEvent | null;
+  listening: Listening | null;
+}) {
+  return (
+    <ol className="guide-chain">
+      {heard !== null && (
+        <li className="guide-hop" data-state="observed">
+          <span className="guide-hop-kind">Heard</span>
+          <span className="guide-hop-body">
+            <code className="guide-chip">evt {heard.type}</code>
+            <span className="guide-meta">
+              seq {heard.seq} on {objectOf(heard.stream) ?? 'its stream'}
+            </span>
+          </span>
+        </li>
+      )}
+      {heard !== null && objectOf(heard.stream) !== null && (
+        <li className="guide-hop" data-state="observed">
+          <span className="guide-hop-kind">Decided</span>
+          <span className="guide-hop-body">
+            <span>by the {objectOf(heard.stream)} object, moved by the kitchen</span>
+          </span>
+        </li>
+      )}
+      <li className="guide-hop" data-state={listening?.how === 'socket' ? 'observed' : 'expected'}>
+        <span className="guide-hop-kind">Listening</span>
+        <span className="guide-hop-body">
+          <span>{listeningText(listening)}</span>
+        </span>
+      </li>
+    </ol>
   );
 }

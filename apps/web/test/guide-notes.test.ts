@@ -6,14 +6,25 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
 import { Note, resolveAnchor } from '../src/components/guide/Note';
 import { byGesture } from '../src/components/guide/Panel';
-import { expectedFor, gesturesIn, noteToOpen, routeIdOf } from '../src/components/guide/match';
+import {
+  expectedFor,
+  gesturesIn,
+  newestWatchNews,
+  noteToOpen,
+  routeIdOf,
+  watchKeysBefore,
+  watchToOpen,
+} from '../src/components/guide/match';
 import {
   TraceChain,
+  WatchChain,
   WhyLines,
+  listeningText,
   objectOf,
   requestText,
   shortPath,
   traceSentence,
+  watchSentence,
 } from '../src/components/guide/Views';
 import { ALL_ENTRIES, PATHS, ROUTE_SHAPES } from '../src/guide';
 import {
@@ -172,14 +183,14 @@ describe('where a note sits', () => {
     const left = placeNote(edge, note, view);
     expect(left.side).toBe('none');
     expect(left.left + note.width).toBeLessThanOrEqual(edge.left);
-    // A narrow window where every corner meets the card: dock at the foot and scroll the card
-    // up by just enough that it ends above the note.
+    // A narrow window where every corner meets the card: the corner that covers least of it, and
+    // the page is never scrolled for the note.
     const small = { width: 900, height: 736 };
     const tall = { top: 224, left: 145, width: 613, height: 266 };
-    const moved = placeNote(tall, note, small);
-    expect(moved.side).toBe('none');
-    expect(moved.scroll).toBeGreaterThan(0);
-    expect(tall.top + tall.height - (moved.scroll ?? 0)).toBeLessThanOrEqual(moved.top - 12);
+    const docked2 = placeNote(tall, note, small);
+    expect(docked2.side).toBe('none');
+    expect(docked2).not.toHaveProperty('scroll');
+    expect(docked2.top).toBe(small.height - note.height - 8);
     // A wide card with room below it: below, not over.
     const wideCard = { top: 100, left: 40, width: 1360, height: 200 };
     const at = placeNote(wideCard, note, view);
@@ -405,5 +416,76 @@ describe('when a live note opens', () => {
 
   test('the page’s own calls (no click) never open one', () => {
     expect(noteToOpen([action(null, 'beat')], new Set(), { on: true, panel: false })).toBeNull();
+  });
+});
+
+describe('the order page’s note: what it heard and how it listens', () => {
+  const heard = (id: string, at: number, seq = 3) => ({
+    id,
+    type: 'OrderProductionStarted',
+    stream: 'order:sbx-one:ord-one',
+    seq,
+    cause: 'staff-cmd',
+    at,
+  });
+
+  test('an event heard about the order opens a note, once', () => {
+    const seen = new Set<string>();
+    const news = watchToOpen([heard('evt-a', T0)], null, seen, { on: true, panel: false });
+    expect(news).toMatchObject({ kind: 'heard', event: { seq: 3 } });
+    expect(watchToOpen([heard('evt-a', T0)], null, seen, { on: true, panel: false })).toBeNull();
+  });
+
+  test('giving the socket up for a read every 10 seconds is news of its own, newer than the last event', () => {
+    const reading = { how: 'reading' as const, why: 'yielded' as const, at: T0 + 50 };
+    const news = newestWatchNews([heard('evt-a', T0)], reading);
+    expect(news?.kind).toBe('reading');
+    expect(newestWatchNews([heard('evt-b', T0 + 99)], reading)?.kind).toBe('heard');
+    expect(
+      newestWatchNews([], { how: 'socket', why: null, at: T0 }),
+      'listening on the socket is not news',
+    ).toBeNull();
+  });
+
+  test('nothing opens with the recorder open or the guide off, nor late after', () => {
+    const seen = new Set<string>();
+    expect(watchToOpen([heard('evt-a', T0)], null, seen, { on: true, panel: true })).toBeNull();
+    expect(watchToOpen([heard('evt-a', T0)], null, seen, { on: true, panel: false })).toBeNull();
+  });
+
+  test('what was heard well before the layer mounted is old news', () => {
+    const seen = watchKeysBefore(
+      [heard('evt-old', T0), heard('evt-new', T0 + 59_000)],
+      null,
+      T0 + 60_000,
+    );
+    expect([...seen]).toEqual(['heard:evt-old']);
+  });
+
+  test('the listening line says why the page reads instead, and the sentence names the event and its sequence', () => {
+    expect(listeningText({ how: 'socket', why: null, at: T0 })).toContain('sends nothing');
+    expect(listeningText({ how: 'reading', why: 'yielded', at: T0 })).toContain(
+      'the board reported four sockets open, so this page gave its own up',
+    );
+    expect(listeningText({ how: 'reading', why: 'limit', at: T0 })).toContain('refused a fifth');
+    expect(listeningText({ how: 'reading', why: 'unavailable', at: T0 })).toContain(
+      'Reading every 10 seconds',
+    );
+    expect(watchSentence(heard('evt-a', T0), null)).toBe(
+      'Under the hood. Heard OrderProductionStarted, event 3 of the Order object, over the kitchen’s socket.',
+    );
+  });
+
+  test('the chain shows the event heard with its sequence, and how the page listens', () => {
+    const html = renderToStaticMarkup(
+      createElement(WatchChain, {
+        heard: heard('evt-a', T0, 4),
+        listening: { how: 'socket', why: null, at: T0 },
+      }),
+    );
+    expect(html).toContain('evt OrderProductionStarted');
+    expect(html).toContain('seq 4 on Order');
+    expect(html).toContain('listening only');
+    expect(html).not.toContain('style=');
   });
 });

@@ -80,6 +80,7 @@ describe('dist', () => {
     ['signin/index.html', 'signin'],
     ['menu/index.html', 'menu'],
     ['checkout/index.html', 'checkout'],
+    ['order/index.html', 'order'],
     ['app/index.html', 'console'],
     ['catering/index.html', 'catering'],
     ['inbox/index.html', 'inbox'],
@@ -537,29 +538,28 @@ describe('dist', () => {
   // island's component and renderer, every chunk those import statically (a dynamic import loads
   // later and is not counted), and the page's inline scripts. Each file counts once per page.
   //
-  // Measured 2026-11-09 with node's gzipSync at its default level, per class (the largest page of
-  // the class): guide only 80,312 B (home, privacy); API reference 80,565 B; status 83,086 B;
-  // storefront 92,402 B (menu, sign-in); checkout 108,672 B; console screens 126,926 B (the
-  // console, dispatch, catering and the inbox). Each budget is the measured size plus a quarter,
-  // rounded up to the next 1,000 B. The ADR's own numbers (5,000 B for a public page, 120,000 B for
-  // an app screen or the checkout) are not met on the public pages: every island page carries the
-  // guide's bar, and its React runtime is most of the total. A page that is not named below must
-  // load no script.
+  // Measured 2026-11-10 with node's gzipSync at its default level, per class (the largest page of
+  // the class): guide only 80,413 B (home, privacy); API reference 80,666 B; status 83,189 B;
+  // storefront 92,739 B (menu, sign-in); checkout 111,854 B; the order's page 103,825 B; console
+  // screens 128,204 B (the console, dispatch, catering and the inbox). Each budget is the measured
+  // size plus a quarter, rounded up to the next 1,000 B. The ADR's own numbers (5,000 B for a
+  // public page, 120,000 B for an app screen or the checkout) are not met on the public pages:
+  // every island page carries the guide's bar, and its React runtime is most of the total. A page
+  // that is not named below must load no script.
   //
-  // Moved 2026-11-09, when the guide replaced the tour. These budgets hold the first load only:
-  // the guide's bar and the trace store. With the guide on, the default, the page then loads the
-  // deferred layer (the test after these holds it, at 22,603 B to 23,092 B), so a page with the
+  // Since the guide replaced the tour (2026-11-09) these budgets hold the first load only: the
+  // guide's bar and the trace store. With the guide on, the default, the page then loads the
+  // deferred layer (the test after these holds it, at 24,088 B to 24,578 B), so a page with the
   // guide on costs more than it did with the tour. Per class, first load / with the guide on /
-  // the tour's total it replaces (measured at f8b5192): guide only 80,312 / 103,404 / 94,187;
-  // API reference 80,565 / 103,657 / 94,440; status 83,086 / 106,178 / 96,960; storefront
-  // 92,402 / 115,005 / 103,417; checkout 108,672 / 131,275 / 119,472; console screens
-  // 126,926 / 149,798 / 136,394. The first load is smaller than the tour's by 9,468 B to 13,875 B;
-  // with the guide on the page is larger, by 9,217 B to 13,404 B. A visitor who turns the guide off
-  // loads the first load alone on later pages.
-  //
-  // The order's status page (/order/, 2026-11-09) is a class of its own: it buys the order's read,
-  // its watch on the kitchen socket and the tracker, and since the guide reached it (2026-11-10)
-  // the guide's bar too.
+  // the tour's total it replaces, as main last measured it: guide only 80,413 / 104,991 / 94,187;
+  // API reference 80,666 / 105,244 / 94,440; status 83,189 / 107,767 / 96,960; storefront
+  // 92,739 / 116,827 / 103,417; checkout 111,854 / 135,942 / 122,775 (its three steps, #101);
+  // console screens 128,204 / 152,562 / 137,999 (the new shells, #97). The first load is smaller
+  // than the tour's by 9,795 B to 13,774 B; with the guide on the page is larger, by 10,804 B to
+  // 14,563 B. The order's status page (/order/, #101) had no tour, at 97,911 B; with the guide's
+  // bar it is 103,825 B first and 127,913 B with the guide on, which buys the order's read, its
+  // watch on the kitchen socket, the tracker and the guide there. A visitor who turns the guide
+  // off loads the first load alone on later pages.
   describe('JavaScript per page', () => {
     const KB = 1_000;
     const BUDGETS: Record<string, { budget: number; pages: string[] }> = {
@@ -567,11 +567,11 @@ describe('dist', () => {
       guide: { budget: 101 * KB, pages: ['index.html', 'privacy/index.html'] },
       api: { budget: 101 * KB, pages: ['docs/api/index.html'] },
       status: { budget: 104 * KB, pages: ['status/index.html'] },
-      order: { budget: 123 * KB, pages: ['order/index.html'] },
+      order: { budget: 130 * KB, pages: ['order/index.html'] },
       storefront: { budget: 116 * KB, pages: ['menu/index.html', 'signin/index.html'] },
-      checkout: { budget: 136 * KB, pages: ['checkout/index.html'] },
+      checkout: { budget: 140 * KB, pages: ['checkout/index.html'] },
       console: {
-        budget: 159 * KB,
+        budget: 161 * KB,
         pages: [
           'app/index.html',
           'app/dispatch/index.html',
@@ -627,11 +627,11 @@ describe('dist', () => {
     // The guide's deferred load (components/Guide.tsx): the Layer chunk that a dynamic import brings
     // once the island has mounted and the guide is on or the recorder is open, with every chunk it
     // imports statically that the page's first load does not already carry, gzipped the same way.
-    // Measured 2026-11-09: 22,603 B to 23,092 B (the light pages carry less React in their first
+    // Measured 2026-11-10: 24,088 B to 24,578 B (the light pages carry less React in their first
     // load, so their deferred load is the larger). The budget is the largest plus a quarter,
-    // rounded up to the next 1,000 B. The bytes buy the 65 entries, the notes, the hotspots, the
-    // recorder panel and the short path.
-    const DEFERRED_BUDGET = 29_000;
+    // rounded up to the next 1,000 B. The bytes buy the 68 entries, the notes, the hotspots, the
+    // recorder panel, the short path and, since 2026-11-10, the order page's watch note.
+    const DEFERRED_BUDGET = 31_000;
     const firstLoad = (html: string) => {
       const queue = [
         ...[...html.matchAll(/<script[^>]*\ssrc="\/_astro\/([^"]+)"/g)].map((m) => m[1]),
@@ -653,7 +653,7 @@ describe('dist', () => {
       return seen;
     };
 
-    test('the guide’s deferred load, the layer and what only it imports, is within 29,000 B gzipped on every island page', async () => {
+    test('the guide’s deferred load, the layer and what only it imports, is within 31,000 B gzipped on every island page', async () => {
       const { gzipSync } = await import('node:zlib');
       const pages = files.filter((f) => classOf(f) !== 'none');
       expect(pages.length).toBeGreaterThan(5);
