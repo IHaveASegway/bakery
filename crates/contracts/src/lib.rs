@@ -779,6 +779,11 @@ pub struct DeadLetter {
     pub error: String,
     /// When it was dead-lettered, a wall time.
     pub at: String,
+    /// Made while the bakery was `off`, or within two minutes of the flag's last change (added
+    /// 2026-11-10): such a letter is kept and not counted on the status page. It says when the
+    /// message died, not why: a real fault while `off` is marked too (docs/operations.md, "Breaker
+    /// tripped"). A redrive works the same either way.
+    pub made_while_off: bool,
 }
 
 /// How far one clock advance moves business time.
@@ -1092,13 +1097,14 @@ pub enum CateringState {
 /// persona. `201` with the `CateringResponse` (`200` with `Idempotent-Replayed: true` for the
 /// same key again). A refused inquiry is `422` problem+json naming its rule: `headcount`,
 /// `unknown-package`, `unknown-venue`, `closed-day`, `catering-lead` (its detail names the
-/// 7-business-day rule and the earliest date allowed), or `brief-too-long`, `brief-email`,
-/// `brief-phone`, `brief-card-number` or `brief-url`, which never echo the brief.
+/// 7-business-day rule and the earliest date allowed), `catering-too-far` (since 2026-11-10:
+/// its detail names the 365-day bound and the latest date allowed), or `brief-too-long`,
+/// `brief-email`, `brief-phone`, `brief-card-number` or `brief-url`, which never echo the brief.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CateringInquiryRequest {
     /// The event day, `YYYY-MM-DD`: an open day (Tuesday to Sunday) at least 7 business days
-    /// after today.
+    /// after today and at most 365 days after it.
     pub date: String,
     /// 10 to 200 people.
     pub headcount: u16,
@@ -2525,8 +2531,10 @@ mod tests {
             seq: 1,
             error: "Kitchen answered 503".into(),
             at: "2026-11-05T12:00:00.000Z".into(),
+            made_while_off: true,
         };
         assert_eq!(serde_json::to_value(&dead).unwrap()["type"], "OrderPlaced");
+        assert_eq!(serde_json::to_value(&dead).unwrap()["made_while_off"], true);
     }
 
     #[test]

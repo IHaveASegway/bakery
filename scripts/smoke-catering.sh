@@ -6,7 +6,10 @@
 #   with the rule named (422 `catering`): 6 days out (`catering-lead`, naming the earliest
 #   date), a Monday (`closed-day`), a headcount of 9 and of 201, and a brief holding an email,
 #   a phone number, a card number passing Luhn or a URL, each naming its class and never
-#   echoing the brief.
+#   echoing the brief. Since 2026-11-10 (roadmap R66): an open day more than 365 days after
+#   business today (`catering-too-far`, naming the latest date) is refused and the last open
+#   day inside the bound is taken; the bound is on business time, so a date refused in b is
+#   taken once b's clock has moved on.
 # - The full saga: quote, accept (the day held), the deposit through the fake Stripe (the same
 #   intent on a second deposit call; `confirmed` only after the webhook, delivered twice and
 #   recorded once), production, delivered, `InvoiceIssued` and `invoiced` with its due date,
@@ -512,6 +515,17 @@ for bad in 2026-02-30 tomorrow; do
 done
 get_as list_after_date D "/v1/sandboxes/$AID/catering"
 check "the two refused dates registered no event: the list is as it was" "cmp -s '$TMP/list_before_date.body' '$TMP/list_after_date.body'"
+# The 365-day bound: the first open day past it is refused naming the latest date, and the last
+# open day inside it is taken.
+LATEST_A="$(cal 'addDays(a[0], 365)' "$TODAY_A")"
+FAR_A="$(cal '(() => { let d = addDays(a[0], 1); while (isMon(d)) d = addDays(d, 1); return d; })()' "$LATEST_A")"
+LAST_A="$(cal '(() => { let d = a[0]; while (isMon(d)) d = addDays(d, -1); return d; })()' "$LATEST_A")"
+command_as too_far D 192.0.2.92 POST "/v1/sandboxes/$AID/catering" "$(inquiry "$FAR_A" 40)"
+expect_problem too_far 422 catering
+expect_json too_far "/\\bcatering-too-far\\b/.test(b.detail) && b.detail.includes('$LATEST_A') && b.detail.includes('365 days')"
+command_as last_day D 192.0.2.92 POST "/v1/sandboxes/$AID/catering" "$(inquiry "$LAST_A" 40)"
+expect_status last_day 201
+expect_json last_day "b.date === '$LAST_A' && b.state === 'inquiry'"
 BRIEF_EMAIL="Questions to planner.mx7q@example.com please"
 BRIEF_PHONE="Call the venue on 801-555-0142 first"
 BRIEF_CARD="Bill card 4242 4242 4242 4242 for it"
@@ -643,8 +657,17 @@ check "the cancelled event has no timer row left" "(( $(timers_of "$BID" "$P") =
 check "and logged timers_cleared" "log_has '\"event\":\"timers_cleared\",\"object\":\"CateringEvent\",\"catering\":\"$P\"'"
 check "the day gives p's place back" "schedule_until day_b2 E '$BID' '$EARLY_B' 'b.catering.taken === 1'"
 DAYS_B=$(( AHEAD_B - 3 ))
+# The bound moves with b's clock: the first open day past it is refused now and taken once the
+# clock has moved two days or more.
+FAR_B="$(cal '(() => { let d = addDays(a[0], 366); while (isMon(d)) d = addDays(d, 1); return d; })()' "$(biz_today "$BID" E)")"
+command_as far_b_before E 192.0.2.93 POST "/v1/sandboxes/$BID/catering" "$(inquiry "$FAR_B" 40)"
+expect_problem far_b_before 422 catering
+expect_json far_b_before "/\\bcatering-too-far\\b/.test(b.detail)"
 advance_days E 192.0.2.93 "$BID" "$DAYS_B"
 expect_status "clock_${BID}_${DAYS_B}" 200
+check "b's clock moved two days or more, so the bound moved with it ($DAYS_B days)" "(( DAYS_B >= 2 ))"
+command_as far_b_after E 192.0.2.93 POST "/v1/sandboxes/$BID/catering" "$(inquiry "$FAR_B" 40)"
+expect_status far_b_after 201
 check "the clock passed the follow-up ($FOLLOW_UP): CateringReminderDue { follow_up } in r's log" "events_until '$BID' '$R' CateringReminderDue 1"
 check "it names follow_up" "[[ \"\$(object_sql CateringEvent 'catering:$BID:$R' \"SELECT data FROM events WHERE type = 'CateringReminderDue'\")\" == *follow_up* ]]"
 get_as r_after E "/v1/sandboxes/$BID/catering/$R"

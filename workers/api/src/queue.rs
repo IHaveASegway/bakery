@@ -42,6 +42,13 @@
 //! to the owning Sandbox (`/_dead-letter`), log `dlq` and ack. A wiped sandbox has nowhere to
 //! keep it, and the message is acked.
 //!
+//! Since 2026-11-10 (roadmap R67) a dead letter made while the bakery is `off` is kept, marked
+//! `made_while_off`, and writes no `dlq` point, so the morning check opens no issue for the
+//! switch doing its job. The batch asks `Control` for the flag and its change time afresh, once,
+//! and `bakery_app::dead_letters::made_while_off` decides: the flag `off`, or changed in the last
+//! two minutes. The mark says when the message died, not why: a real fault while `off` is marked
+//! too, and an unreachable `Control` marks nothing, so every such dead letter is counted.
+//!
 //! Since 2026-11-09 the flight recorder (ADR 0015; objects/recorder.rs): once a message's
 //! deliveries are decided, the consumer builds its hop (the envelope's ids, type, sequence and
 //! times, each routed class with its outcome, never `data`), and at the end of the batch sends
@@ -58,10 +65,11 @@ use std::collections::BTreeMap;
 
 use bakery_app::Clock;
 use bakery_app::analytics::{Event, Point};
+use bakery_app::dead_letters::made_while_off;
 use bakery_app::names::sandbox_object_name;
 use bakery_app::routing::{Subscriber, deliver_to, reference, strip_for};
 use bakery_contracts::{CateringResponse, Flag, OrderResponse, TraceHop};
-use bakery_domain::{BakeryDate, BusinessTime, Envelope, Ulid};
+use bakery_domain::{BakeryDate, BusinessTime, Envelope, Ulid, WallTime};
 use worker::{
     Cache, Context, Env, MessageBatch, MessageExt, Method, Response, Result, console_log, event,
 };
@@ -286,7 +294,7 @@ async fn consume(batch: &MessageBatch<String>, env: &Env) -> Result<BTreeMap<Uli
                 console_log!("{{\"event\":\"poison\",\"reason\":\"{}\"}}", p.code());
                 if let Some(sandbox) = sandbox_of(&body)
                     && let Ok(200) =
-                        write_dead_letter(env, sandbox, body, Some(p.code().into())).await
+                        write_dead_letter(env, sandbox, body, Some(p.code().into()), false).await
                 {
                     metrics::write(env, &Point::one(Event::Dlq));
                 }
@@ -888,6 +896,7 @@ async fn write_dead_letter(
     sandbox: Ulid,
     body: String,
     error: Option<String>,
+    while_off: bool,
 ) -> Result<u16> {
     let res = call(
         env,
@@ -898,19 +907,36 @@ async fn write_dead_letter(
         Some(&DeadLetterIn {
             envelope: body,
             error,
+            while_off,
         }),
     )
     .await?;
     Ok(res.status_code())
 }
 
+/// Whether this batch's dead letters were made while the bakery was `off`, from the flag as
+/// `Control` holds it now (`None` when it could not be read) and the time. `Control` unreachable
+/// marks nothing: an uncounted real dead letter would be worse than a counted one.
+fn batch_while_off(state: Option<(Flag, Option<WallTime>)>, now: WallTime) -> bool {
+    state.is_some_and(|(flag, changed_at)| made_while_off(flag, changed_at, now))
+}
+
 /// Each message written to its Sandbox's dead letters and acked; the dead hop of each one kept,
-/// by sandbox, for the flight recorder (an envelope that does not read has none).
+/// by sandbox, for the flight recorder (an envelope that does not read has none). A dead letter
+/// made while `off` ([`batch_while_off`]) is kept marked and writes no `dlq` point.
 async fn dead_letters(
     batch: &MessageBatch<String>,
     env: &Env,
 ) -> Result<BTreeMap<Ulid, Vec<TraceHop>>> {
     let mut dead: BTreeMap<Ulid, Vec<TraceHop>> = BTreeMap::new();
+    let state = match control::flag_state(env).await {
+        Ok(a) => Some((a.flag, a.changed_at)),
+        Err(_) => {
+            console_log!("{{\"event\":\"flag_unavailable\",\"queue\":\"{DLQ}\"}}");
+            None
+        }
+    };
+    let while_off = batch_while_off(state, SystemClock::new().now_wall());
     for message in batch.raw_iter() {
         let body = message.body().as_string();
         let sandbox = body.as_deref().and_then(sandbox_of);
@@ -924,10 +950,15 @@ async fn dead_letters(
             .and_then(|v| v.get("id").and_then(|i| i.as_str()).map(str::to_owned))
             .unwrap_or_default();
         let envelope = read(&body).ok();
-        match write_dead_letter(env, sandbox, body, None).await {
+        match write_dead_letter(env, sandbox, body, None, while_off).await {
             Ok(200) => {
-                console_log!("{{\"event\":\"dlq\",\"outcome\":\"kept\",\"id\":{id:?}}}");
-                metrics::write(env, &Point::one(Event::Dlq));
+                console_log!(
+                    "{{\"event\":\"dlq\",\"outcome\":\"kept\",\"id\":{id:?},\"while_off\":{while_off},\"counted\":{}}}",
+                    !while_off
+                );
+                if !while_off {
+                    metrics::write(env, &Point::one(Event::Dlq));
+                }
                 message.ack();
                 if let Some(e) = envelope {
                     let routes: Vec<Subscriber> = deliver_to(&e).iter().map(|r| r.to).collect();
@@ -1052,6 +1083,34 @@ mod tests {
         let mut delivered = 0;
         assert_eq!(ready(deliver_each([], &mut delivered, send(None))), Ok(()));
         assert_eq!(delivered, 0);
+    }
+
+    #[test]
+    fn a_dead_letter_while_off_is_marked_and_a_real_one_is_counted() {
+        let at = |t: &str| format!("{t}.000Z").parse::<WallTime>().unwrap();
+        let now = at("2026-11-10T14:00:00");
+        // Off now: marked, no point.
+        assert!(batch_while_off(
+            Some((Flag::Off, Some(at("2026-11-10T13:10:00")))),
+            now
+        ));
+        // Just back to live: the consumer's copy of `off` was still retrying.
+        assert!(batch_while_off(
+            Some((Flag::Live, Some(at("2026-11-10T13:59:15")))),
+            now
+        ));
+        // Live for long: counted.
+        assert!(!batch_while_off(
+            Some((Flag::Live, Some(at("2026-11-10T09:00:00")))),
+            now
+        ));
+        // A real dead letter on a Control never changed (the epoch), and one whose flag could not
+        // be read: counted.
+        assert!(!batch_while_off(
+            Some((Flag::Live, Some(WallTime::from_unix_ms(0).unwrap()))),
+            now
+        ));
+        assert!(!batch_while_off(None, now));
     }
 
     #[test]

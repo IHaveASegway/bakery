@@ -27,8 +27,8 @@
 //!   paid order's `OrderPaid` reaches its customer then; 404 `{error: "unknown-persona"}`.
 //! - `POST /_register-day {date, catering?}` → `{name, clock_offset_s, clock_v}`: a `Schedule`
 //!   day, born on first touch, for a date from the birth day to 30 days after business today, or
-//!   any later one with `catering: true` (an accepted quote's event day, which the domain's
-//!   rules already bound); 404 `{error: "no-such-day"}` for any other.
+//!   any later one with `catering: true` (an accepted quote's event day, which the domain bounds
+//!   at 365 days after business today, `MAX_DAYS_AHEAD`, since 2026-11-10); 404 `{error: "no-such-day"}` for any other.
 //! - `POST /_register-dispatch {date}` → `{name, clock_offset_s, clock_v}`: the day's
 //!   `Dispatch`, born on first touch, for the same dates as a `Schedule` day (PR 9); 404
 //!   `{error: "no-such-day"}` for any other, 409 `{error: "seeding"}` before seeding is done.
@@ -189,6 +189,9 @@ const SCHEMA: &[&str] = &[
        error TEXT NOT NULL,
        at TEXT NOT NULL,
        envelope TEXT NOT NULL)",
+    // The dead letters made while the bakery was `off` (roadmap R67, 2026-11-10), by id: a table
+    // of its own, so a sandbox born before it needs no new column in `dead_letters`.
+    "CREATE TABLE IF NOT EXISTS dead_letters_while_off (id TEXT PRIMARY KEY)",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -315,6 +318,10 @@ pub struct DeadLetterIn {
     pub envelope: String,
     #[serde(default)]
     pub error: Option<String>,
+    /// Made while the bakery was `off`, as the dead-letter queue's consumer judged it
+    /// (`bakery_app::dead_letters`); the main consumer's poison is never.
+    #[serde(default)]
+    pub while_off: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -445,7 +452,14 @@ struct DeadRow {
     error: String,
     at: String,
     envelope: String,
+    /// 1 when the id is in `dead_letters_while_off`.
+    while_off: i64,
 }
+
+/// A dead letter's columns, with its mark, for `rows`/`first` (`WHERE` and `ORDER BY` follow).
+const DEAD_ROW: &str = "SELECT d.id, d.type, d.stream, d.seq, d.error, d.at, d.envelope,
+       (o.id IS NOT NULL) AS while_off
+     FROM dead_letters d LEFT JOIN dead_letters_while_off o ON o.id = d.id";
 
 impl DeadRow {
     fn view(&self) -> DeadLetter {
@@ -456,6 +470,7 @@ impl DeadRow {
             seq: u64::try_from(self.seq).unwrap_or(0),
             error: self.error.clone(),
             at: self.at.clone(),
+            made_while_off: self.while_off != 0,
         }
     }
 }
@@ -553,8 +568,7 @@ impl DurableObject for Sandbox {
                     (Method::Get, "/_dead-letters") => {
                         let found: Vec<DeadRow> = rows(
                             &self.sql(),
-                            "SELECT id, type, stream, seq, error, at, envelope FROM dead_letters
-                             ORDER BY at, id",
+                            &format!("{DEAD_ROW} ORDER BY d.at, d.id"),
                             vec![],
                         )?;
                         json(&found.iter().map(DeadRow::view).collect::<Vec<_>>(), 200)
@@ -1807,9 +1821,10 @@ impl Sandbox {
         let seq = value.get("seq").and_then(|v| v.as_i64()).unwrap_or(0);
         let (event_type, stream_name) = (text("type"), text("stream"));
         let envelope = body.envelope;
+        let while_off = body.while_off;
         let id_for_tx = id.clone();
         transaction_sync(&self.state.storage(), move || {
-            exec(
+            let inserted = exec(
                 &sql,
                 "INSERT OR IGNORE INTO dead_letters (id, type, stream, seq, error, at, envelope)
                  VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -1823,6 +1838,15 @@ impl Sandbox {
                     envelope.into(),
                 ],
             )?;
+            // The mark goes with the row it describes: a second copy of a kept letter changes
+            // neither.
+            if inserted > 0 && while_off {
+                exec(
+                    &sql,
+                    "INSERT OR IGNORE INTO dead_letters_while_off (id) VALUES (?)",
+                    vec![id_for_tx.as_str().into()],
+                )?;
+            }
             exec(
                 &sql,
                 "DELETE FROM delivery_errors WHERE id = ?",
@@ -1830,7 +1854,7 @@ impl Sandbox {
             )?;
             Ok(())
         })?;
-        console_log!("{{\"event\":\"dead_letter\",\"id\":\"{id}\"}}");
+        console_log!("{{\"event\":\"dead_letter\",\"id\":\"{id}\",\"while_off\":{while_off}}}");
         json(&serde_json::json!({ "id": id }), 200)
     }
 
@@ -1843,7 +1867,7 @@ impl Sandbox {
         }
         let found: Option<DeadRow> = first(
             &sql,
-            "SELECT id, type, stream, seq, error, at, envelope FROM dead_letters WHERE id = ?",
+            &format!("{DEAD_ROW} WHERE d.id = ?"),
             vec![body.id.as_str().into()],
         )?;
         let Some(row) = found else {
@@ -1859,6 +1883,11 @@ impl Sandbox {
             exec(
                 &sql,
                 "DELETE FROM dead_letters WHERE id = ?",
+                vec![id.as_str().into()],
+            )?;
+            exec(
+                &sql,
+                "DELETE FROM dead_letters_while_off WHERE id = ?",
                 vec![id.into()],
             )?;
             stream::remember(&sql, &key, "", &stored, now)?;
