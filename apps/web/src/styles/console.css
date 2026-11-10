@@ -626,3 +626,36 @@ details.capacity-group[open] > summary::before {
 details.capacity-group .capacity-table {
   margin-top: var(--space-1);
 }
+
+/* The sandbox's id on the System page: whole, on its own line under its label (F19, 2026-11-10). */
+.panel dl > dd.sandbox-id {
+  grid-column: 1 / -1;
+}
+
+.panel dl > dd.sandbox-id code {
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
+/* A card's "…" menu on the board opens under the card at the card's own width, so it never spills
+   over the next column (F21, 2026-11-10). */
+.board .card {
+  position: relative;
+}
+
+.board .card details.menu {
+  position: static;
+}
+
+.board .card .menu-panel {
+  top: calc(100% + var(--space-1));
+  right: 0;
+  left: 0;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+}
+
+.refund-asking {
+  margin: var(--space-2) 0 0;
+}

@@ -29,6 +29,51 @@ const RULES: Record<string, string> = {
   'read-only': 'the demo is read-only for now, so the board can be watched but not moved',
 };
 
+/**
+ * The card menu that is open on this board, as the way to close it: opening another closes it, so
+ * two are never open at once (F15, 2026-11-10).
+ */
+let openCardMenu: (() => void) | null = null;
+
+/**
+ * A card's "…" menu, a <details>, with the manners of the top bar's popovers (ConsoleTopBar.tsx,
+ * Popover): Escape closes it and puts focus back on its button, a press outside closes it, and
+ * opening one closes the one that was open.
+ */
+function useCardMenu() {
+  const menu = useRef<HTMLDetailsElement>(null);
+  const summary = useRef<HTMLElement>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => {
+      if (menu.current) menu.current.open = false;
+    };
+    if (openCardMenu !== null && openCardMenu !== close) openCardMenu();
+    openCardMenu = close;
+    const away = (e: MouseEvent) => {
+      if (!menu.current?.contains(e.target as Node)) close();
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      close();
+      summary.current?.focus();
+    };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', key);
+    return () => {
+      if (openCardMenu === close) openCardMenu = null;
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('keydown', key);
+    };
+  }, [open]);
+  return {
+    menu,
+    summary,
+    onToggle: () => setOpen(menu.current?.open ?? false),
+  };
+}
+
 /** `country-loaf/whole` as "country loaf, whole". */
 const variantWords = (slug: string) => slug.replaceAll('-', ' ').replace('/', ', ');
 
@@ -124,6 +169,7 @@ export function CardView({
   const shown = card.lines.slice(0, LINES_SHOWN);
   const rest = card.lines.slice(LINES_SHOWN);
   const refundable = canRefund && card.state !== 'pending';
+  const more = useCardMenu();
   return (
     <li className="card" ref={item} tabIndex={-1}>
       <p className="card-head">
@@ -194,8 +240,9 @@ export function CardView({
           {/* A pending card is unpaid, so there is nothing to refund yet. Refunds are destructive,
               so they wait in the card's overflow menu, never beside the next step. */}
           {refundable && (
-            <details className="menu">
+            <details className="menu" ref={more.menu} onToggle={more.onToggle}>
               <summary
+                ref={more.summary}
                 className="btn btn-quiet btn-sm btn-icon"
                 aria-label={`More for order ${shortId(card.order)}`}
                 title="More: refunds"
@@ -324,7 +371,7 @@ export default function KitchenBoard({
         )}
         {isGuest && (
           <GuestNote tour="kitchen-guest">
-            Guests move their own orders here; a refund needs a sign-in.
+            You can move any order here; a refund needs a sign-in.
           </GuestNote>
         )}
         <div aria-live="polite" className="messages">

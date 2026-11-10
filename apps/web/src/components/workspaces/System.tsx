@@ -31,7 +31,9 @@ export function SystemView({
         </h3>
         <dl data-tour="console-sandbox">
           <dt>Sandbox</dt>
-          <dd>
+          {/* The id on a line of its own, whole: 26 characters do not fit beside the label in a third
+              of the window, and an id cut mid-string reads as two. */}
+          <dd className="sandbox-id">
             <code>{sandbox.id}</code>
           </dd>
           <dt>Seed</dt>

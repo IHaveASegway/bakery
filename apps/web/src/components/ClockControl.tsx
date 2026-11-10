@@ -84,8 +84,9 @@ export default function ClockControl({
         <strong>
           <time dateTime={now.iso}>{now.text}</time>
         </strong>{' '}
-        (Mountain), {formatOffset(offset)} ahead of the wall clock, with {formatOffset(left)} of{' '}
-        {formatOffset(MAX_OFFSET_S)} left.
+        (Mountain), <span className="whitespace-nowrap">{formatOffset(offset)}</span> ahead of the
+        wall clock, with <span className="whitespace-nowrap">{formatOffset(left)}</span> of{' '}
+        <span className="whitespace-nowrap">{formatOffset(MAX_OFFSET_S)}</span> left.
       </p>
       <p className="actions">
         {STEPS.map(({ step, label, says }) => (
