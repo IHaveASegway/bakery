@@ -206,7 +206,7 @@ pub const ROUTES: &[RouteSpec] = &[
         Some("StatusResponse"),
         &[ok(
             200,
-            "today's sandboxes, guests and demo accounts with their caps, the last snapshot of the kept Analytics Engine queries with `counters_as_of` and `counters_state` (`live`, `stale` or `unavailable`), the breaker's state (`unconfigured`, `armed`, `read-only` or `off`) with its last run, and the flag",
+            "today's sandboxes, guests and demo accounts with their caps, the last snapshot of the kept Analytics Engine queries with `counters_as_of` and `counters_state` (`live`, `stale` or `unavailable`), the breaker's state (`unconfigured`, `armed`, `read-only` or `off`) with its last run, `sandboxes_past_wipe` (sandboxes not wiped 2 hours after their nightly wipe; `null` when `Control` has not counted in the last 20 minutes), and the flag",
         )],
     ),
     with_query(

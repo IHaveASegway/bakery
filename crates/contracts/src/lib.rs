@@ -34,8 +34,9 @@ pub enum HealthStatus {
 ///
 /// The field order is fixed and is the wire order: the day and the sandbox count and cap
 /// (PR 2), then the guest and demo-account counts and caps (PR 3), then the status page's
-/// counters with their time and state (PR 13), then the breaker's state (PR 17), then the flag.
-/// Readers go by name, so PR 2's smoke check still passes; a new field is added before `flag`.
+/// counters with their time and state (PR 13), then the breaker's state (PR 17), then the count
+/// of sandboxes past their wipe (2026-11-10), then the flag. Readers go by name, so PR 2's
+/// smoke check still passes; a new field is added before `flag`.
 ///
 /// The counters are a snapshot of the kept Analytics Engine queries that the 15-minute cron
 /// refreshes, never a query per request (docs/operations.md, "Observability").
@@ -66,6 +67,12 @@ pub struct StatusResponse {
     pub counters_state: CountersState,
     /// The 15-minute cron breaker's state and its last run, kept in `Control`.
     pub breaker: BreakerStatus,
+    /// Sandboxes not wiped more than 2 hours after their nightly wipe, the first 10:00 UTC after
+    /// each was made (added 2026-11-10). A sandbox made after today's wipe is due at tomorrow's,
+    /// so it is not counted. `Control` counts at each 15-minute sweep, so the route reads one
+    /// stored number; `null` when the sweep has not counted in the last 20 minutes. Anything above
+    /// 0 means a wipe failed (docs/operations.md, "The nightly wipe").
+    pub sandboxes_past_wipe: Option<u32>,
     /// The demo's flag.
     pub flag: Flag,
 }
@@ -2221,11 +2228,12 @@ mod tests {
                 last_usd: None,
                 unread: vec![],
             },
+            sandboxes_past_wipe: None,
             flag: Flag::ReadOnly,
         };
         assert_eq!(
             serde_json::to_string(&status).unwrap(),
-            r#"{"day":"2026-11-04","sandboxes_today":0,"sandbox_cap":300,"guests_today":0,"guest_cap":100,"demo_accounts_today":0,"demo_account_cap":100,"counters":null,"counters_as_of":null,"counters_state":"unavailable","breaker":{"state":"unconfigured","since":null,"last_run":null,"last_usd":null,"unread":[]},"flag":"read-only"}"#
+            r#"{"day":"2026-11-04","sandboxes_today":0,"sandbox_cap":300,"guests_today":0,"guest_cap":100,"demo_accounts_today":0,"demo_account_cap":100,"counters":null,"counters_as_of":null,"counters_state":"unavailable","breaker":{"state":"unconfigured","since":null,"last_run":null,"last_usd":null,"unread":[]},"sandboxes_past_wipe":null,"flag":"read-only"}"#
         );
         let live = StatusResponse {
             counters: Some(StatusCounters {
@@ -2251,6 +2259,7 @@ mod tests {
                 last_usd: Some("0.1000".into()),
                 unread: vec!["rows_written".into(), "do_gb_s".into()],
             },
+            sandboxes_past_wipe: Some(3),
             ..status
         };
         let wire = serde_json::to_value(&live).unwrap();
@@ -2266,13 +2275,20 @@ mod tests {
             })
         );
         assert_eq!(wire["counters"]["last_wipe"]["objects"], 133);
+        assert_eq!(wire["sandboxes_past_wipe"], 3);
         assert_eq!(
             serde_json::from_value::<StatusResponse>(wire).unwrap(),
             live
         );
         let schema = serde_json::to_value(schemars::schema_for!(StatusResponse)).unwrap();
         let required = schema["required"].as_array().unwrap();
-        for name in ["counters", "counters_as_of", "counters_state", "breaker"] {
+        for name in [
+            "counters",
+            "counters_as_of",
+            "counters_state",
+            "breaker",
+            "sandboxes_past_wipe",
+        ] {
             assert!(required.iter().any(|r| r == name), "{name} is required");
         }
         let breaker = &schema["$defs"]["BreakerStatus"];

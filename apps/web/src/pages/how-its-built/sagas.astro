@@ -25,13 +25,13 @@ const SOURCES = [
   {
     href: 'https://microservices.io/patterns/data/saga.html',
     title: 'Pattern: Saga',
-    by: 'Chris Richardson, after his Microservices Patterns (2018)',
+    by: 'microservices.io, after the book Microservices Patterns (2018)',
     for: 'a sequence of local transactions, choreographed by events or orchestrated from one place, with compensating transactions in place of a rollback and no isolation between sagas',
   },
   {
     href: 'https://www.enterpriseintegrationpatterns.com/patterns/messaging/ProcessManager.html',
     title: 'Process Manager',
-    by: 'Gregor Hohpe and Bobby Woolf, Enterprise Integration Patterns (2003)',
+    by: 'Enterprise Integration Patterns (book, 2003), and its site',
     for: 'one central unit that keeps the state of a sequence and decides the next step from the results so far',
   },
   {
@@ -82,10 +82,9 @@ const SOURCES = [
       what “undone” means for this job.
     </p>
     <p>
-      The 1987 paper “Sagas”, by Hector Garcia-Molina and Kenneth Salem, gives the shape that
-      survives: a long transaction written as a sequence of short ones, each committed on its own,
-      with a compensating transaction for each step that undoes its effect in business terms. No lab
-      page shows this one yet, and{' '}
+      The 1987 SIGMOD paper “Sagas” gives the shape that survives: a long transaction written as a
+      sequence of short ones, each committed on its own, with a compensating transaction for each
+      step that undoes its effect in business terms. No lab page shows this one yet, and{' '}
       <a href={SITE_LAB} rel="noopener">
         the lab
       </a>{' '}
@@ -123,10 +122,10 @@ const SOURCES = [
       holds, a lapse after the deposit was paid, emits nothing.
     </p>
     <p>
-      That makes the object the job’s process manager, in Hohpe and Woolf’s sense: one place that
-      keeps the state of the sequence and decides the next step. Because it is a{' '}
-      <a href={essayUrl('raft')}>single writer</a>, two steps never race inside it, and no other
-      service has to coordinate them.
+      That makes the object the job’s process manager, in the sense of{' '}
+      <em>Enterprise Integration Patterns</em>: one place that keeps the state of the sequence and
+      decides the next step. Because it is a <a href={essayUrl('raft')}>single writer</a>, two steps
+      never race inside it, and no other service has to coordinate them.
     </p>
 
     <h2>Undone by a step of its own</h2>
@@ -183,7 +182,8 @@ const SOURCES = [
       </li>
       <li>
         <strong>No isolation.</strong> Between steps the job is visible half done: a place held with
-        no deposit, a delivery with no invoice yet. Richardson lists this as the pattern’s price.
+        no deposit, a delivery with no invoice yet. The pattern’s page on microservices.io lists
+        this as its price.
       </li>
       <li>
         <strong>A quote you cannot watch expire.</strong> A quote is valid until the opening of the
@@ -206,9 +206,9 @@ const SOURCES = [
     <h2>Sources</h2>
     <ul class="sources">
       <li>
-        <em>Sagas</em>, Hector Garcia-Molina and Kenneth Salem, Proceedings of the 1987 ACM SIGMOD
-        Conference: a long-lived transaction as a sequence of transactions, each with a compensating
-        transaction. Cited from print; not read on {READ}.
+        <em>Sagas</em>, Proceedings of the 1987 ACM SIGMOD Conference: a long-lived transaction as a
+        sequence of transactions, each with a compensating transaction. Cited from print; not read
+        on {READ}.
       </li>
       {SOURCES.map((s) => (
         <li>
