@@ -12,7 +12,7 @@ const SOURCES = [
   {
     href: 'https://lamport.azurewebsites.net/pubs/time-clocks.pdf',
     title: 'Time, Clocks, and the Ordering of Events in a Distributed System',
-    by: 'Leslie Lamport, Communications of the ACM 21(7), July 1978, the copy on the author’s site',
+    by: 'Communications of the ACM 21(7), July 1978, a copy hosted by its author',
     for: 'the happened-before relation, and logical clocks as counters that need no relation to physical time',
   },
   {
@@ -94,10 +94,11 @@ const SOURCES = [
       PR 6).
     </p>
     <p>
-      The name is borrowed. Lamport’s logical clocks, in his 1978 paper, are counters with no tie to
-      physical time: they exist to order events. The bakery’s business time is physical time
-      shifted. The Lamport-like part is beside it: a counter, <code>clock_v</code>, that the Sandbox
-      adds one to on every move, so that any object can tell a newer offset from an older one.
+      The name is borrowed. The logical clocks of the 1978 paper “Time, Clocks, and the Ordering of
+      Events in a Distributed System” are counters with no tie to physical time: they exist to order
+      events. The bakery’s business time is physical time shifted. The Lamport-like part is beside
+      it: a counter, <code>clock_v</code>, that the Sandbox adds one to on every move, so that any
+      object can tell a newer offset from an older one.
     </p>
 
     <h2>Later is the bakery’s question</h2>

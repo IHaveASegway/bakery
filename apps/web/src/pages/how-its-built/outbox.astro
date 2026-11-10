@@ -36,19 +36,19 @@ const SOURCES = [
   {
     href: 'https://microservices.io/patterns/data/transactional-outbox.html',
     title: 'Pattern: Transactional outbox',
-    by: 'Chris Richardson, after his Microservices Patterns (2018)',
+    by: 'microservices.io, after the book Microservices Patterns (2018)',
     for: 'the message stored in the same transaction as the change, and a relay that might publish it more than once',
   },
   {
     href: 'https://www.enterpriseintegrationpatterns.com/patterns/messaging/IdempotentReceiver.html',
     title: 'Idempotent Receiver',
-    by: 'Gregor Hohpe and Bobby Woolf, Enterprise Integration Patterns (2003)',
+    by: 'Enterprise Integration Patterns (book, 2003), and its site',
     for: 'a receiver that can safely receive the same message several times',
   },
   {
     href: 'https://www.enterpriseintegrationpatterns.com/patterns/messaging/DeadLetterChannel.html',
     title: 'Dead Letter Channel',
-    by: 'Gregor Hohpe and Bobby Woolf, Enterprise Integration Patterns (2003)',
+    by: 'Enterprise Integration Patterns (book, 2003), and its site',
     for: 'where a messaging system puts a message it cannot deliver',
   },
   {
@@ -122,18 +122,18 @@ const SOURCES = [
       The bakery commits first and treats the send as something that may happen more than once. In
       one synchronous transaction (<code>workers/api/src/objects/stream.rs</code>) the Order appends{' '}
       <code>OrderPaid</code> to its <code>events</code> table, copies the envelope into its
-      <code>outbox</code> table, writes its new state and records the command’s key. That is Chris
-      Richardson’s transactional outbox: the message is stored with the change, so it exists exactly
-      when the change does. After the commit the object sets an outbox timer 30 seconds out, arms
-      its alarm for it, and, while the visitor already has the answer, sends up to 100 outbox rows
-      to the
+      <code>outbox</code> table, writes its new state and records the command’s key. That is the
+      transactional outbox pattern: the message is stored with the change, so it exists exactly when
+      the change does. After the commit the object sets an outbox timer 30 seconds out, arms its
+      alarm for it, and, while the visitor already has the answer, sends up to 100 outbox rows to
+      the
       <code>bakery-events</code> Queue in one batch, deleting the rows the Queue accepted.
     </p>
     <p>
       The gap is still there, but the only failure left in it is a duplicate. If the isolate stops
       after the Queue took the batch and before the delete, the rows go again. If two commands reach
       one object in quick succession, the second send can read rows the first has not yet deleted.
-      Richardson’s page says as much: the relay “might publish a message more than once”.
+      The pattern’s page says as much: the relay “might publish a message more than once”.
     </p>
 
     <h2>What happens to a row the Queue refused</h2>
@@ -164,9 +164,10 @@ const SOURCES = [
       <code>OrderPaid</code> goes again to the five that already applied it.
     </p>
     <p>
-      So the receiving end remembers: Hohpe and Woolf’s idempotent receiver. Each subscriber stores
-      an applied event’s id in the same write as the change: the Schedule and the Dispatch in a{' '}
-      <code>seen</code> table, the Kitchen in a set inside the board’s one row, the Order in its
+      So the receiving end remembers: <em>Enterprise Integration Patterns</em>’ idempotent receiver.
+      Each subscriber stores an applied event’s id in the same write as the change: the Schedule and
+      the Dispatch in a <code>seen</code> table, the Kitchen in a set inside the board’s one row,
+      the Order in its
       <code>commands_seen</code>. A second delivery finds the id and changes nothing. At-least-once
       delivery and a receiver that remembers is the only exactly once there is, and it holds here
       for the reason the lab gives as its simplification: every effect the bakery has is a write to

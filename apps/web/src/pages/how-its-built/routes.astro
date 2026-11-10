@@ -91,7 +91,7 @@ const SOURCES = [
 
     <h2>Two planners, neither exact</h2>
     <p>
-      The server plans with the savings heuristic of Clarke and Wright (1964). Every stop starts as
+      The server plans with the savings heuristic (Operations Research, 1964). Every stop starts as
       its own round trip from the bakery. Joining the end of one trip to the start of another saves{' '}
       <code>d(i,0) + d(0,j) − d(i,j)</code> minutes, where <code>d</code> is the drive time and 0 is
       the bakery. The heuristic scores every ordered pair, 63 × 62 = 3,906 of them for the Saturday,
@@ -191,10 +191,9 @@ const SOURCES = [
     <h2>Sources</h2>
     <ul class="sources">
       <li>
-        <em>Scheduling of Vehicles from a Central Depot to a Number of Delivery Points</em>, G.
-        Clarke and J. W. Wright, Operations Research, 1964: the savings heuristic. Cited from the
-        bakery’s reading list in <code>docs/roadmap.md</code>; the page itself was not read on{' '}
-        {READ}.
+        <em>Scheduling of Vehicles from a Central Depot to a Number of Delivery Points</em>,
+        Operations Research, 1964: the savings heuristic. Cited from the bakery’s reading list in{' '}
+        <code>docs/roadmap.md</code>; the page itself was not read on {READ}.
       </li>
       {SOURCES.map((s) => (
         <li>
