@@ -1,6 +1,6 @@
 # Architecture
 
-How the bakery demo fits together: the systems around it, the two Workers and the fourteen Durable Object (DO) classes inside the API, how events move between objects, who owns each datum, how the main requests flow, and what each failure takes down. The made-up bakery, Proof of Concept Bakery (Q2 · Q-name), is a running business system built so a visitor can watch the site's Lab principles run in production code. The why is in [product.md](product.md), the language and event catalog in [domain.md](domain.md), pins in [stack.md](stack.md), threats in [security.md](security.md), prices in [cost.md](cost.md), the pipeline in [delivery.md](delivery.md), runbooks in [operations.md](operations.md), decisions in [adr/](adr/README.md). Built and deployed: both Workers have served their hostnames since the launch on 2026-11-06 (PR 11), and spike S1's numbers are in `workers/api/budgets.json` (as of 2026-11-09). Before the launch every pull request ran on `wrangler dev` (Q44 · Q-posture, [roadmap.md](roadmap.md)). Where the text below says "as built", it was checked against the code on 2026-11-09.
+How the bakery demo fits together: the systems around it, the two Workers and the fifteen Durable Object (DO) classes inside the API, how events move between objects, who owns each datum, how the main requests flow, and what each failure takes down. The made-up bakery, Proof of Concept Bakery (Q2 · Q-name), is a running business system built so a visitor can watch the site's Lab principles run in production code. The why is in [product.md](product.md), the language and event catalog in [domain.md](domain.md), pins in [stack.md](stack.md), threats in [security.md](security.md), prices in [cost.md](cost.md), the pipeline in [delivery.md](delivery.md), runbooks in [operations.md](operations.md), decisions in [adr/](adr/README.md). Built and deployed: both Workers have served their hostnames since the launch on 2026-11-06 (PR 11), and spike S1's numbers are in `workers/api/budgets.json` (as of 2026-11-09). Before the launch every pull request ran on `wrangler dev` (Q44 · Q-posture, [roadmap.md](roadmap.md)). Where the text below says "as built", it was checked against the code on 2026-11-09.
 
 Status: Updated in PR 17 · 2026-11-06; reconciled with the code on 2026-11-09
 
@@ -172,7 +172,7 @@ Eight domain contexts and three operational ones. Each writes only its own data.
 
 ## Durable Object topology
 
-Fourteen classes, all SQLite-backed, declared with `exports`. On Paid an account may hold 500 classes and an object 10 GB; a row is capped at 2 MB, with 100 columns and 100 bound parameters.[^dolimits]
+Fifteen classes since 2026-11-09 (the `Recorder` is the fifteenth), all SQLite-backed, declared with `exports`. On Paid an account may hold 500 classes and an object 10 GB; a row is capped at 2 MB, with 100 columns and 100 bound parameters.[^dolimits]
 
 Isolation is a database per tenant per aggregate, not row-level security over a shared table: every object is its own SQLite database, so there is no shared table to filter ([security.md](security.md#sandbox-isolation) says why that is the stronger design here).
 
@@ -192,6 +192,7 @@ Isolation is a database per tenant per aggregate, not row-level security over a 
 | `Crm` | sandbox | consumed event log, projections, campaigns, rebuild cursor | consumer; staff | to the wipe | rebuild batches; sends; 36 h |
 | `Inbox` | sandbox | messages, simulated opens and clicks | events | to the wipe | simulated opens; 36 h |
 | `Simulator` | sandbox | the rate, the running flag, the minute ledger, its alarm | the visitor (Start and Stop traffic); its alarm | to the wipe | the next tick while running; 36 h |
+| `Recorder` | sandbox | the flight recorder, bound and exported on 2026-11-09 and not yet seeded, fed or read: when wired, the last 200 batches of hops the Queue's consumer sent, no event data; the retry counts; hibernating sockets ([ADR 0015](adr/0015-a-lossy-flight-recorder-beside-the-event-path.md)) | the Queue's consumer, after each batch, once wired | to the wipe | 36 h |
 
 `Campaign` is an aggregate hosted in `Crm`, since each send reads Crm's segment projection and a sandbox holds a handful ([domain.md](domain.md#campaign)).
 
@@ -214,7 +215,7 @@ Crm and the Inbox are the sandbox's one object each, so `all(Crm)` and `all(Inbo
 | `Control` | `control` |
 | `Account` | `account:<hex of HMAC(ACCOUNT_HMAC_KEY, "google:" + sub, "github:" + id or "demo:" + username)>`; later `"email:" + normalized address` (Q43 · Q-email-signin) |
 | `Sandbox` | `sandbox:<ULID>`, minted by the router, carried in the signed session |
-| per-sandbox | `catalog:<sandbox>`, `kitchen:<sandbox>`, `billing:<sandbox>`, `crm:<sandbox>`, `inbox:<sandbox>`, `simulator:<sandbox>` |
+| per-sandbox | `catalog:<sandbox>`, `kitchen:<sandbox>`, `billing:<sandbox>`, `crm:<sandbox>`, `inbox:<sandbox>`, `recorder:<sandbox>` (since 2026-11-09), `simulator:<sandbox>` |
 | per-day | `schedule:<sandbox>:<YYYY-MM-DD>`, `dispatch:<sandbox>:<YYYY-MM-DD>`, a business date from the sandbox's birth day to 30 days after business today, or any later date for an accepted catering quote's event day (as built, `workers/api/src/objects/sandbox.rs`, 2026-11-09) |
 | per-aggregate | `order:<sandbox>:<ULID>`, `catering:<sandbox>:<ULID>`, `customer:<sandbox>:<ULID>` |
 

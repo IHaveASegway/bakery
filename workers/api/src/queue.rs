@@ -50,16 +50,52 @@ use bakery_app::names::sandbox_object_name;
 use bakery_app::routing::{Subscriber, deliver_to, reference, strip_for};
 use bakery_contracts::{CateringResponse, Flag, OrderResponse};
 use bakery_domain::{BakeryDate, BusinessTime, Envelope, Ulid};
-use worker::{Cache, Context, Env, MessageBatch, MessageExt, Method, Result, console_log, event};
+use worker::{
+    Cache, Context, Env, MessageBatch, MessageExt, Method, Response, Result, console_log, event,
+};
 
 use crate::clock::SystemClock;
 use crate::http::menu_cache_key;
 use crate::metrics;
 use crate::objects::sandbox::{self, CustomerBirth, DeadLetterIn, DeliveryError, RegisterCustomer};
-use crate::objects::sql::{call, call_empty};
+use crate::objects::sql;
 use crate::objects::{
     billing, catering, control, crm, customer, dispatch, inbox, kitchen, order, schedule,
 };
+
+/// `sql::call`, with the answer's body read to its end before the consumer goes on. A body left
+/// unread keeps the queue invocation open after the handler returns: on `wrangler dev` (the version
+/// `pnpm-lock.yaml` pins, 2026-11-09) a 410 from an object the Sandbox's wipe was deleting at that moment never let the
+/// batch finish, and the local queue sends no other batch until one does. Every answer here is
+/// small JSON, so reading it costs nothing, and the consumer never depends on an unread stream.
+async fn call<B: serde::Serialize>(
+    env: &Env,
+    binding: &str,
+    name: &str,
+    method: Method,
+    path: &str,
+    body: Option<&B>,
+) -> Result<Response> {
+    settled(sql::call(env, binding, name, method, path, body).await?).await
+}
+
+/// `call` with no body.
+async fn call_empty(
+    env: &Env,
+    binding: &str,
+    name: &str,
+    method: Method,
+    path: &str,
+) -> Result<Response> {
+    call::<()>(env, binding, name, method, path, None).await
+}
+
+/// The answer with its body read, as a buffered answer with the same status.
+async fn settled(mut res: Response) -> Result<Response> {
+    let status = res.status_code();
+    let text = res.text().await?;
+    Ok(Response::ok(text)?.with_status(status))
+}
 
 /// The dead-letter queue's name, as `batch.queue()` reports it.
 const DLQ: &str = "bakery-events-dlq";
@@ -210,14 +246,15 @@ async fn consume(batch: &MessageBatch<String>, env: &Env) -> Result<()> {
         if envelope.event_type == "MenuPublished" {
             forget_old_menu(env, &envelope).await;
         }
-        match deliver(env, &envelope).await {
+        let mut delivered = 0;
+        match deliver(env, &envelope, &mut delivered).await {
             Ok(()) => {
                 message.ack();
                 acked += 1;
             }
             Err(error) => {
                 console_log!(
-                    "{{\"event\":\"delivery_failed\",\"id\":\"{}\",\"type\":{:?},\"error\":{:?}}}",
+                    "{{\"event\":\"delivery_failed\",\"id\":\"{}\",\"type\":{:?},\"error\":{:?},\"delivered\":{delivered}}}",
                     envelope.id,
                     envelope.event_type,
                     error
@@ -235,58 +272,89 @@ async fn consume(batch: &MessageBatch<String>, env: &Env) -> Result<()> {
     Ok(())
 }
 
-/// Every live subscriber gets the envelope, stripped for it. The first failure is the error.
-async fn deliver(env: &Env, envelope: &Envelope) -> std::result::Result<(), String> {
+/// Every live subscriber gets the envelope, stripped for it. The first failure is the error;
+/// `delivered` counts the routes that answered before it, for the flight recorder's hop.
+async fn deliver(
+    env: &Env,
+    envelope: &Envelope,
+    delivered: &mut usize,
+) -> std::result::Result<(), String> {
     let order = OrderRead::default();
-    for route in deliver_to(envelope) {
-        if route.to == Subscriber::Schedule {
-            deliver_to_days(env, envelope, &order).await?;
-            continue;
-        }
-        if route.to == Subscriber::Customer {
-            deliver_to_customer(env, envelope).await?;
-            continue;
-        }
-        if route.to == Subscriber::Dispatch {
-            deliver_to_dispatch(env, envelope, &order).await?;
-            continue;
-        }
-        if route.to == Subscriber::Order
-            && matches!(
-                envelope.event_type.as_str(),
-                "RoutePublished" | "StopCompleted" | "StopReady"
-            )
-        {
-            deliver_to_stops(env, envelope).await?;
-            continue;
-        }
-        let Some((binding, name)) = subscriber(route.to, envelope) else {
-            return Err(format!("{} has no binding", route.to.class()));
-        };
-        let stripped = strip_for(envelope, route.to);
-        let res = call(
-            env,
-            binding,
-            &name,
-            Method::Post,
-            "/_event",
-            Some(&stripped),
+    let routes = deliver_to(envelope).into_iter().map(|r| r.to);
+    deliver_each(routes, delivered, |to| {
+        deliver_route(env, envelope, to, &order)
+    })
+    .await
+}
+
+/// Sends each route in order and stops at the first failure, counting in `delivered` the routes
+/// that answered before it: the order and the stop of `deliver`, apart from its platform calls.
+async fn deliver_each<F, Fut>(
+    routes: impl IntoIterator<Item = Subscriber>,
+    delivered: &mut usize,
+    mut send: F,
+) -> std::result::Result<(), String>
+where
+    F: FnMut(Subscriber) -> Fut,
+    Fut: std::future::Future<Output = std::result::Result<(), String>>,
+{
+    for to in routes {
+        send(to).await?;
+        *delivered += 1;
+    }
+    Ok(())
+}
+
+/// One route of [`deliver`]: every object of the class this envelope goes to gets it.
+async fn deliver_route(
+    env: &Env,
+    envelope: &Envelope,
+    to: Subscriber,
+    order: &OrderRead,
+) -> std::result::Result<(), String> {
+    if to == Subscriber::Schedule {
+        return deliver_to_days(env, envelope, order).await;
+    }
+    if to == Subscriber::Customer {
+        return deliver_to_customer(env, envelope).await;
+    }
+    if to == Subscriber::Dispatch {
+        return deliver_to_dispatch(env, envelope, order).await;
+    }
+    if to == Subscriber::Order
+        && matches!(
+            envelope.event_type.as_str(),
+            "RoutePublished" | "StopCompleted" | "StopReady"
         )
-        .await
-        .map_err(|_| format!("{} could not be reached", route.to.class()))?;
-        let status = res.status_code();
-        if status == 410 && matches!(route.to, Subscriber::Crm | Subscriber::Inbox) {
-            // Not yet seeded (its seed carries what came before it) or wiped: nothing to do.
-            console_log!(
-                "{{\"event\":\"subscriber_unborn\",\"id\":\"{}\",\"to\":\"{}\"}}",
-                envelope.id,
-                route.to.class()
-            );
-            continue;
-        }
-        if !(200..300).contains(&status) {
-            return Err(format!("{} answered {status}", route.to.class()));
-        }
+    {
+        return deliver_to_stops(env, envelope).await;
+    }
+    let Some((binding, name)) = subscriber(to, envelope) else {
+        return Err(format!("{} has no binding", to.class()));
+    };
+    let stripped = strip_for(envelope, to);
+    let res = call(
+        env,
+        binding,
+        &name,
+        Method::Post,
+        "/_event",
+        Some(&stripped),
+    )
+    .await
+    .map_err(|_| format!("{} could not be reached", to.class()))?;
+    let status = res.status_code();
+    if status == 410 && matches!(to, Subscriber::Crm | Subscriber::Inbox) {
+        // Not yet seeded (its seed carries what came before it) or wiped: nothing to do.
+        console_log!(
+            "{{\"event\":\"subscriber_unborn\",\"id\":\"{}\",\"to\":\"{}\"}}",
+            envelope.id,
+            to.class()
+        );
+        return Ok(());
+    }
+    if !(200..300).contains(&status) {
+        return Err(format!("{} answered {status}", to.class()));
     }
     Ok(())
 }
@@ -830,6 +898,58 @@ mod tests {
         assert_eq!(order_in(&e), None);
         e.stream = format!("order:{OTHER}:{OTHER}");
         assert_eq!(order_in(&e), None);
+    }
+
+    /// Polls a future that never waits, as `deliver_each`'s are in the test below.
+    fn ready<T>(future: impl std::future::Future<Output = T>) -> T {
+        let mut future = std::pin::pin!(future);
+        let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+        match future.as_mut().poll(&mut cx) {
+            std::task::Poll::Ready(value) => value,
+            std::task::Poll::Pending => panic!("the test's sends never wait"),
+        }
+    }
+
+    /// The routes go in the routing table's order, the first failure stops the rest, and the
+    /// count is the routes that answered before it.
+    #[test]
+    fn deliveries_go_in_order_and_stop_at_the_first_failure() {
+        use Subscriber::{Crm, Inbox, Kitchen};
+        let routes = [Kitchen, Crm, Inbox];
+        let sent = RefCell::new(Vec::new());
+        let send = |fail: Option<Subscriber>| {
+            let sent = &sent;
+            move |to: Subscriber| {
+                sent.borrow_mut().push(to);
+                async move {
+                    if Some(to) == fail {
+                        Err(format!("{} answered 503", to.class()))
+                    } else {
+                        Ok(())
+                    }
+                }
+            }
+        };
+        let mut delivered = 0;
+        assert_eq!(
+            ready(deliver_each(routes, &mut delivered, send(None))),
+            Ok(())
+        );
+        assert_eq!(delivered, 3);
+        assert_eq!(*sent.borrow(), routes);
+
+        sent.borrow_mut().clear();
+        let mut delivered = 0;
+        assert_eq!(
+            ready(deliver_each(routes, &mut delivered, send(Some(Crm)))),
+            Err("Crm answered 503".to_owned())
+        );
+        assert_eq!(delivered, 1, "Kitchen answered, Crm failed");
+        assert_eq!(*sent.borrow(), [Kitchen, Crm], "Inbox is not sent");
+
+        let mut delivered = 0;
+        assert_eq!(ready(deliver_each([], &mut delivered, send(None))), Ok(()));
+        assert_eq!(delivered, 0);
     }
 
     #[test]

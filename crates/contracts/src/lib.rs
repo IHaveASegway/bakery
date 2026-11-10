@@ -1847,6 +1847,126 @@ pub struct TokenInfoResponse {
     pub masked: Option<String>,
 }
 
+// ---------------------------------------------------------------------------------------------
+// The flight recorder (2026-11-09; ADR 0015): what the Queue's consumer did with each event of a
+// sandbox, kept by the sandbox's `Recorder`. Identifiers, type names, sequence numbers and times
+// only: never an event's `data`.
+
+/// Where one subscriber stands after one delivery attempt of an event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TraceOutcome {
+    /// Its delivery is done on this attempt: it answered 2xx, or it answered a 410 the consumer
+    /// counts as done and acks, so this outcome does not say the object applied the event. Those
+    /// 410s are a Crm or an Inbox not yet seeded (its seed carries what came before it), and a
+    /// Schedule day, a Dispatch day or a stop's Order that is gone or was never born, which holds
+    /// nothing the event could change. They have no outcome of their own because the message's
+    /// fate is the same as a 2xx's: acked, never retried; the consumer logs each one
+    /// (`subscriber_unborn`, `schedule_no_day`, `dispatch_no_day`, `stop_order_gone`).
+    Delivered,
+    /// It did not get the event on this attempt, by its own failure or an earlier subscriber's,
+    /// and the Queue sends the message again.
+    Retried,
+    /// It did not get the event on the last attempt the Queue makes (the fourth, after 3
+    /// retries): the message goes to the dead letters.
+    DeadLettered,
+}
+
+/// One subscriber class an event was routed to, and how its delivery went.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TraceDelivery {
+    /// The subscriber's class, such as `Kitchen`, `Crm` or `Schedule` (one entry a class, however
+    /// many of its objects got the event).
+    pub to: String,
+    pub outcome: TraceOutcome,
+}
+
+/// One hop: one envelope through the Queue's consumer, once. It carries the envelope's
+/// identifiers, type, sequence number and times, and never its `data`: no note, no name, no
+/// amount reaches the recorder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TraceHop {
+    /// The event's ULID.
+    pub id: String,
+    /// The event type, such as `OrderPlaced`.
+    #[serde(rename = "type")]
+    pub event_type: String,
+    /// The producing object's name, such as `order:<sandbox>:<ulid>`.
+    pub stream: String,
+    pub seq: u64,
+    /// The command's `Idempotency-Key`, or for a reaction the id of the event that caused it;
+    /// absent when the event has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cause: Option<String>,
+    /// The event's business time.
+    pub at: String,
+    /// When the event was written, a wall time.
+    pub recorded_at: String,
+    /// When the consumer had decided this attempt's deliveries, a wall time.
+    pub delivered_at: String,
+    /// `delivered_at` less `recorded_at` in milliseconds, 0 when the clocks disagree.
+    pub lag_ms: u64,
+    /// The attempt this hop records, from 1, as the recorder counts the hops it was sent for the
+    /// event (lossy, like the recorder: a dropped hop is not counted).
+    pub attempt: u32,
+    /// Each subscriber class the event was routed to, in the routing table's order; empty for an
+    /// event no class consumes.
+    pub deliveries: Vec<TraceDelivery>,
+}
+
+/// The flight recorder's read, `GET .../trace` once its route is served: the hops recorded after
+/// the cursor `after`, oldest first and newest last, at most 50 batches of them; then `cursor` for the next call. Any session of the
+/// sandbox reads it, a guest's included. The recorder keeps the last 200 batches the consumer
+/// sent it and drops older ones, so a cursor older than that misses hops, and says so.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TraceResponse {
+    pub hops: Vec<TraceHop>,
+    /// Pass as `after` for the hops after these; the same cursor again when there are none.
+    pub cursor: u64,
+    /// More batches wait after `cursor`: ask again at once.
+    pub more: bool,
+    /// Batches after `after` were dropped from the ring before this read.
+    pub missed: bool,
+}
+
+/// Why the recorder's socket says goodbye.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TraceByeReason {
+    /// The sandbox was wiped: close 1001.
+    Wiped,
+    /// A limit was passed: close 1008, 1009 or 1003.
+    Limit,
+}
+
+/// A frame the recorder's socket sends, protocol v1, JSON text: `snapshot` once on open (the
+/// hops of the ring's last 50 batches, newest last), `hops` for each batch recorded after it,
+/// and `bye` before the server closes. A client sends only `{"t":"ping","v":1}`, answered
+/// `{"t":"pong","v":1}` by the platform without waking the object.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "t", rename_all = "snake_case", deny_unknown_fields)]
+pub enum TraceFrame {
+    Snapshot {
+        v: u8,
+        hops: Vec<TraceHop>,
+        /// The cursor of the newest batch in the snapshot, as `GET .../trace` would give it.
+        cursor: u64,
+    },
+    Hops {
+        v: u8,
+        hops: Vec<TraceHop>,
+        /// This batch's cursor.
+        cursor: u64,
+    },
+    Bye {
+        v: u8,
+        reason: TraceByeReason,
+    },
+}
+
 /// Every exported schema as `(file name, pretty JSON with a trailing newline)`, in a fixed
 /// order. The binary writes these bytes and the test compares them.
 pub fn schemas() -> Vec<(&'static str, String)> {
@@ -1962,6 +2082,9 @@ pub fn schemas() -> Vec<(&'static str, String)> {
             "TokenInfoResponse.schema.json",
             render::<TokenInfoResponse>(),
         ),
+        ("TraceHop.schema.json", render::<TraceHop>()),
+        ("TraceResponse.schema.json", render::<TraceResponse>()),
+        ("TraceFrame.schema.json", render::<TraceFrame>()),
     ]
 }
 
@@ -1986,6 +2109,70 @@ mod tests {
                 path.display()
             );
         }
+    }
+
+    /// The flight recorder's types carry identifiers, types, sequence numbers and times, and
+    /// never an event's `data`: no field of a hop may be named so, and one sent is refused.
+    #[test]
+    fn a_trace_hop_has_no_data_field_and_refuses_one() {
+        let hop = TraceHop {
+            id: "01JC8Z6K3W9QF2N4T7XRB5M0HD".into(),
+            event_type: "OrderPlaced".into(),
+            stream: "order:01JC8YV2D4QK7S1M9E3PZ6W8AN:01JC8Z5R0T2B6Y8C4V1N3K7QXE".into(),
+            seq: 1,
+            cause: Some("01JC8Z6F0WQ3E5R7T9Y1V3K5P7".into()),
+            at: "2026-11-09T09:12:10-07:00".into(),
+            recorded_at: "2026-11-09T16:12:10Z".into(),
+            delivered_at: "2026-11-09T16:12:11Z".into(),
+            lag_ms: 1_000,
+            attempt: 1,
+            deliveries: vec![TraceDelivery {
+                to: "Kitchen".into(),
+                outcome: TraceOutcome::Delivered,
+            }],
+        };
+        let value = serde_json::to_value(&hop).unwrap();
+        assert!(value.get("data").is_none());
+        assert_eq!(value["type"], "OrderPlaced");
+        assert_eq!(value["deliveries"][0]["outcome"], "delivered");
+        let mut with_data = value.clone();
+        with_data["data"] = json!({ "note": "Two boxes, please" });
+        assert!(serde_json::from_value::<TraceHop>(with_data).is_err());
+        let schema: serde_json::Value = serde_json::from_str(
+            &schemas()
+                .into_iter()
+                .find(|(f, _)| *f == "TraceHop.schema.json")
+                .unwrap()
+                .1,
+        )
+        .unwrap();
+        assert!(schema["properties"].get("data").is_none());
+        assert_eq!(schema["additionalProperties"], false);
+        assert_eq!(
+            serde_json::to_value(TraceOutcome::DeadLettered).unwrap(),
+            json!("dead_lettered")
+        );
+
+        let frame = TraceFrame::Hops {
+            v: 1,
+            hops: vec![hop],
+            cursor: 7,
+        };
+        let value = serde_json::to_value(&frame).unwrap();
+        assert_eq!(
+            (value["t"].as_str(), value["v"].as_u64()),
+            (Some("hops"), Some(1))
+        );
+        assert_eq!(value["cursor"], 7);
+        let bye: TraceFrame =
+            serde_json::from_str(r#"{"t":"bye","v":1,"reason":"wiped"}"#).unwrap();
+        assert_eq!(
+            bye,
+            TraceFrame::Bye {
+                v: 1,
+                reason: TraceByeReason::Wiped
+            }
+        );
     }
 
     #[test]

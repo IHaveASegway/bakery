@@ -46,6 +46,7 @@ import Message from './Message';
 import PaymentStep, { orderPage } from './PaymentStep';
 import SlotPicker, { DayChips } from './SlotPicker';
 import StatusLine from './StatusLine';
+import { hydrating, useMounted } from '../lib/use-mounted';
 
 type StepId = 'how' | 'when' | 'pay';
 
@@ -149,6 +150,9 @@ export default function Checkout() {
   const [retry, setRetry] = useState(false);
   const [result, setResult] = useState<{ order: OrderResponse; sandboxId: string } | null>(null);
   const [open, setOpen] = useState<'how' | 'when'>('how');
+  // The method choice and Continue are in the server's HTML: until the island has hydrated, a
+  // press would do nothing, so they wait, drawn as they will be (lib/use-mounted.ts).
+  const mounted = useMounted();
   // `?order=<id>`: the status page's "Pay for this order" comes back here for the payment step.
   const [resume, setResume] = useState<string | null>(null);
   const attempt = useRef<Attempt | null>(null);
@@ -371,6 +375,8 @@ export default function Checkout() {
                   name="kind"
                   value={value}
                   checked={cart.kind === value}
+                  disabled={!mounted}
+                  {...hydrating(mounted)}
                   onChange={() => {
                     setConflict(null);
                     update((c) => ({ ...c, kind: value, slot: '' }));
@@ -392,7 +398,13 @@ export default function Checkout() {
           )}
           {blocker !== null && <p className="problem">{blocker}</p>}
           <p className="step-actions">
-            <button type="button" className="btn btn-primary" onClick={() => setOpen('when')}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!mounted}
+              {...hydrating(mounted)}
+              onClick={() => setOpen('when')}
+            >
               Continue
             </button>
           </p>
@@ -502,7 +514,8 @@ export default function Checkout() {
                 <button
                   type="submit"
                   className="btn btn-primary"
-                  disabled={busy || reasons.length > 0}
+                  disabled={busy || reasons.length > 0 || !mounted}
+                  {...hydrating(mounted || busy || reasons.length > 0)}
                 >
                   {busy ? 'Placing your order…' : retry ? 'Try again' : 'Place order'}
                 </button>

@@ -99,6 +99,13 @@ test('a past slot and a full slot are not offered, and a free one is chosen', as
     .click();
   await expect(page.getByText(`Added ${item.name}, ${variant.label}.`)).toBeVisible();
   await page.goto('/checkout/');
+  // As on the menu: the checkout's island first (Astro drops its `ssr` attribute once it has
+  // hydrated), and the cart it read, with pickup chosen, before the first press.
+  await expect(page.locator('astro-island[component-url*="Checkout"]')).not.toHaveAttribute(
+    'ssr',
+    /.*/,
+  );
+  await expect(page.getByRole('radio', { name: /^Pickup/ })).toBeChecked();
   // Step 1 is pickup already; its one action opens step 2, the day and the time.
   await page.getByRole('button', { name: 'Continue' }).click();
   const picker = page.getByRole('group', { name: 'Pickup time' });

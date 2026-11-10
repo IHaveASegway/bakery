@@ -13,6 +13,8 @@
 //! by the 15-minute cron through the SQL API (`analytics`) and kept in `Control`. PR 17 adds the
 //! 15-minute cron breaker (`breaker`), which reads the account's usage through the GraphQL
 //! Analytics API, keeps its state in `Control`, raises the flag and enables the WAF kill rule.
+//! Since 2026-11-09 the `Recorder` per sandbox is bound and exported for the flight recorder,
+//! which nothing feeds or reads yet (ADR 0015: expand first, then wire).
 
 mod analytics;
 mod breaker;
@@ -37,6 +39,7 @@ pub use objects::dispatch::Dispatch;
 pub use objects::inbox::Inbox;
 pub use objects::kitchen::Kitchen;
 pub use objects::order::Order;
+pub use objects::recorder::Recorder;
 pub use objects::sandbox::Sandbox;
 pub use objects::schedule::Schedule;
 pub use objects::simulator::Simulator;
