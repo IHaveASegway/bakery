@@ -41,7 +41,7 @@ import { describeCrmError, earliestOf } from '../lib/crm-errors';
 import { describeError, type Message as Text } from '../lib/messages';
 import GuestNote from './GuestNote';
 import Message from './Message';
-import { HOW } from '../tour/how';
+import { HOW } from '../guide/how';
 import HowItWorks from './HowItWorks';
 
 /** The business time now, from the wall clock and the sandbox's offset. */

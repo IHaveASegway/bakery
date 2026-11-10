@@ -77,7 +77,7 @@ const SANDBOX_ESSAY = {
  * essay says what the bakery does for real that the lab page shows in the small; one with no lab
  * page explains the principle itself and links the lab's index. Two ids may share one page, as the
  * two idempotency principles, CQRS and load, and the sandbox and no personal data do. Every
- * principle has one; a principle with no entry would have no essay, and its section and tour step
+ * principle has one; a principle with no entry would have no essay, and its section and guide entry
  * would link none.
  */
 export const ESSAYS = {

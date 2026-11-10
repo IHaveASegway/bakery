@@ -409,11 +409,6 @@
     padding: 0 var(--space-3);
     font-size: var(--type-14);
   }
-
-  /* The tour's button sits above the tab bar until the guide replaces it. */
-  .shell-app .tour-trigger {
-    bottom: 76px;
-  }
 }
 
 /* "How this works": closed under a card's work, a quiet line that opens to the explanation. */

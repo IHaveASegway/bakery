@@ -4,8 +4,8 @@ import RequestPath from '../components/RequestPath.astro';
 import { HOW_PATH } from '../lib/links';
 
 // The landing page (design brief, 2026-11-09): what this is in one sentence, the first action,
-// and the path one click takes, drawn. The two data-tour anchors are the home screen's tour
-// (tour/simple.ts, HOME): the opening sentence, and the ways to try it.
+// and the path one click takes, drawn. The data-tour anchors are the home screen's guide entries
+// (guide/simple.ts, HOME): the opening sentence, the ways to try it, and the path.
 ---
 
 <Base
@@ -31,7 +31,7 @@ import { HOW_PATH } from '../lib/links';
       </div>
     </header>
 
-    <section class="path" aria-labelledby="path-title">
+    <section class="path" aria-labelledby="path-title" data-tour="home-path">
       <h2 id="path-title">What one click does</h2>
       <p class="path-lead">Each part is a link to why it is built that way.</p>
       <RequestPath />

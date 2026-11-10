@@ -1,5 +1,5 @@
 import type { LiveMenu } from '../lib/use-live-menu';
-import { HOW } from '../tour/how';
+import { HOW } from '../guide/how';
 
 /**
  * The small "How this works" line under the menu: where the menu came from and, for a sandbox's own

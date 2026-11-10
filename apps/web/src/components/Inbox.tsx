@@ -17,7 +17,7 @@ import { useCustomers } from '../lib/use-customers';
 import { useSandboxPhase } from '../lib/use-session';
 import Message from './Message';
 import StatusLine from './StatusLine';
-import { HOW } from '../tour/how';
+import { HOW } from '../guide/how';
 
 /** The default the API applies, asked for by name so the page and the count agree. */
 const LIMIT = 50;

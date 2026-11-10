@@ -60,6 +60,7 @@ import type {
 } from '../contracts';
 import { DEFAULT_API_ORIGIN, normalizeOrigin, socketOrigin } from '../policy';
 import { parseProblem, problemSlug, type ProblemInfo } from './problem';
+import { pageSource } from './trace';
 import { ulid } from './ulid';
 
 /** The same value src/policy.ts puts in connect-src, so a call the policy blocks cannot happen. */
@@ -114,14 +115,26 @@ async function send(
   if (method === 'POST' || options.key !== undefined) {
     headers['Idempotency-Key'] = options.key ?? ulid();
   }
+  const started = performance.now();
+  // The guide's trace (lib/trace.ts) hears every write: its route, status, time and key, never its
+  // body. A read is not traced: it changes nothing, so there is nothing under the hood to show.
+  const traced = (status: number | null) => {
+    if (method === 'GET') return;
+    const ms = performance.now() - started;
+    const key = headers['Idempotency-Key'] ?? null;
+    pageSource.emit({ kind: 'call', key, method, path, status, ms, at: Date.now() });
+  };
   try {
-    return await fetch(`${apiOrigin}${path}`, {
+    const response = await fetch(`${apiOrigin}${path}`, {
       method,
       credentials: 'include',
       headers,
       ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
     });
+    traced(response.status);
+    return response;
   } catch {
+    traced(null);
     throw new NetworkError();
   }
 }
