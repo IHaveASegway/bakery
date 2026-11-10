@@ -567,7 +567,10 @@ pub const ROUTES: &[RouteSpec] = &[
         "The messages the Queue gave up on, oldest first",
         None,
         Some("DeadLetter[]"),
-        &[ok(200, "an array of dead letters")],
+        &[ok(
+            200,
+            "an array of dead letters, each with `made_while_off` (kept while the bakery was `off`, not counted)",
+        )],
     ),
     r(
         4,
@@ -579,7 +582,10 @@ pub const ROUTES: &[RouteSpec] = &[
         None,
         Some("DeadLetter"),
         &[
-            ok(200, "the dead letter sent again, its row removed"),
+            ok(
+                200,
+                "the dead letter sent again, its row removed; a letter made while `off` is redriven the same way",
+            ),
             NOT_FOUND,
         ],
     ),

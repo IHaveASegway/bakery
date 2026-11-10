@@ -176,6 +176,18 @@ wait_live() {
   return 1
 }
 
+# wait_order NAME JAR SANDBOX ORDER STATUS [EXPR]: polls the order until it has that status (and
+# EXPR holds over it as `b`), up to 10 s; scripts/smoke-payments.sh has the same.
+wait_order() {
+  local name="$1" jar_name="$2" id="$3" oid="$4" want="$5" expr="${6:-true}"
+  for _ in $(seq 1 50); do
+    get_as "$name" "$jar_name" "/v1/sandboxes/$id/orders/$oid"
+    if node -e "const b = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); if (!(b.status === '$want' && ($expr))) process.exit(1)" "$TMP/$name.body" 2>/dev/null; then return 0; fi
+    sleep 0.2
+  done
+  return 1
+}
+
 # probe JAR ID [ws-probe options]: a socket on sandbox ID's board as the storefront opens it, with
 # the jar's cookies and the storefront's Origin. Prints the probe's JSON lines. In the background,
 # run `node "${PROBE[@]}" ...` after `probe_args`, so $! is the probe's own process.
@@ -652,6 +664,18 @@ cards_g="$(probe_field "$TMP/board_guest.out" cards.length)"
 cards_d="$(probe_field "$TMP/board_redriven.out" cards.length)"
 check "every seeded order reached a board: $cards_g and $cards_d cards, 24 or more across two sandboxes" "(( ${cards_g:-0} + ${cards_d:-0} >= 24 ))"
 
+# A guest moves its own board (roadmap R72, 2026-11-10): a confirmed card of the guest's sandbox
+# is started from the guest's socket, and the Order reads it back over HTTP. The hibernation
+# checks below send this command's id again after a wake.
+GCARD="$(probe_field "$TMP/board_guest.out" "((cards.find((c) => c.state === 'confirmed' && c.kind === 'pickup') || cards.find((c) => c.state === 'confirmed')) || {}).order")"
+check "the guest's board has a confirmed card to move" "[[ -n '$GCARD' ]]"
+get_as g_order_before G "/v1/sandboxes/$GID/orders/$GCARD"
+GSEQ="$(json_field g_order_before b.events_seq)"
+GC1="$(ulid)"
+probe G "$GID" --cmd "$GC1:$GCARD:start_production" --wait-evt OrderProductionStarted --evt-order "$GCARD" --timeout 10 > "$TMP/ws_guest_move.out" || true
+expect_probe "a guest's start_production is acked on its own board, and its socket hears the move" "$TMP/ws_guest_move.out" "frames.some((f) => f.t === 'ack' && f.id === '$GC1') && evts.some((e) => e.type === 'OrderProductionStarted' && e.cause === '$GC1')"
+check "the guest's move reads back over HTTP: in production, one event more ($GSEQ before)" "wait_order g_moved G '$GID' '$GCARD' in_production 'b.events_seq === ${GSEQ:-0} + 1'"
+
 # ---------- the kitchen socket ----------
 
 # Two more sessions on the demo sandbox (a second and third sign-in of its account), so no
@@ -717,10 +741,13 @@ expect_probe "socket a saw the card become ready and leave the board" "$TMP/ws_a
 check "the Kitchen logged each cmd with its id and outcome, nothing more" "grep -q '\"event\":\"kitchen_cmd\",\"instance\":\"[0-9a-f]*\",\"id\":\"$C4\",\"outcome\":\"nack\",\"rule\":\"out-of-order\"}' '$LOG'"
 
 # Hibernation: both sockets stay idle for a spell. A guest's socket, accepted before the idle spell,
-# sends its cmd after it: the frame wakes the guest's Kitchen, which must still know the socket
-# is a guest's from its attachment alone.
-GCARD="$(probe_field "$TMP/board_guest.out" "cards[0].order")"
-GC="$(ulid)"
+# sends its frames after it, and the first wakes the guest's Kitchen. What must survive the wake
+# is in storage and on the socket, never in memory: the socket's attachment (a socket that lost
+# it is closed, so being answered at all is the proof), and the stored answers (the Kitchen's
+# commands table, and the Order's own key), so the id the guest sent before the spell gets its
+# first answer and is not applied again. A new move after the wake is acked, and the Order reads
+# both back over HTTP: two events more than before the guest's first move, not three.
+GC2="$(ulid)"
 probe_args G "$GID"
 # What is known as of 2026-11-10 (docs/roadmap.md, R77): nothing enters the Kitchen between the
 # probes below (four runs logged at every entry), each probe restarts the object's idle time, and
@@ -731,7 +758,7 @@ probe_args G "$GID"
 # needed the 60 s spell and none a longer one. A longer wait proves no less, since the check is
 # that the sockets outlive the instance, not how soon it left. The guest's frame goes out after
 # 13 s either way.
-node "${PROBE[@]}" --delay 13 --cmd "$GC:$GCARD:mark_ready" --until nack --timeout 80 > "$TMP/ws_guest.out" &
+node "${PROBE[@]}" --delay 13 --cmd "$GC1:$GCARD:start_production" --cmd "$GC2:$GCARD:mark_ready" --wait-evt OrderReady --evt-order "$GCARD" --timeout 80 > "$TMP/ws_guest.out" &
 WS_G=$!
 sleep 1
 WAKE_FROM="$(wc -l < "$LOG")"
@@ -755,8 +782,53 @@ if [[ -n "$D_AFTER" ]] && (( IDLE_TRIES > 1 )); then
 fi
 check "an idle board hibernates: after an idle spell of $IDLE_S s, try $IDLE_TRIES of 6, the Kitchen with 2 sockets open woke (kitchen_wake)" "[[ -n '$D_AFTER' ]]"
 check "the woken Kitchen is a new instance ($D_BEFORE, then $D_AFTER): memory did not survive, the sockets did" "[[ -n '$D_BEFORE' && -n '$D_AFTER' && '$D_BEFORE' != '$D_AFTER' ]]"
-expect_probe "after a wake, a guest's cmd is nacked guest-scope from the socket's attachment" "$TMP/ws_guest.out" "frames.some((f) => f.t === 'nack' && f.id === '$GC' && f.rule === 'guest-scope')"
 check "the guest's Kitchen woke for that frame" "grep '\"event\":\"kitchen_wake\"' '$TMP/wake.log' | grep -q '\"sockets\":1}'"
+expect_probe "after a wake, the guest's socket is still served and its repeated id gets its first answer, ack, with no second OrderProductionStarted" "$TMP/ws_guest.out" "frames.some((f) => f.t === 'ack' && f.id === '$GC1') && !evts.some((e) => e.type === 'OrderProductionStarted')"
+expect_probe "after a wake, the guest's mark_ready is acked and the card moves to ready" "$TMP/ws_guest.out" "frames.some((f) => f.t === 'ack' && f.id === '$GC2') && evts.some((e) => e.type === 'OrderReady' && e.cause === '$GC2') && board['$GCARD'] === 'ready'"
+check "the woken Kitchen applied the start once: the Order reads ready, two events more than before the guest's moves" "wait_order g_ready G '$GID' '$GCARD' ready 'b.events_seq === ${GSEQ:-0} + 2'"
+
+# The sandbox's command budget (roadmap R72, review of 2026-11-10): 60 commands reach the Orders in
+# a burst, then one a second, whoever sends them. Two guest sockets send 35 fresh mark_ready each
+# for the ready card (a no-op the Order acks), 120 ms apart, under the 10 frames a second a socket.
+# The Kitchen woke above and has spent one token since, so some 10 of the 70 are refused.
+BURST_IDS=($(node -e "const A='0123456789ABCDEFGHJKMNPQRSTVWXYZ',c=require('crypto');const u=()=>{let t=Date.now(),s='';for(let i=0;i<10;i++){s=A[t%32]+s;t=Math.floor(t/32)}for(const b of c.randomBytes(16))s+=A[b%32];return s};console.log(Array.from({length:78},u).join(' '))"))
+LIMIT_FROM="$(wc -l < "$LOG")"
+BURST_MS="$(now_ms)"
+probe_args G "$GID"
+burst_args() { local out=() id; for id in "$@"; do out+=(--cmd "$id:$GCARD:mark_ready"); done; printf '%s\n' "${out[@]}"; }
+mapfile -t BURST_A < <(burst_args "${BURST_IDS[@]:0:35}")
+mapfile -t BURST_B < <(burst_args "${BURST_IDS[@]:35:35}")
+node "${PROBE[@]}" --pace 120 "${BURST_A[@]}" --timeout 20 > "$TMP/ws_burst_a.out" &
+BURST_PA=$!
+node "${PROBE[@]}" --pace 120 "${BURST_B[@]}" --timeout 20 > "$TMP/ws_burst_b.out" &
+BURST_PB=$!
+answered() { probe_ok "$1" "frames.filter((f) => f.t === 'ack' || f.t === 'nack').length >= $2"; }
+for _ in $(seq 1 100); do answered "$TMP/ws_burst_a.out" 35 && answered "$TMP/ws_burst_b.out" 35 && break; sleep 0.2; done
+BURST_S=$(( ($(now_ms) - BURST_MS + 999) / 1000 ))
+kill -TERM "$BURST_PA" "$BURST_PB" 2>/dev/null || true
+wait "$BURST_PA" "$BURST_PB" || true
+limited_n="$(cat "$TMP/ws_burst_a.out" "$TMP/ws_burst_b.out" | grep -c '"rule":"rate-limit"' || true)"
+acked_n="$(cat "$TMP/ws_burst_a.out" "$TMP/ws_burst_b.out" | grep -c '"t":"ack"' || true)"
+check "the budget: 70 fresh commands from two guest sockets in $BURST_S s, $acked_n acked and $limited_n refused rate-limit, no more acked than 60 and one a second" "(( limited_n >= 1 && acked_n + limited_n == 70 && acked_n <= 60 + BURST_S ))"
+for s in a b; do
+  expect_probe "socket $s: still open after its refusals, which are nacks and no bye" "$TMP/ws_burst_$s.out" "!frames.some((f) => f.t === 'bye')"
+done
+# While the budget is spent: three fresh ids, then an id the burst had acked, then three more.
+# At most two tokens come back in the probe's second, so the first three hold a refusal, and the
+# replay is answered from the Kitchen's commands table without a token.
+LAST_ACK="$(probe_field "$TMP/ws_burst_a.out" "(frames.filter((f) => f.t === 'ack').pop() || {}).id")"
+probe G "$GID" --pace 120 --cmd "${BURST_IDS[70]}:$GCARD:mark_ready" --cmd "${BURST_IDS[71]}:$GCARD:mark_ready" --cmd "${BURST_IDS[72]}:$GCARD:mark_ready" \
+  --cmd "$LAST_ACK:$GCARD:mark_ready" --cmd "${BURST_IDS[73]}:$GCARD:mark_ready" --cmd "${BURST_IDS[74]}:$GCARD:mark_ready" --cmd "${BURST_IDS[75]}:$GCARD:mark_ready" \
+  --timeout 5 > "$TMP/ws_spent.out" || true
+expect_probe "while the budget is spent, a fresh id is refused rate-limit and an id the burst acked is acked again from storage" "$TMP/ws_spent.out" "['${BURST_IDS[70]}', '${BURST_IDS[71]}', '${BURST_IDS[72]}'].some((id) => frames.some((f) => f.t === 'nack' && f.id === id && f.rule === 'rate-limit')) && frames.some((f) => f.t === 'ack' && f.id === '$LAST_ACK')"
+REFUSED="$(probe_field "$TMP/ws_spent.out" "(frames.find((f) => f.t === 'nack' && f.rule === 'rate-limit') || {}).id")"
+sleep 2
+probe G "$GID" --cmd "$REFUSED:$GCARD:mark_ready" --until ack --timeout 5 > "$TMP/ws_after.out" || true
+expect_probe "a refused id is acked once a token is back: a refusal stored nothing" "$TMP/ws_after.out" "frames.some((f) => f.t === 'ack' && f.id === '$REFUSED')"
+tail -n "+$LIMIT_FROM" "$LOG" > "$TMP/limit.log"
+limit_lines="$(grep -c '"rule":"rate-limit"' "$TMP/limit.log" || true)"
+refused_n="$(cat "$TMP/ws_burst_a.out" "$TMP/ws_burst_b.out" "$TMP/ws_spent.out" | grep -c '"rule":"rate-limit"' || true)"
+check "a run of refusals logs its first only: $limit_lines kitchen_cmd lines for $refused_n refusals" "(( limit_lines >= 1 && limit_lines < refused_n ))"
 
 # A reconnect gets a snapshot equal to the board a socket that stayed open holds.
 kill -TERM "$WS_B" 2>/dev/null || true

@@ -44,7 +44,8 @@ export default function Guest() {
       <p className="way-in-tag">Quickest</p>
       <h2 id="guest-heading">Continue as a guest</h2>
       <p>
-        Order, pay with a test card and watch your order reach the kitchen. No account, no email.
+        Order, pay with a test card and move your order through the kitchen yourself. No account, no
+        email.
       </p>
       <Turnstile
         onToken={setToken}

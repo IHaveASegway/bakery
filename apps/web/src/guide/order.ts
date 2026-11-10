@@ -30,9 +30,9 @@ export const ORDER: GuideEntry[] = [
     target: 'order-tracker',
     title: 'A guest on the kitchen’s socket',
     what: 'This page listens on the socket the board uses and never sends on it: no command, no heartbeat. When the board reports four sockets open, it gives its own up and reads instead.',
-    why: 'Giving the socket up keeps the four places for the staff screens, which need them to move cards.',
+    why: 'Giving the socket up keeps the four places for the board’s screens, which need them to move cards.',
     whenNot:
-      'Not for a page that must act or only looks now and then: a guest cannot move a card, and an occasional look is simpler as a plain read.',
+      'Not for a page that must act or only looks now and then: moves are made on the kitchen board, and an occasional look is simpler as a plain read.',
     events: [],
     principle: ADMISSION,
     api: {
