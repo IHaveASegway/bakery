@@ -13,7 +13,7 @@ import {
   sections,
 } from '../src/lib/how-its-built';
 import { ESSAYS, ESSAY_PAGES, essayUrl } from '../src/lib/links';
-import * as tourPrinciples from '../src/tour/principles';
+import * as tourPrinciples from '../src/guide/principles';
 
 const read = (relative: string) =>
   readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');

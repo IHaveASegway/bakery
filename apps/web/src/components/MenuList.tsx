@@ -74,7 +74,7 @@ export default function MenuList({ menu, onAdd }: Props) {
                 <li
                   key={item.slug}
                   className="item"
-                  // The tour rings the first card only: the whole list is thousands of pixels tall.
+                  // The guide anchors to the first card only: the whole list is thousands of pixels tall.
                   data-tour={categoryIndex === 0 && itemIndex === 0 ? 'menu-list' : undefined}
                 >
                   <Glyph category={category.slug} className="glyph" />

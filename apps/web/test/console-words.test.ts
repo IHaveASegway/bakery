@@ -8,7 +8,7 @@ import DispatchStops from '../src/components/DispatchStops';
 import { CATERING_SIGNED_OUT } from '../src/lib/catering';
 import { scheduledSaid, stateSays } from '../src/lib/crm';
 import { dayFromQuery, dropOffNote, queryWithDay } from '../src/lib/dispatch';
-import { HOW } from '../src/tour/how';
+import { HOW } from '../src/guide/how';
 import { day, route, stop } from './dispatch-support';
 
 describe('N8: the tour and the bake list say the same', () => {

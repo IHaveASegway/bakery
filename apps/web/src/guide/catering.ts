@@ -1,17 +1,19 @@
 // The catering page: a saga by alarm, seen from the customer's side.
-import type { TourStep } from '../lib/tour';
-import { HOW } from './how';
+import type { GuideEntry } from '../lib/guide';
 import { IDEMPOTENCY, LEASE, PAYMENTS, SAGA } from './principles';
 
-export const CATERING: TourStep[] = [
+export const CATERING: GuideEntry[] = [
   {
     id: 'catering-events',
     screen: 'catering',
     target: 'catering-events',
     title: 'Your events',
-    what: HOW.catering,
+    what: 'Your catering events, each a saga by alarm, from the inquiry to the balance. Reminders fire when the sandbox’s clock passes them.',
+    why: 'Timers kept as rows behind one alarm let a job wait for days with nothing running in the meantime.',
+    whenNot: 'Not for a job of one step: a plain command is simpler.',
     events: ['CateringInquiryReceived'],
     principle: SAGA,
+    triggers: [],
     api: {
       routeId: 'list-catering',
       method: 'GET',
@@ -24,9 +26,13 @@ export const CATERING: TourStep[] = [
     screen: 'catering',
     target: 'catering-inquiry',
     title: 'Asking about an event',
-    what: 'Pick a day, a headcount, a package and a venue; the brief is optional. The page checks what it can, but the API decides: a day must be open and at least seven business days ahead, and the brief may hold no email, phone number, card number or link.',
+    what: 'Pick a day, a headcount, a package and a venue; the brief is optional. The API decides: the day must be open and at least seven business days ahead.',
+    why: 'The inquiry carries an Idempotency-Key, so a double submit makes one inquiry.',
+    whenNot:
+      'Not a check on the words: the API still refuses a brief with an email, a phone number or a link.',
     events: ['CateringInquiryReceived'],
     principle: IDEMPOTENCY,
+    triggers: ['create-catering', 'CateringInquiryReceived'],
     api: {
       routeId: 'create-catering',
       method: 'POST',
@@ -40,9 +46,12 @@ export const CATERING: TourStep[] = [
     screen: 'catering',
     target: 'catering-detail',
     title: 'Accepting the quote',
-    what: 'Accepting holds one of the day’s two catering places, for 15 minutes of bakery time, until the deposit arrives. If the deposit lapses, the place is released and the quote is open again.',
+    what: 'Accepting holds one of the day’s two catering places for 15 minutes of bakery time. If the deposit lapses, the place is released.',
+    why: 'A lease on the place frees it by itself when nobody pays.',
+    whenNot: 'Not where a hold must outlast a slow payer: the place goes back after 15 minutes.',
     events: ['CateringQuoteAccepted', 'SlotHeld'],
     principle: LEASE,
+    triggers: ['accept-quote', 'CateringQuoteAccepted'],
     api: {
       routeId: 'accept-quote',
       method: 'POST',
@@ -55,9 +64,12 @@ export const CATERING: TourStep[] = [
     screen: 'catering',
     target: 'catering-detail',
     title: 'Paying the deposit',
-    what: 'The deposit is paid with Stripe’s test card, exactly like an order. The place is only confirmed when Stripe’s webhook says it succeeded.',
+    what: 'The deposit is paid with Stripe’s test card, exactly like an order. The place is confirmed only when Stripe’s webhook says it succeeded.',
+    why: 'The catering id is the payment’s idempotency key, so asking twice gets the same payment.',
+    whenNot: 'Not where the confirmation must be instant: the webhook lands a moment later.',
     events: ['PaymentIntentCreated', 'PaymentSucceeded', 'CateringDepositPaid'],
     principle: PAYMENTS,
+    triggers: ['catering-deposit', 'CateringDepositPaid'],
     api: {
       routeId: 'catering-deposit',
       method: 'POST',
@@ -70,9 +82,12 @@ export const CATERING: TourStep[] = [
     screen: 'catering',
     target: 'catering-detail',
     title: 'Paying the balance',
-    what: 'After delivery the balance invoice arrives in the inbox. Paying it uses the same test card; the answer is 202, and the page then asks until the event is paid and closed.',
+    what: 'After delivery the balance invoice arrives in the inbox. Paying it answers 202, and the page asks until the event is closed.',
+    why: 'A 202 says the payment is accepted and the record will follow, which is honest about the webhook.',
+    whenNot: 'Not for a client that cannot wait: it must ask again or listen for the closed state.',
     events: ['CateringBalancePaid', 'CateringClosed'],
     principle: PAYMENTS,
+    triggers: ['pay-balance', 'CateringBalancePaid'],
     api: {
       routeId: 'pay-balance',
       method: 'POST',
@@ -85,9 +100,12 @@ export const CATERING: TourStep[] = [
     screen: 'catering',
     target: 'catering-detail',
     title: 'Cancelling',
-    what: 'A customer can cancel a confirmed event. The deposit is refunded when the event day is more than seven days away.',
+    what: 'A customer can cancel a confirmed event. The deposit is refunded when the day is more than seven days away.',
+    why: 'The refund is a compensating step of the saga, recorded like any other.',
+    whenNot: 'Not undoable: a cancelled event needs a new inquiry.',
     events: ['CateringCancelled'],
     principle: SAGA,
+    triggers: ['cancel-catering', 'CateringCancelled'],
     api: {
       routeId: 'cancel-catering',
       method: 'POST',

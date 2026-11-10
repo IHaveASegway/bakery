@@ -1,8 +1,8 @@
 // A small, hand-rolled check of a JSON value against the subset of JSON Schema the contracts'
 // OpenAPI document uses (2020-12 as schemars writes it): $ref into #/components/schemas, type
 // (a name or a list with "null"), enum, const, oneOf and anyOf, required, properties,
-// additionalProperties: false, items, and minimum and maximum. It is for the tour's build-time
-// check (test/tour.test.ts): a step's example body must be one the API would accept, so a step
+// additionalProperties: false, items, and minimum and maximum. It is for the guide's build-time
+// check (test/guide.test.ts): an entry's example body must be one the API would accept, so an entry
 // cannot drift from the contract. It is not a validator for untrusted input and is not shipped
 // to any page.
 

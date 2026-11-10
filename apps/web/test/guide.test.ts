@@ -1,31 +1,26 @@
-// The tour's steps are data, and this is their build-time check (Q41 · Q-tour, docs/architecture.md,
-// "The tour": steps are checked at build against crates/contracts, so a request in a step cannot
-// drift from the API). It reads the OpenAPI document that crates/contracts generates and fails
-// when a step names a route, method or path the document does not have, when an example body does
-// not fit the request schema, when a screen has no tour, or when a console action has no step.
+// The guide's entries are data, and this is their build-time check (docs/architecture.md, "The
+// guide"; ADR 0014): an entry's request is checked against crates/contracts, so it cannot drift from
+// the API. It reads the OpenAPI document that crates/contracts generates and fails when an entry
+// names a route, method or path the document does not have, when an example body does not fit the
+// request schema, when a trigger is neither a route nor an event in the catalog, when a screen has
+// no entries, when a console action has none, or when an entry's words run past their length.
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import {
-  CLOSED,
   SCREENS,
   curlText,
   fillPath,
-  keyAction,
   maskToken,
-  parseSeen,
-  progressText,
-  recentEvents,
+  screenOf,
+  sentenceCount,
   shellQuote,
   takesToken,
-  tourReduce,
-  withSeen,
   type CurlContext,
-  type TourState,
-  type TourStep,
-} from '../src/lib/tour';
+  type GuideEntry,
+  type PageId,
+} from '../src/lib/guide';
 import { check, type Document, type Json, type Schema } from '../src/lib/schema-check';
-import { HOW } from '../src/tour/how';
 import { PRINCIPLES, PRINCIPLE_TABLE } from '../src/lib/how-its-built';
 import {
   ESSAYS,
@@ -38,8 +33,10 @@ import {
   labUrl,
   type LabName,
 } from '../src/lib/links';
-import { RAFT } from '../src/tour/principles';
-import { TOURS } from '../src/tour';
+import { RAFT } from '../src/guide/principles';
+import { ALL_ENTRIES, CONSOLE_ORDER, ENTRIES, OTHER_WRITES, PATHS } from '../src/guide';
+import { DECISIONS, decisionRows } from '../src/guide/decisions';
+import { CONSOLE_PAGES, PAGES } from '../src/lib/guide';
 
 interface Operation {
   operationId: string;
@@ -64,12 +61,12 @@ for (const [path, item] of Object.entries(doc.paths)) {
   }
 }
 
-const allSteps: TourStep[] = SCREENS.flatMap((screen) => TOURS[screen]);
+const allSteps: GuideEntry[] = SCREENS.flatMap((screen) => ENTRIES[screen]);
 
-describe('every screen has a tour', () => {
-  test.each(SCREENS)('%s has at least one step, all of its own screen', (screen) => {
-    expect(TOURS[screen].length).toBeGreaterThan(0);
-    for (const step of TOURS[screen]) expect(step.screen).toBe(screen);
+describe('every screen has entries', () => {
+  test.each(SCREENS)('%s has at least one entry, all of its own screen', (screen) => {
+    expect(ENTRIES[screen].length).toBeGreaterThan(0);
+    for (const step of ENTRIES[screen]) expect(step.screen).toBe(screen);
   });
 
   test('the screens are the ones the brief names, and sign-in', () => {
@@ -79,6 +76,7 @@ describe('every screen has a tour', () => {
         'catering',
         'checkout',
         'console',
+        'order',
         'dispatch',
         'home',
         'inbox',
@@ -90,19 +88,21 @@ describe('every screen has a tour', () => {
     );
   });
 
-  test('step ids are unique and every step is complete', () => {
+  test('entry ids are unique and every entry is complete', () => {
     const ids = allSteps.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const step of allSteps) {
       expect(step.title.trim(), step.id).not.toBe('');
       expect(step.what.trim().length, step.id).toBeGreaterThan(30);
+      expect(step.why.trim(), step.id).not.toBe('');
+      expect(step.whenNot.trim(), step.id).not.toBe('');
       expect(step.api.note.trim(), step.id).not.toBe('');
       expect(step.principle.name.trim(), step.id).not.toBe('');
     }
   });
 });
 
-describe('every step’s API request is in the OpenAPI document', () => {
+describe('every entry’s API request is in the OpenAPI document', () => {
   test.each(allSteps.map((s) => [s.id, s] as const))('%s', (_, step) => {
     const found = operations.get(step.api.routeId);
     expect(found, `route id ${step.api.routeId} is not in the document`).toBeDefined();
@@ -142,7 +142,7 @@ describe('every step’s API request is in the OpenAPI document', () => {
     );
   });
 
-  test('the same check holds for a step whose example is wrong', () => {
+  test('the same check holds for an entry whose example is wrong', () => {
     const order = operations.get('place-order')?.op.requestBody?.content['application/json']
       ?.schema as Schema;
     const bad = { kind: 'courier', slot: '2026-11-07T09:45:00-07:00', lines: [{ variant: 'x' }] };
@@ -152,10 +152,10 @@ describe('every step’s API request is in the OpenAPI document', () => {
   });
 });
 
-describe('every console action has a step', () => {
+describe('every write the page can make has an entry', () => {
   const covered = new Set(allSteps.map((s) => s.api.routeId));
 
-  test('every write under /v1/sandboxes/{id} appears in some step’s api, but the token routes', () => {
+  test('every write under /v1/sandboxes/{id} appears in some entry’s api, but the token routes', () => {
     const writes = [...operations.entries()].filter(
       ([, { method, path }]) =>
         ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method) &&
@@ -174,7 +174,7 @@ describe('every console action has a step', () => {
     expect(covered.has('wipe-sandbox')).toBe(true);
   });
 
-  test('every route a step names is a real operation, so none is invented to pass the check', () => {
+  test('every route an entry names is a real operation, so none is invented to pass the check', () => {
     for (const id of covered) expect(operations.has(id), id).toBe(true);
   });
 });
@@ -193,7 +193,7 @@ describe('events, principles and targets', () => {
     expect(catalog.has('ApiTokenRotated')).toBe(true);
   });
 
-  test('every event a step names is in the catalog', () => {
+  test('every event an entry names is in the catalog', () => {
     for (const step of allSteps) {
       for (const name of step.events) expect(catalog.has(name), `${step.id}: ${name}`).toBe(true);
     }
@@ -282,14 +282,14 @@ describe('events, principles and targets', () => {
       url: '/how-its-built/single-writer/',
       title: 'Why a single-writer object needs no consensus',
     });
-    // Every essay is reached from at least one tour step.
+    // Every essay is reached from at least one entry.
     const reached = new Set(
       allSteps.flatMap((s) => (s.principle.essay ? [s.principle.essay.url] : [])),
     );
     expect([...reached].sort()).toEqual(ESSAY_PAGES.map((e) => e.path).sort());
   });
 
-  test('every principle is used by at least one tour step', () => {
+  test('every principle is used by at least one entry', () => {
     const used = new Set(allSteps.map((s) => s.principle.id));
     const unused = PRINCIPLE_TABLE.map((p) => p.id).filter((id) => !used.has(id));
     expect(unused).toEqual([]);
@@ -299,12 +299,12 @@ describe('events, principles and targets', () => {
     }
   });
 
-  test('a step’s principle is the page’s principle, the same object, not a copy', () => {
+  test('an entry’s principle is the page’s principle, the same object, not a copy', () => {
     for (const step of allSteps)
       expect(step.principle, step.id).toBe(PRINCIPLES[step.principle.id]);
   });
 
-  test('every step’s target is a data-tour attribute that exists in a component or page', () => {
+  test('every entry’s target is a data-tour attribute that exists in a component or page', () => {
     const files: string[] = [];
     const walk = (dir: URL) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -324,103 +324,11 @@ describe('events, principles and targets', () => {
     }
   });
 
-  test('the “How this works” lines are the tour’s steps: the same words, not a copy', () => {
-    const whats = new Set(allSteps.map((s) => s.what));
-    for (const [name, text] of Object.entries(HOW)) {
-      expect(whats.has(text), `HOW.${name} is a step`).toBe(true);
-    }
-    // And the first step of each screen that carries one is that line, except the menu's, which
-    // is the last because its line is the last thing on the page.
-    expect(TOURS.menu.at(-1)?.what).toBe(HOW.menuSeed);
-    expect(TOURS.catering[0]?.what).toBe(HOW.catering);
-    expect(TOURS.inbox[0]?.what).toBe(HOW.inbox);
-    expect(TOURS.dispatch[0]?.what).toBe(HOW.dispatch);
-  });
-
-  test('the tour holds no email address, key-shaped string or real-looking secret', () => {
+  test('the entries hold no email address, key-shaped string or real-looking secret', () => {
     const text = JSON.stringify(allSteps);
     expect(text).not.toMatch(/[\w.+-]+@[\w-]+\.[\w.]+/);
     expect(text).not.toMatch(/\b(sk|pk|rk|whsec)_/);
     expect(text).not.toMatch(/eyJ[A-Za-z0-9_-]{10,}/);
-  });
-});
-
-describe('moving through a tour', () => {
-  const open = (index = 0): TourState => ({ open: true, index });
-
-  test('open starts at the first step, or a named one kept inside the tour', () => {
-    expect(tourReduce(CLOSED, { type: 'open' }, 9)).toEqual({ open: true, index: 0 });
-    expect(tourReduce(CLOSED, { type: 'open', index: 4 }, 9)).toEqual({ open: true, index: 4 });
-    expect(tourReduce(CLOSED, { type: 'open', index: 99 }, 9).index).toBe(8);
-    expect(tourReduce(CLOSED, { type: 'open' }, 0).open).toBe(false);
-  });
-
-  test('next and back move one step, back stops at the first, and next on the last ends the tour', () => {
-    expect(tourReduce(open(2), { type: 'next' }, 9).index).toBe(3);
-    expect(tourReduce(open(2), { type: 'back' }, 9).index).toBe(1);
-    expect(tourReduce(open(0), { type: 'back' }, 9).index).toBe(0);
-    expect(tourReduce(open(8), { type: 'next' }, 9).open).toBe(false);
-  });
-
-  test('first and last jump; close keeps the place; nothing moves while closed', () => {
-    expect(tourReduce(open(4), { type: 'first' }, 9).index).toBe(0);
-    expect(tourReduce(open(4), { type: 'last' }, 9).index).toBe(8);
-    expect(tourReduce(open(4), { type: 'close' }, 9)).toEqual({ open: false, index: 4 });
-    expect(tourReduce(CLOSED, { type: 'next' }, 9)).toEqual(CLOSED);
-    expect(tourReduce(CLOSED, { type: 'last' }, 9)).toEqual(CLOSED);
-  });
-
-  test('the progress reads “3 of 9”, counting from one', () => {
-    expect(progressText(2, 9)).toBe('3 of 9');
-    expect(progressText(0, 1)).toBe('1 of 1');
-  });
-
-  test('a tour can be walked end to end with next and ends, never past the last step', () => {
-    for (const screen of SCREENS) {
-      const total = TOURS[screen].length;
-      let state = tourReduce(CLOSED, { type: 'open' }, total);
-      let seen = 1;
-      while (state.open) {
-        state = tourReduce(state, { type: 'next' }, total);
-        if (state.open) seen++;
-      }
-      expect(seen, screen).toBe(total);
-    }
-  });
-});
-
-describe('the keyboard', () => {
-  test('arrows move, home and end jump, escape closes', () => {
-    expect(keyAction('ArrowRight', false)).toEqual({ type: 'next' });
-    expect(keyAction('ArrowDown', true)).toEqual({ type: 'next' });
-    expect(keyAction('ArrowLeft', false)).toEqual({ type: 'back' });
-    expect(keyAction('ArrowUp', true)).toEqual({ type: 'back' });
-    expect(keyAction('Home', false)).toEqual({ type: 'first' });
-    expect(keyAction('End', false)).toEqual({ type: 'last' });
-    expect(keyAction('Escape', true)).toEqual({ type: 'close' });
-  });
-
-  test('enter goes forward on the card but belongs to a button or a link when the focus is on one', () => {
-    expect(keyAction('Enter', false)).toEqual({ type: 'next' });
-    expect(keyAction('Enter', true)).toBeNull();
-  });
-
-  test('Tab and every other key are left alone, so the focus is never trapped', () => {
-    for (const key of ['Tab', 'Shift', 'a', ' ', 'PageDown'])
-      expect(keyAction(key, false)).toBeNull();
-  });
-});
-
-describe('seen, the one thing remembered', () => {
-  test('reads only known screens set to true, and survives garbage', () => {
-    expect(parseSeen(null)).toEqual({});
-    expect(parseSeen('not json')).toEqual({});
-    expect(parseSeen('[1,2]')).toEqual({});
-    expect(parseSeen('{"menu":true,"nowhere":true,"home":"yes"}')).toEqual({ menu: true });
-  });
-
-  test('marking a screen seen keeps the others', () => {
-    expect(withSeen({ menu: true }, 'home')).toEqual({ menu: true, home: true });
   });
 });
 
@@ -430,14 +338,14 @@ describe('the request as a curl', () => {
   // A made-up token shape for the tests: two base64url parts, nothing signed.
   const token = 'eyJ2IjoxfQ.test-mac-0123456789abcdef';
   const sandboxId = '01JC8YV2D4QK7S1M9E3PZ6W8AN';
-  const post: TourStep['api'] = {
+  const post: GuideEntry['api'] = {
     routeId: 'set-fault',
     method: 'POST',
     path: '/v1/sandboxes/{id}/faults',
     body: { fault: 'kitchen', on: true },
     note: 'n',
   };
-  const get: TourStep['api'] = {
+  const get: GuideEntry['api'] = {
     routeId: 'get-sandbox',
     method: 'GET',
     path: '/v1/sandboxes/{id}',
@@ -491,7 +399,7 @@ describe('the request as a curl', () => {
   });
 
   test('a public route carries no Authorization header, and a GET no Idempotency-Key', () => {
-    const status: TourStep['api'] = {
+    const status: GuideEntry['api'] = {
       routeId: 'status',
       method: 'GET',
       path: '/v1/status',
@@ -504,7 +412,7 @@ describe('the request as a curl', () => {
 
   test('quotes a single quote in a body so the shell reads it as written', () => {
     expect(shellQuote("it's")).toBe(`'it'\\''s'`);
-    const odd: TourStep['api'] = { ...post, body: { fault: "o'ven", on: true } };
+    const odd: GuideEntry['api'] = { ...post, body: { fault: "o'ven", on: true } };
     expect(curlText(odd, context(null), 'copy')).toContain(`-d '{"fault":"o'\\''ven","on":true}'`);
   });
 
@@ -512,7 +420,7 @@ describe('the request as a curl', () => {
     expect(maskToken('short')).toBe('…');
   });
 
-  test('every step renders to a command that holds no token unless one is given', () => {
+  test('every entry renders to a command that holds no token unless one is given', () => {
     for (const step of allSteps) {
       const bare = curlText(step.api, context(null), 'copy');
       expect(bare, step.id).not.toContain(token);
@@ -523,36 +431,180 @@ describe('the request as a curl', () => {
   });
 });
 
-describe('the events of the last action', () => {
-  const now = Date.parse('2026-11-05T12:00:00.000Z');
-  const entry = (type: string, secondsAgo: number) => ({
-    type,
-    at: new Date(now - secondsAgo * 1000).toISOString(),
-    summary: `${type} happened`,
-  });
-  const feed = [
-    entry('FaultSet', 5),
-    entry('ClockAdvanced', 20),
-    entry('FaultSet', 300),
-    entry('MenuPublished', -2),
-  ];
-
-  test('keeps the step’s event types from the last minute, in the feed’s order', () => {
-    expect(recentEvents(feed, ['FaultSet'], now).map((e) => e.type)).toEqual(['FaultSet']);
-    expect(recentEvents(feed, ['FaultSet', 'ClockAdvanced'], now)).toHaveLength(2);
-    expect(recentEvents(feed, ['OrderPlaced'], now)).toEqual([]);
+describe('the words: short enough to read beside a button', () => {
+  test.each(allSteps.map((s) => [s.id, s] as const))('%s', (_, entry) => {
+    // What: at most three short sentences. Why and when not: one sentence each.
+    expect(sentenceCount(entry.what), `${entry.id}: what`).toBeLessThanOrEqual(3);
+    expect(entry.what.length, `${entry.id}: what`).toBeLessThanOrEqual(240);
+    expect(sentenceCount(entry.why), `${entry.id}: why`).toBe(1);
+    expect(sentenceCount(entry.whenNot), `${entry.id}: when not`).toBe(1);
+    expect(entry.why.length, `${entry.id}: why`).toBeLessThanOrEqual(150);
+    expect(entry.whenNot.length, `${entry.id}: when not`).toBeLessThanOrEqual(150);
+    // A when-not is a judgment, said the same way everywhere: "Not for ...", "Not where ...".
+    expect(entry.whenNot, entry.id).toMatch(/^Not /);
+    // The house style: no em-dash, curly apostrophes.
+    for (const text of [entry.what, entry.why, entry.whenNot]) {
+      expect(text, entry.id).not.toContain('—');
+      expect(text, entry.id).not.toContain("'");
+    }
   });
 
-  test('leaves out an entry older than a minute and allows a few seconds of clock skew ahead', () => {
-    expect(recentEvents([entry('FaultSet', 61)], ['FaultSet'], now)).toEqual([]);
-    expect(recentEvents([entry('FaultSet', 60)], ['FaultSet'], now)).toHaveLength(1);
-    expect(recentEvents(feed, ['MenuPublished'], now)).toHaveLength(1);
-    expect(recentEvents([entry('FaultSet', -30)], ['FaultSet'], now)).toEqual([]);
+  test('counting sentences ignores a stop inside a number or a path', () => {
+    expect(sentenceCount('One. Two.')).toBe(2);
+    expect(sentenceCount('A rate of 8.50% applies.')).toBe(1);
+    expect(sentenceCount('Until a /v2/, nothing is renamed.')).toBe(1);
+    expect(sentenceCount('At 10:00 UTC. Then 36 hours.')).toBe(2);
+  });
+});
+
+describe('triggers: what opens an entry as a live note', () => {
+  const writes = new Set(
+    [...operations.entries()]
+      .filter(([, { method }]) => ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method))
+      .map(([id]) => id),
+  );
+  const catalog = new Set<string>();
+  for (const line of read('../../../docs/domain.md').split('\n')) {
+    if (!line.startsWith('| `')) continue;
+    for (const m of (line.split('|')[1] ?? '').matchAll(/`([A-Z][A-Za-z]+)`/g)) {
+      catalog.add(m[1] as string);
+    }
+  }
+
+  test('every trigger is a write route, the kitchen socket, or an event in the catalog', () => {
+    for (const entry of allSteps) {
+      for (const trigger of entry.triggers) {
+        const ok = writes.has(trigger) || trigger === 'kitchen-socket' || catalog.has(trigger);
+        expect(ok, `${entry.id}: ${trigger}`).toBe(true);
+      }
+    }
+    expect(operations.get('kitchen-socket')?.method).toBe('GET');
   });
 
-  test('an entry with an unreadable time is left out', () => {
-    expect(
-      recentEvents([{ type: 'FaultSet', at: 'soon', summary: 's' }], ['FaultSet'], now),
-    ).toEqual([]);
+  test('a read never opens a note: no trigger is a GET route but the socket', () => {
+    const reads = new Set(
+      [...operations.entries()].filter(([, o]) => o.method === 'GET').map(([id]) => id),
+    );
+    for (const entry of allSteps) {
+      for (const t of entry.triggers) {
+        if (t !== 'kitchen-socket') expect(reads.has(t), `${entry.id}: ${t}`).toBe(false);
+      }
+    }
+  });
+
+  test('every write route an entry’s api names opens a note on some screen', () => {
+    const triggered = new Set(allSteps.flatMap((e) => e.triggers));
+    const named = allSteps.map((e) => e.api.routeId).filter((id) => writes.has(id));
+    // The heartbeat is the board's own background call, never the visitor's: it opens nothing.
+    const missing = named.filter((id) => id !== 'heartbeat' && !triggered.has(id));
+    expect([...new Set(missing)]).toEqual([]);
+  });
+
+  test('the signature minute: the board’s buttons and placing an order each open a note', () => {
+    const board = allSteps.find((e) => e.id === 'kitchen-board');
+    expect(board?.triggers).toContain('kitchen-socket');
+    expect(board?.triggers).toContain('OrderProductionStarted');
+    const checkout = allSteps.find((e) => e.id === 'checkout-form');
+    expect(checkout?.triggers).toContain('place-order');
+  });
+});
+
+describe('the console’s order and the short paths', () => {
+  test('the console’s entries are listed in the page’s order, each once', () => {
+    expect(ENTRIES.console.map((e) => e.id)).toEqual(CONSOLE_ORDER);
+    expect(ALL_ENTRIES).toHaveLength(allSteps.length);
+  });
+
+  test('a short path has at most five stops, each an entry of its own screen, with a verb', () => {
+    for (const [screen, steps] of Object.entries(PATHS)) {
+      expect(steps.length, screen).toBeGreaterThan(0);
+      expect(steps.length, screen).toBeLessThanOrEqual(5);
+      const ids = ENTRIES[screenOf(screen as PageId)].map((e) => e.id);
+      for (const step of steps) {
+        expect(ids, `${screen}: ${step.entry}`).toContain(step.entry);
+        expect(sentenceCount(step.do), step.entry).toBe(1);
+        expect(step.do, step.entry).toMatch(/^[A-Z][a-z]+ /);
+      }
+    }
+  });
+
+  test('the signature minute is walkable: menu, checkout, then the board', () => {
+    expect(PATHS.menu?.[0]?.entry).toBe('menu-list');
+    expect(PATHS.checkout?.map((s) => s.entry)).toContain('checkout-form');
+    expect(PATHS.console?.[0]?.entry).toBe('kitchen-board');
+  });
+});
+
+describe('the decision table’s rows', () => {
+  test('every principle has one row, spoken by an entry of its own principle', () => {
+    expect(Object.keys(DECISIONS).sort()).toEqual(PRINCIPLE_TABLE.map((p) => p.id).sort());
+    const rows = decisionRows();
+    expect(rows.map((e) => e.principle.id)).toEqual(PRINCIPLE_TABLE.map((p) => p.id));
+  });
+});
+
+describe('the writes no entry names', () => {
+  test('are real write routes, with the document’s method and path', () => {
+    for (const shape of OTHER_WRITES) {
+      const found = operations.get(shape.routeId);
+      expect(found, shape.routeId).toBeDefined();
+      expect([found?.method, found?.path]).toEqual([shape.method, shape.path]);
+    }
+  });
+});
+
+describe('a hotspot’s name never contains a control’s', () => {
+  // A hotspot is a button named "Under the hood: <title>". Role queries match names by substring,
+  // so a title holding a control's label (an entry titled "Wipe now") makes the page's own button
+  // ambiguous for a screen reader's list and for every spec that presses it. The specs' button
+  // names are the controls a visitor presses; the guide's own (its bar and its panel) are left out.
+  test('no entry’s hotspot name holds a button name the browser specs press', () => {
+    const dir = new URL('../e2e/', import.meta.url);
+    const names = new Set<string>();
+    for (const file of readdirSync(dir).filter((f) => f.endsWith('.ts'))) {
+      const text = readFileSync(new URL(file, dir), 'utf8');
+      for (const m of text.matchAll(/getByRole\(\s*'button',\s*\{\s*name:\s*'([^']+)'/g)) {
+        names.add(m[1] as string);
+      }
+    }
+    const own = ['Under the hood', 'Show me around', 'Recorder', 'Where the menu came from'];
+    const pressed = [...names].filter((n) => !own.some((o) => n.startsWith(o)));
+    expect(pressed.length).toBeGreaterThan(5);
+    const hits = allSteps.flatMap((entry) =>
+      pressed
+        .filter((n) => `Under the hood: ${entry.title}`.toLowerCase().includes(n.toLowerCase()))
+        .map((n) => `${entry.id} ~ ${n}`),
+    );
+    expect(hits).toEqual([]);
+  });
+});
+
+describe('the console’s seven pages', () => {
+  test('share the console’s one set of entries, and each other page has an id of its own', () => {
+    for (const page of CONSOLE_PAGES) expect(screenOf(page)).toBe('console');
+    expect(screenOf('console')).toBe('console');
+    expect(screenOf('menu')).toBe('menu');
+    expect(PAGES).toHaveLength(SCREENS.length + CONSOLE_PAGES.length);
+  });
+
+  test('the Kitchen, Menu and System pages each have a short path', () => {
+    expect(PATHS.console?.[0]?.entry).toBe('kitchen-board');
+    expect(PATHS['console-menu']?.map((s) => s.entry)).toContain('controls-menu-publish');
+    expect(PATHS['console-system']?.map((s) => s.entry)).toContain('controls-clock');
+  });
+
+  test('every console page passes its own id to the layout', () => {
+    const pages: Record<string, string> = {
+      '../src/pages/app/index.astro': 'console',
+      '../src/pages/app/money/index.astro': 'console-money',
+      '../src/pages/app/menu/index.astro': 'console-menu',
+      '../src/pages/app/catering/index.astro': 'console-catering',
+      '../src/pages/app/customers/index.astro': 'console-customers',
+      '../src/pages/app/system/index.astro': 'console-system',
+      '../src/pages/app/dispatch/index.astro': 'dispatch',
+    };
+    for (const [file, id] of Object.entries(pages)) {
+      expect(read(file), file).toContain(`screen="${id}"`);
+    }
   });
 });
