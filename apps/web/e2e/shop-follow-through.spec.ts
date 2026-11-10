@@ -439,7 +439,7 @@ test.describe('the sign-in’s landing', () => {
 });
 
 test.describe('a sandbox the landing cannot start', () => {
-  // The second creation from one address inside a minute is refused, and Chromium logs the 429.
+  // A second creation from one address in the same minute is refused, and Chromium logs the 429.
   test.use({ allowedStatuses: [401, 429] });
   test.afterEach(async () => {
     await fetch(`${FAKE}/_reset`, { method: 'POST' });
@@ -453,16 +453,30 @@ test.describe('a sandbox the landing cannot start', () => {
     first.stop();
     expect(first.creations).toEqual([201]);
 
-    // Another new account from the same address within the minute: the API's limit refuses it.
-    await page.context().clearCookies();
-    await nextAccount();
-    const second = await signInWith(page, 'GitHub');
+    // Another new account from the same address: the API's limit of one creation a minute
+    // refuses it. On `wrangler dev` that minute is the wall clock's (Miniflare starts a window on
+    // each whole minute), so the two sign-ins can fall either side of a boundary and both be let
+    // in; the next account then shares its minute with the one before it.
+    const another = async () => {
+      await page.context().clearCookies();
+      await nextAccount();
+      const signIn = await signInWith(page, 'GitHub');
+      await expect(
+        page.getByRole('heading', { name: /You have no sandbox|Kitchen board/ }),
+      ).toBeVisible();
+      return signIn;
+    };
+    let refused = await another();
+    if (refused.creations[0] === 201) {
+      refused.stop();
+      refused = await another();
+    }
     await expect(page.getByRole('heading', { name: 'You have no sandbox' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'New sandbox' })).toBeVisible();
     await expect(page.locator('.problem')).toContainText('Slow down');
     await page.waitForTimeout(3_000); // long enough for a retry to show itself
-    second.stop();
-    expect(second.creations, 'asked once, not retried').toEqual([429]);
+    refused.stop();
+    expect(refused.creations, 'asked once, not retried').toEqual([429]);
   });
 });
 
