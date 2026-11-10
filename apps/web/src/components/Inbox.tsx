@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { MessageResponse } from '../contracts';
 import { getMessage, listInbox } from '../lib/api';
-import { momentText, whenText } from '../lib/when';
+import { businessNowMs, momentText, whenText } from '../lib/when';
 import {
   ALL_KINDS,
   MESSAGE_KINDS,
@@ -30,6 +30,8 @@ const LIMIT = 50;
 export default function Inbox() {
   const phase = useSandboxPhase();
   const sandboxId = phase.name === 'live' ? phase.id : null;
+  // Business now: "this year" is the sandbox's, not the browser's.
+  const now = businessNowMs(phase.name === 'live' ? phase.clockOffsetS : 0);
   const [kind, setKind] = useState<string>(ALL_KINDS);
   const [messages, setMessages] = useState<MessageResponse[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -146,12 +148,14 @@ export default function Inbox() {
                           </th>
                           <td data-label="Delivered">
                             <time dateTime={m.delivered_at} title={whenText(m.delivered_at)}>
-                              {momentText(m.delivered_at)}
+                              {momentText(m.delivered_at, { now })}
                             </time>
                           </td>
-                          <td data-label="Opened">{m.opened_at ? momentText(m.opened_at) : ''}</td>
+                          <td data-label="Opened">
+                            {m.opened_at ? momentText(m.opened_at, { now }) : ''}
+                          </td>
                           <td data-label="Clicked">
-                            {m.clicked_at ? momentText(m.clicked_at) : ''}
+                            {m.clicked_at ? momentText(m.clicked_at, { now }) : ''}
                           </td>
                         </tr>
                       ))}
@@ -166,7 +170,7 @@ export default function Inbox() {
               <h2 id="message-heading">{open.subject}</h2>
               <p className="hint">
                 {kindLabel(open.kind)} to {recipientName(names, open.to)}, delivered{' '}
-                {momentText(open.delivered_at)}. {engagementText(open)}.
+                {momentText(open.delivered_at, { now })}. {engagementText(open, now)}.
               </p>
               <p className="brief">{open.body}</p>
             </section>

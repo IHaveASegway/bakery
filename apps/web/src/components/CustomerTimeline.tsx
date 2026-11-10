@@ -27,6 +27,7 @@ export default function CustomerTimeline({
   personaId,
   refresh,
   onChanged,
+  now,
 }: {
   sandboxId: string;
   customer: CustomerResponse;
@@ -34,6 +35,8 @@ export default function CustomerTimeline({
   personaId: string;
   refresh: number;
   onChanged: (customer: CustomerResponse) => void;
+  /** Business now (wall clock plus the sandbox's offset), so "this year" is the bakery's. */
+  now?: number | undefined;
 }) {
   const [entries, setEntries] = useState<TimelineEntry[] | null>(null);
   const [error, setError] = useState<Text | null>(null);
@@ -112,9 +115,9 @@ export default function CustomerTimeline({
           {newestFirst(entries).map((e) => (
             <li key={`${e.at}-${e.type}-${e.ref}`}>
               <time dateTime={e.at} title={whenText(e.at)}>
-                {momentText(e.at)}
+                {momentText(e.at, { now })}
               </time>
-              : {timesIn(e.label)}
+              : {timesIn(e.label, { now })}
             </li>
           ))}
         </ol>

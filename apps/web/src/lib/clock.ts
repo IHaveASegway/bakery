@@ -99,5 +99,5 @@ export class ClockClicks {
 /** Business now for the display: the wire form for `<time>`, and words for a person. */
 export function businessNowView(wallMs: number, offsetS: number): { iso: string; text: string } {
   const iso = businessNowText(wallMs, offsetS);
-  return { iso, text: momentText(iso, { seconds: true }) };
+  return { iso, text: momentText(iso, { seconds: true, now: wallMs + offsetS * 1000 }) };
 }

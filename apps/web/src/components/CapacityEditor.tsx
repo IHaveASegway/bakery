@@ -14,7 +14,7 @@ import {
   type TargetKind,
 } from '../lib/capacity';
 import { firstOpenDate, horizonDates, isOpenDate } from '../lib/schedule';
-import { dayText } from '../lib/when';
+import { businessNowMs, dayText } from '../lib/when';
 import { ZONES, clockLabel, mountainLocal } from '../lib/slots';
 import { useSchedule } from '../lib/use-schedule';
 import { type Message as Text } from '../lib/messages';
@@ -313,7 +313,7 @@ export default function CapacityEditor({
         <select id="capacity-day" value={day} onChange={(e) => setDate(e.target.value)}>
           {dates.map((d) => (
             <option key={d} value={d}>
-              {`${dayText(d)}${isOpenDate(d) ? '' : ', closed'}`}
+              {`${dayText(d, { now: businessNowMs(clockOffsetS) })}${isOpenDate(d) ? '' : ', closed'}`}
             </option>
           ))}
         </select>

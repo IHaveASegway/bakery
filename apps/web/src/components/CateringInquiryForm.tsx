@@ -51,6 +51,7 @@ export default function CateringInquiryForm({
   earliest,
   onCreated,
   onLead,
+  now,
 }: {
   sandboxId: string;
   /** The first date the lead time allows, from the sandbox's business clock. */
@@ -58,6 +59,8 @@ export default function CateringInquiryForm({
   onCreated: (event: CateringResponse) => void;
   /** The API named a different earliest date than the page computed. */
   onLead: (date: string) => void;
+  /** Business now (wall clock plus the sandbox's offset), so "this year" is the bakery's. */
+  now?: number | undefined;
 }) {
   const [form, setForm] = useState<InquiryForm>(EMPTY_INQUIRY);
   const [busy, setBusy] = useState(false);
@@ -93,7 +96,7 @@ export default function CateringInquiryForm({
       const keep = keepKeyAfter(e);
       if (!keep) attempt.current = null;
       setRetry(keep);
-      setError(describeCateringError(e));
+      setError(describeCateringError(e, now));
       if (e instanceof ApiError && e.status === 422 && ruleOf(e.detail) === 'catering-lead') {
         const date = dateIn(e.detail);
         if (date !== null) onLead(date);
@@ -128,12 +131,12 @@ export default function CateringInquiryForm({
             <option value="">Choose…</option>
             {dates.map((d) => (
               <option key={d} value={d}>
-                {dayText(d)}
+                {dayText(d, { now })}
               </option>
             ))}
           </select>
           <span id="cat-date-hint" className="hint">
-            {leadHint(earliest)}
+            {leadHint(earliest, now)}
           </span>
           <FieldError id="cat-date-error" text={fieldErrors.date} />
         </p>

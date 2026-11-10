@@ -14,9 +14,12 @@ import Message from './Message';
 export default function DeadLetters({
   sandboxId,
   isGuest,
+  now,
 }: {
   sandboxId: string;
   isGuest: boolean;
+  /** Business now (wall clock plus the sandbox's offset), so "this year" is the bakery's. */
+  now?: number | undefined;
 }) {
   const [letters, setLetters] = useState<DeadLetter[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -78,7 +81,7 @@ export default function DeadLetters({
               {whileOffNote(letter) !== null && <p className="hint">{whileOffNote(letter)}</p>}
               <p className="hint">
                 <time dateTime={letter.at} title={whenText(letter.at, { seconds: true })}>
-                  {momentText(letter.at, { seconds: true })}
+                  {momentText(letter.at, { seconds: true, now })}
                 </time>
               </p>
               <button

@@ -49,9 +49,12 @@ export function recipientName(names: Map<string, string>, id: string): string {
 }
 
 /** "Opened Saturday ..., clicked ..." for a message; "Not opened" when it has not been. */
-export function engagementText(m: Pick<MessageResponse, 'opened_at' | 'clicked_at'>): string {
-  const opened = m.opened_at ? `Opened ${momentText(m.opened_at)}` : 'Not opened';
-  return m.clicked_at ? `${opened}, clicked ${momentText(m.clicked_at)}` : opened;
+export function engagementText(
+  m: Pick<MessageResponse, 'opened_at' | 'clicked_at'>,
+  now?: number,
+): string {
+  const opened = m.opened_at ? `Opened ${momentText(m.opened_at, { now })}` : 'Not opened';
+  return m.clicked_at ? `${opened}, clicked ${momentText(m.clicked_at, { now })}` : opened;
 }
 
 /**

@@ -38,6 +38,8 @@ const card = (state: CampaignState, isGuest = false) =>
       campaign: campaign(state),
       isGuest,
       clockOffsetS: 0,
+      // A day in 2026, so a send time prints without its year whatever the machine's year.
+      now: Date.parse('2026-11-08T12:00:00Z'),
       onChange: () => undefined,
       onEdit: () => undefined,
     }),

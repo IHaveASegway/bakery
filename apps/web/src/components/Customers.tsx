@@ -17,12 +17,15 @@ export default function Customers({
   personaId,
   refresh,
   onConsent,
+  now,
 }: {
   sandboxId: string;
   isGuest: boolean;
   personaId: string;
   refresh: number;
   onConsent: () => void;
+  /** Business now (wall clock plus the sandbox's offset), so "this year" is the bakery's. */
+  now?: number | undefined;
 }) {
   const { customers, error, replace } = useCustomers(sandboxId, refresh, 10_000);
   const [selected, setSelected] = useState<string | null>(null);
@@ -85,7 +88,7 @@ export default function Customers({
                   <td data-label="Last order">
                     {c.last_order_at ? (
                       <time dateTime={c.last_order_at} title={whenText(c.last_order_at)}>
-                        {shortWhen(c.last_order_at)}
+                        {shortWhen(c.last_order_at, { now })}
                       </time>
                     ) : (
                       whenText(c.last_order_at)
@@ -104,6 +107,7 @@ export default function Customers({
           isGuest={isGuest}
           personaId={personaId}
           refresh={refresh}
+          now={now}
           onChanged={(c) => {
             replace(c);
             onConsent();

@@ -167,7 +167,8 @@ export function stateSays(state: CampaignState): string {
  * What the foot of a campaign card says right after Schedule. The state line above already says it
  * is scheduled and what moves it on, so this names only the time that was set.
  */
-export const scheduledSaid = (sendAt: string): string => `Send time set: ${sendAtText(sendAt)}.`;
+export const scheduledSaid = (sendAt: string, now?: number): string =>
+  `Send time set: ${sendAtText(sendAt, now)}.`;
 
 // ---- The send time: Mountain wall clock, minute precision ----
 
@@ -201,8 +202,8 @@ export function sendAtFromInput(value: string): string | null {
 }
 
 /** "Sun 8 Nov, 9:30 am" for a send time; the wire text when it cannot be read. */
-export function sendAtText(wire: string): string {
-  return Number.isNaN(Date.parse(wire)) ? wire : momentText(wire);
+export function sendAtText(wire: string, now?: number): string {
+  return Number.isNaN(Date.parse(wire)) ? wire : momentText(wire, { now });
 }
 
 // ---- The stats ----

@@ -64,6 +64,10 @@ describe('the filter', () => {
   });
 });
 
+// Business now for the dates printed here: a day in 2026, so none carries its year whatever year the
+// machine's clock says.
+const NOW = Date.parse('2026-11-10T16:00:00Z');
+
 describe('names and words', () => {
   test('a recipient is shown by display name, and by a short id until the list arrives', () => {
     const names = namesOf([
@@ -75,14 +79,17 @@ describe('names and words', () => {
 
   test('opens and clicks as they appear', () => {
     expect(engagementText({})).toBe('Not opened');
-    expect(engagementText({ opened_at: '2026-11-07T10:15:00-07:00', clicked_at: null })).toBe(
+    expect(engagementText({ opened_at: '2026-11-07T10:15:00-07:00', clicked_at: null }, NOW)).toBe(
       'Opened Sat 7 Nov, 10:15 am',
     );
     expect(
-      engagementText({
-        opened_at: '2026-11-07T10:15:00-07:00',
-        clicked_at: '2026-11-07T10:20:00-07:00',
-      }),
+      engagementText(
+        {
+          opened_at: '2026-11-07T10:15:00-07:00',
+          clicked_at: '2026-11-07T10:20:00-07:00',
+        },
+        NOW,
+      ),
     ).toBe('Opened Sat 7 Nov, 10:15 am, clicked Sat 7 Nov, 10:20 am');
   });
 

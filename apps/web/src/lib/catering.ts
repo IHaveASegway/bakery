@@ -18,6 +18,7 @@ import { noteLength } from './cart';
 import { parseDollars } from './money';
 import { pollUntil, type PollOptions, type Polled } from './payment';
 import { dateOf, mountainLocal } from './slots';
+import { dayText } from './when';
 
 // ---- The rules the domain publishes, as numbers a page can show ----
 
@@ -142,8 +143,8 @@ export function openDates(earliest: string, count: number = DATE_CHOICES): strin
 }
 
 /** The hint under the date list. */
-export function leadHint(earliest: string): string {
-  return `The bakery needs ${LEAD_BUSINESS_DAYS} business days’ notice (it opens Tuesday to Sunday), so the earliest date is ${earliest}.`;
+export function leadHint(earliest: string, now?: number): string {
+  return `The bakery needs ${LEAD_BUSINESS_DAYS} business days’ notice (it opens Tuesday to Sunday), so the earliest day is ${dayText(earliest, { now })}.`;
 }
 
 // ---- The brief: hints only ----
@@ -315,7 +316,7 @@ export function inquiryFieldErrors(form: InquiryForm, earliest: string): Inquiry
   const errors: InquiryFieldErrors = {};
   if (form.date !== '') {
     if (!isOpenDay(form.date)) errors.date = 'The bakery is closed on Mondays.';
-    else if (form.date < earliest) errors.date = `The earliest day is ${earliest}.`;
+    else if (form.date < earliest) errors.date = `The earliest day is ${dayText(earliest)}.`;
   }
   if (form.headcount.trim() !== '' && parseHeadcount(form.headcount) === null) {
     const n = /^\s*\d{1,6}\s*$/.test(form.headcount) ? Number(form.headcount) : null;

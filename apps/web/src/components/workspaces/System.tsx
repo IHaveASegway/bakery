@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { formatCountdown, utcClock, utcStamp } from '../../lib/countdown';
 import ApiToken from '../ApiToken';
 import ClockControl from '../ClockControl';
+import { businessNowMs } from '../../lib/when';
 import Console, { type WorkspaceProps } from '../Console';
 import DeadLetters from '../DeadLetters';
 import GuestNote from '../GuestNote';
@@ -98,7 +99,11 @@ export function SystemView({
             {isGuest && <GuestNote />}
           </div>
           <div className="panel half">
-            <DeadLetters sandboxId={sandbox.id} isGuest={isGuest} />
+            <DeadLetters
+              sandboxId={sandbox.id}
+              isGuest={isGuest}
+              now={businessNowMs(sandbox.clock_offset_s)}
+            />
           </div>
         </>
       )}

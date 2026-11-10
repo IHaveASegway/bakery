@@ -66,7 +66,7 @@ function dayOf(value: string): ReturnType<typeof mountainLocal> | null {
 }
 
 /** "Tue 10 Nov", or "Thu 24 Dec 2027" in another year than now's. The text itself when not a day. */
-export function dayText(value: string, options: { now?: number } = {}): string {
+export function dayText(value: string, options: { now?: number | undefined } = {}): string {
   const l = dayOf(value);
   if (l === null) return value;
   const weekday = WEEKDAYS[new Date(Date.UTC(l.year, l.month - 1, l.day)).getUTCDay()];
@@ -78,7 +78,7 @@ export function dayText(value: string, options: { now?: number } = {}): string {
 /** "Tue 10 Nov, 8:15 am": a moment as a time with its day. The text itself when not a time. */
 export function momentText(
   value: string | null | undefined,
-  options: { seconds?: boolean; now?: number } = {},
+  options: { seconds?: boolean; now?: number | undefined } = {},
 ): string {
   if (value == null || value === '') return 'never';
   const ms = Date.parse(value);
@@ -91,10 +91,18 @@ export function momentText(
 }
 
 /** The short form of a moment for a card or a cell: `momentText` (kept for its callers). */
-export const shortWhen = (value: string): string => momentText(value);
+export const shortWhen = (value: string, options: { now?: number | undefined } = {}): string =>
+  momentText(value, options);
 
 /** The short day of a moment: `dayText` (kept for its callers). */
-export const shortDate = (value: string): string => dayText(value);
+export const shortDate = (value: string, options: { now?: number | undefined } = {}): string =>
+  dayText(value, options);
+
+/**
+ * Business now, in Unix milliseconds: the wall clock plus the sandbox's clock offset. A screen that
+ * knows the sandbox passes it as `now`, so "this year" is the bakery's, not the browser's.
+ */
+export const businessNowMs = (offsetS: number = 0): number => Date.now() + offsetS * 1000;
 
 /** "8:15 am", the bakery's clock alone, for a list that already names the day. */
 export function clockOfText(value: string): string {
@@ -120,7 +128,10 @@ export function windowText(start: string): string {
  * A sentence the API wrote with wire times in it ("Clock moved from 2026-11-11T07:01:40-07:00 to
  * …"), with each time in words. Nothing else in the sentence changes.
  */
-export function timesIn(text: string, options: { seconds?: boolean } = {}): string {
+export function timesIn(
+  text: string,
+  options: { seconds?: boolean; now?: number | undefined } = {},
+): string {
   return text.replace(STAMP, (stamp) => momentText(stamp, options));
 }
 

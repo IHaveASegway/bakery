@@ -9,6 +9,7 @@
 // (docs/domain.md, "Free text and personal data").
 import { ApiError } from './api';
 import { describeError, type Message } from './messages';
+import { dayText } from './when';
 
 const SENTENCES: Record<string, string> = {
   headcount: 'A catering event feeds 10 to 200 people. Enter a headcount in that range.',
@@ -78,23 +79,27 @@ function ruleOfError(error: ApiError): string | null {
  * The sentence for a rule, with the date the API gave added: the earliest for the lead rule, the
  * latest for the 365-day bound.
  */
-export function sentenceFor(rule: string, detail: string | null = null): string | null {
+export function sentenceFor(
+  rule: string,
+  detail: string | null = null,
+  now?: number,
+): string | null {
   const sentence = SENTENCES[rule] ?? null;
   const date = rule === 'catering-lead' || rule === 'catering-too-far' ? dateIn(detail) : null;
   if (sentence === null || date === null) return sentence;
   return rule === 'catering-lead'
-    ? `${sentence} The earliest date is ${date}.`
-    : `${sentence} The latest date is ${date}.`;
+    ? `${sentence} The earliest day is ${dayText(date, { now })}.`
+    : `${sentence} The latest day is ${dayText(date, { now })}.`;
 }
 
 /**
  * A message for a refused inquiry or customer step: the rule's sentence for a 422 or 409 that
  * names one, the API's own words for a 409 that names none, the general words otherwise.
  */
-export function describeCateringError(error: unknown): Message {
+export function describeCateringError(error: unknown, now?: number): Message {
   if (error instanceof ApiError && (error.status === 422 || error.status === 409)) {
     const rule = ruleOfError(error);
-    const sentence = rule === null ? null : sentenceFor(rule, error.detail);
+    const sentence = rule === null ? null : sentenceFor(rule, error.detail, now);
     if (sentence !== null) {
       return {
         title:
@@ -117,13 +122,13 @@ export function describeCateringError(error: unknown): Message {
  * A message for a refused staff action: the API's title and detail as they came, with the rule's
  * sentence in front when the detail names one (a 403 `guest-scope`, a 409 `out-of-order`).
  */
-export function describeStaffError(error: unknown): Message {
+export function describeStaffError(error: unknown, now?: number): Message {
   if (
     error instanceof ApiError &&
     (error.status === 403 || error.status === 409 || error.status === 422)
   ) {
     const rule = ruleOfError(error);
-    const sentence = rule === null ? null : sentenceFor(rule, error.detail);
+    const sentence = rule === null ? null : sentenceFor(rule, error.detail, now);
     const said = error.detail === null ? '' : `The API said: ${error.detail}`;
     const detail = [sentence, said]
       .filter((part): part is string => !!part && part !== '')

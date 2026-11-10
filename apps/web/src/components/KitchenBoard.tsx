@@ -141,6 +141,7 @@ export function CardView({
   onFocused,
   onAct,
   onRefunded,
+  now,
 }: {
   card: Card;
   sandboxId: string;
@@ -156,6 +157,8 @@ export function CardView({
   onFocused?: () => void;
   onAct: (card: Card) => void;
   onRefunded: (said: string, whole: boolean) => void;
+  /** Business now (wall clock plus the sandbox's offset), so "this year" is the bakery's. */
+  now?: number | undefined;
 }) {
   const action = actionFor(card);
   const route = routeWords(card);
@@ -181,7 +184,7 @@ export function CardView({
       <p className="card-when">
         <time dateTime={card.slot} title={whenText(card.slot)}>
           <span className="card-clock">{clockOfText(card.slot)}</span>{' '}
-          <span className="card-date">{shortDate(card.slot)}</span>
+          <span className="card-date">{shortDate(card.slot, { now })}</span>
         </time>
       </p>
       <ul className="card-lines">
@@ -297,7 +300,9 @@ export default function KitchenBoard({
   const open = kitchen.status === 'open';
   const groups = groupByState(kitchen.board);
   const total = groups.reduce((n, g) => n + g.cards.length, 0);
-  const today = dateOf(mountainLocal(Date.now() + clockOffsetS * 1000));
+  // Business now: the bake list's today, and "this year" for every date the board prints.
+  const now = Date.now() + clockOffsetS * 1000;
+  const today = dateOf(mountainLocal(now));
   const bakeLists = bakeListsByDate(kitchen.board, today);
   const followed = follow === null ? undefined : kitchen.board.cards[follow.order];
 
@@ -429,6 +434,7 @@ export default function KitchenBoard({
                       }}
                       canRefund={!isGuest}
                       open={open}
+                      now={now}
                       focusHere={
                         follow !== null && follow.order === card.order && follow.from !== card.state
                       }
@@ -485,7 +491,7 @@ export default function KitchenBoard({
       </section>
 
       <div className="panel">
-        <BakeList lists={bakeLists} today={today} />
+        <BakeList lists={bakeLists} today={today} now={now} />
       </div>
     </>
   );

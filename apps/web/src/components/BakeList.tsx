@@ -6,7 +6,16 @@ import { clockOfText, dayText } from '../lib/when';
  * each pickup slot or delivery window, and how many places are reserved that day. The Kitchen
  * draws it from the Schedule's events and never decides it.
  */
-export default function BakeList({ lists, today }: { lists: Day[]; today: string }) {
+export default function BakeList({
+  lists,
+  today,
+  now,
+}: {
+  lists: Day[];
+  today: string;
+  /** Business now (wall clock plus the sandbox's offset), so "this year" is the bakery's. */
+  now?: number | undefined;
+}) {
   return (
     <>
       <h3 id="bake-heading" tabIndex={-1} data-tour="kitchen-bake">
@@ -23,7 +32,7 @@ export default function BakeList({ lists, today }: { lists: Day[]; today: string
           return (
             <section key={day.date} aria-labelledby={`bake-${day.date}`} className="column">
               <h4 id={`bake-${day.date}`}>
-                {dayText(day.date)}
+                {dayText(day.date, { now })}
                 {day.date === today && ' (today)'}
               </h4>
               <p className="hint">

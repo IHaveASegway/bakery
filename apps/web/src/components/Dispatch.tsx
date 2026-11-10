@@ -41,7 +41,7 @@ import {
 import { type Message as Text } from '../lib/messages';
 import { firstOpenDate, isOpenDate } from '../lib/schedule';
 import { SolverUnavailable, createSolverClient, type SolverClient } from '../lib/solver';
-import { dayText, windowText } from '../lib/when';
+import { businessNowMs, dayText, windowText } from '../lib/when';
 import { useSandboxPhase } from '../lib/use-session';
 import DispatchComparison from './DispatchComparison';
 import DispatchMap from './DispatchMap';
@@ -394,7 +394,7 @@ export default function Dispatch() {
         >
           {days.map((d) => (
             <option key={d} value={d}>
-              {`${dayText(d)}${isOpenDate(d) ? '' : ', closed'}`}
+              {`${dayText(d, { now: businessNowMs(clockOffsetS) })}${isOpenDate(d) ? '' : ', closed'}`}
             </option>
           ))}
         </select>

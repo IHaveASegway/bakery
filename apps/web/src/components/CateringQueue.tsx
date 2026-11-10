@@ -44,9 +44,12 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 export default function CateringQueue({
   sandboxId,
   isGuest,
+  now,
 }: {
   sandboxId: string;
   isGuest: boolean;
+  /** Business now (wall clock plus the sandbox's offset), so "this year" is the bakery's. */
+  now?: number | undefined;
 }) {
   const [events, setEvents] = useState<CateringResponse[] | null>(null);
   const [error, setError] = useState<Text | null>(null);
@@ -187,6 +190,7 @@ export default function CateringQueue({
                     isGuest={isGuest}
                     onChange={take}
                     onSettled={() => void load()}
+                    now={now}
                   />
                 ))}
               </ul>
@@ -206,8 +210,9 @@ export default function CateringQueue({
         <ol className="feed" aria-label="Reminders, soonest first">
           {reminders.map((r) => (
             <li key={`${r.catering}-${r.kind}`}>
-              <strong>{r.label}</strong>: <time dateTime={r.at}>{momentText(r.at)}</time>,{' '}
-              {dayText(r.event.date)}, {packageLabel(r.event.package)} for {r.event.headcount}
+              <strong>{r.label}</strong>: <time dateTime={r.at}>{momentText(r.at, { now })}</time>,{' '}
+              {dayText(r.event.date, { now })}, {packageLabel(r.event.package)} for{' '}
+              {r.event.headcount}
             </li>
           ))}
         </ol>
@@ -233,12 +238,15 @@ export function QueueCard({
   isGuest,
   onChange,
   onSettled,
+  now,
 }: {
   sandboxId: string;
   event: CateringResponse;
   isGuest: boolean;
   onChange: (event: CateringResponse) => void;
   onSettled: () => void;
+  /** Business now (wall clock plus the sandbox's offset), so "this year" is the bakery's. */
+  now?: number | undefined;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Text | null>(null);
@@ -275,7 +283,7 @@ export function QueueCard({
       onChange(await run());
       await afterwards?.();
     } catch (e) {
-      setError(describeStaffError(e));
+      setError(describeStaffError(e, now));
     } finally {
       setBusy(false);
     }
@@ -294,7 +302,7 @@ export function QueueCard({
 
   return (
     <li id={`catering-card-${id}`} tabIndex={-1}>
-      <CateringFigures event={event} />
+      <CateringFigures event={event} now={now} />
       {event.brief && <p className="brief">Brief: {event.brief}</p>}
       {event.state === 'delivered' && (
         <p className="hint">The Queue raises the balance invoice; it shows here when it arrives.</p>
@@ -432,7 +440,7 @@ export function QueueCard({
 
       <Message error={error}>{said !== null && <p>{said}</p>}</Message>
       <p className="hint">
-        Updated <time dateTime={event.updated_at}>{momentText(event.updated_at)}</time>.
+        Updated <time dateTime={event.updated_at}>{momentText(event.updated_at, { now })}</time>.
       </p>
     </li>
   );

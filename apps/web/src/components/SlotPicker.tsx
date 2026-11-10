@@ -1,4 +1,5 @@
-import { blockerText, conflictText, freeText, startText } from '../lib/schedule';
+import { blockerText, conflictText, freeText } from '../lib/schedule';
+import { momentText } from '../lib/when';
 import type { Choice, SlotConflict } from '../lib/schedule';
 import type { LiveSchedule } from '../lib/use-schedule';
 import { dayParts } from '../lib/when';
@@ -169,7 +170,7 @@ export default function SlotPicker({
                 className="btn btn-primary"
                 onClick={() => onTakeNext(conflict.next_free as string)}
               >
-                Take {startText(conflict.next_free)}
+                Take {momentText(conflict.next_free)}
               </button>
             </p>
           )}

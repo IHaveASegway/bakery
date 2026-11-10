@@ -136,10 +136,10 @@ describe('business days', () => {
   });
 
   test('the hint names the 7-business-day rule and the earliest date', () => {
-    const hint = leadHint('2026-11-11');
+    const hint = leadHint('2026-11-11', Date.parse('2026-11-10T16:00:00Z'));
     expect(hint).toContain('7 business days');
     expect(hint).toContain('Tuesday to Sunday');
-    expect(hint).toContain('2026-11-11');
+    expect(hint).toContain('the earliest day is Wed 11 Nov.');
   });
 });
 
