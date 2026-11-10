@@ -8,6 +8,14 @@ import { roughCountdown, utcClock, utcStamp } from '../lib/countdown';
 import { clockOfText, shortDate, whenText } from '../lib/when';
 import ClockControl from './ClockControl';
 
+/** The same, short, for a top bar that has run out of room (console.css): the long one is still read out. */
+const SHORT: Record<SessionResponse['kind'], string> = {
+  guest: 'Guest',
+  google: 'Google',
+  github: 'GitHub',
+  demo: 'Demo account',
+};
+
 const KINDS: Record<SessionResponse['kind'], string> = {
   guest: 'Guest',
   google: 'Signed in with Google',
@@ -142,7 +150,12 @@ function Controls({
         {live && <TrafficSwitch sandboxId={sandbox.id} isGuest={isGuest} />}
       </div>
       <div className="topbar-account">
-        <h2 className="topbar-who">{KINDS[kind]}</h2>
+        <h2 className="topbar-who">
+          <span className="who-long">{KINDS[kind]}</span>
+          <span className="who-short" aria-hidden="true">
+            {SHORT[kind]}
+          </span>
+        </h2>
         <button
           type="button"
           className="btn btn-secondary btn-sm"
