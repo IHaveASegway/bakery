@@ -231,7 +231,8 @@ status none
 expect_status none 200
 expect_public_headers none
 expect_json none "b.counters === null && b.counters_as_of === null && b.counters_state === 'unavailable'"
-expect_json none "Object.keys(b).join(',') === 'day,sandboxes_today,sandbox_cap,guests_today,guest_cap,demo_accounts_today,demo_account_cap,counters,counters_as_of,counters_state,breaker,sandboxes_past_wipe,flag'"
+# The field set, by name: the order of JSON keys is not contract (ADR 0013, decision 4).
+expect_json none "Object.keys(b).sort().join(',') === ['day', 'sandboxes_today', 'sandbox_cap', 'guests_today', 'guest_cap', 'demo_accounts_today', 'demo_account_cap', 'counters', 'counters_as_of', 'counters_state', 'breaker', 'sandboxes_past_wipe', 'flag'].sort().join(',')"
 expect_json none "b.sandboxes_past_wipe === null"
 
 request preflight -X OPTIONS -H "Origin: $STOREFRONT" -H "Access-Control-Request-Method: GET" "$BASE/v1/status"

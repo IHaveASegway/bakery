@@ -291,9 +291,10 @@ status none
 expect_status none 200
 breaker_is none unconfigured
 expect_json none "b.breaker.since === null && b.breaker.last_run === null && b.breaker.last_usd === null && Array.isArray(b.breaker.unread) && b.breaker.unread.length === 0"
-expect_json none "Object.keys(b.breaker).join(',') === 'state,since,last_run,last_usd,unread'"
-# The wire order: breaker, then sandboxes_past_wipe (2026-11-10), then flag.
-expect_json none "Object.keys(b).indexOf('breaker') !== -1 && Object.keys(b).indexOf('breaker') === Object.keys(b).indexOf('sandboxes_past_wipe') - 1 && Object.keys(b).indexOf('sandboxes_past_wipe') === Object.keys(b).indexOf('flag') - 1"
+# By name, not by place: the order of JSON keys is not contract (ADR 0013, decision 4), and the
+# status answer gains fields before `flag` (sandboxes_past_wipe on 2026-11-10).
+expect_json none "Object.keys(b.breaker).sort().join(',') === 'last_run,last_usd,since,state,unread'"
+expect_json none "['breaker', 'sandboxes_past_wipe', 'flag'].every((k) => k in b)"
 run_cron cron_none
 expect_status cron_none 200
 check "without the secrets the cron logs breaker_unconfigured naming BREAKER_API_TOKEN" "ev_has breaker_unconfigured '\"var\":\"BREAKER_API_TOKEN\"'"
