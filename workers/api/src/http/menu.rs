@@ -176,6 +176,7 @@ pub async fn patch_item(
         Some(k) => k,
         None => random::ulid(cx.now)?,
     };
+    cx.caused(key.to_string());
     let res = call(
         &cx.env,
         catalog::BINDING,
@@ -201,6 +202,7 @@ pub async fn publish(cx: &Cx, id: Option<&str>) -> Answer {
     let (claims, id) = own_sandbox(cx, id)?;
     not_revoked(cx, &claims).await?;
     let key = cx.key.ok_or_else(problem::idempotency_key)?;
+    cx.caused(key.to_string());
     let res = call(
         &cx.env,
         catalog::BINDING,
@@ -228,6 +230,7 @@ pub async fn set_tax_rate(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answe
         Some(k) => k,
         None => random::ulid(cx.now)?,
     };
+    cx.caused(key.to_string());
     let res = call(
         &cx.env,
         catalog::BINDING,

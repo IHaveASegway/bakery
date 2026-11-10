@@ -774,15 +774,19 @@ details.capacity-group .capacity-table {
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
-/* A card's last event, `OrderProductionStarted`, breaks between its words and never runs past the
-   card's edge (G9, 2026-11-10). */
+/* A card's last event, `OrderProductionStarted`, never runs past the card's edge, and breaks only
+   where a reader breaks a long word: between two of its words, at a soft hyphen that shows as
+   "OrderProduction-" over "Started" (KitchenBoard.tsx, `chipText`). Never inside a word, which
+   `overflow-wrap: anywhere` allowed, and never without the hyphen, which read as two broken words
+   (2026-11-10). */
 .board .card .card-event {
-  flex-wrap: wrap;
-  gap: 0;
+  display: inline-block;
   max-width: 100%;
   border-radius: var(--space-2);
   white-space: normal;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: manual;
 }
 
 /* What a card with no button waits for: a ready delivery's van (G9). */
@@ -790,4 +794,22 @@ details.capacity-group .capacity-table {
   margin-top: var(--space-2);
   color: var(--text-muted);
   font-size: var(--type-12);
+}
+
+/* A question asked in the page before something is deleted (ConfirmStep.tsx): Wipe now, New
+   sandbox, Rotate. Edged like the token's reveal box, in the danger color, so it reads as the
+   one thing to answer before going on. */
+.confirm-step {
+  margin: var(--space-2) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--danger);
+  border-radius: var(--radius-md);
+}
+
+.confirm-step > p {
+  margin: 0 0 var(--space-2);
+}
+
+.confirm-step > p:last-child {
+  margin-bottom: 0;
 }

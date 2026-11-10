@@ -13,6 +13,7 @@ import {
   runCron,
   test,
 } from './fixtures';
+import { nextClientIp } from './addresses';
 
 // After a wipe the console asks for its sandbox and the API answers 410, which Chromium logs.
 test.use({ allowedStatuses: [410] });
@@ -23,10 +24,22 @@ test('Wipe now deletes the sandbox at once', async ({ page }) => {
   await page.goto('/app/');
   await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
 
-  // Wipe now is in the top bar's sandbox menu, on every console page.
-  page.once('dialog', (dialog) => void dialog.accept());
+  // Wipe now is in the top bar's sandbox menu, on every console page. It asks in the page, not
+  // with the browser's dialog: what goes, then Wipe it or Keep it, the focus on Keep it.
+  let dialogs = 0;
+  page.on('dialog', () => void dialogs++);
   await page.getByRole('button', { name: /^Sandbox / }).click();
   await page.getByRole('button', { name: 'Wipe now' }).click();
+  const asked = page.getByRole('group', { name: 'Wipe this sandbox now?' });
+  await expect(asked).toContainText('is deleted for good');
+  await expect(asked.getByRole('button', { name: 'Keep it' })).toBeFocused();
+  // Escape takes the way back, and the focus returns to Wipe now.
+  await page.keyboard.press('Escape');
+  await expect(asked).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Wipe now' })).toBeFocused();
+  await page.getByRole('button', { name: 'Wipe now' }).click();
+  await asked.getByRole('button', { name: 'Wipe it' }).click();
+  expect(dialogs, 'no browser dialog').toBe(0);
   // Two answers race, both right: the button's own "wiped", or the console reloading first
   // because the Kitchen closed the board's socket with "wiped" and the session names no sandbox.
   await expect(
@@ -38,6 +51,36 @@ test('Wipe now deletes the sandbox at once', async ({ page }) => {
   // The session no longer names a sandbox: a reload finds none.
   await page.reload();
   await expect(page.getByRole('heading', { name: 'You have no sandbox' })).toBeVisible();
+});
+
+test('New sandbox on the System page asks in the page, then says which sandbox is yours', async ({
+  page,
+}) => {
+  await demoAccount(page);
+  const before = await liveSandbox(page);
+  await page.goto('/app/system/');
+  let dialogs = 0;
+  page.on('dialog', () => void dialogs++);
+  const actions = page.locator('[data-tour="controls-actions"]');
+  await actions.getByRole('button', { name: 'New sandbox' }).click();
+  const asked = page.getByRole('group', { name: 'Replace this sandbox?' });
+  await expect(asked).toContainText(`Sandbox ${before.id.slice(-6)} is deleted now`);
+  await expect(asked.getByRole('button', { name: 'Keep this one' })).toBeFocused();
+  await asked.getByRole('button', { name: 'Keep this one' }).click();
+  await expect(asked).toHaveCount(0);
+  await expect(actions.getByRole('button', { name: 'New sandbox' })).toBeFocused();
+  await actions.getByRole('button', { name: 'New sandbox' }).click();
+  // The API makes one sandbox a minute per address, and this test made one already: the replace
+  // comes from a second synthetic address.
+  const second = nextClientIp(test.info().workerIndex);
+  await page.route(`${API}/v1/sandboxes`, (route) =>
+    route.continue({ headers: { ...route.request().headers(), 'cf-connecting-ip': second } }),
+  );
+  await asked.getByRole('button', { name: 'Replace it' }).click();
+  const result = actions.locator('[data-guide-result]');
+  await expect(result).toContainText('is yours now', { timeout: 20_000 });
+  await expect(result).toContainText(`Sandbox ${before.id.slice(-6)} and everything in it`);
+  expect(dialogs, 'no browser dialog').toBe(0);
 });
 
 // The race of 2026-11-08: the Kitchen closes the board's socket with "wiped" partway through the
@@ -95,10 +138,10 @@ test('Wipe now asks nothing more when the socket closes before the wipe answers'
 
   await page.goto('/app/');
   await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
-  // Wipe now is in the top bar's sandbox menu, on every console page.
-  page.once('dialog', (dialog) => void dialog.accept());
+  // Wipe now is in the top bar's sandbox menu, on every console page, and asks in the page.
   await page.getByRole('button', { name: /^Sandbox / }).click();
   await page.getByRole('button', { name: 'Wipe now' }).click();
+  await page.getByRole('button', { name: 'Wipe it' }).click();
   await expect(
     page
       .getByRole('heading', { name: 'Your sandbox is wiped' })

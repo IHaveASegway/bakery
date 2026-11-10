@@ -8,7 +8,9 @@ import {
   submitPlan,
 } from '../lib/api';
 import { KeyedAction } from '../lib/crm';
+import { usePoll } from '../lib/use-poll';
 import {
+  FOLLOW_UP_MS,
   ISOCHRONES_URL,
   ROUTE_DATA_URL,
   VroomError,
@@ -204,6 +206,37 @@ export default function Dispatch() {
     void load();
   }, [load]);
 
+  // The page holds no socket, and a stop changes without it: an order paid, made ready on the
+  // board, or sent out by a publish moves its stop a moment later, in the Dispatch log. So the
+  // page reads the day again every ten seconds while it is shown (lib/use-poll.ts), and twice
+  // soon after a publish or a delivery (`FOLLOW_UP_MS`), quietly: no "Reading" line, the shown
+  // error kept, and never over an action that is still running.
+  const busyNow = useRef<string | null>(null);
+  busyNow.current = busy;
+  const look = useCallback(async (): Promise<boolean> => {
+    if (sandboxId === null || date === '' || busyNow.current !== null) return true;
+    const asked = `${sandboxId}/${date}`;
+    try {
+      const answer = await getDispatch(sandboxId, date);
+      if (wanted.current === asked && busyNow.current === null) setDay(answer);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [sandboxId, date]);
+  usePoll(look, sandboxId !== null && date !== '');
+  const followUps = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const followUp = () => {
+    for (const timer of followUps.current) clearTimeout(timer);
+    followUps.current = FOLLOW_UP_MS.map((ms) => setTimeout(() => void look(), ms));
+  };
+  useEffect(
+    () => () => {
+      for (const timer of followUps.current) clearTimeout(timer);
+    },
+    [look],
+  );
+
   // The form starts from the day's own vans and capacity, and follows them when a plan changes them.
   useEffect(() => {
     if (day === null) return;
@@ -346,6 +379,7 @@ export default function Dispatch() {
       (answer) => {
         setShown('published');
         setSaid(`Published plan version ${answer.plan_v}.`);
+        followUp();
       },
     );
   };
@@ -362,6 +396,7 @@ export default function Dispatch() {
         setSaid(`Stop ${stop} is delivered.`);
         // Its button is gone with it: focus goes to the section's heading, not the page's body.
         setFocusCompletion(true);
+        followUp();
       },
     );
   };

@@ -131,7 +131,15 @@ Stripe's webhook is the one exception to both, and to CORS: Stripe calls it, not
 signature is its check. Each payment route, the webhook included, answers 503 `stripe-key` when
 `STRIPE_SECRET_KEY` is not a sandbox key (`rk_test_` or `sk_test_`), and the isolate logs
 `stripe_key_refused` once.
-CORS allows exactly `ALLOWED_ORIGIN` with credentials ([security.md](../../docs/security.md#the-apis-cors)).
+Since 2026-11-10 a command's 2xx answer names, in `Bakery-Cause`, the `cause` its events carry, so a
+caller can find its own write on the flight recorder (`GET .../trace`): the `Idempotency-Key`, the key
+with the route's prefix (`capacity:`, `propose:`, `plan:`, `publish:`, `complete:`, `consent:`,
+`draft:`, and `edit:`, `schedule:` and `cancel:` with the campaign's id), a payment's id, or for a
+`PATCH` without a key the key the API made. The ten commands in `NO_CAUSE`
+(`crates/contracts/src/routes.rs`) write no event of their own under the request and send none
+([ADR 0013](../../docs/adr/0013-the-api-and-socket-contract-v1.md)'s postscript).
+CORS allows exactly `ALLOWED_ORIGIN` with credentials ([security.md](../../docs/security.md#the-apis-cors)), and
+exposes `ETag, Location, Retry-After, Bakery-Cache, Bakery-Cause`.
 Each request writes one JSON log line: the route without its query, the status, the time, an IP
 hash, country, continent, the sandbox and a reason code. Never a body, cookie, token, username or
 provider id; a request with an API token logs the token's `tid`, never the token.

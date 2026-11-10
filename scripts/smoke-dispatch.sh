@@ -606,8 +606,12 @@ check "paid, A and B are confirmed stops; C stays provisional" "until_json a_con
 
 # ---------- propose: 2 vans of 5 units, so neither pair fits one van ----------
 
-dispatch_post propose D 192.0.2.92 "$DAY" propose '{"vans":2,"capacity":5}'
+PROPOSE_KEY="$(ulid)"
+KEY="$PROPOSE_KEY" dispatch_post propose D 192.0.2.92 "$DAY" propose '{"vans":2,"capacity":5}'
 expect_status propose 200
+# The day's events carry the step's prefix and the key, and the answer says so (ADR 0013's
+# postscript of 2026-11-10), so a caller can find RouteProposed on the flight recorder.
+check "propose: bakery-cause is propose: and the Idempotency-Key" "[[ '$(header_of propose bakery-cause | tr -d '\r')' == 'propose:$PROPOSE_KEY' ]]"
 expect_json propose "b.vans === 2 && b.capacity === 5 && b.proposed.source === 'server' && b.proposed.plan_v === 1 && b.proposed.unassigned.length === 0"
 expect_json propose "(() => { const all = b.proposed.vans.flatMap((v) => v.stops); const conf = b.stops.filter((s) => s.status === 'confirmed').map((s) => s.order); return all.length === conf.length && new Set(all).size === all.length && conf.every((o) => all.includes(o)); })()"
 expect_json propose "b.proposed.vans.length === 2 && b.proposed.vans.every((v) => v.units <= 5 && v.van >= 1 && v.van <= 2)"

@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { getTokenInfo, issueToken, rotateToken } from '../lib/api';
 import { INITIAL, canRotate, describeTokenError, panelReduce } from '../lib/api-token';
+import { confirmation } from '../lib/confirmations';
 import { KeyedAction } from '../lib/crm';
 import { tokenStore } from '../lib/token-store';
 import { utcMomentText } from '../lib/when';
+import ConfirmStep from './ConfirmStep';
 import GuestNote from './GuestNote';
 import Message from './Message';
 
@@ -19,6 +21,9 @@ export default function ApiToken({ sandboxId, isGuest }: { sandboxId: string; is
   // A retry of the same click after a dropped connection keeps its key; a new click gets a new one.
   const issuing = useRef(new KeyedAction());
   const rotating = useRef(new KeyedAction());
+  // Rotate is asked in the page first (ConfirmStep); the focus goes back to Rotate on Keep it.
+  const [asking, setAsking] = useState(false);
+  const rotateButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (isGuest) return;
@@ -36,12 +41,6 @@ export default function ApiToken({ sandboxId, isGuest }: { sandboxId: string; is
 
   const run = useCallback(
     async (how: 'issue' | 'rotate') => {
-      if (
-        how === 'rotate' &&
-        !window.confirm('Rotate the token? The one you have now stops working at once.')
-      ) {
-        return;
-      }
       dispatch({ type: 'begin' });
       try {
         const action = how === 'issue' ? issuing.current : rotating.current;
@@ -114,15 +113,30 @@ export default function ApiToken({ sandboxId, isGuest }: { sandboxId: string; is
               Issue token
             </button>
             <button
+              ref={rotateButton}
               type="button"
               className="btn btn-secondary"
-              disabled={busy || !hasToken}
+              disabled={busy || !hasToken || asking}
               aria-describedby="token-rotate-says"
-              onClick={() => void run('rotate')}
+              onClick={() => setAsking(true)}
             >
               Rotate
             </button>
           </p>
+          {asking && (
+            <ConfirmStep
+              asked={confirmation('rotate')}
+              busy={busy}
+              onConfirm={() => {
+                setAsking(false);
+                void run('rotate');
+              }}
+              onCancel={() => {
+                setAsking(false);
+                requestAnimationFrame(() => rotateButton.current?.focus());
+              }}
+            />
+          )}
           <p id="token-rotate-says" className="hint">
             {hasToken
               ? 'Rotate makes a new token, and the one you have stops working at once.'

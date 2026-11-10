@@ -1,8 +1,8 @@
 import {
   dropOffNote,
   placeName,
-  statusText,
   stopRows,
+  stopStateText,
   zoneText,
   type RouteData,
 } from '../lib/dispatch';
@@ -10,11 +10,22 @@ import { windowText } from '../lib/when';
 import type { DispatchResponse } from '../contracts';
 
 /** The column names, said in the table's head and, on a phone, before each value (`data-label`). */
-const COLUMNS = ['Order', 'Place', 'Window', 'Zone', 'Units', 'Status', 'Van', 'Stop'] as const;
+const COLUMNS = [
+  'Order',
+  'Place',
+  'Window',
+  'Zone',
+  'Units',
+  'Stop status',
+  'Van',
+  'Stop',
+] as const;
 
 /**
- * The day's stops: order, place, window, zone, units, status, and the van and stop number once a
- * plan is published. The place is a public drop-off spot named on the map, never anyone’s home.
+ * The day's stops: order, place, window, zone, units, the stop's own status, and the van and stop
+ * number once a plan is published. The status is the stop's in the Dispatch log, not the order's
+ * on the board (lib/dispatch.ts, `stopStateText`). The place is a public drop-off spot named on
+ * the map, never anyone’s home.
  *
  * The global styles let text break anywhere, which cut "Delivered" and the order ids mid-word; the
  * table breaks only between words. It spans the page under the map and the plans (console.css), so
@@ -64,7 +75,7 @@ export default function DispatchStops({
                 <td className="num" data-label="Units">
                   {row.units}
                 </td>
-                <td data-label="Status">{statusText(row.status)}</td>
+                <td data-label="Stop status">{stopStateText(row)}</td>
                 <td data-label="Van">{row.van ?? 'Not planned'}</td>
                 <td data-label="Stop">{row.stop ?? ''}</td>
               </tr>

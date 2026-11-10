@@ -1,6 +1,13 @@
 {
   "components": {
     "headers": {
+      "BakeryCause": {
+        "description": "The `cause` every event this command writes carries, in its envelope and on the flight recorder's hops (`GET /v1/sandboxes/{id}/trace`), so a caller can follow its own write. It is the `Idempotency-Key`, the key with the route's own prefix (`capacity:`, `propose:`, `plan:`, `publish:`, `complete:`, `consent:`, `draft:`, and `edit:`, `schedule:` and `cancel:` with the campaign's id), or, for a payment, the payment's id. A `PATCH` sent without a key gets the cause the API named for it. A replay names the first answer's. Readable from the storefront's origin.",
+        "example": "capacity:01JC8Z6K3W9QF2N4T7XRB5M0HD",
+        "schema": {
+          "type": "string"
+        }
+      },
       "IdempotentReplayed": {
         "description": "`true` when this is the stored answer to a key already seen.",
         "schema": {
@@ -5173,6 +5180,9 @@
             },
             "description": "the same `Idempotency-Key` again: the first answer, replayed",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -5188,6 +5198,9 @@
             },
             "description": "the draft, with `Location`",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               },
@@ -5474,7 +5487,12 @@
                 }
               }
             },
-            "description": "the draft; the same optional `Idempotency-Key` again replays it"
+            "description": "the draft; the same optional `Idempotency-Key` again replays it",
+            "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              }
+            }
           },
           "400": {
             "content": {
@@ -5627,6 +5645,9 @@
             },
             "description": "the campaign",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -5806,6 +5827,9 @@
             },
             "description": "`scheduled`; the same key again replays it",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -6087,6 +6111,9 @@
             },
             "description": "the same `Idempotency-Key` again: the first answer, replayed",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -6102,6 +6129,9 @@
             },
             "description": "the inquiry, with `Location`",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               },
@@ -6382,6 +6412,9 @@
             },
             "description": "`accepted`",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -6561,6 +6594,9 @@
             },
             "description": "`cancelled`, with `refund_deposit`",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -6740,6 +6776,9 @@
             },
             "description": "`declined`",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -6910,6 +6949,9 @@
             },
             "description": "`delivered`; poll for `invoice`",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -7079,6 +7121,9 @@
             },
             "description": "the payment and its one-time `client_secret`",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -7438,6 +7483,9 @@
             },
             "description": "`quoted`",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -7619,6 +7667,9 @@
             },
             "description": "`cancelled`",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -7789,6 +7840,9 @@
             },
             "description": "`in_production`",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -7959,6 +8013,9 @@
             },
             "description": "the clock, with `step`; the same key again: the first answer, and nothing moves again",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -8358,6 +8415,9 @@
             },
             "description": "the customer; the same `Idempotency-Key` again replays it, with `Idempotent-Replayed`",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -9051,6 +9111,9 @@
             },
             "description": "the day; again for a delivered stop changes nothing",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -9248,6 +9311,9 @@
             },
             "description": "the day, with `submitted` and `comparison`",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -9432,6 +9498,9 @@
             },
             "description": "the day, with `proposed`",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -9616,6 +9685,9 @@
             },
             "description": "the day, with `published`; the same `Idempotency-Key` again: the first answer, replayed",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -9803,6 +9875,9 @@
             },
             "description": "every switch as it now stands",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -10928,7 +11003,12 @@
                 }
               }
             },
-            "description": "`{version, pending}`"
+            "description": "`{version, pending}`",
+            "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              }
+            }
           },
           "400": {
             "content": {
@@ -11072,6 +11152,9 @@
             },
             "description": "`{version, pending}`",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -11228,7 +11311,12 @@
                 }
               }
             },
-            "description": "`{version, pending}`; the same rate again publishes nothing"
+            "description": "`{version, pending}`; the same rate again publishes nothing",
+            "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              }
+            }
           },
           "400": {
             "content": {
@@ -11382,6 +11470,9 @@
             },
             "description": "the same `Idempotency-Key` again: the first answer, replayed",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -11397,6 +11488,9 @@
             },
             "description": "the order, with `Location`",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               },
@@ -11708,6 +11802,9 @@
             },
             "description": "the order, cancelled",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -11864,6 +11961,9 @@
             },
             "description": "the payment and its one-time `client_secret`",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -12055,6 +12155,9 @@
             },
             "description": "the refund, on its way to Stripe, or to Billing alone for a seeded payment; the same `Idempotency-Key` again: the first answer, replayed",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -12652,7 +12755,12 @@
                 }
               }
             },
-            "description": "the day"
+            "description": "the day",
+            "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              }
+            }
           },
           "400": {
             "content": {
@@ -13153,6 +13261,9 @@
             },
             "description": "the token, shown once; the same `Idempotency-Key` again: the first answer, replayed",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -13297,6 +13408,9 @@
             },
             "description": "the new token, shown once; the same `Idempotency-Key` again: the first answer, replayed",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }
@@ -13745,7 +13859,12 @@
                 }
               }
             },
-            "description": "the Simulator, stopped"
+            "description": "the Simulator, stopped",
+            "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              }
+            }
           },
           "400": {
             "content": {
@@ -13992,6 +14111,9 @@
             },
             "description": "the Simulator, running; the same `Idempotency-Key` again: the first answer, replayed",
             "headers": {
+              "Bakery-Cause": {
+                "$ref": "#/components/headers/BakeryCause"
+              },
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"
               }

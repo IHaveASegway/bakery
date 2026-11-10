@@ -7,6 +7,7 @@ import Console, { type WorkspaceProps } from '../Console';
 import DeadLetters from '../DeadLetters';
 import GuestNote from '../GuestNote';
 import Message from '../Message';
+import SandboxActions from '../SandboxActions';
 import Traffic from '../Traffic';
 
 /**
@@ -113,16 +114,15 @@ export function SystemView({
         <h3 id="actions-heading" tabIndex={-1}>
           Sandbox actions
         </h3>
-        <p className="actions" data-tour="controls-actions">
-          <button type="button" className="btn btn-danger" disabled={busy} onClick={onWipe}>
-            Wipe now
-          </button>
-          {!isGuest && (
-            <button type="button" className="btn btn-secondary" disabled={busy} onClick={onReplace}>
-              New sandbox
-            </button>
-          )}
-        </p>
+        <div data-tour="controls-actions">
+          <SandboxActions
+            sandboxId={sandbox.id}
+            isGuest={isGuest}
+            busy={busy}
+            onWipe={onWipe}
+            onReplace={onReplace}
+          />
+        </div>
         <Message error={error} />
       </div>
     </div>

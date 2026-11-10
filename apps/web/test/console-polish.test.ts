@@ -7,7 +7,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
 import { CardView } from '../src/components/KitchenBoard';
-import { eventWords, waitingFor, type Card } from '../src/lib/kitchen';
+import { chipText, eventWords, waitingFor, type Card } from '../src/lib/kitchen';
 import { recordedBy } from '../src/lib/payment';
 import {
   PLACED_ORDERS_ITEM,
@@ -127,11 +127,16 @@ describe('the visitor’s own order on the board (G7)', () => {
 });
 
 describe('a card’s chip and its way forward (G9)', () => {
-  test('an event’s type breaks between its words', () => {
+  test('an event’s type breaks only between its words, with a hyphen', () => {
     expect(eventWords('OrderProductionStarted')).toEqual(['Order', 'Production', 'Started']);
-    expect(eventWords('OrderOutForDelivery')).toEqual(['Order', 'Out', 'For', 'Delivery']);
+    expect(chipText('OrderOutForDelivery')).toBe('Order\u00ADOut\u00ADFor\u00ADDelivery');
+    expect(chipText('OrderReady').replaceAll('\u00AD', '')).toBe('OrderReady');
     const html = draw({ ...card, state: 'in_production', last: 'OrderProductionStarted' });
-    expect(html).toContain('Order<wbr/>');
+    // No break without a hyphen: a soft hyphen between words, never a <wbr>.
+    expect(html).not.toContain('<wbr/>');
+    expect(html).toContain(
+      'title="OrderProductionStarted">Order\u00ADProduction\u00ADStarted</span>',
+    );
     expect(html).toContain('class="badge card-event"');
   });
 

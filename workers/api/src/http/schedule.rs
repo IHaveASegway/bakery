@@ -104,6 +104,8 @@ pub async fn set_capacity(
         None => random::ulid(cx.now)?,
     };
     let name = birth.name.clone();
+    let cause = format!("capacity:{key}");
+    cx.caused(&cause);
     let mut res = call(
         &cx.env,
         schedule::BINDING,
@@ -111,7 +113,7 @@ pub async fn set_capacity(
         Method::Post,
         "/_command",
         Some(&CommandIn {
-            key: format!("capacity:{key}"),
+            key: cause,
             body_hash: body_hash(&text),
             birth: Some(birth),
             cmd: Cmd::SetCapacity {

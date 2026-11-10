@@ -61,6 +61,7 @@ import type {
 } from '../contracts';
 import { DEFAULT_API_ORIGIN, normalizeOrigin, socketOrigin } from '../policy';
 import { parseProblem, problemSlug, type ProblemInfo } from './problem';
+import { causeOf } from './cause';
 import { pageSource, type ReadName } from './trace';
 import { ulid } from './ulid';
 
@@ -117,13 +118,17 @@ async function send(
     headers['Idempotency-Key'] = options.key ?? ulid();
   }
   const started = performance.now();
-  // The guide's trace (lib/trace.ts) hears every write: its route, status, time and key, never its
-  // body. A read is traced only when it is a story read (trace.ts, STORY_READS), with what its
+  // The guide's trace (lib/trace.ts) hears every write: its route, status, time and the cause its
+  // events carry, never its body. A read is traced only when it is a story read (trace.ts, STORY_READS), with what its
   // answer's headers said; the page's other reads change nothing and are not traced.
   const traced = (response: Response | null) => {
     if (method === 'GET' && options.read === undefined) return;
     const ms = performance.now() - started;
-    const key = headers['Idempotency-Key'] ?? null;
+    // The trace's key is what the write's events carry as their `cause`, so the guide ties them
+    // to this call: the API names it in `Bakery-Cause` on a command's success (the key, the key
+    // with the route's prefix such as `capacity:`, a payment's id, or for a PATCH sent without a
+    // key the one the API made). Without that header, the key that was sent, if any.
+    const key = causeOf(response) ?? headers['Idempotency-Key'] ?? null;
     const status = response?.status ?? null;
     const read =
       options.read === undefined

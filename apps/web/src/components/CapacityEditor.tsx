@@ -18,10 +18,9 @@ import { businessNowMs, dayText } from '../lib/when';
 import { ZONES, clockLabel, mountainLocal } from '../lib/slots';
 import { useSchedule } from '../lib/use-schedule';
 import { type Message as Text } from '../lib/messages';
+import { itemName, targetText } from '../lib/words';
 import GuestNote from './GuestNote';
 import Message from './Message';
-
-const itemWords = (slug: string) => slug.replaceAll('-', ' ');
 
 function slotWords(start: string): string {
   const l = mountainLocal(Date.parse(start));
@@ -192,7 +191,7 @@ export function Day({ schedule }: { schedule: ScheduleResponse }) {
                 const cap = i.daily_cap ?? null;
                 return (
                   <tr key={i.item}>
-                    <th scope="row">{itemWords(i.item)}</th>
+                    <th scope="row">{itemName(i.item)}</th>
                     <td className="num">{cap === null ? i.used : `${i.used} of ${cap}`}</td>
                     <td className="num">{cap === null ? 'no cap' : Math.max(0, cap - i.used)}</td>
                     <td>{cap !== null && <Fill taken={i.used} capacity={cap} />}</td>
@@ -389,7 +388,7 @@ export default function CapacityEditor({
         )}
         {kind === 'item' && (
           <p>
-            <label htmlFor="capacity-item">Item slug</label>
+            <label htmlFor="capacity-item">Item</label>
             <input
               id="capacity-item"
               type="text"
@@ -401,10 +400,12 @@ export default function CapacityEditor({
             />
             <datalist id="capacity-items">
               {(schedule?.items ?? []).map((i) => (
-                <option key={i.item} value={i.item} />
+                <option key={i.item} value={i.item} label={itemName(i.item)} />
               ))}
             </datalist>
-            <span className="hint">The item’s slug from the menu, such as croissant.</span>
+            <span className="hint">
+              Pick one of the day’s items, or type an item’s short name, such as croissant.
+            </span>
           </p>
         )}
         <p>
@@ -420,7 +421,7 @@ export default function CapacityEditor({
             onChange={(e) => setCapacityText(e.target.value)}
           />
           <span className="hint">
-            Target sent: <code>{built.ok ? built.target : '…'}</code>
+            {built.ok ? `Sets the capacity of ${targetText(built.target)}.` : '…'}
           </span>
         </p>
         <p>

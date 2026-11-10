@@ -1,8 +1,11 @@
-// Looking again on a timer, for the catering screens: the staff queue and the visitor's own
-// /catering/ page. A payment arrives by Stripe's webhook, a reminder or a lapse by an alarm, and
-// a quote, production or delivery from the other side of the counter, none of it by anything this
-// page did, so both pages look every ten seconds. A look that fails waits twice as long before the
-// next, up to a minute, and the first look that works goes back to ten seconds.
+// Looking again on a timer, for the screens that hold no socket: the catering staff queue, the
+// visitor's own /catering/ page and Dispatch. A payment arrives by Stripe's webhook, a reminder or
+// a lapse by an alarm, a quote, production or delivery from the other side of the counter, and a
+// stop goes out when its order is made ready on the board, none of it by anything this page did,
+// so these pages look every ten seconds. A look that fails waits twice as long before the next, up
+// to a minute, and the first look that works goes back to ten seconds. The Kitchen board and the
+// order's own page listen on the Kitchen's socket instead: there a change must show at once, and
+// on every screen that watches.
 import { useEffect, useRef } from 'react';
 
 /** The wait between looks while they work. */
