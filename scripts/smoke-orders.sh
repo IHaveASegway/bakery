@@ -863,10 +863,21 @@ for pid in "${WS_L[@]}"; do kill -TERM "$pid" 2>/dev/null || true; wait "$pid" |
 # counts frames by calendar second (the wall clock's, workers/api/src/objects/kitchen.rs), so the
 # probe sends the eleven just after a second begins: sent near a second's end they could be split
 # across two seconds, neither over 10, and no bye would come (one run in two on 2026-11-09).
-probe G "$GID" --flood 11 --at-second-start --timeout 5 > "$TMP/ws_flood.out" || true
+# The guest's session opened several sockets in the last minute (the hibernation and the budget
+# checks above), and UPGRADE_LIMIT allows 6 a minute a session: a socket refused that way never
+# opens, so each probe below is tried again every 10 s, for up to a minute, until it opens.
+probe_open() {
+  local out="$1"; shift
+  for _ in 1 2 3 4 5 6 7; do
+    probe G "$GID" "$@" > "$out" || true
+    probe_ok "$out" "snapshot" && return 0
+    sleep 10
+  done
+}
+probe_open "$TMP/ws_flood.out" --flood 11 --at-second-start --timeout 5
 expect_probe "11 frames in a second: 10 answered, then bye limit and close 1008" "$TMP/ws_flood.out" "frames.filter((f) => f.t === 'nack' && f.rule === 'id').length === 10 && frames.some((f) => f.t === 'bye' && f.reason === 'limit') && closed && closed.code === 1008"
 BIG="$(node -e "process.stdout.write(JSON.stringify({ t: 'cmd', v: 1, id: '', pad: 'x'.repeat(5000) }))")"
-probe G "$GID" --raw "$BIG" --timeout 5 > "$TMP/ws_big.out" || true
+probe_open "$TMP/ws_big.out" --raw "$BIG" --timeout 5
 expect_probe "a frame over 4 KB: bye limit and close 1009" "$TMP/ws_big.out" "frames.some((f) => f.t === 'bye' && f.reason === 'limit') && closed && closed.code === 1009"
 
 # The console's heartbeat, for a console with no socket open.

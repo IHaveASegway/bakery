@@ -222,8 +222,7 @@
   font-size: var(--type-13);
 }
 
-.zone-field {
-  max-width: 16rem;
+.zone-line {
   margin: var(--space-4) 0 0;
 }
 

@@ -4,7 +4,7 @@
 // Everything here is pure except the two storage functions, which take the storage as an argument.
 import { taxCents } from './money';
 import { findVariant, inSeason, taxBpOf, type ItemView, type MenuView } from './menu';
-import { ZONES, type Local, type Zone } from './slots';
+import { type Local } from './slots';
 
 /** An order holds 1 to 20 lines, each a quantity of 1 to 24 (docs/domain.md, "Order"). */
 export const MAX_LINES = 20;
@@ -21,12 +21,11 @@ export interface Cart {
   lines: CartLine[];
   note: string;
   kind: 'pickup' | 'delivery';
-  zone: Zone;
   /** The business time chosen, or empty while none is. */
   slot: string;
 }
 
-export const EMPTY_CART: Cart = { lines: [], note: '', kind: 'pickup', zone: 'z1', slot: '' };
+export const EMPTY_CART: Cart = { lines: [], note: '', kind: 'pickup', slot: '' };
 
 export const clampQty = (qty: number) => Math.min(MAX_QTY, Math.max(1, Math.trunc(qty) || 1));
 
@@ -187,12 +186,10 @@ export function parseCart(text: string | null): Cart {
         }
       }
     }
-    const zone = ZONES.find((z) => z === raw['zone']) ?? 'z1';
     return {
       lines,
       note: typeof raw['note'] === 'string' ? raw['note'].slice(0, 400) : '',
       kind: raw['kind'] === 'delivery' ? 'delivery' : 'pickup',
-      zone,
       slot: typeof raw['slot'] === 'string' ? raw['slot'] : '',
     };
   } catch {

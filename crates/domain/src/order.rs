@@ -322,6 +322,9 @@ pub enum OrderError {
     ZoneRequired,
     #[error("a pickup has no zone")]
     ZoneOnPickup,
+    /// A delivery that names a zone other than its customer's place's (roadmap R69).
+    #[error("a delivery goes to its customer's own zone")]
+    WrongZone,
     /// `item` is the slug of the line that needs the longest lead, `name` its menu name, and
     /// `away_minutes` how far the slot is from now (negative once it has passed).
     #[error("{}", lead_time_text(.name, *.needed_minutes, *.away_minutes))]
@@ -406,6 +409,7 @@ impl OrderError {
             OrderError::PickupOnly { .. } => "pickup-only",
             OrderError::ZoneRequired => "zone-required",
             OrderError::ZoneOnPickup => "zone-on-pickup",
+            OrderError::WrongZone => "wrong-zone",
             OrderError::LeadTimeNotMet { .. } => "lead-time",
             OrderError::Note(_) => "note",
             OrderError::AlreadyPlaced => "already-placed",
@@ -614,6 +618,26 @@ impl Aggregate for Order {
             OrderEvent::OrderClosed { .. } => r.status = OrderStatus::Closed,
         }
         state
+    }
+}
+
+/// A delivery's zone, which the customer's place decides (roadmap R69): the body may leave it out,
+/// the normal case, or name the same zone, which an older client does; another zone is
+/// `wrong-zone`. `customers` is the customer's zone, `None` when it is not known, and then the
+/// body's zone stands as before. A pickup names none.
+pub fn delivery_zone(
+    kind: OrderKind,
+    asked: Option<&str>,
+    customers: Option<&str>,
+) -> Result<Option<String>, OrderError> {
+    match (kind, asked, customers) {
+        (OrderKind::Pickup, None, _) => Ok(None),
+        (OrderKind::Pickup, Some(_), _) => Err(OrderError::ZoneOnPickup),
+        (OrderKind::Delivery, None | Some(""), Some(own)) => Ok(Some(own.to_owned())),
+        (OrderKind::Delivery, Some(z), Some(own)) if z == own => Ok(Some(own.to_owned())),
+        (OrderKind::Delivery, Some(_), Some(_)) => Err(OrderError::WrongZone),
+        (OrderKind::Delivery, Some(z), None) if !z.is_empty() => Ok(Some(z.to_owned())),
+        (OrderKind::Delivery, _, None) => Err(OrderError::ZoneRequired),
     }
 }
 
@@ -1128,6 +1152,38 @@ mod tests {
         assert_eq!(
             place_err(place(OrderKind::Delivery, &[("moss-tea/small", 1)])).rule(),
             "pickup-only"
+        );
+        assert_eq!(
+            delivery_zone(OrderKind::Delivery, None, Some("z3")),
+            Ok(Some("z3".into())),
+            "no zone named: the customer's"
+        );
+        assert_eq!(
+            delivery_zone(OrderKind::Delivery, Some("z3"), Some("z3")),
+            Ok(Some("z3".into())),
+            "the customer's own zone named, as an older client does"
+        );
+        assert_eq!(
+            delivery_zone(OrderKind::Delivery, Some("z1"), Some("z3")),
+            Err(OrderError::WrongZone)
+        );
+        assert_eq!(OrderError::WrongZone.rule(), "wrong-zone");
+        assert_eq!(
+            delivery_zone(OrderKind::Delivery, Some(""), Some("z2")),
+            Ok(Some("z2".into()))
+        );
+        assert_eq!(
+            delivery_zone(OrderKind::Delivery, None, None),
+            Err(OrderError::ZoneRequired)
+        );
+        assert_eq!(
+            delivery_zone(OrderKind::Delivery, Some("z1"), None),
+            Ok(Some("z1".into()))
+        );
+        assert_eq!(delivery_zone(OrderKind::Pickup, None, Some("z1")), Ok(None));
+        assert_eq!(
+            delivery_zone(OrderKind::Pickup, Some("z1"), Some("z1")),
+            Err(OrderError::ZoneOnPickup)
         );
         let mut no_zone = place(OrderKind::Delivery, &[("fern-loaf/half", 1)]);
         no_zone.zone = None;
