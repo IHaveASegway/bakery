@@ -180,8 +180,9 @@ function finish(code) {
   // Finish the close handshake before the process ends: wait for the server's close frame (the
   // `close` event), at most CLOSE_WAIT_MS. Until 2026-11-10 the probe dropped the connection
   // 100 ms after sending its close, and on `wrangler dev` a Kitchen that had seen two such drops
-  // sometimes stayed in memory through every idle spell of smoke-orders' hibernation check
-  // (docs/roadmap.md, R77: 2 of 8 runs failed that way, 0 of 16 once the probe waited).
+  // sometimes stayed in memory through every idle spell of a cut-down copy of smoke-orders'
+  // hibernation check (docs/roadmap.md, R77: 2 of 8 runs failed that way, 0 of 16 once the probe
+  // waited). The full smoke still fails that check in some runs, so this is not the whole cause.
   ws.addEventListener('close', () => process.exit(code));
   setTimeout(() => process.exit(code), CLOSE_WAIT_MS);
   if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
