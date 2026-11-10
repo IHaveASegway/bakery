@@ -267,17 +267,21 @@ export function CampaignCard({
   clockOffsetS,
   onChange,
   onEdit,
+  now,
 }: {
   sandboxId: string;
   campaign: CampaignResponse;
   isGuest: boolean;
   clockOffsetS: number;
+  /** Business now, for the year rule of the dates printed; the clock's offset gives it otherwise. */
+  now?: number | undefined;
   onChange: (campaign: CampaignResponse) => void;
   onEdit: (campaign: CampaignResponse) => void;
 }) {
   const id = campaign.campaign;
   const actions = isGuest ? [] : campaignActions(campaign.state);
   const stats = campaignStats(campaign);
+  const nowMs = now ?? businessNow(clockOffsetS);
   const [when, setWhen] = useState(() => inputValueOf(earliestSendAt(businessNow(clockOffsetS))));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Text | null>(null);
@@ -311,7 +315,7 @@ export function CampaignCard({
     const ok = await act(`${id}:schedule:${sendAt}`, (key) =>
       scheduleCampaign(sandboxId, id, { send_at: sendAt }, key),
     );
-    if (ok) setSaid(scheduledSaid(sendAt));
+    if (ok) setSaid(scheduledSaid(sendAt, nowMs));
   }
 
   return (
@@ -334,7 +338,7 @@ export function CampaignCard({
           <>
             <dt>Send at</dt>
             <dd>
-              <time dateTime={campaign.send_at}>{sendAtText(campaign.send_at)}</time>
+              <time dateTime={campaign.send_at}>{sendAtText(campaign.send_at, nowMs)}</time>
             </dd>
           </>
         )}

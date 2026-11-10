@@ -39,9 +39,9 @@ import {
   type SolverFailure,
 } from '../lib/dispatch-errors';
 import { type Message as Text } from '../lib/messages';
-import { dateLabel } from '../lib/schedule';
+import { firstOpenDate, isOpenDate } from '../lib/schedule';
 import { SolverUnavailable, createSolverClient, type SolverClient } from '../lib/solver';
-import { windowText } from '../lib/when';
+import { businessNowMs, dayText, windowText } from '../lib/when';
 import { useSandboxPhase } from '../lib/use-session';
 import DispatchComparison from './DispatchComparison';
 import DispatchMap from './DispatchMap';
@@ -124,7 +124,9 @@ export default function Dispatch() {
   const clockOffsetS = phase.name === 'live' ? phase.clockOffsetS : 0;
   const days = useMemo(() => dispatchDays(clockOffsetS), [clockOffsetS]);
   const [chosen, setChosen] = useState('');
-  const date = days.includes(chosen) ? chosen : (days[0] ?? '');
+  // A closed today (a Monday) has no stops: open on the first open day, as the checkout does.
+  const firstDay = firstOpenDate(days);
+  const date = days.includes(chosen) ? chosen : firstDay;
 
   // The chosen day rides in the address (?day=2026-11-10), so a reload or a shared link keeps it.
   // Read once on load, in an effect so the server render and the first paint agree; written with
@@ -135,7 +137,7 @@ export default function Dispatch() {
   }, []);
   const chooseDay = (next: string) => {
     setChosen(next);
-    const search = queryWithDay(window.location.search, next, days[0] ?? next);
+    const search = queryWithDay(window.location.search, next, firstDay || next);
     window.history.replaceState(
       null,
       '',
@@ -392,11 +394,14 @@ export default function Dispatch() {
         >
           {days.map((d) => (
             <option key={d} value={d}>
-              {dateLabel(d)}
+              {`${dayText(d, { now: businessNowMs(clockOffsetS) })}${isOpenDate(d) ? '' : ', closed'}`}
             </option>
           ))}
         </select>
       </p>
+      {date !== '' && !isOpenDate(date) && (
+        <p className="hint">The bakery is closed this day, so it has no delivery stops.</p>
+      )}
       {isGuest && <GuestNote />}
       <Message error={error}>{said !== '' && <p>{said}</p>}</Message>
       {loading && day === null && <p className="hint">Reading the day’s stops…</p>}

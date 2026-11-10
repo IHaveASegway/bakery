@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { formatCountdown, utcClock, utcStamp } from '../../lib/countdown';
 import ApiToken from '../ApiToken';
 import ClockControl from '../ClockControl';
+import { businessNowMs } from '../../lib/when';
 import Console, { type WorkspaceProps } from '../Console';
 import DeadLetters from '../DeadLetters';
 import GuestNote from '../GuestNote';
@@ -31,7 +32,9 @@ export function SystemView({
         </h3>
         <dl data-tour="console-sandbox">
           <dt>Sandbox</dt>
-          <dd>
+          {/* The id on a line of its own, whole: 26 characters do not fit beside the label in a third
+              of the window, and an id cut mid-string reads as two. */}
+          <dd className="sandbox-id">
             <code>{sandbox.id}</code>
           </dd>
           <dt>Seed</dt>
@@ -96,7 +99,11 @@ export function SystemView({
             {isGuest && <GuestNote />}
           </div>
           <div className="panel half">
-            <DeadLetters sandboxId={sandbox.id} isGuest={isGuest} />
+            <DeadLetters
+              sandboxId={sandbox.id}
+              isGuest={isGuest}
+              now={businessNowMs(sandbox.clock_offset_s)}
+            />
           </div>
         </>
       )}

@@ -10,7 +10,7 @@ import {
   zoneLabel,
 } from '../lib/crm';
 import { describeCrmError } from '../lib/crm-errors';
-import { timesIn } from '../lib/when';
+import { momentText, timesIn } from '../lib/when';
 import { describeError, type Message as Text } from '../lib/messages';
 import Message from './Message';
 
@@ -27,6 +27,7 @@ export default function CustomerTimeline({
   personaId,
   refresh,
   onChanged,
+  now,
 }: {
   sandboxId: string;
   customer: CustomerResponse;
@@ -34,6 +35,8 @@ export default function CustomerTimeline({
   personaId: string;
   refresh: number;
   onChanged: (customer: CustomerResponse) => void;
+  /** Business now (wall clock plus the sandbox's offset), so "this year" is the bakery's. */
+  now?: number | undefined;
 }) {
   const [entries, setEntries] = useState<TimelineEntry[] | null>(null);
   const [error, setError] = useState<Text | null>(null);
@@ -111,7 +114,10 @@ export default function CustomerTimeline({
         <ol className="feed" aria-label={`Timeline of ${customer.display_name}, newest first`}>
           {newestFirst(entries).map((e) => (
             <li key={`${e.at}-${e.type}-${e.ref}`}>
-              <time dateTime={e.at}>{whenText(e.at)}</time>: {timesIn(e.label)}
+              <time dateTime={e.at} title={whenText(e.at)}>
+                {momentText(e.at, { now })}
+              </time>
+              : {timesIn(e.label, { now })}
             </li>
           ))}
         </ol>

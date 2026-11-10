@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   actionFor,
   bakeListsByDate,
@@ -28,6 +28,51 @@ const RULES: Record<string, string> = {
   // The demo's flag (roadmap R85): the board can be watched but not moved.
   'read-only': 'the demo is read-only for now, so the board can be watched but not moved',
 };
+
+/** The board's open card menus, which the listeners below close. */
+const openMenus = () => [
+  ...document.querySelectorAll<HTMLDetailsElement>('.board details.menu[open]'),
+];
+
+let menuListeners = false;
+
+/**
+ * The listeners every card menu shares, installed once for the page: Escape closes the open menu
+ * and puts focus back on its button, and a press outside a menu closes it.
+ */
+function listenForMenus() {
+  if (menuListeners) return;
+  menuListeners = true;
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    for (const menu of openMenus()) {
+      menu.open = false;
+      menu.querySelector('summary')?.focus();
+    }
+  });
+  document.addEventListener('mousedown', (e) => {
+    for (const menu of openMenus()) if (!menu.contains(e.target as Node)) menu.open = false;
+  });
+}
+
+/**
+ * A card's "…" menu, a <details>, with the manners of the top bar's popovers (ConsoleTopBar.tsx,
+ * Popover; F15, 2026-11-10): Escape closes it and puts focus back on its button, a press outside
+ * closes it, and opening one closes the one that was open, so two are never open at once.
+ */
+function useCardMenu() {
+  // A callback ref, so a menu that appears later (a card paid while on screen) is wired too.
+  return useCallback((details: HTMLDetailsElement | null) => {
+    if (details === null) return;
+    listenForMenus();
+    const toggled = () => {
+      if (!details.open) return;
+      for (const other of openMenus()) if (other !== details) other.open = false;
+    };
+    details.addEventListener('toggle', toggled);
+    return () => details.removeEventListener('toggle', toggled);
+  }, []);
+}
 
 /** `country-loaf/whole` as "country loaf, whole". */
 const variantWords = (slug: string) => slug.replaceAll('-', ' ').replace('/', ', ');
@@ -96,6 +141,7 @@ export function CardView({
   onFocused,
   onAct,
   onRefunded,
+  now,
 }: {
   card: Card;
   sandboxId: string;
@@ -111,6 +157,8 @@ export function CardView({
   onFocused?: () => void;
   onAct: (card: Card) => void;
   onRefunded: (said: string, whole: boolean) => void;
+  /** Business now (wall clock plus the sandbox's offset), so "this year" is the bakery's. */
+  now?: number | undefined;
 }) {
   const action = actionFor(card);
   const route = routeWords(card);
@@ -124,6 +172,7 @@ export function CardView({
   const shown = card.lines.slice(0, LINES_SHOWN);
   const rest = card.lines.slice(LINES_SHOWN);
   const refundable = canRefund && card.state !== 'pending';
+  const more = useCardMenu();
   return (
     <li className="card" ref={item} tabIndex={-1}>
       <p className="card-head">
@@ -135,7 +184,7 @@ export function CardView({
       <p className="card-when">
         <time dateTime={card.slot} title={whenText(card.slot)}>
           <span className="card-clock">{clockOfText(card.slot)}</span>{' '}
-          <span className="card-date">{shortDate(card.slot)}</span>
+          <span className="card-date">{shortDate(card.slot, { now })}</span>
         </time>
       </p>
       <ul className="card-lines">
@@ -194,7 +243,7 @@ export function CardView({
           {/* A pending card is unpaid, so there is nothing to refund yet. Refunds are destructive,
               so they wait in the card's overflow menu, never beside the next step. */}
           {refundable && (
-            <details className="menu">
+            <details className="menu" ref={more}>
               <summary
                 className="btn btn-quiet btn-sm btn-icon"
                 aria-label={`More for order ${shortId(card.order)}`}
@@ -251,7 +300,9 @@ export default function KitchenBoard({
   const open = kitchen.status === 'open';
   const groups = groupByState(kitchen.board);
   const total = groups.reduce((n, g) => n + g.cards.length, 0);
-  const today = dateOf(mountainLocal(Date.now() + clockOffsetS * 1000));
+  // Business now: the bake list's today, and "this year" for every date the board prints.
+  const now = Date.now() + clockOffsetS * 1000;
+  const today = dateOf(mountainLocal(now));
   const bakeLists = bakeListsByDate(kitchen.board, today);
   const followed = follow === null ? undefined : kitchen.board.cards[follow.order];
 
@@ -324,7 +375,7 @@ export default function KitchenBoard({
         )}
         {isGuest && (
           <GuestNote tour="kitchen-guest">
-            Guests move their own orders here; a refund needs a sign-in.
+            You can move any order here; a refund needs a sign-in.
           </GuestNote>
         )}
         <div aria-live="polite" className="messages">
@@ -383,6 +434,7 @@ export default function KitchenBoard({
                       }}
                       canRefund={!isGuest}
                       open={open}
+                      now={now}
                       focusHere={
                         follow !== null && follow.order === card.order && follow.from !== card.state
                       }
@@ -439,7 +491,7 @@ export default function KitchenBoard({
       </section>
 
       <div className="panel">
-        <BakeList lists={bakeLists} today={today} />
+        <BakeList lists={bakeLists} today={today} now={now} />
       </div>
     </>
   );

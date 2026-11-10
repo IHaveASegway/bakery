@@ -261,7 +261,7 @@ test('a guest’s short path on the console moves a card, and says a refund need
   await guestSandbox(page);
   await page.goto('/app/');
   await expect(
-    page.getByText('Guests move their own orders here; a refund needs a sign-in.'),
+    page.getByText('You can move any order here; a refund needs a sign-in.'),
   ).toBeVisible();
   await page.getByRole('button', { name: 'More of Under the hood' }).click();
   await page.getByRole('button', { name: 'Show me around' }).click();

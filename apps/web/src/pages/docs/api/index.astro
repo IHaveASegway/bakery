@@ -91,7 +91,7 @@ const page = buildPage(doc as unknown as OpenApiDoc);
               <>
                 <h5>Parameters</h5>
                 <div class="table-scroll" role="region" aria-label={`Parameters of ${op.id}`} tabindex="0">
-                  <table>
+                  <table class="params-table">
                     <thead>
                       <tr>
                         <th scope="col">Name</th>
@@ -187,10 +187,10 @@ const page = buildPage(doc as unknown as OpenApiDoc);
           <tbody>
             {page.socket.frames.map((frame) => (
               <tr>
-                <th scope="row"><code>{frame.t}</code></th>
-                <td>{frame.direction}</td>
-                <td><code>{frame.shape}</code></td>
-                <td><Spans spans={[{ text: frame.when, code: false }]} /></td>
+                <th scope="row" data-label="Frame"><code>{frame.t}</code></th>
+                <td data-label="Direction">{frame.direction}</td>
+                <td data-label="Shape"><code>{frame.shape}</code></td>
+                <td data-label="When"><Spans spans={[{ text: frame.when, code: false }]} /></td>
               </tr>
             ))}
           </tbody>

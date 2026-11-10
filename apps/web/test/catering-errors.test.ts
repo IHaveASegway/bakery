@@ -38,6 +38,10 @@ const INQUIRY_RULES = [
   'brief-url',
 ];
 
+// Business now for the days these sentences name: a day in 2026, so a 2026 day prints without its
+// year and a 2027 one with it, whatever year the machine's clock says.
+const NOW = Date.parse('2026-11-10T16:00:00Z');
+
 describe('the rule an inquiry’s 422 names', () => {
   test.each(INQUIRY_RULES)('%s has its own sentence, titled for the inquiry', (rule) => {
     const message = describeCateringError(error(422, 'catering', rule));
@@ -59,9 +63,9 @@ describe('the rule an inquiry’s 422 names', () => {
     const detail =
       "a catering event needs 7 business days' notice (Tuesday to Sunday); the earliest date is 2026-11-11";
     expect(dateIn(detail)).toBe('2026-11-11');
-    const message = describeCateringError(error(422, 'catering', detail));
+    const message = describeCateringError(error(422, 'catering', detail), NOW);
     expect(message.detail).toContain('7 business days');
-    expect(message.detail).toContain('The earliest date is 2026-11-11.');
+    expect(message.detail).toContain('The earliest day is Wed 11 Nov.');
   });
 
   test('the lead rule is known by the slug or by the domain’s words', () => {
@@ -79,15 +83,16 @@ describe('the rule an inquiry’s 422 names', () => {
     expect(
       ruleOf('a catering event is at most 365 days ahead; the latest date is 2027-11-03'),
     ).toBe('catering-too-far');
-    const message = describeCateringError(error(422, 'catering', detail));
+    const message = describeCateringError(error(422, 'catering', detail), NOW);
     expect(message.title).toBe('The bakery could not take this inquiry');
     expect(message.detail).toContain('365 days ahead');
-    expect(message.detail).toContain('The latest date is 2027-11-03.');
+    expect(message.detail).toContain('The latest day is Wed 3 Nov 2027.');
     expect(message.detail).not.toContain('earliest');
     const staff = describeStaffError(
       error(422, 'catering', detail, 'The catering inquiry was refused'),
+      NOW,
     );
-    expect(staff.detail).toContain('The latest date is 2027-11-03.');
+    expect(staff.detail).toContain('The latest day is Wed 3 Nov 2027.');
   });
 
   test('a lead refusal with no date still reads', () => {

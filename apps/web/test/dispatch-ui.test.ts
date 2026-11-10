@@ -154,10 +154,13 @@ describe('the plan and the stops', () => {
     for (const head of ['Order', 'Place', 'Window', 'Zone', 'Units', 'Status', 'Van', 'Stop']) {
       expect(out).toContain(`<th scope="col" class="whitespace-nowrap">${head}</th>`);
     }
-    // On a phone the head is hidden and the rows stack, so each value carries its own label.
-    for (const label of ['Order', 'Place', 'Window', 'Units', 'Status', 'Van', 'Stop']) {
-      expect(out).toContain(`<span class="font-semibold sm:hidden">${label}: </span>`);
+    // On a phone the head is hidden and the rows stack, so each cell names its column
+    // (`data-label`, the one pattern every stacking table uses, global.css).
+    for (const label of ['Order', 'Place', 'Window', 'Zone', 'Units', 'Status', 'Van', 'Stop']) {
+      expect(out).toContain(`data-label="${label}"`);
     }
+    // A stop with no number yet leaves its cell empty, so a phone shows no stray dash.
+    expect(out).toContain('<td data-label="Stop"></td>');
     // The table breaks only between words ("Delivered", not "Delivere d").
     expect(out).toContain('<table class="table [overflow-wrap:normal]">');
     expect(out).toContain('9:00 am to 11:00 am');

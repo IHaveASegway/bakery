@@ -1,7 +1,7 @@
 import type { CateringResponse } from '../contracts';
 import { estimate, figuresOf, packageLabel, stateLabel, venueLabel } from '../lib/catering';
 import { dollars } from '../lib/money';
-import { dateLabel, startText } from '../lib/schedule';
+import { dayText, momentText } from '../lib/when';
 
 /**
  * One event's facts and figures as the API sent them: the day, package, headcount and venue, the
@@ -9,7 +9,14 @@ import { dateLabel, startText } from '../lib/schedule';
  * Before a quote it shows what the package would come to, labelled as an estimate: the figures
  * that count are the API's.
  */
-export default function CateringFigures({ event }: { event: CateringResponse }) {
+export default function CateringFigures({
+  event,
+  now,
+}: {
+  event: CateringResponse;
+  /** Business now (wall clock plus the sandbox's offset), so "this year" is the bakery's. */
+  now?: number | undefined;
+}) {
   const figures = figuresOf(event);
   const guess = figures === null ? estimate(event) : null;
   return (
@@ -19,7 +26,7 @@ export default function CateringFigures({ event }: { event: CateringResponse }) 
         <strong>{stateLabel(event.state)}</strong>
       </dd>
       <dt>Day</dt>
-      <dd>{dateLabel(event.date)}</dd>
+      <dd>{dayText(event.date, { now })}</dd>
       <dt>Package</dt>
       <dd>{packageLabel(event.package)}</dd>
       <dt>Headcount</dt>
@@ -48,7 +55,7 @@ export default function CateringFigures({ event }: { event: CateringResponse }) 
         <>
           <dt>Quote valid until</dt>
           <dd>
-            <time dateTime={event.valid_until}>{startText(event.valid_until)}</time>
+            <time dateTime={event.valid_until}>{momentText(event.valid_until, { now })}</time>
           </dd>
         </>
       )}
@@ -65,7 +72,7 @@ export default function CateringFigures({ event }: { event: CateringResponse }) 
           <dt>Balance invoice</dt>
           <dd>
             <code>{event.invoice}</code>
-            {event.invoice_due && <>, due {dateLabel(event.invoice_due)}</>}
+            {event.invoice_due && <>, due {dayText(event.invoice_due, { now })}</>}
           </dd>
         </>
       )}

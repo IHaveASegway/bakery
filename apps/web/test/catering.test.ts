@@ -29,6 +29,8 @@ import {
   estimate,
   figuresOf,
   groupByState,
+  inquiryFieldErrors,
+  inquiryMissing,
   inquiryReasons,
   inquiryRequest,
   invoiceOutcome,
@@ -134,10 +136,10 @@ describe('business days', () => {
   });
 
   test('the hint names the 7-business-day rule and the earliest date', () => {
-    const hint = leadHint('2026-11-11');
+    const hint = leadHint('2026-11-11', Date.parse('2026-11-10T16:00:00Z'));
     expect(hint).toContain('7 business days');
     expect(hint).toContain('Tuesday to Sunday');
-    expect(hint).toContain('2026-11-11');
+    expect(hint).toContain('the earliest day is Wed 11 Nov.');
   });
 });
 
@@ -645,5 +647,40 @@ describe('the waits after a payment', () => {
     for (const what of ['deposit', 'balance', 'invoice'] as const) {
       expect(timeoutText(what)).toMatch(/refresh/i);
     }
+  });
+});
+
+describe('the inquiry form says what is wrong at its field (F11, 2026-11-10)', () => {
+  const earliest = '2026-11-17';
+
+  test('a headcount out of range is said at the headcount, in its own words', () => {
+    expect(inquiryFieldErrors({ ...EMPTY_INQUIRY, headcount: '500' }, earliest)).toEqual({
+      headcount: '500 is more than 200 people.',
+    });
+    expect(inquiryFieldErrors({ ...EMPTY_INQUIRY, headcount: '4' }, earliest)).toEqual({
+      headcount: '4 is fewer than 10 people.',
+    });
+    expect(inquiryFieldErrors({ ...EMPTY_INQUIRY, headcount: 'ten' }, earliest).headcount).toBe(
+      'A whole number of people, 10 to 200.',
+    );
+  });
+
+  test('an empty field is not wrong yet: it is said beside the button as still to fill', () => {
+    expect(inquiryFieldErrors(EMPTY_INQUIRY, earliest)).toEqual({});
+    expect(inquiryMissing(EMPTY_INQUIRY)).toBe(
+      'Still to fill: a day, a headcount, a package and a venue.',
+    );
+    expect(inquiryMissing({ ...EMPTY_INQUIRY, date: earliest, headcount: '40' })).toBe(
+      'Still to fill: a package and a venue.',
+    );
+    expect(
+      inquiryMissing({ date: earliest, headcount: '40', package: 'p', venue: 'v', brief: '' }),
+    ).toBeNull();
+  });
+
+  test('a brief over the limit is said at the brief', () => {
+    expect(inquiryFieldErrors({ ...EMPTY_INQUIRY, brief: 'b'.repeat(503) }, earliest)).toEqual({
+      brief: '3 characters over the limit.',
+    });
   });
 });

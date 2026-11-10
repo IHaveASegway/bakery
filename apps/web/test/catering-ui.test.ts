@@ -45,13 +45,15 @@ describe('the figures', () => {
     const html = renderToStaticMarkup(
       createElement(CateringFigures, {
         event: event('quoted', { valid_until: '2026-11-23T07:00:00-07:00' }),
+        // A day in 2026, so the deadline prints without its year whatever the machine's year.
+        now: Date.parse('2026-11-10T16:00:00Z'),
       }),
     );
     expect(html).toContain('$580.00');
     expect(html).toContain('$145.00');
     expect(html).toContain('$435.00');
     expect(html).toContain('Quote valid until');
-    expect(html).toContain('7:00 am on Monday 2026-11-23');
+    expect(html).toContain('Mon 23 Nov, 7:00 am');
     expect(html).toContain('Breakfast spread');
   });
 

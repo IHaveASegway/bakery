@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ActivityEntry } from '../contracts';
 import { activityFeed } from '../lib/activity-feed';
 import { getActivity } from '../lib/api';
-import { timesIn, whenText } from '../lib/when';
+import { momentText, timesIn, whenText } from '../lib/when';
 import { describeError, type Message as Text } from '../lib/messages';
 import Message from './Message';
 
@@ -14,7 +14,16 @@ const SHOWN = 30;
  * an event (an order paid, a campaign sent, a rebuild finished) and holds no free text a visitor
  * typed. The feed looks again every ten seconds and when `refresh` changes.
  */
-export default function Activity({ sandboxId, refresh }: { sandboxId: string; refresh: number }) {
+export default function Activity({
+  sandboxId,
+  refresh,
+  now,
+}: {
+  sandboxId: string;
+  refresh: number;
+  /** Business now (wall clock plus the sandbox's offset), so "this year" is the bakery's. */
+  now?: number | undefined;
+}) {
   const [entries, setEntries] = useState<ActivityEntry[] | null>(null);
   const [error, setError] = useState<Text | null>(null);
 
@@ -49,7 +58,10 @@ export default function Activity({ sandboxId, refresh }: { sandboxId: string; re
         <ol className="feed feed-scroll" aria-label="Activity, newest first" tabIndex={0}>
           {entries.map((e) => (
             <li key={`${e.at}-${e.type}-${e.summary}`}>
-              <time dateTime={e.at}>{whenText(e.at)}</time>: {timesIn(e.summary)}
+              <time dateTime={e.at} title={whenText(e.at)}>
+                {momentText(e.at, { now })}
+              </time>
+              : {timesIn(e.summary, { now })}
             </li>
           ))}
         </ol>
