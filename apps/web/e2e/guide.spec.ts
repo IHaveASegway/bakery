@@ -506,26 +506,6 @@ test.describe('on a phone', () => {
     ).toBeLessThanOrEqual(1);
     expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(bar?.x ?? 0);
     expect(await underIt('button[aria-label^="Add "]')).toEqual([]);
-    // An Add pressed low on the screen: the note it opens does not cover it.
-    const add = page.getByRole('button', { name: /^Add .*, to the cart$/ }).nth(3);
-    await add.evaluate((el) =>
-      window.scrollTo(
-        0,
-        el.getBoundingClientRect().top + window.scrollY - window.innerHeight + 150,
-      ),
-    );
-    await add.click();
-    const opened = page.locator('.guide-note').first();
-    await expect(opened).toBeVisible();
-    const pressed = await add.boundingBox();
-    const sheet = await opened.boundingBox();
-    expect(
-      pressed !== null &&
-        sheet !== null &&
-        (pressed.y + pressed.height <= sheet.y || pressed.y >= sheet.y + sheet.height),
-    ).toBe(true);
-    const shut = page.getByRole('button', { name: 'Close this note' });
-    if (await shut.isVisible()) await shut.click();
     // A tap opens the whole control: the switch, the short path and the recorder.
     await compact.click();
     await expect(page.getByRole('switch', { name: 'Under the hood' })).toBeVisible();
@@ -544,5 +524,30 @@ test.describe('on a phone', () => {
     // No cart bar here: the control sits in the masthead's first row and scrolls away with it.
     expect(await underIt('form button, form input, form select, form label')).toEqual([]);
     await expectNoAxeViolations(page);
+  });
+
+  test('a live note opened by a control low on the screen does not cover that control', async ({
+    page,
+  }) => {
+    await demoAccount(page);
+    await liveSandbox(page);
+    await page.goto('/app/system/');
+    const advance = page.getByRole('button', { name: /^Advance 15 minutes/ }).first();
+    await expect(advance).toBeVisible();
+    await advance.evaluate((el) =>
+      window.scrollTo(
+        0,
+        el.getBoundingClientRect().top + window.scrollY - window.innerHeight + 160,
+      ),
+    );
+    await advance.click();
+    const note = page.getByRole('region', { name: 'Under the hood: The clock' });
+    await expect(note).toBeVisible();
+    const pressed = await advance.boundingBox();
+    const sheet = await note.boundingBox();
+    expect(pressed).not.toBeNull();
+    expect(sheet).not.toBeNull();
+    if (pressed === null || sheet === null) return;
+    expect(pressed.y + pressed.height <= sheet.y || pressed.y >= sheet.y + sheet.height).toBe(true);
   });
 });
