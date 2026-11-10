@@ -81,7 +81,7 @@ export default function ClockControl({
       )}
       <p>
         Business time is{' '}
-        <strong>
+        <strong className="whitespace-nowrap">
           <time dateTime={now.iso}>{now.text}</time>
         </strong>{' '}
         (Mountain), <span className="whitespace-nowrap">{formatOffset(offset)}</span> ahead of the
