@@ -276,7 +276,21 @@ export interface TraceSnapshot {
   listening: Listening | null;
   /** The recorder's hops this page has heard, newest first, whoever caused them. */
   hops: readonly RecorderHop[];
+  /**
+   * The last events this page saw from any source, newest first, whoever caused them: what lets a
+   * note say a move was already made under another command, so its own wrote nothing (audit H10).
+   */
+  seen: readonly SeenEvent[];
   version: number;
+}
+
+/** An event the page saw, by its type, stream and cause. */
+export interface SeenEvent {
+  id: string | null;
+  type: string;
+  stream: string | null;
+  cause: string | null;
+  at: number;
 }
 
 /** A click the visitor made: its number, when, and the element they pressed (opaque here). */
@@ -303,6 +317,7 @@ const KEEP_ORPHANS = 100;
 const KEEP_FEED = 50;
 /** How many of the recorder's hops are kept for the panel, one an event. */
 export const KEEP_HOPS = 40;
+const KEEP_SEEN = 50;
 
 export interface TraceStore extends TraceSink {
   subscribe(listener: () => void): () => void;
@@ -333,8 +348,9 @@ export function createTraceStore(
   let heard: HeardEvent[] = [];
   let listening: Listening | null = null;
   let hops: RecorderHop[] = [];
+  let seen: SeenEvent[] = [];
   let version = 0;
-  let snapshot: TraceSnapshot = { traces, feed, heard, listening, hops, version };
+  let snapshot: TraceSnapshot = { traces, feed, heard, listening, hops, seen, version };
   const owner = new Map<string, string>();
   let orphans: Extract<Evidence, { kind: 'event' }>[] = [];
   let last: Gesture | null = null;
@@ -355,7 +371,7 @@ export function createTraceStore(
       const trace = holder.get(h.id) ?? null;
       return trace === h.trace ? h : { ...h, trace };
     });
-    snapshot = { traces, feed, heard, listening, hops, version };
+    snapshot = { traces, feed, heard, listening, hops, seen, version };
     for (const listener of listeners) listener();
   };
 
@@ -526,10 +542,13 @@ export function createTraceStore(
           // Every recorder hop is listed for the panel, whoever caused it; it is a trace's only
           // when the trace holds it (`changed`).
           listHop(evidence);
+          if (evidence.id === null || !seen.some((e) => e.id === evidence.id)) {
+            const { id, type, stream, cause, at } = evidence;
+            seen = [{ id, type, stream, cause, at }, ...seen].slice(0, KEEP_SEEN);
+          }
           if (attach(evidence)) break;
           const tieable = evidence.cause !== null && !evidence.cause.startsWith('sim:');
           if (tieable) orphans = [...orphans, evidence].slice(-KEEP_ORPHANS);
-          if (evidence.source !== 'recorder') return;
           break;
         }
       }
@@ -567,6 +586,7 @@ export function createTraceStore(
       heard = [];
       listening = null;
       hops = [];
+      seen = [];
       orphans = [];
       owner.clear();
       changed();

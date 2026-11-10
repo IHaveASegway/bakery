@@ -19,6 +19,7 @@ import {
   type Listening,
   type ExpectedHop,
   type Reading,
+  type SeenEvent,
   type Trace,
   type TracedEvent,
 } from '../../lib/trace';
@@ -342,15 +343,40 @@ export function takenWords(deliveries: readonly Delivery[] | undefined): string 
  * it from the same traces, whose reading state is the store's (lib/trace.ts), so they say the
  * same of every event (audit H1).
  */
+/**
+ * A board move answered ack whose event this page already saw for the same order under another
+ * command (another tab, or an earlier press): the Order took the repeat as a no-op and wrote
+ * nothing, so there is nothing to wait for (audit H10). The other command's event, or null.
+ */
+export function madeBefore(
+  trace: Trace,
+  type: string,
+  seen: readonly SeenEvent[],
+): SeenEvent | null {
+  if (trace.transport !== 'socket' || trace.outcome !== 'ok' || trace.order === null) return null;
+  return (
+    seen.find(
+      (e) =>
+        e.type === type &&
+        e.cause !== trace.key &&
+        e.stream !== null &&
+        e.stream.endsWith(`:${trace.order}`),
+    ) ?? null
+  );
+}
+
 export function TraceChain({
   traces,
   expected,
   feed,
+  seen = [],
 }: {
   traces: readonly Trace[];
   /** The event types the action should make (match.ts, expectedFor). */
   expected: readonly string[];
   feed: readonly FeedArrival[];
+  /** The last events the page saw, whoever caused them (lib/trace.ts, `seen`). */
+  seen?: readonly SeenEvent[];
 }) {
   const first = traces[0];
   if (first === undefined) return null;
@@ -420,6 +446,21 @@ export function TraceChain({
           );
         }
         const taken = hop.state === 'observed' ? takenWords(event?.deliveries) : null;
+        const before = hop.state === 'observed' ? null : madeBefore(first, hop.type, seen);
+        if (before !== null) {
+          return (
+            <li key={`${hop.type}-before`} className="guide-hop" data-state="noop">
+              <span className="guide-hop-kind">Event</span>
+              <span className="guide-hop-body">
+                <code className="guide-chip">{hop.type}</code>
+                <span className="guide-meta">
+                  already made for this order under another command (another screen, or an earlier
+                  press): the Order took this one as a repeat and wrote nothing new
+                </span>
+              </span>
+            </li>
+          );
+        }
         return (
           <li key={`${hop.type}-${event?.id ?? ''}`} className="guide-hop" data-state={hop.state}>
             <span className="guide-hop-kind">

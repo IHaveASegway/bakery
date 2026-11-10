@@ -3,6 +3,20 @@
 import type { GuideEntry } from '../lib/guide';
 import { BREAKER, CQRS, PAYMENTS, QUEUE, RAFT } from './principles';
 
+/**
+ * What each board move's event changes beyond the board, one line a move, so three moves of one
+ * entry do not say the same thing three times (audit G12). From the subscriber table
+ * (crates/app/src/routing.rs) and what each subscriber does with the event.
+ */
+export const BOARD_MOVES: Record<string, string> = {
+  start_production:
+    'OrderProductionStarted reaches the board on every screen and the CRM, whose row for the order now reads In production.',
+  mark_ready:
+    'OrderReady puts a ready message in the customer’s inbox, and for a delivery on the day’s published plan Dispatch sends its stop out now.',
+  mark_picked_up:
+    'OrderPickedUp takes the card off the board on every screen and is the order’s last step: the CRM’s row reads Picked up.',
+};
+
 export const KITCHEN: GuideEntry[] = [
   {
     id: 'kitchen-board',

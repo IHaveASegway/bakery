@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { RECORDER } from '../../guide/recorder';
+import { BOARD_MOVES } from '../../guide/kitchen';
 import { tailForPanel, useRecorderState } from '../../lib/recorder';
 import { useSandboxPhase } from '../../lib/use-session';
 import type { GuideEntry, ScreenId } from '../../lib/guide';
@@ -9,6 +10,7 @@ import type {
   HeardEvent,
   Listening,
   RecorderHop,
+  SeenEvent,
   Trace,
 } from '../../lib/trace';
 import { byGesture, entryForGroup, expectedFor, routeIdOf, targetOf } from './match';
@@ -76,6 +78,7 @@ export default function Panel({
   traces,
   feed,
   hops,
+  seen = [],
   heard = [],
   listening = null,
   onClose,
@@ -86,6 +89,8 @@ export default function Panel({
   feed: readonly FeedArrival[];
   /** The recorder's hops, from the same store as the traces (lib/trace.ts). */
   hops: readonly RecorderHop[];
+  /** The last events the page saw, whoever caused them. */
+  seen?: readonly SeenEvent[];
   /** On a page that watches an order: what it heard, and how it listens. */
   heard?: readonly HeardEvent[];
   listening?: Listening | null;
@@ -160,7 +165,15 @@ export default function Panel({
                 </button>
                 {openRow === id && (
                   <div id={id} className="guide-row-body">
-                    <TraceChain traces={group} expected={expectedFor(entry, group)} feed={feed} />
+                    <TraceChain
+                      traces={group}
+                      expected={expectedFor(entry, group)}
+                      feed={feed}
+                      seen={seen}
+                    />
+                    {first.transport === 'socket' && BOARD_MOVES[first.action ?? ''] && (
+                      <p className="guide-happened">{BOARD_MOVES[first.action ?? '']}</p>
+                    )}
                     {first.read !== undefined && <ReadStory trace={first} />}
                     {entry?.happened !== undefined && (
                       <p className="guide-happened">{entry.happened}</p>

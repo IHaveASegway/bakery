@@ -7,6 +7,7 @@ import { describe, expect, test } from 'vitest';
 import { Note, resolveAnchor } from '../src/components/guide/Note';
 import { byGesture, hopLines, hopWords } from '../src/components/guide/Panel';
 import { RECORDER } from '../src/guide/recorder';
+import { BOARD_MOVES } from '../src/guide/kitchen';
 import { sandboxOf } from '../src/lib/recorder';
 import {
   entryForTraces,
@@ -23,6 +24,7 @@ import {
   Observed,
   TraceChain,
   dayOf,
+  madeBefore,
   deliveryWords,
   WatchChain,
   WhyLines,
@@ -1146,5 +1148,51 @@ describe('a chain folds an event it did not name when it comes many times (audit
       }),
     );
     expect(html).toContain('seq 2 on Schedule for 11 Nov');
+  });
+});
+
+describe('a board move says what it changes, and a repeat says it changed nothing (G12, H10)', () => {
+  const ORDER = '01JC9A0K8T2B6Y8C4V1N3K7QZH';
+  const move = (key: string): Trace =>
+    trace({
+      id: key,
+      key,
+      transport: 'socket',
+      method: 'WS',
+      path: 'cmd',
+      action: 'start_production',
+      order: ORDER,
+      status: null,
+      outcome: 'ok',
+    });
+  test('each move has its own line, and none repeats the board’s Why', () => {
+    const lines = Object.values(BOARD_MOVES);
+    expect(new Set(lines).size).toBe(3);
+    for (const line of lines) {
+      expect(sentenceCount(line)).toBe(1);
+      expect(line).not.toContain(entry('kitchen-board').why);
+    }
+  });
+  test('a second tab’s Start, acked with no event of its own, waits for nothing', () => {
+    const other = {
+      id: 'evt-other',
+      type: 'OrderProductionStarted',
+      stream: `order:sbx-one:${ORDER}`,
+      cause: 'cmd-from-tab-b',
+      at: T0,
+    };
+    const html = renderToStaticMarkup(
+      createElement(TraceChain, {
+        traces: [move('cmd-from-tab-a')],
+        expected: ['OrderProductionStarted'],
+        feed: [],
+        seen: [other],
+      }),
+    );
+    expect(html).toContain('data-state="noop"');
+    expect(html).toContain('wrote nothing new');
+    expect(html).not.toContain('on its way');
+    // The tab that made it sees its own event, not a repeat.
+    expect(madeBefore(move('cmd-from-tab-b'), 'OrderProductionStarted', [other])).toBeNull();
   });
 });

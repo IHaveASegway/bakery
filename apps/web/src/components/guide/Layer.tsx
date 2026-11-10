@@ -10,6 +10,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { PATHS, entriesFor } from '../../guide';
+import { BOARD_MOVES } from '../../guide/kitchen';
 import {
   NEEDS_SIGN_IN,
   PATH_CLOSED,
@@ -739,7 +740,11 @@ export default function Layer({
                 traces={group}
                 expected={expectedFor(liveEntry, group)}
                 feed={snapshot.feed}
+                seen={snapshot.seen}
               />
+              {group[0]?.transport === 'socket' && BOARD_MOVES[group[0].action ?? ''] && (
+                <p className="guide-happened">{BOARD_MOVES[group[0].action ?? '']}</p>
+              )}
               {unfollowable(group) !== null && <p className="guide-meta">{unfollowable(group)}</p>}
               <RecorderSays state={recorder} />
               {group[0]?.read !== undefined && <ReadStory trace={group[0]} />}
@@ -784,6 +789,7 @@ export default function Layer({
               traces={snapshot.traces.filter((t) => t.gesture !== null)}
               feed={snapshot.feed}
               hops={snapshot.hops}
+              seen={snapshot.seen}
               heard={snapshot.heard}
               listening={snapshot.listening}
               onClose={onClosePanel}
