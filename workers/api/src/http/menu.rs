@@ -144,8 +144,21 @@ async fn edited(mut res: Response) -> Answer {
     }
 }
 
-/// `PATCH /v1/sandboxes/{id}/menu/items/{slug}`, signed-in sessions only: a price for every
-/// variant of the item (a draft until publish), or a pause or a resume (published at once).
+/// What a body must say before the Catalog is asked: a price or a status, and a `variant` only
+/// beside a price (roadmap R86). The rule is the `menu` problem's.
+fn patch_says(body: &MenuItemPatch) -> Result<(), &'static str> {
+    if body.variant.is_some() && body.price_cents.is_none() {
+        return Err("variant-without-price");
+    }
+    if body.price_cents.is_none() && body.status.is_none() {
+        return Err("empty-patch");
+    }
+    Ok(())
+}
+
+/// `PATCH /v1/sandboxes/{id}/menu/items/{slug}`, signed-in sessions only: a price for one
+/// variant with `variant`, or for every variant of the item without it (a draft until publish),
+/// or a pause or a resume (published at once).
 pub async fn patch_item(
     cx: &Cx,
     req: &mut Request,
@@ -157,9 +170,7 @@ pub async fn patch_item(
     let slug = slug.ok_or_else(problem::not_found)?;
     let text = req.text().await.map_err(|_| problem::body())?;
     let body: MenuItemPatch = serde_json::from_str(&text).map_err(|_| problem::body())?;
-    if body.price_cents.is_none() && body.status.is_none() {
-        return Err(problem::menu("empty-patch"));
-    }
+    patch_says(&body).map_err(problem::menu)?;
     // A PATCH is idempotent by its body, so without a key each one is its own command.
     let key = match cx.key {
         Some(k) => k,
@@ -177,6 +188,7 @@ pub async fn patch_item(
             item: slug.to_owned(),
             price_cents: body.price_cents,
             status: body.status,
+            variant: body.variant,
         }),
     )
     .await?;
@@ -262,6 +274,36 @@ mod tests {
     use super::*;
     use bakery_contracts::MenuResponse;
     use bakery_domain::catalog::{Catalog, Category, Item, Variant};
+
+    #[test]
+    fn a_patch_with_a_variant_needs_a_price_and_one_without_still_means_every_variant() {
+        let read = |text: &str| serde_json::from_str::<MenuItemPatch>(text).unwrap();
+        // A v1 client's body, with no `variant`: read as before, and accepted.
+        let v1 = read(r#"{"price_cents":1000}"#);
+        assert_eq!(v1.variant, None);
+        assert_eq!(patch_says(&v1), Ok(()));
+        assert_eq!(
+            patch_says(&read(
+                r#"{"price_cents":600,"variant":"country-loaf/half"}"#
+            )),
+            Ok(())
+        );
+        assert_eq!(
+            patch_says(&read(r#"{"variant":"country-loaf/half"}"#)),
+            Err("variant-without-price")
+        );
+        assert_eq!(
+            patch_says(&read(
+                r#"{"status":"paused","variant":"country-loaf/half"}"#
+            )),
+            Err("variant-without-price")
+        );
+        assert_eq!(patch_says(&read("{}")), Err("empty-patch"));
+        // Anything else is still refused by the type.
+        assert!(
+            serde_json::from_str::<MenuItemPatch>(r#"{"price_cents":1,"size":"half"}"#).is_err()
+        );
+    }
 
     #[test]
     fn the_cache_key_names_the_sandbox_and_the_version() {

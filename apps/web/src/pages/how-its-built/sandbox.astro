@@ -132,9 +132,11 @@ const SOURCES = [
     <p>
       <strong>Mail has nowhere to go.</strong> The bakery has no address to send from or to, so
       every message is a row in the sandbox’s <code>Inbox</code>, whose recipient is a customer id
-      and not an address. The <code>Recipient</code> type has private fields and no conversion from
-      a string, and two <code>compile_fail</code> tests show that code naming an address does not
-      build (<code>crates/app/src/ports.rs</code>, <code>docs/security.md</code>).
+      and not an address. The Inbox’s own event, <code>MessageDelivered</code>, carries its
+      recipient as <code>to: Ulid</code>, so there is no field an address could go in, and a
+      recipient read from text must be a 26-character ULID or the event does not decode (
+      <code>crates/domain/src/inbox.rs</code>, <code>crates/domain/src/id.rs</code>,{' '}
+      <code>docs/security.md</code>).
     </p>
     <p>
       <strong>Two free-text fields, checked as written.</strong> The order note is 140 characters

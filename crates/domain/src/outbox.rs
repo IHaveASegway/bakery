@@ -44,7 +44,8 @@ pub enum OutboxError {
 }
 
 /// The envelopes for `events`, numbered gap-free from the stream's last `seq`. Each event's id
-/// comes from `next_id`, which the object wires to the `IdGen` port; nothing here draws one.
+/// comes from `next_id`, which the object wires to the Worker's `random::ulid`; nothing here
+/// draws one.
 pub fn envelopes<E: DomainEvent>(
     head: &StreamHead,
     stamp: &Stamp,

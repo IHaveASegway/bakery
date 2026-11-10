@@ -1124,6 +1124,30 @@ fn check_name(name: &str) -> Result<(), CatalogError> {
     }
 }
 
+/// The `SetPrice` commands one price edit of an item makes (roadmap R86, 2026-11-10): with
+/// `variant`, that one variant, which must be one of `item_variants`, the item's own; without it,
+/// every variant of the item, as `PATCH .../menu/items/{slug}` did before `variant` existed, so a
+/// client that sends none gets what it always got. A slug that names another item's variant, or
+/// none, is refused `unknown-variant` before any command runs.
+pub fn price_commands(
+    item_variants: &[&Variant],
+    variant: Option<&str>,
+    price: Cents,
+) -> Result<Vec<CatalogCommand>, CatalogError> {
+    let set = |v: &Variant| CatalogCommand::SetPrice {
+        variant: v.slug.clone(),
+        price,
+    };
+    match variant {
+        None => Ok(item_variants.iter().map(|v| set(v)).collect()),
+        Some(slug) => item_variants
+            .iter()
+            .find(|v| v.slug == slug)
+            .map(|v| vec![set(v)])
+            .ok_or_else(|| CatalogError::UnknownVariant(slug.chars().take(80).collect())),
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -1936,6 +1960,62 @@ pub(crate) mod tests {
             }
             // The state is the fold of its log.
             prop_assert_eq!(replay_from::<Catalog>(fixture(), &log), state);
+        }
+    }
+
+    #[test]
+    fn a_price_edit_names_one_variant_or_every_one() {
+        let whole = variant("country-loaf", "whole", "Whole", 950, 0);
+        let half = variant("country-loaf", "half", "Half", 550, 0);
+        let other = variant("seeded-rye", "half", "Half", 600, 0);
+        let mine = [&whole, &half];
+        let set = |slug: &str, cents: i64| CatalogCommand::SetPrice {
+            variant: slug.to_owned(),
+            price: Cents(cents),
+        };
+        // No variant: every variant of the item, as before the field existed.
+        assert_eq!(
+            price_commands(&mine, None, Cents(1_000)).unwrap(),
+            [
+                set("country-loaf/whole", 1_000),
+                set("country-loaf/half", 1_000)
+            ]
+        );
+        // One variant: that one alone.
+        assert_eq!(
+            price_commands(&mine, Some("country-loaf/half"), Cents(600)).unwrap(),
+            [set("country-loaf/half", 600)]
+        );
+        // Another item's variant, or no variant at all, is refused.
+        for slug in [other.slug.as_str(), "country-loaf/quarter", "half"] {
+            let e = price_commands(&mine, Some(slug), Cents(600)).unwrap_err();
+            assert_eq!(e.rule(), "unknown-variant", "{slug}");
+        }
+    }
+
+    #[test]
+    fn one_variant_priced_leaves_its_siblings_alone() {
+        let state = fixture();
+        let (_, variants) = state.draft_item("fern-loaf").unwrap();
+        let first = variants[0].slug.clone();
+        let rest: Vec<(String, Cents)> = variants[1..]
+            .iter()
+            .map(|v| (v.slug.clone(), v.price_cents))
+            .collect();
+        let commands = price_commands(&variants, Some(&first), Cents(1_234)).unwrap();
+        let ctx = DecideContext {
+            now: "2026-11-10T09:00:00-07:00".parse().unwrap(),
+            id: Ulid::from_parts(1, 1),
+        };
+        let mut state = state;
+        for c in &commands {
+            state = execute::<Catalog>(state, c, &ctx).unwrap().0;
+        }
+        let (_, after) = state.draft_item("fern-loaf").unwrap();
+        assert_eq!(after[0].price_cents, Cents(1_234));
+        for (slug, price) in rest {
+            let v = after.iter().find(|v| v.slug == slug).unwrap();
+            assert_eq!(v.price_cents, price, "{slug}");
         }
     }
 }

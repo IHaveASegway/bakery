@@ -84,7 +84,7 @@ describe('draftsFrom', () => {
     lead_minutes: 120,
   });
 
-  test('each pending item with its waiting price, in the order the server lists them', () => {
+  test('each pending item, and each of its variants with its own draft price', () => {
     const read = draftsFrom({
       version: 1,
       pending: [
@@ -93,8 +93,8 @@ describe('draftsFrom', () => {
           name: 'Fern loaf',
           status: 'available',
           variants: [
-            variant('fern-loaf/whole', 'Whole', 1234),
-            variant('fern-loaf/half', 'Half', 1234),
+            variant('fern-loaf/whole', 'Whole', 950),
+            variant('fern-loaf/half', 'Half', 600),
           ],
         },
         {
@@ -107,7 +107,7 @@ describe('draftsFrom', () => {
     });
     expect(read).toEqual({
       pending: ['fern-loaf', 'moss-tea'],
-      prices: { 'fern-loaf': 1234, 'moss-tea': 325 },
+      prices: { 'fern-loaf/whole': 950, 'fern-loaf/half': 600, 'moss-tea/small': 325 },
     });
   });
 
@@ -115,7 +115,7 @@ describe('draftsFrom', () => {
     expect(draftsFrom({ version: 2, pending: [] })).toEqual({ pending: [], prices: {} });
   });
 
-  test('variants with different draft prices show the first; an item with none still waits', () => {
+  test('variants with different draft prices keep each its own; an item with none still waits', () => {
     const read = draftsFrom({
       version: 3,
       pending: [
@@ -137,6 +137,6 @@ describe('draftsFrom', () => {
       ],
     });
     expect(read.pending).toEqual(['clover-bun', 'thyme-cake']);
-    expect(read.prices).toEqual({ 'thyme-cake': 3800 });
+    expect(read.prices).toEqual({ 'thyme-cake/6-inch': 3800, 'thyme-cake/slice': 700 });
   });
 });
