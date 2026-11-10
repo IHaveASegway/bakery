@@ -1640,6 +1640,26 @@ mod tests {
     }
 
     #[test]
+    fn every_seeded_event_is_inside_the_365_day_bound_of_its_inquiry() {
+        // The seed replays each event's inquiry through the aggregate at `created_at`, so a date
+        // past `latest_date` would refuse it (roadmap R66, 2026-11-10). As built the dates are at
+        // most about 50 days after the inquiry.
+        use bakery_domain::BakeryDate;
+        use bakery_domain::catering::latest_date;
+        for seed in 0..200 {
+            let g = generate(seed, DATE);
+            for e in &g.catering {
+                let date: BakeryDate = e.date.parse().unwrap();
+                assert!(date <= latest_date(e.created_at), "seed {seed}: {}", e.date);
+                assert!(
+                    BakeryDate::of(e.created_at).days_until(date) <= 60,
+                    "seed {seed}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn catering_walks_the_lifecycle() {
         for seed in 0..30 {
             let g = generate(seed, DATE);

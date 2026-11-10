@@ -644,7 +644,8 @@ pub fn schedule(
 /// A refused catering inquiry (422) or step (409), by its slug (`CateringError::rule()`). The
 /// detail names the rule as a whole word, `The rule is <slug>.`, and never a value the visitor
 /// sent: a brief's refusal names the class it matched, never the text; `catering-lead` carries
-/// the domain's sentence, which names the 7-business-day rule and the earliest date.
+/// the domain's sentence, which names the 7-business-day rule and the earliest date, and
+/// `catering-too-far` the one that names the 365-day bound and the latest date.
 pub fn catering(status: u16, rule: &str, message: Option<&str>) -> Failure {
     let sentence = match rule {
         "headcount" => "A catering event is for 10 to 200 people.".to_owned(),
@@ -654,6 +655,10 @@ pub fn catering(status: u16, rule: &str, message: Option<&str>) -> Failure {
         "catering-lead" => match message {
             Some(m) => sentence_of(m),
             None => "A catering event needs 7 business days' notice (Tuesday to Sunday).".to_owned(),
+        },
+        "catering-too-far" => match message {
+            Some(m) => sentence_of(m),
+            None => "A catering event is at most 365 days ahead.".to_owned(),
         },
         "too-early" => match message {
             Some(m) => sentence_of(m),
@@ -1066,6 +1071,7 @@ mod tests {
             "unknown-venue",
             "closed-day",
             "catering-lead",
+            "catering-too-far",
             "brief-too-long",
             "brief-email",
             "brief-phone",
@@ -1093,6 +1099,15 @@ mod tests {
         );
         let detail = lead.problem.detail.unwrap();
         assert!(detail.starts_with("A catering event needs 7 business days"));
+        let far = catering(
+            422,
+            "catering-too-far",
+            Some("a catering event is at most 365 days ahead; the latest date is 2027-11-03"),
+        );
+        assert_eq!(
+            far.problem.detail.unwrap(),
+            "A catering event is at most 365 days ahead; the latest date is 2027-11-03. The rule is catering-too-far."
+        );
         assert!(detail.contains("2026-11-17") && detail.contains("catering-lead"));
         let step = catering(409, "quote-expired", None);
         assert_eq!(step.problem.status, 409);

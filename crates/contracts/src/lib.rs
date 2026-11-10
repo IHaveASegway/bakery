@@ -1097,13 +1097,14 @@ pub enum CateringState {
 /// persona. `201` with the `CateringResponse` (`200` with `Idempotent-Replayed: true` for the
 /// same key again). A refused inquiry is `422` problem+json naming its rule: `headcount`,
 /// `unknown-package`, `unknown-venue`, `closed-day`, `catering-lead` (its detail names the
-/// 7-business-day rule and the earliest date allowed), or `brief-too-long`, `brief-email`,
-/// `brief-phone`, `brief-card-number` or `brief-url`, which never echo the brief.
+/// 7-business-day rule and the earliest date allowed), `catering-too-far` (since 2026-11-10:
+/// its detail names the 365-day bound and the latest date allowed), or `brief-too-long`,
+/// `brief-email`, `brief-phone`, `brief-card-number` or `brief-url`, which never echo the brief.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CateringInquiryRequest {
     /// The event day, `YYYY-MM-DD`: an open day (Tuesday to Sunday) at least 7 business days
-    /// after today.
+    /// after today and at most 365 days after it.
     pub date: String,
     /// 10 to 200 people.
     pub headcount: u16,

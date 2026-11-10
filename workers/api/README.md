@@ -97,7 +97,7 @@ Through PR 20 it answers:
 The catering routes' statuses, as run on 2026-11-06 by `../../scripts/smoke-catering.sh` (238 checks,
 `wrangler dev` 4.157.0). Proven over HTTP: 201 with `Location` for an inquiry and 200
 `Idempotent-Replayed` for its key again; 422 `catering` for `catering-lead` (naming the earliest
-date and "7 business days"), for a headcount of 9 and of 201, for `brief-email`, `brief-phone`,
+date and "7 business days"), for `catering-too-far` (more than 365 days after business today, naming the latest date; since 2026-11-10), for a headcount of 9 and of 201, for `brief-email`, `brief-phone`,
 `brief-card-number` and `brief-url`, none echoing the brief, and for `date` (`2026-02-30` and
 `tomorrow`, neither echoed, no event registered); 422 `idempotency-key` for a reused key;
 200 for the list (a guest reads the 8 seeded events) and for one event, and 404 for another sandbox's

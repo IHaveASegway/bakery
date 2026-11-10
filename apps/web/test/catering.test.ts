@@ -100,6 +100,16 @@ describe('business days', () => {
     expect(earliestDate(bakeryDate(Date.parse('2026-10-31T05:30:00Z')))).toBe('2026-11-07');
   });
 
+  test('the date list ends inside the API’s 365-day bound (catering-too-far)', () => {
+    // The API refuses a date more than 365 days after business today (since 2026-11-10); the
+    // list's 60 open days after the earliest end about ten weeks out, so it never offers one.
+    for (const today of ['2026-11-03', '2027-03-04', '2028-02-29']) {
+      const last = openDates(earliestDate(today)).at(-1)!;
+      expect(last <= addDays(today, 365), today).toBe(true);
+      expect(last <= addDays(today, 90), today).toBe(true);
+    }
+  });
+
   test('addDays crosses month and year ends', () => {
     expect(addDays('2026-12-31', 1)).toBe('2027-01-01');
     expect(addDays('2026-03-01', -1)).toBe('2026-02-28');
