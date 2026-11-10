@@ -10,7 +10,8 @@
 //!
 //! The flag is read from a copy at most [`FLAG_COPY_MS`] old, so a change bites within about a
 //! minute in each isolate and each object, not at once, and a request with the flag `live` pays
-//! no `Control` call but the one that refreshes the copy.
+//! no `Control` call but the one that refreshes the copy. A refresh that fails keeps the last
+//! flag read and waits [`FLAG_RETRY_MS`] before the next ([`flag_read`]).
 
 use bakery_contracts::Flag;
 
@@ -26,6 +27,54 @@ pub const FLAG_COPY_MS: i64 = 60_000;
 pub fn copy_is_fresh(read_at_ms: i64, now_ms: i64) -> bool {
     let age = now_ms - read_at_ms;
     (0..FLAG_COPY_MS).contains(&age)
+}
+
+/// How long an isolate waits after a failed refresh of its copy before it asks `Control` again:
+/// 5 s. While `Control` is slow or failing, a request on the hot path pays a failing call at most
+/// once per 5 s per isolate rather than on every request, and a `Control` that has recovered is
+/// read again within 5 s, well inside the copy's own 60 s. The number is this module's choice.
+pub const FLAG_RETRY_MS: i64 = 5_000;
+
+/// What an adapter does to know the flag ([`flag_read`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlagRead {
+    /// Use this flag without asking `Control`: the copy is fresh, or the last refresh failed
+    /// less than [`FLAG_RETRY_MS`] ago and this is the last flag the isolate read.
+    Use(Flag),
+    /// Ask `Control` now. On success keep the answer and its time; on a failure keep the time of
+    /// the failure and use [`after_failure`].
+    Refresh,
+}
+
+/// The decision, given the last good copy (the flag and when it was read), the time of the last
+/// failed refresh, and now. A failed refresh never opens the gate: the isolate goes on with the
+/// last flag it read, however old, so a `Control` hiccup at `off` lets no write through.
+pub fn flag_read(
+    last_good: Option<(Flag, i64)>,
+    last_failed: Option<i64>,
+    now_ms: i64,
+) -> FlagRead {
+    if let Some((flag, at)) = last_good
+        && copy_is_fresh(at, now_ms)
+    {
+        return FlagRead::Use(flag);
+    }
+    let waiting = last_failed.is_some_and(|f| (0..FLAG_RETRY_MS).contains(&(now_ms - f)));
+    if waiting {
+        FlagRead::Use(after_failure(last_good))
+    } else {
+        FlagRead::Refresh
+    }
+}
+
+/// The flag to use when a refresh failed or is waiting: the last one the isolate read, however
+/// old; `live` only for an isolate that has never read one. That case stays open on purpose: a
+/// stalled first read must not take the demo down or drain every sandbox's events to the
+/// dead-letter queue, and the harm is bounded, since `Control`'s admission reads the flag in its
+/// own transaction and so still refuses a new sandbox at `read-only` or `off`, and at `off` the
+/// breaker's WAF rule (L3) blocks the API hostname at the edge.
+pub fn after_failure(last_good: Option<(Flag, i64)>) -> Flag {
+    last_good.map_or(Flag::Live, |(flag, _)| flag)
 }
 
 /// What a route does, for the flag. The router names each route of its table as one of these.
@@ -170,6 +219,64 @@ mod tests {
         assert_eq!(traffic_stops(Flag::Live), None);
         assert_eq!(traffic_stops(Flag::ReadOnly), Some("read_only"));
         assert_eq!(traffic_stops(Flag::Off), Some("off"));
+    }
+
+    #[test]
+    fn a_fresh_copy_is_used_without_asking() {
+        assert_eq!(
+            flag_read(Some((Flag::Off, 1_000)), None, 30_000),
+            FlagRead::Use(Flag::Off)
+        );
+        // A fresh copy wins even just after a failure.
+        assert_eq!(
+            flag_read(Some((Flag::ReadOnly, 1_000)), Some(29_000), 30_000),
+            FlagRead::Use(Flag::ReadOnly)
+        );
+    }
+
+    #[test]
+    fn a_stale_copy_or_none_is_refreshed() {
+        assert_eq!(
+            flag_read(Some((Flag::Live, 1_000)), None, 1_000 + FLAG_COPY_MS),
+            FlagRead::Refresh
+        );
+        assert_eq!(flag_read(None, None, 5_000), FlagRead::Refresh);
+        // The wait after a failure is over.
+        assert_eq!(
+            flag_read(
+                Some((Flag::Off, 1_000)),
+                Some(70_000),
+                70_000 + FLAG_RETRY_MS
+            ),
+            FlagRead::Refresh
+        );
+    }
+
+    #[test]
+    fn after_a_failure_the_last_flag_holds_until_the_next_try() {
+        // The breaker tripped and Control then failed: off stays off, without asking again.
+        let stale = Some((Flag::Off, 1_000));
+        assert_eq!(
+            flag_read(stale, Some(90_000), 90_000),
+            FlagRead::Use(Flag::Off)
+        );
+        assert_eq!(
+            flag_read(stale, Some(90_000), 90_000 + FLAG_RETRY_MS - 1),
+            FlagRead::Use(Flag::Off)
+        );
+        assert_eq!(after_failure(stale), Flag::Off);
+        assert_eq!(after_failure(Some((Flag::ReadOnly, 0))), Flag::ReadOnly);
+        // A failure time from another clock's future does not hold the isolate back.
+        assert_eq!(flag_read(stale, Some(95_000), 90_000), FlagRead::Refresh);
+    }
+
+    #[test]
+    fn an_isolate_that_never_read_the_flag_falls_back_to_live() {
+        assert_eq!(after_failure(None), Flag::Live);
+        assert_eq!(
+            flag_read(None, Some(10_000), 12_000),
+            FlagRead::Use(Flag::Live)
+        );
     }
 
     #[test]

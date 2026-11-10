@@ -481,7 +481,8 @@ lasts 60 s (`src/flag.rs`; the rule is `bakery_app::flag_gate`). At `read-only` 
 answers 503 `off` but `GET /v1/health`, `GET /v1/status` and the webhook. The board's socket answers
 a command `nack` with the rule `read-only`, and at `off` ends at its next frame with `bye` `off` and
 close 1013; the Simulator stops at its next tick with `read_only` or `off`. A change reaches an
-isolate within about a minute. Until that date only admission read the flag, so a `read-only` or
+isolate within about a minute. A refresh that fails keeps the last flag read and waits 5 s before
+the next; only an isolate that has never read the flag falls back to `live`. Until that date only admission read the flag, so a `read-only` or
 `off` bakery kept writing. `../../scripts/smoke-breaker.sh` proves it on `wrangler dev`, the 10:00
 UTC wipe at `off` included.
 
