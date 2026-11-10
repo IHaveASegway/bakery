@@ -942,7 +942,8 @@ export const TOOLS: Tool[] = [
     whenNot:
       'Preact would be the right choice for a site whose islands do not include those bindings.',
     records: [{ adr: '0008' }, after('3')],
-    notMeasured: 'A Preact build of any island page (roadmap R81).',
+    notMeasured:
+      'Whether Stripe’s React bindings run under `preact/compat`; a Preact build, measured locally on 2026-11-10, loads about 59,000 B less gzipped JavaScript first on every island page.',
     packages: ['react', 'react-dom', '@astrojs/react'],
     alternatives: [
       {
@@ -954,7 +955,10 @@ export const TOOLS: Tool[] = [
           'A site whose islands do not include Stripe’s React bindings; whether they run under `preact/compat` is not checked, nor are Svelte, Solid and Vue.',
         record: after('3'),
         after: true,
-        never: { kind: 'measured', text: 'A Preact build of any island page (roadmap R81).' },
+        never: {
+          kind: 'checked',
+          text: 'Whether Stripe’s React bindings run under `preact/compat`; measured locally on 2026-11-10, the order page loads 46,014 B of gzipped JavaScript first under Preact against 105,121 B under React.',
+        },
       },
     ],
   },

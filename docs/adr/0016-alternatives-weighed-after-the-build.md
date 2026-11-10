@@ -112,3 +112,23 @@ Two-way. It records reasoning and changes no code. A section is corrected by a p
 - A measurement of R78, R79 or R81 lands: its section gets a postscript with the number, and if the number contradicts the choice, the choice's own record gets a new ADR.
 - An outside fact cited here changes, or a "not checked" claim is checked.
 - A reviewer names an alternative this record does not weigh.
+
+## Postscript 2026-11-10
+
+Section 3, measured locally on 2026-11-10 (roadmap R81). On a throwaway branch of `main` at 800ffd6, Astro's own Preact integration, `@astrojs/preact` ^6.1.2 with `compat: true` and `preact` ^11.2.0 (the ranges pnpm added that day), took the place of `@astrojs/react` in `apps/web/astro.config.mjs`. That was the only change: no component was edited, and the build ran on the first try. The bytes are the gzipped JavaScript a page loads, counted by the code in `apps/web/test/dist.test.ts`, on the largest page of each class; "guide on" adds the guide's deferred layer, as that test counts it.
+
+| Page class (largest page) | React, first load | Preact, first load | Less | React, guide on | Preact, guide on |
+|---|---|---|---|---|---|
+| guide only (`/`) | 81,486 B | 22,525 B | 58,961 B | 107,017 B | 47,873 B |
+| API reference (`/docs/api/`) | 81,739 B | 22,778 B | 58,961 B | 107,270 B | 48,126 B |
+| status (`/status/`) | 84,259 B | 25,242 B | 59,017 B | 109,790 B | 50,590 B |
+| storefront (`/menu/`) | 95,440 B | 36,229 B | 59,211 B | 120,427 B | 61,056 B |
+| the order's page (`/order/`) | 105,121 B | 46,014 B | 59,107 B | 130,108 B | 70,841 B |
+| console screens (`/app/`) | 112,750 B | 53,505 B | 59,245 B | 137,737 B | 78,332 B |
+| checkout (`/checkout/`) | 113,646 B | 54,520 B | 59,126 B | 138,633 B | 79,347 B |
+
+What passed on the Preact build: the unit suite (65 files, 1,871 tests, every budget in `dist.test.ts` among them) and the whole e2e suite (64 of 64). The unit tests that render a component still render it with React, because Vitest does not read the Astro config, so they say nothing about Preact. Nothing failed.
+
+What was not checked: whether Stripe's React bindings run under `preact/compat`. The suite never mounts the Payment Element, because `js.stripe.com` is unreachable in it: under Preact, as under React, the checkout reached its payment step, showed that Stripe's form could not load, and the order was paid at the bakery's fake Stripe. No spec opens a catering event's payment panel. Stripe's real script was not loaded at all.
+
+The saving is large, about 59,000 B gzipped on the first load of every island page, and everything the suites exercise passed. This record does not change the choice: React stays until the payment screens are shown to work under Preact, and the switch is the owner's to decide.
