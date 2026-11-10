@@ -16,6 +16,10 @@
       "description": "The event's ULID: the key a redrive sends it again with.",
       "type": "string"
     },
+    "made_while_off": {
+      "description": "Made while the bakery was `off`, or within two minutes of the flag's last change (added\n2026-11-10): such a letter is kept and not counted on the status page. It says when the\nmessage died, not why: a real fault while `off` is marked too (docs/operations.md, \"Breaker\ntripped\"). A redrive works the same either way.",
+      "type": "boolean"
+    },
     "seq": {
       "type": "integer",
       "format": "uint64",
@@ -37,6 +41,7 @@
     "stream",
     "seq",
     "error",
-    "at"
+    "at",
+    "made_while_off"
   ]
 }

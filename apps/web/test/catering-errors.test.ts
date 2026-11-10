@@ -30,6 +30,7 @@ const INQUIRY_RULES = [
   'unknown-venue',
   'closed-day',
   'catering-lead',
+  'catering-too-far',
   'brief-too-long',
   'brief-email',
   'brief-phone',
@@ -69,6 +70,24 @@ describe('the rule an inquiry’s 422 names', () => {
       'catering-lead',
     );
     expect(ruleOf('closed-day')).toBe('closed-day');
+  });
+
+  test('the 365-day bound adds the latest date the API named, by slug or by words', () => {
+    const detail =
+      'A catering event is at most 365 days ahead; the latest date is 2027-11-03. The rule is catering-too-far.';
+    expect(ruleOf(detail)).toBe('catering-too-far');
+    expect(
+      ruleOf('a catering event is at most 365 days ahead; the latest date is 2027-11-03'),
+    ).toBe('catering-too-far');
+    const message = describeCateringError(error(422, 'catering', detail));
+    expect(message.title).toBe('The bakery could not take this inquiry');
+    expect(message.detail).toContain('365 days ahead');
+    expect(message.detail).toContain('The latest date is 2027-11-03.');
+    expect(message.detail).not.toContain('earliest');
+    const staff = describeStaffError(
+      error(422, 'catering', detail, 'The catering inquiry was refused'),
+    );
+    expect(staff.detail).toContain('The latest date is 2027-11-03.');
   });
 
   test('a lead refusal with no date still reads', () => {

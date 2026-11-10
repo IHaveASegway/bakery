@@ -21,6 +21,13 @@ export interface DeadLetter {
    * The event's ULID: the key a redrive sends it again with.
    */
   id: string;
+  /**
+   * Made while the bakery was `off`, or within two minutes of the flag's last change (added
+   * 2026-11-10): such a letter is kept and not counted on the status page. It says when the
+   * message died, not why: a real fault while `off` is marked too (docs/operations.md, "Breaker
+   * tripped"). A redrive works the same either way.
+   */
+  made_while_off: boolean;
   seq: number;
   /**
    * The producing object's name.

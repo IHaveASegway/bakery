@@ -384,7 +384,7 @@
       },
       "CateringInquiryRequest": {
         "additionalProperties": false,
-        "description": "`POST /v1/sandboxes/{id}/catering`, the customer's inquiry; the customer is the sandbox's\npersona. `201` with the `CateringResponse` (`200` with `Idempotent-Replayed: true` for the\nsame key again). A refused inquiry is `422` problem+json naming its rule: `headcount`,\n`unknown-package`, `unknown-venue`, `closed-day`, `catering-lead` (its detail names the\n7-business-day rule and the earliest date allowed), or `brief-too-long`, `brief-email`,\n`brief-phone`, `brief-card-number` or `brief-url`, which never echo the brief.",
+        "description": "`POST /v1/sandboxes/{id}/catering`, the customer's inquiry; the customer is the sandbox's\npersona. `201` with the `CateringResponse` (`200` with `Idempotent-Replayed: true` for the\nsame key again). A refused inquiry is `422` problem+json naming its rule: `headcount`,\n`unknown-package`, `unknown-venue`, `closed-day`, `catering-lead` (its detail names the\n7-business-day rule and the earliest date allowed), `catering-too-far` (since 2026-11-10:\nits detail names the 365-day bound and the latest date allowed), or `brief-too-long`,\n`brief-email`, `brief-phone`, `brief-card-number` or `brief-url`, which never echo the brief.",
         "properties": {
           "brief": {
             "description": "At most 500 characters, with no email address, phone number, card number or URL.",
@@ -394,7 +394,7 @@
             ]
           },
           "date": {
-            "description": "The event day, `YYYY-MM-DD`: an open day (Tuesday to Sunday) at least 7 business days\nafter today.",
+            "description": "The event day, `YYYY-MM-DD`: an open day (Tuesday to Sunday) at least 7 business days\nafter today and at most 365 days after it.",
             "type": "string"
           },
           "headcount": {
@@ -922,6 +922,10 @@
             "description": "The event's ULID: the key a redrive sends it again with.",
             "type": "string"
           },
+          "made_while_off": {
+            "description": "Made while the bakery was `off`, or within two minutes of the flag's last change (added\n2026-11-10): such a letter is kept and not counted on the status page. It says when the\nmessage died, not why: a real fault while `off` is marked too (docs/operations.md, \"Breaker\ntripped\"). A redrive works the same either way.",
+            "type": "boolean"
+          },
           "seq": {
             "format": "uint64",
             "minimum": 0,
@@ -942,7 +946,8 @@
           "stream",
           "seq",
           "error",
-          "at"
+          "at",
+          "made_while_off"
         ],
         "title": "DeadLetter",
         "type": "object"
@@ -8549,7 +8554,7 @@
                 }
               }
             },
-            "description": "an array of dead letters"
+            "description": "an array of dead letters, each with `made_while_off` (kept while the bakery was `off`, not counted)"
           },
           "400": {
             "content": {
@@ -8672,7 +8677,7 @@
                 }
               }
             },
-            "description": "the dead letter sent again, its row removed",
+            "description": "the dead letter sent again, its row removed; a letter made while `off` is redriven the same way",
             "headers": {
               "Idempotent-Replayed": {
                 "$ref": "#/components/headers/IdempotentReplayed"

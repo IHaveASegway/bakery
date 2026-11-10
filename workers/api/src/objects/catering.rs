@@ -12,7 +12,7 @@
 //!   true` for a key seen with the same body; 422 `{error: "key-reused"}` for one seen with
 //!   another; 422 `{error: "catering", rule, message?}` for a refused inquiry (and `quote-total`)
 //!   and 409 for a refused step, `message` only for `catering-lead` and `too-early` (each names
-//!   the earliest date, never a value the visitor sent); a refused command writes nothing. `cmd` is [`Cmd`]. With
+//!   the earliest date, never a value the visitor sent) and `catering-too-far` (the latest); a refused command writes nothing. `cmd` is [`Cmd`]. With
 //!   `cmd: accept`, `day` is the event day's `Schedule` birth: the place is held there first
 //!   (`hold:<key>`, `kind: catering`, until the deposit hold lapses), and a day whose two places
 //!   are taken answers 409 `{error: "schedule", rule: "slot-full"}` with nothing recorded.
@@ -263,7 +263,8 @@ pub struct Refusal {
     pub error: String,
     #[serde(default)]
     pub rule: Option<String>,
-    /// `catering-lead`'s and `too-early`'s sentence, naming the earliest date.
+    /// `catering-lead`'s and `too-early`'s sentence, naming the earliest date, and
+    /// `catering-too-far`'s, naming the latest.
     #[serde(default)]
     pub message: Option<String>,
     #[serde(default)]
@@ -274,7 +275,9 @@ pub struct Refusal {
 pub fn refusal_of(e: &CateringError) -> (u16, Refusal) {
     let status = if e.is_inquiry_rule() { 422 } else { 409 };
     let message = match e {
-        CateringError::Lead { .. } | CateringError::TooEarly { .. } => Some(e.to_string()),
+        CateringError::Lead { .. }
+        | CateringError::TooFarAhead { .. }
+        | CateringError::TooEarly { .. } => Some(e.to_string()),
         _ => None,
     };
     (

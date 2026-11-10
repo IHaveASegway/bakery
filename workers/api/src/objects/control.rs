@@ -31,8 +31,9 @@
 //! the flag in the same transaction. `POST /breaker-rule` records that the WAF kill rule was
 //! enabled. The state only rises (`unconfigured`, `armed`, `read-only`, `off`); a person resets
 //! it in Data Studio: `UPDATE breaker_state SET state = 'armed', since = NULL WHERE id = 1`, the
-//! flag back to `live` (`UPDATE flags SET mode = 'live' WHERE demo = 'bakery'`), and the WAF rule
-//! disabled by hand. Nothing here reads analytics or arms a timer for the breaker.
+//! flag back to `live` with its time (`UPDATE flags SET mode = 'live', changed_at = <now>
+//! WHERE demo = 'bakery'`, so the dead letters of the switch are marked: queue.rs), and the WAF
+//! rule disabled by hand. Nothing here reads analytics or arms a timer for the breaker.
 
 use std::cell::{Cell, RefCell};
 
@@ -211,10 +212,14 @@ pub struct Pruned {
     pub deleted: u32,
 }
 
-/// `GET /flag`: the demo's flag alone, for the Queue consumer, which caches it for 60 s.
+/// `GET /flag`: the demo's flag, for the Queue consumer, which caches it for 60 s, and when it
+/// last changed, for the dead-letter queue's consumer, which asks afresh for each batch
+/// (`bakery_app::dead_letters`). `changed_at` is `None` when the stored time does not read.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct FlagAnswer {
     pub flag: Flag,
+    #[serde(default)]
+    pub changed_at: Option<WallTime>,
 }
 
 /// `POST /reserve-traffic`: a `Simulator` starting. `key` is the start's own key, so a retried
@@ -330,6 +335,7 @@ impl DurableObject for Control {
             (Method::Get, "/salt") => Response::from_json(&self.salt(now)?),
             (Method::Get, "/flag") => Response::from_json(&FlagAnswer {
                 flag: read_flag(&self.sql())?,
+                changed_at: read_flag_changed_at(&self.sql())?,
             }),
             (Method::Post, "/wiped") => {
                 let body: Wiped = sql::body(&mut req).await?;
@@ -450,10 +456,12 @@ impl Control {
             sql.exec(statement, None)?;
         }
         let now = SystemClock::new().now_wall();
+        // `changed_at` starts at the epoch: the flag has not changed yet (`read_flag_changed_at`).
+        let never = WallTime::from_unix_ms(0).map_err(|e| Error::RustError(e.to_string()))?;
         exec(
             &sql,
             "INSERT OR IGNORE INTO flags (demo, mode, changed_at) VALUES ('bakery', 'live', ?)",
-            vec![now.to_string().into()],
+            vec![never.to_string().into()],
         )?;
         exec(
             &sql,
@@ -1280,6 +1288,22 @@ fn read_meter(sql: &SqlStorage, day: &str, meter: &str) -> Result<u32> {
     Ok(u32::try_from(row.map_or(0, |r| r.value)).unwrap_or(u32::MAX))
 }
 
+/// When the flag last changed: the breaker's raise writes it, and a person changing the flag in
+/// Data Studio sets it too (docs/operations.md, "Kill switch L0 to L4"). The first row holds the
+/// epoch, a flag never changed, so a new `Control` does not read as a change just made.
+fn read_flag_changed_at(sql: &SqlStorage) -> Result<Option<WallTime>> {
+    #[derive(Deserialize)]
+    struct Row {
+        changed_at: String,
+    }
+    let row: Option<Row> = first(
+        sql,
+        "SELECT changed_at FROM flags WHERE demo = 'bakery'",
+        vec![],
+    )?;
+    Ok(row.and_then(|r| r.changed_at.parse().ok()))
+}
+
 /// A missing or unreadable flag reads as `off`: fail closed.
 fn read_flag(sql: &SqlStorage) -> Result<Flag> {
     let row: Option<ModeRow> = first(sql, "SELECT mode FROM flags WHERE demo = 'bakery'", vec![])?;
@@ -1312,9 +1336,12 @@ pub async fn status(env: &Env) -> Result<StatusResponse> {
 }
 
 pub async fn flag(env: &Env) -> Result<Flag> {
-    ask::<(), FlagAnswer>(env, Method::Get, "/flag", None)
-        .await
-        .map(|a| a.flag)
+    flag_state(env).await.map(|a| a.flag)
+}
+
+/// The flag and when it last changed, read now, never from a cache.
+pub async fn flag_state(env: &Env) -> Result<FlagAnswer> {
+    ask::<(), FlagAnswer>(env, Method::Get, "/flag", None).await
 }
 
 pub async fn salt(env: &Env) -> Result<Salt> {
