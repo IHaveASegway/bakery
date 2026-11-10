@@ -563,3 +563,56 @@ details.menu > summary::-webkit-details-marker {
     scroll-behavior: auto !important;
   }
 }
+
+/* A field's error holds its place empty, with no gap of its own, so a reason that appears does not
+   move the field's label; once it has words it takes its line. */
+.field > .error:empty {
+  margin-top: calc(-1 * var(--space-1));
+}
+
+.field :is(input, select, textarea)[aria-invalid='true'] {
+  border-color: var(--danger);
+  outline-color: var(--danger);
+}
+
+/* The catering inquiry (F11, 2026-11-10), laid out as the checkout's fields are: two columns of
+   label, control, hint and error on a wide screen, one on a phone, the brief across both, and Send
+   with what is still to fill beside it. */
+.inquiry-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--space-5);
+  max-width: 46rem;
+}
+
+.inquiry-fields .field {
+  align-content: start;
+}
+
+.inquiry-fields .field :is(input, select, textarea) {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.inquiry-fields .inquiry-brief {
+  grid-column: 1 / -1;
+}
+
+.inquiry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  max-width: 46rem;
+  margin: 0 0 var(--space-4);
+}
+
+.inquiry-actions > .hint {
+  margin: 0;
+}
+
+@media (max-width: 40rem) {
+  .inquiry-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

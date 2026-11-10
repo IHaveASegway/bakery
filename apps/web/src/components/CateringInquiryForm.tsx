@@ -12,6 +12,8 @@ import {
   VENUES,
   briefLength,
   briefWarning,
+  inquiryFieldErrors,
+  inquiryMissing,
   inquiryReasons,
   inquiryRequest,
   leadHint,
@@ -25,6 +27,19 @@ import { type Message as Text } from '../lib/messages';
 import { dollars } from '../lib/money';
 import { dateLabel } from '../lib/schedule';
 import Message from './Message';
+
+/** The ids a control is described by: its hint, then its error when it has one. */
+const described = (...ids: (string | false | undefined)[]) =>
+  ids.filter((id): id is string => typeof id === 'string' && id !== '').join(' ');
+
+/** A field's error in its own words, announced as it appears; nothing when the value is fine. */
+function FieldError({ id, text }: { id: string; text: string | undefined }) {
+  return (
+    <span id={id} className="error" aria-live="polite">
+      {text ?? ''}
+    </span>
+  );
+}
 
 /**
  * The inquiry: a date from the open days the lead time allows, a headcount, a package, a venue
@@ -53,6 +68,8 @@ export default function CateringInquiryForm({
 
   const set = (patch: Partial<InquiryForm>) => setForm((f) => ({ ...f, ...patch }));
   const reasons = inquiryReasons(form, earliest);
+  const fieldErrors = inquiryFieldErrors(form, earliest);
+  const missing = inquiryMissing(form);
   const chars = briefLength(form.brief);
   const warning = briefWarning(form.brief);
   const headcount = parseHeadcount(form.headcount);
@@ -96,106 +113,126 @@ export default function CateringInquiryForm({
       }}
     >
       <h2 id="inquiry-heading">Ask about an event</h2>
-      <p>
-        <label htmlFor="cat-date">Day</label>
-        <select
-          id="cat-date"
-          value={dates.includes(form.date) ? form.date : ''}
-          aria-describedby="cat-date-hint"
-          onChange={(e) => set({ date: e.target.value })}
-        >
-          <option value="">Choose…</option>
-          {dates.map((d) => (
-            <option key={d} value={d}>
-              {dateLabel(d)}
-            </option>
-          ))}
-        </select>
-        <span id="cat-date-hint" className="hint">
-          {leadHint(earliest)}
-        </span>
-      </p>
-      <p>
-        <label htmlFor="cat-headcount">Headcount</label>
-        <input
-          id="cat-headcount"
-          type="number"
-          inputMode="numeric"
-          min={MIN_HEADCOUNT}
-          max={MAX_HEADCOUNT}
-          value={form.headcount}
-          aria-describedby="cat-headcount-hint"
-          onChange={(e) => set({ headcount: e.target.value })}
-        />
-        <span id="cat-headcount-hint" className="hint">
-          {MIN_HEADCOUNT} to {MAX_HEADCOUNT} people.
-        </span>
-      </p>
-      <p>
-        <label htmlFor="cat-package">Package</label>
-        <select
-          id="cat-package"
-          value={form.package}
-          onChange={(e) => set({ package: e.target.value })}
-        >
-          <option value="">Choose…</option>
-          {PACKAGES.map((p) => (
-            <option key={p.slug} value={p.slug}>
-              {p.label}, {dollars(p.per_head_cents)} a head
-            </option>
-          ))}
-        </select>
-        {estimateCents !== null && (
-          <span className="hint">
-            About {dollars(estimateCents)} at that price for {headcount} people. Staff send the
-            quote, and its figures are the ones that count.
+      {/* Laid out as the checkout's fields are: each a label, its control, its hint and, when a
+          value it holds will not do, the reason in the field's own words, marked invalid. */}
+      <div className="inquiry-fields">
+        <p className="field">
+          <label htmlFor="cat-date">Day</label>
+          <select
+            id="cat-date"
+            value={dates.includes(form.date) ? form.date : ''}
+            aria-describedby={described('cat-date-hint', fieldErrors.date && 'cat-date-error')}
+            aria-invalid={fieldErrors.date ? true : undefined}
+            onChange={(e) => set({ date: e.target.value })}
+          >
+            <option value="">Choose…</option>
+            {dates.map((d) => (
+              <option key={d} value={d}>
+                {dateLabel(d)}
+              </option>
+            ))}
+          </select>
+          <span id="cat-date-hint" className="hint">
+            {leadHint(earliest)}
           </span>
-        )}
-      </p>
-      <p>
-        <label htmlFor="cat-venue">Venue</label>
-        <select id="cat-venue" value={form.venue} onChange={(e) => set({ venue: e.target.value })}>
-          <option value="">Choose…</option>
-          {VENUES.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.label} (made up)
-            </option>
-          ))}
-        </select>
-      </p>
-      <p>
-        <label htmlFor="cat-brief">Brief (optional)</label>
-        <textarea
-          id="cat-brief"
-          rows={4}
-          value={form.brief}
-          aria-describedby="cat-brief-count"
-          onChange={(e) => set({ brief: e.target.value })}
-        />
-        <span id="cat-brief-count" className="hint">
-          {chars} of {BRIEF_MAX} characters. {BRIEF_HINT}
-        </span>
-      </p>
-      <p aria-live="polite" className="problem-slot">
-        {chars > BRIEF_MAX && (
-          <span className="problem">
-            The brief is {chars - BRIEF_MAX} characters over the limit.
+          <FieldError id="cat-date-error" text={fieldErrors.date} />
+        </p>
+        <p className="field">
+          <label htmlFor="cat-headcount">Headcount</label>
+          <input
+            id="cat-headcount"
+            type="number"
+            inputMode="numeric"
+            min={MIN_HEADCOUNT}
+            max={MAX_HEADCOUNT}
+            value={form.headcount}
+            aria-describedby={described(
+              'cat-headcount-hint',
+              fieldErrors.headcount && 'cat-headcount-error',
+            )}
+            aria-invalid={fieldErrors.headcount ? true : undefined}
+            onChange={(e) => set({ headcount: e.target.value })}
+          />
+          <span id="cat-headcount-hint" className="hint">
+            {MIN_HEADCOUNT} to {MAX_HEADCOUNT} people.
           </span>
-        )}
-        {warning !== null && <span className="problem">{warning}</span>}
-      </p>
-      <p>
-        <button type="submit" className="btn btn-primary" disabled={busy || reasons.length > 0}>
+          <FieldError id="cat-headcount-error" text={fieldErrors.headcount} />
+        </p>
+        <p className="field">
+          <label htmlFor="cat-package">Package</label>
+          <select
+            id="cat-package"
+            value={form.package}
+            aria-describedby={estimateCents !== null ? 'cat-package-hint' : undefined}
+            onChange={(e) => set({ package: e.target.value })}
+          >
+            <option value="">Choose…</option>
+            {PACKAGES.map((p) => (
+              <option key={p.slug} value={p.slug}>
+                {p.label}, {dollars(p.per_head_cents)} a head
+              </option>
+            ))}
+          </select>
+          {estimateCents !== null && (
+            <span id="cat-package-hint" className="hint">
+              About {dollars(estimateCents)} for {headcount} people. Staff send the quote, and its
+              figures are the ones that count.
+            </span>
+          )}
+        </p>
+        <p className="field">
+          <label htmlFor="cat-venue">Venue</label>
+          <select
+            id="cat-venue"
+            value={form.venue}
+            onChange={(e) => set({ venue: e.target.value })}
+          >
+            <option value="">Choose…</option>
+            {VENUES.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label} (made up)
+              </option>
+            ))}
+          </select>
+        </p>
+        <p className="field inquiry-brief">
+          <label htmlFor="cat-brief">Brief (optional)</label>
+          <textarea
+            id="cat-brief"
+            rows={4}
+            value={form.brief}
+            aria-describedby={described('cat-brief-count', fieldErrors.brief && 'cat-brief-error')}
+            aria-invalid={fieldErrors.brief ? true : undefined}
+            onChange={(e) => set({ brief: e.target.value })}
+          />
+          <span id="cat-brief-count" className="hint">
+            {chars} of {BRIEF_MAX} characters. {BRIEF_HINT}
+          </span>
+          <FieldError id="cat-brief-error" text={fieldErrors.brief} />
+          {warning !== null && (
+            <span className="problem" aria-live="polite">
+              {warning}
+            </span>
+          )}
+        </p>
+      </div>
+      {/* Send stays off until the form could be sent, as the checkout's Place order does; what is
+          still missing is said beside it, and what is wrong is said at its field. */}
+      <p className="step-actions inquiry-actions">
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={busy || reasons.length > 0}
+          aria-describedby={missing !== null ? 'cat-missing' : undefined}
+        >
           {busy ? 'Sending…' : retry ? 'Try again' : 'Send inquiry'}
         </button>
+        {missing !== null && (
+          <span id="cat-missing" className="hint">
+            {missing}
+          </span>
+        )}
       </p>
-      {reasons.length > 0 && (
-        <ul className="hint">
-          {reasons.map((r) => (
-            <li key={r}>{r}</li>
-          ))}
-        </ul>
-      )}
       {retry && (
         <p className="hint">
           Trying again sends the same request with the same key, so the inquiry cannot be made

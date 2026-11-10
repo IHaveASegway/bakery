@@ -300,6 +300,53 @@ export function inquiryReasons(form: InquiryForm, earliest: string): string[] {
   return reasons;
 }
 
+/**
+ * What is wrong with a value the visitor has entered, said at its field in the field's own words
+ * (F11, 2026-11-10). A field left empty is not wrong yet: what is still to choose is said beside
+ * the button (`inquiryMissing`).
+ */
+export interface InquiryFieldErrors {
+  date?: string;
+  headcount?: string;
+  brief?: string;
+}
+
+export function inquiryFieldErrors(form: InquiryForm, earliest: string): InquiryFieldErrors {
+  const errors: InquiryFieldErrors = {};
+  if (form.date !== '') {
+    if (!isOpenDay(form.date)) errors.date = 'The bakery is closed on Mondays.';
+    else if (form.date < earliest) errors.date = `The earliest day is ${earliest}.`;
+  }
+  if (form.headcount.trim() !== '' && parseHeadcount(form.headcount) === null) {
+    const n = /^\s*\d{1,6}\s*$/.test(form.headcount) ? Number(form.headcount) : null;
+    errors.headcount =
+      n !== null && n > MAX_HEADCOUNT
+        ? `${n} is more than ${MAX_HEADCOUNT} people.`
+        : n !== null && n < MIN_HEADCOUNT
+          ? `${n} is fewer than ${MIN_HEADCOUNT} people.`
+          : `A whole number of people, ${MIN_HEADCOUNT} to ${MAX_HEADCOUNT}.`;
+  }
+  const over = briefLength(form.brief) - BRIEF_MAX;
+  if (over > 0) errors.brief = `${over} characters over the limit.`;
+  return errors;
+}
+
+/** The fields still to fill, as one sentence beside the button; null when none is. */
+export function inquiryMissing(form: InquiryForm): string | null {
+  const missing = [
+    form.date === '' && 'a day',
+    form.headcount.trim() === '' && 'a headcount',
+    form.package === '' && 'a package',
+    form.venue === '' && 'a venue',
+  ].filter((m): m is string => m !== false);
+  if (missing.length === 0) return null;
+  const list =
+    missing.length === 1
+      ? missing[0]
+      : `${missing.slice(0, -1).join(', ')} and ${missing[missing.length - 1]}`;
+  return `Still to fill: ${list}.`;
+}
+
 /** The request body for a form with no reason against it, else null. A blank brief is left out. */
 export function inquiryRequest(form: InquiryForm, earliest: string): CateringInquiryRequest | null {
   if (inquiryReasons(form, earliest).length > 0) return null;
