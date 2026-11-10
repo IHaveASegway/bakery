@@ -326,11 +326,11 @@ describe('events, principles and targets', () => {
     const text = files.join('\n');
     for (const step of allSteps) {
       // Written as data-tour="x", or as data-tour={cond ? 'x' : undefined} where only one of many
-      // elements is the target (the menu's first card), or as tour="x" on StatusLine, which puts
+      // elements is the target (the menu's first card), or as tour="x" on StatusLine or GuestNote, which put
       // it on its line.
       expect(text, `${step.id}: data-tour="${step.target}"`).toMatch(
         new RegExp(
-          `(?:data-tour|<StatusLine[^>]*tour)=(?:"${step.target}"|\\{[^}]*'${step.target}')`,
+          `(?:data-tour|<(?:StatusLine|GuestNote)[^>]*tour)=(?:"${step.target}"|\\{[^}]*'${step.target}')`,
         ),
       );
     }

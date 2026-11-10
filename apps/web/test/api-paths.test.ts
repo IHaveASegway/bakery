@@ -7,7 +7,8 @@
 // literal, `sandboxPath(id)`, `cateringPath(id, cid)`, a query string), where reading api.ts as
 // text would have to follow each of those. A helper added without a row in CALLS fails the
 // "every exported helper is exercised" test, so the list cannot fall behind. The two helpers that
-// return a URL for a navigation or a socket (signinUrl, kitchenSocketUrl) are read the same way.
+// return a URL for a navigation or a socket (signinUrl, kitchenSocketUrl, traceSocketUrl) are read
+// the same way.
 //
 // Ids and other parameters are fed in as one marker that needs URL-encoding, so the test also
 // proves each id goes through encodeURIComponent. A path segment equal to the encoded marker
@@ -50,6 +51,7 @@ const CALLS: Record<string, () => Promise<unknown>> = {
   wipeSandbox: () => api.wipeSandbox(X),
   setFault: () => api.setFault(X, B),
   getMenu: () => api.getMenu(X),
+  getTrace: () => api.getTrace(X, 0),
   placeOrder: () => api.placeOrder(X, B, 'k'),
   getOrder: () => api.getOrder(X, X),
   createPayment: () => api.createPayment(X, X),
@@ -111,7 +113,14 @@ const CALLS: Record<string, () => Promise<unknown>> = {
 };
 
 /** Exports that are not request helpers: the origin, the two error classes, the two URL builders. */
-const NOT_REQUESTS = ['apiOrigin', 'ApiError', 'NetworkError', 'signinUrl', 'kitchenSocketUrl'];
+const NOT_REQUESTS = [
+  'apiOrigin',
+  'ApiError',
+  'NetworkError',
+  'signinUrl',
+  'kitchenSocketUrl',
+  'traceSocketUrl',
+];
 
 interface Sent {
   method: string;
@@ -163,6 +172,7 @@ describe('the console calls only operations the OpenAPI document has', () => {
     ['signinUrl google', api.signinUrl('google')],
     ['signinUrl github', api.signinUrl('github')],
     ['kitchenSocketUrl', api.kitchenSocketUrl(X).replace(/^ws(s?):/, 'http$1:')],
+    ['traceSocketUrl', api.traceSocketUrl(X).replace(/^ws(s?):/, 'http$1:')],
   ])('%s is a documented GET', (name, url) => {
     // A navigation and a socket upgrade are both GETs.
     const operation = shape('GET', url);

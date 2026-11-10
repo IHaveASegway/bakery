@@ -900,6 +900,26 @@
   white-space: nowrap;
 }
 
+/* In the masthead the line reads whole: its title and its answer wrap onto a second row rather
+   than cut, since the line sits in the page's flow and has the row's width. */
+.guide-line-docked .guide-line-open {
+  flex-wrap: wrap;
+  row-gap: 2px;
+  padding-block: 6px;
+}
+
+.guide-line-docked .guide-line-title {
+  flex: 1 1 auto;
+  overflow: visible;
+  white-space: normal;
+}
+
+.guide-line-docked .guide-line .guide-chip {
+  flex: none;
+  min-width: 0;
+  overflow: visible;
+}
+
 /* The control beside the line (in the masthead, or the dock below it) already says "Under the
    hood": the label is read out, not shown, and its room goes to the title. */
 .guide-line .guide-eyebrow {

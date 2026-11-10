@@ -123,7 +123,7 @@ test('a card’s button on the board opens a note: the frame, the event and its 
   await expect(page.getByRole('button', { name: 'More of Under the hood' })).toBeFocused();
 });
 
-test('placing an order at checkout opens a note with the request, its status and its time', async ({
+test('placing an order at checkout, as a guest, opens a note with the request and what the recorder saw', async ({
   page,
 }) => {
   // Stripe.js cannot load here (fixtures.ts): an empty stand-in makes the payment panel say its
@@ -135,8 +135,7 @@ test('placing an order at checkout opens a note with the request, its status and
       body: '/* not reachable here */',
     }),
   );
-  await demoAccount(page);
-  const sandbox = await liveSandbox(page);
+  const sandbox = await guestSandbox(page);
   const menu = await api<Parameters<typeof pickupOrder>[0]>(
     page,
     'GET',
@@ -174,9 +173,111 @@ test('placing an order at checkout opens a note with the request, its status and
   await expect(request).toContainText('key');
   await expect(note).toContainText('Each attempt carries its own Idempotency-Key');
   await expect(note).toContainText('When not');
-  // No socket on this page: the events are shown as expected, not as observed.
-  await expect(note.locator('[data-state="expected"]', { hasText: 'OrderPlaced' })).toBeVisible();
+  // No socket on this page, but the flight recorder: a few reads after the answer, OrderPlaced is
+  // observed, with the classes the Queue's consumer delivered it to and how long it waited.
+  const placed = note.locator('[data-state="observed"]', { hasText: 'OrderPlaced' });
+  await expect(placed).toBeVisible({ timeout: 10_000 });
+  await expect(placed).toContainText('delivered to');
+  await expect(placed).toContainText(/taken by the Queue’s consumer \d+ ms after it was written/);
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expectNoAxeViolations(page);
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expectNoAxeViolations(page);
+  await page.emulateMedia({ colorScheme: 'light' });
+});
+
+test('the recorder panel tails the recorder’s socket: a hop arrives as the order is placed', async ({
+  page,
+}) => {
+  const sandbox = await guestSandbox(page);
+  await page.goto('/menu/');
+  await (await recorderButton(page)).click();
+  const panel = page.getByRole('region', { name: 'Recorder' });
+  await expect(panel).toContainText('Live, on the recorder’s socket');
+  const menu = await api<Parameters<typeof pickupOrder>[0]>(
+    page,
+    'GET',
+    `/v1/sandboxes/${sandbox.id}/menu`,
+  );
+  const placed = await api(
+    page,
+    'POST',
+    `/v1/sandboxes/${sandbox.id}/orders`,
+    pickupOrder(menu.body, sandbox.clock_offset_s ?? 0, 2),
+  );
+  expect(placed.status).toBe(201);
+  const hops = panel.getByRole('list', { name: 'Hops from the recorder, newest first' });
+  await expect(hops.locator('li', { hasText: 'OrderPlaced' }).first()).toContainText(
+    'Delivered to',
+    { timeout: 15_000 },
+  );
+  await expect(panel).toContainText('No hop carries a note, a name or an amount');
+  await expectNoAxeViolations(page);
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expectNoAxeViolations(page);
+});
+
+test('with the kitchen refusing deliveries, the panel shows the retry and the dead letter in plain words', async ({
+  page,
+}) => {
+  await demoAccount(page);
+  const sandbox = await liveSandbox(page);
+  const fault = await api(page, 'POST', `/v1/sandboxes/${sandbox.id}/faults`, {
+    fault: 'kitchen',
+    on: true,
+  });
+  expect(fault.status).toBe(200);
+  await page.goto('/menu/');
+  await (await recorderButton(page)).click();
+  const panel = page.getByRole('region', { name: 'Recorder' });
+  await expect(panel).toContainText('Live, on the recorder’s socket');
+  const menu = await api<Parameters<typeof pickupOrder>[0]>(
+    page,
+    'GET',
+    `/v1/sandboxes/${sandbox.id}/menu`,
+  );
+  const placed = await api(
+    page,
+    'POST',
+    `/v1/sandboxes/${sandbox.id}/orders`,
+    pickupOrder(menu.body, sandbox.clock_offset_s ?? 0, 2),
+  );
+  expect(placed.status).toBe(201);
+  const hops = panel.getByRole('list', { name: 'Hops from the recorder, newest first' });
+  // One line an event, at its latest hop: the Queue tried the delivery again (attempt 2 or more,
+  // the recorder's own count, a lower bound) and then kept it as a dead letter.
+  const orderPlaced = hops.locator('li', { hasText: 'OrderPlaced' });
+  await expect(orderPlaced.first()).toContainText(
+    /Dead-lettered for Kitchen.* after attempt [2-9]/,
+    {
+      timeout: 60_000,
+    },
+  );
+});
+
+test('a guest’s short path on the console moves a card, and says a refund needs a sign-in', async ({
+  page,
+}) => {
+  await guestSandbox(page);
+  await page.goto('/app/');
+  await expect(
+    page.getByText('Guests move their own orders here; a refund needs a sign-in.'),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'More of Under the hood' }).click();
+  await page.getByRole('button', { name: 'Show me around' }).click();
+  const note = page.locator('#guide-path');
+  // The board's move is a guest's since 2026-11-10: no sign-in asked.
+  await expect(note).toContainText('Press a card’s button to move it on.');
+  await expect(note).not.toContainText('needs a sign-in');
+  await note.getByRole('button', { name: 'Next' }).click();
+  // The refund is not: the step says so, links to sign in, and Next moves past it.
+  await expect(note).toContainText('Refund an order from a card’s menu.');
+  await expect(note).toContainText(
+    'This step needs a sign-in: a guest can read it here, not do it.',
+  );
+  await expect(note.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/signin/');
+  await note.getByRole('button', { name: 'Next' }).click();
+  await expect(note).toContainText('Read the day’s bake list.');
   await expectNoAxeViolations(page);
 });
 
@@ -310,26 +411,35 @@ async function guideOverControls(page: Page): Promise<string[]> {
   });
 }
 
-/** How many whole words of the folded line's title fit in the room the line gives it. */
-async function shownWords(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    const title = document.querySelector('.guide-line-title');
-    const text = title?.firstChild;
-    if (!title || !text || text.nodeType !== Node.TEXT_NODE) return 0;
-    const room = title.getBoundingClientRect().right;
-    const words = (text.textContent ?? '').split(' ');
-    let end = 0;
-    let shown = 0;
-    for (const word of words) {
-      end += (shown === 0 ? 0 : 1) + word.length;
-      const range = document.createRange();
-      range.setStart(text, 0);
-      range.setEnd(text, end);
-      if (range.getBoundingClientRect().right > room + 0.5) break;
-      shown += 1;
-    }
-    return shown;
-  });
+/** Which parts of the folded line are cut (their text runs past their box): none, on a phone. */
+async function lineCut(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    ['.guide-line-title', '.guide-line .guide-chip'].flatMap((selector) => {
+      const el = document.querySelector(selector);
+      if (el === null) return [`${selector} missing`];
+      return el.scrollWidth > el.clientWidth + 1 ? [`${selector}: ${el.textContent ?? ''}`] : [];
+    }),
+  );
+}
+
+/** A guest's sandbox, made as the storefront makes one, waited on until it is live. */
+async function guestSandbox(page: Page): Promise<{ id: string; clock_offset_s?: number }> {
+  await page.goto('/signin/');
+  const made = await api<{ id: string; state: string; clock_offset_s?: number }>(
+    page,
+    'POST',
+    '/v1/sandboxes',
+    { turnstile_token: 'pass-e2e-setup', replace: false },
+  );
+  expect(made.status, JSON.stringify(made.body)).toBe(201);
+  await expect
+    .poll(
+      async () =>
+        (await api<{ state: string }>(page, 'GET', `/v1/sandboxes/${made.body.id}`)).body.state,
+      { timeout: 60_000 },
+    )
+    .toBe('live');
+  return made.body;
 }
 
 /**
@@ -597,7 +707,7 @@ test.describe('on a phone', () => {
     await page.goto('/menu/');
     await expect(line).toContainText('Where the menu came from');
     expect(await guideOverControls(page), 'menu').toEqual([]);
-    expect(await shownWords(page), 'menu').toBeGreaterThanOrEqual(3);
+    expect(await lineCut(page), 'menu').toEqual([]);
 
     await page.evaluate((cart) => sessionStorage.setItem('bakery.cart.v1', JSON.stringify(cart)), {
       lines: want.lines,
@@ -610,7 +720,7 @@ test.describe('on a phone', () => {
     await expect(line).toContainText('The menu this checkout read');
     await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
     expect(await guideOverControls(page), 'checkout, step one').toEqual([]);
-    expect(await shownWords(page), 'checkout').toBeGreaterThanOrEqual(3);
+    expect(await lineCut(page), 'checkout').toEqual([]);
     // Opened, it is a note in full; a press in the page folds it back to the line.
     await line.getByRole('button', { name: /The menu this checkout read/ }).click();
     const note = page.getByRole('region', { name: 'Under the hood: The menu this checkout read' });

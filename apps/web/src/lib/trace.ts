@@ -1,3 +1,5 @@
+import type { TraceHop } from '../contracts';
+
 // The guide's evidence (docs/architecture.md, "The guide"; ADR 0014): a small store in the page that
 // keeps what the visitor's own actions did, as traces. Evidence arrives from sources behind one
 // interface: the page's own calls (lib/api.ts), the kitchen socket's frames where the page holds it
@@ -9,29 +11,14 @@
 /** Where a piece of evidence came from. */
 export type SourceKind = 'page' | 'socket' | 'feed' | 'recorder';
 
-/** One delivery of an event to a subscriber, as the server's recorder will report it. */
+/** One delivery of an event to a subscriber class, as the server's flight recorder reported it. */
 export interface Delivery {
-  /** The subscriber, such as "kitchen" or "crm". */
+  /** The subscriber's class, such as "Kitchen" or "Crm". */
   to: string;
+  /** Delivered on this attempt; retried (the message went back to the Queue); dead-lettered. */
   outcome: 'ok' | 'retry' | 'dead';
+  /** The recorder's own count for the event: a lower bound on the Queue's attempts (ADR 0015). */
   attempt: number;
-}
-
-/**
- * What the server's flight recorder will send over its socket for each delivered event: lossy by
- * design, fed by the Queue's consumer after each delivery, never in a command's path. Typed here so
- * the guide's notes are written against it; the source that reads it plugs in when it is built.
- */
-export interface RecorderRecord {
-  id: string;
-  type: string;
-  stream: string;
-  seq: number;
-  cause: string | null;
-  recorded_at: string;
-  delivered_at: string;
-  lag_ms: number;
-  deliveries: Delivery[];
 }
 
 /**
@@ -162,31 +149,41 @@ export function pushSource(
   };
 }
 
-/** The recorder's record as evidence: the event it delivered, with its lag and deliveries. */
-export function fromRecorder(record: RecorderRecord, at: number): Evidence {
+const OUTCOME = { delivered: 'ok', retried: 'retry', dead_lettered: 'dead' } as const;
+
+/**
+ * A flight-recorder hop (crates/contracts, `TraceHop`; ADR 0015) as evidence: the event the Queue's
+ * consumer took, with its lag and each subscriber class's outcome on that attempt. A hop carries
+ * identifiers, types and times only, never an event's data.
+ */
+export function fromHop(hop: TraceHop, at: number): Evidence {
   return {
     kind: 'event',
     source: 'recorder',
-    id: record.id,
-    type: record.type,
-    stream: record.stream,
-    seq: record.seq,
-    cause: record.cause,
+    id: hop.id,
+    type: hop.type,
+    stream: hop.stream,
+    seq: hop.seq,
+    cause: hop.cause ?? null,
     at,
-    lagMs: record.lag_ms,
-    deliveries: record.deliveries,
+    lagMs: hop.lag_ms,
+    deliveries: hop.deliveries.map((d) => ({
+      to: d.to,
+      outcome: OUTCOME[d.outcome],
+      attempt: hop.attempt,
+    })),
   };
 }
 
-/**
- * The server's flight recorder, read over a socket. Not built yet: another change adds the
- * per-sandbox recorder and its socket, and this source then parses each message with
- * `fromRecorder` and sends it to the sink. Until then it connects to nothing.
- */
-export const recorderSource: TraceSource = {
-  kind: 'recorder',
-  connect: () => () => undefined,
-};
+/** How far a delivery got: a dead letter is final, else the higher attempt is the later news. */
+export const deliveryRank = (deliveries: readonly Delivery[] | undefined): number =>
+  deliveries === undefined || deliveries.length === 0
+    ? -1
+    : (deliveries.some((d) => d.outcome === 'dead') ? 1_000 : 0) +
+      Math.max(...deliveries.map((d) => d.attempt));
+
+/** The server's flight recorder: hops read by lib/recorder.ts, from its read or its socket. */
+export const recorderSource = pushSource('recorder');
 
 // ---- Traces ----
 
@@ -264,6 +261,8 @@ export const GESTURE_MS = 2_000;
 export const SKEW_MS = 5;
 /** How many traces and orphan events are kept. */
 export const KEEP_TRACES = 20;
+/** How many events one trace keeps: its own, then their reactions. */
+export const KEEP_EVENTS = 12;
 const KEEP_ORPHANS = 100;
 const KEEP_FEED = 50;
 
@@ -345,10 +344,23 @@ export function createTraceStore(
       // The same event from a second source (the socket, then the recorder) is one event,
       // with what each source knew.
       const same = trace.events.findIndex((e) => e.id !== null && e.id === event.id);
-      if (same < 0) return { ...trace, events: [...trace.events, traced] };
+      if (same < 0) {
+        // A chain is kept short: the action's events and their reactions, up to a fixed number.
+        if (trace.events.length >= KEEP_EVENTS) return trace;
+        return { ...trace, events: [...trace.events, traced] };
+      }
       return {
         ...trace,
-        events: trace.events.map((e, i) => (i === same ? { ...e, ...traced } : e)),
+        events: trace.events.map((e, i) => {
+          if (i !== same) return e;
+          // Two hops of one event can arrive out of order: keep the further one's deliveries.
+          const keep = deliveryRank(e.deliveries) > deliveryRank(traced.deliveries);
+          if (!keep) return { ...e, ...traced };
+          const merged: TracedEvent = { ...e, ...traced };
+          if (e.deliveries !== undefined) merged.deliveries = e.deliveries;
+          if (e.lagMs !== undefined) merged.lagMs = e.lagMs;
+          return merged;
+        }),
       };
     });
     if (event.id !== null) {

@@ -23,6 +23,49 @@ export const KITCHEN: GuideEntry[] = [
     },
   },
   {
+    id: 'kitchen-guest',
+    screen: 'console',
+    target: 'kitchen-guest',
+    title: 'A guest on the board',
+    what: 'A guest sends the board’s three moves, start production, mark ready and picked up, as a signed-in session does: the socket carries no session kind. Refunds and every other console write stay signed-in.',
+    why: 'Each move is read and applied by the order’s own object the same way whoever sends it.',
+    whenNot:
+      'Not for a refund or any other console write: those still answer a guest 403 guest-scope.',
+    events: ['OrderProductionStarted', 'OrderReady', 'OrderPickedUp'],
+    principle: RAFT,
+    triggers: [],
+    api: {
+      routeId: 'kitchen-socket',
+      method: 'GET',
+      path: '/v1/sandboxes/{id}/kitchen/ws',
+      note: 'The board’s socket: the session cookie, a guest’s included, and the exact Origin. A move is a cmd frame answered ack or nack.',
+    },
+  },
+  {
+    id: 'kitchen-rate-limit',
+    screen: 'console',
+    target: 'kitchen-board',
+    title: 'Too many moves at once',
+    what: 'Every sandbox’s board has a command budget: 60 moves reach its orders at once, then one a second. Past it the answer is nack with the rule rate-limit; nothing is called or stored, so the same press works once a token is back.',
+    facts: [
+      'The budget is the sandbox’s, shared by all its sockets, whoever holds them; a repeated id and an order not on the board are answered before it, and spend nothing.',
+    ],
+    why: 'The Kitchen is the one object for its sandbox, so a count kept there is exact and costs nothing.',
+    whenNot:
+      'Not for requests that land anywhere: the Rate Limiting binding suits those, its limits approximate and kept in each location.',
+    events: [],
+    principle: RAFT,
+    triggers: [],
+    api: {
+      routeId: 'kitchen-socket',
+      method: 'GET',
+      path: '/v1/sandboxes/{id}/kitchen/ws',
+      note: 'A refused move is {"t":"nack","rule":"rate-limit"}: HTTP’s 429 slug, on the socket.',
+    },
+    happened:
+      'The Kitchen refused the move before calling the order: the sandbox’s budget is spent for now, and one token comes back each second.',
+  },
+  {
     id: 'kitchen-refund',
     screen: 'console',
     target: 'kitchen-refund',

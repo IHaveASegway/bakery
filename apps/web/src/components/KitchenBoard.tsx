@@ -323,7 +323,9 @@ export default function KitchenBoard({
           </p>
         )}
         {isGuest && (
-          <GuestNote>Guests move their own orders here; a refund needs a sign-in.</GuestNote>
+          <GuestNote tour="kitchen-guest">
+            Guests move their own orders here; a refund needs a sign-in.
+          </GuestNote>
         )}
         <div aria-live="polite" className="messages">
           {refunded !== null && (

@@ -55,6 +55,7 @@ import type {
   TimelineResponse,
   TokenInfoResponse,
   TokenResponse,
+  TraceResponse,
   TrafficResponse,
   WipedResponse,
 } from '../contracts';
@@ -547,5 +548,18 @@ export const signinUrl = (provider: 'google' | 'github') =>
   `${apiOrigin}/v1/auth/${provider}/start?return=/app/`;
 
 /** Where the kitchen board's socket is: the API's own origin with ws: or wss: (src/policy.ts). */
+/**
+ * `GET /v1/sandboxes/{id}/trace?after=<cursor>`: the flight recorder's hops after a cursor (ADR
+ * 0015). Untraced, like every read that is not a story read. Its route spends no rate limit
+ * (`Limit::None` in workers/api/src/http/routes.rs); each read is one Worker request and one
+ * Recorder request, so the guide keeps its own use bounded (lib/recorder.ts).
+ */
+export const getTrace = (id: string, after: number) =>
+  request<TraceResponse>('GET', `${sandboxPath(id)}/trace?after=${after}`);
+
+/** The recorder's socket: the cookie only, the exact Origin, the session's upgrade limit. */
+export const traceSocketUrl = (id: string) =>
+  `${socketOrigin(apiOrigin)}${sandboxPath(id)}/trace/ws`;
+
 export const kitchenSocketUrl = (id: string) =>
   `${socketOrigin(apiOrigin)}${sandboxPath(id)}/kitchen/ws`;
