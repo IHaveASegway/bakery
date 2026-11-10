@@ -37,6 +37,9 @@ function footRoom(): number {
   return document.querySelector('.shell-app, .cart-bar') !== null ? 72 : 8;
 }
 
+/** How much of a note in the page's flow is brought into view when it opens: its head and first rows. */
+const NOTE_HEAD = 160;
+
 /** How long a note stays once its evidence stops changing, unless the pointer or focus is in it. */
 export const LINGER_MS = 8_000;
 
@@ -264,15 +267,16 @@ export function Note({
         setCorner(false);
         if (target !== null && scrolledFor.current !== target) {
           scrolledFor.current = target;
+          // Only as far as brings the note's head into view (its title and first rows), at once
+          // and never past the anchor's top: a smooth scroll kept the page moving for a while
+          // after the press, under the visitor's next look and any measure of the page.
           const n = note.getBoundingClientRect();
           const room = window.innerHeight - BAR_ROOM;
-          const over = n.bottom - room;
+          const head = Math.min(n.height, NOTE_HEAD);
+          const over = n.top + head - room;
           const most = target.getBoundingClientRect().top - topInset() - 8;
           const by = Math.min(over, most);
-          if (by > 0) {
-            const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-            window.scrollBy({ top: by, behavior: calm ? 'auto' : 'smooth' });
-          }
+          if (by > 0) window.scrollBy({ top: by, behavior: 'auto' });
         }
         return;
       }

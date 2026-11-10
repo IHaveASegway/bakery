@@ -632,9 +632,18 @@ test('the refund’s note opens in full, inside the window, with no line on it a
   const note = page.getByRole('region', { name: 'Under the hood: Refunding an order' });
   // In full, by itself: the answer to a deliberate two-press action.
   await expect(note).toBeVisible();
-  // Inside the window's height, scrolling inside itself if it must.
+  // In the page's flow under the result line on the console: its top and the line it explains
+  // are in the window, and the page scrolls to the rest. (A floating note would stay inside the
+  // window's height, scrolling inside itself.)
   const box = await note.boundingBox();
-  expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(800);
+  if (await note.evaluate((n) => n.closest('.guide-flow') !== null)) {
+    expect(box?.y ?? 900).toBeLessThan(800);
+    const line = await said.boundingBox();
+    expect(line?.y ?? -1).toBeGreaterThanOrEqual(0);
+    expect((line?.y ?? 900) + (line?.height ?? 0)).toBeLessThanOrEqual(800);
+  } else {
+    expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(800);
+  }
   // Its folded line is not shown while it is open.
   await expect(page.locator('.guide-layer:not(.guide-line-docked) > .guide-line')).toHaveCount(0);
   // Only the refund's sentence is ringed, and the note is not over it.
@@ -799,6 +808,9 @@ test('on the console a move’s note is drawn under its card, in the page, and t
   });
   expect(placed).toEqual({ inFlow: true, underCard: true, position: 'static' });
   await expect(note).toContainText(BOARD_LINE_START);
+  // Read at the column's width: no word, in a chip or in running text, is cut across two lines;
+  // a name wraps only between its words (start_ production, Order Production Started).
+  expect(await brokenWords(page)).toEqual([]);
   expect(await overWhatMatters(page, 'Start production')).toEqual([]);
   // Measured in the page, not the window: the page may scroll to show the note, and the note
   // opens and leaves below the next button, so neither moves it.
@@ -813,6 +825,60 @@ test('on the console a move’s note is drawn under its card, in the page, and t
   console.log(`layout shift, board move note in flow: ${cls.toFixed(4)}`);
   expect(cls).toBeLessThan(0.1);
 });
+
+test('at the narrowest window that shows the board’s five columns, a move’s note waits as its line', async ({
+  page,
+}) => {
+  await demoAccount(page);
+  await liveSandbox(page);
+  // The board shows five columns above 72rem (global.css): 1153 px is the narrowest such window.
+  await page.setViewportSize({ width: 1153, height: 900 });
+  await page.goto('/app/');
+  await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+  const card = page.locator('.board .cards > li').first();
+  const width = (await card.boundingBox())?.width ?? 0;
+  await page
+    .locator('section[aria-labelledby="board-confirmed"]')
+    .getByRole('button', { name: /^Start production for order / })
+    .first()
+    .click();
+  const line = page.locator('.guide-layer:not(.guide-line-docked) > .guide-line');
+  if (width < 150) {
+    await expect(line).toContainText('The kitchen board');
+    await expect(page.locator('.guide-flow')).toHaveCount(0);
+  } else {
+    await expect(page.locator('.guide-flow #guide-live')).toBeVisible();
+    expect(await brokenWords(page)).toEqual([]);
+  }
+  expect(await overWhatMatters(page, 'Start production')).toEqual([]);
+});
+
+/**
+ * The words of the in-flow note that a line break cuts in two: each run of letters between a
+ * space and a break opportunity (a text node holds one piece of a name) must lie on one line.
+ */
+async function brokenWords(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const note = document.querySelector('.guide-flow #guide-live');
+    if (note === null) return ['no note in the flow'];
+    const broken: string[] = [];
+    const walk = document.createTreeWalker(note, NodeFilter.SHOW_TEXT);
+    for (let node = walk.nextNode(); node !== null; node = walk.nextNode()) {
+      const text = node.textContent ?? '';
+      // A hyphen, an underscore or a slash ends a word too: a line may break after one.
+      for (const m of text.matchAll(/[^\s_/-]+[_/-]?/g)) {
+        const range = document.createRange();
+        range.setStart(node, m.index ?? 0);
+        range.setEnd(node, (m.index ?? 0) + m[0].length);
+        const tops = new Set(
+          [...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)),
+        );
+        if (tops.size > 1) broken.push(m[0]);
+      }
+    }
+    return broken;
+  });
+}
 
 /** The opening of the board's Start line (src/guide/kitchen.ts, BOARD_MOVES). */
 const BOARD_LINE_START = 'OrderProductionStarted reaches the board on every screen';

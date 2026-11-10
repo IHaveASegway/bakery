@@ -18,6 +18,7 @@ import {
   EntryBody,
   ReadStory,
   TraceChain,
+  BreakableText,
   WhyLines,
   deliveryWords,
   listeningText,
@@ -172,7 +173,9 @@ export default function Panel({
                       seen={seen}
                     />
                     {first.transport === 'socket' && BOARD_MOVES[first.action ?? ''] && (
-                      <p className="guide-happened">{BOARD_MOVES[first.action ?? '']}</p>
+                      <p className="guide-happened">
+                        <BreakableText text={BOARD_MOVES[first.action ?? ''] ?? ''} />
+                      </p>
                     )}
                     {first.read !== undefined && <ReadStory trace={first} />}
                     {entry?.happened !== undefined && (

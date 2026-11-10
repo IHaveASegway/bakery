@@ -1315,6 +1315,20 @@ div.guide-layer.guide-flow {
   display: none;
 }
 
+/* A note in the page takes none of the page's `overflow-wrap: anywhere` (main's, for its own long
+   words): a name wraps only at the break opportunities the note puts between its words
+   (Views.tsx, Breakable), and a word is broken only if it alone is wider than the note. */
+.guide-layer.guide-flow,
+.guide-layer.guide-flow * {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+/* The reasons in full where the note is wide enough, behind their line where it is not. */
+.guide-narrow-only {
+  display: none;
+}
+
 /* In a narrow column (a board's), a hop's label sits above its body. */
 @container (max-width: 15rem) {
   .guide-flow .guide-hop {
@@ -1324,6 +1338,14 @@ div.guide-layer.guide-flow {
 
   .guide-flow .guide-head {
     flex-wrap: wrap;
+  }
+
+  .guide-flow .guide-wide-only {
+    display: none;
+  }
+
+  .guide-flow .guide-narrow-only {
+    display: block;
   }
 }
 

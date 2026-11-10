@@ -46,6 +46,7 @@ import {
   EntryBody,
   NoteHead,
   TraceChain,
+  BreakableText,
   WatchChain,
   ReadStory,
   ReasonsOnce,
@@ -95,6 +96,9 @@ function afterSettling(kept: () => boolean, fold: () => void): () => void {
   frame = requestAnimationFrame(look);
   return () => cancelAnimationFrame(frame);
 }
+
+/** The narrowest a note in a board column may be, in CSS pixels; narrower, it waits as its line. */
+const NARROWEST = 150;
 
 /** The width at and under which the guide's control and folded line sit in the masthead's row. */
 const PHONE_ROW = '(max-width: 48rem)';
@@ -417,7 +421,16 @@ export default function Layer({
       // flow; a fallback such as the page's main column does not, and the note floats or waits as
       // its line as before.
       if (!there && !anchorEl.matches('[data-guide-result], li, tr')) return null;
-      return flowPlace(anchorEl, there ? pressed : null);
+      const place = flowPlace(anchorEl, there ? pressed : null);
+      // A card's column too narrow to read a note in (under NARROWEST px, as the board's five
+      // columns are at their narrowest window): the note waits as its line instead.
+      if (place !== null && 'after' in place && place.after.matches('.cards > li')) {
+        if (place.after.getBoundingClientRect().width < NARROWEST) {
+          setLineFor(live.gesture);
+          return null;
+        }
+      }
+      return place;
     },
     [live, story],
   );
@@ -788,7 +801,9 @@ export default function Layer({
                 seen={snapshot.seen}
               />
               {group[0]?.transport === 'socket' && BOARD_MOVES[group[0].action ?? ''] && (
-                <p className="guide-happened">{BOARD_MOVES[group[0].action ?? '']}</p>
+                <p className="guide-happened">
+                  <BreakableText text={BOARD_MOVES[group[0].action ?? ''] ?? ''} />
+                </p>
               )}
               {unfollowable(group) !== null && <p className="guide-meta">{unfollowable(group)}</p>}
               <RecorderSays state={recorder} />

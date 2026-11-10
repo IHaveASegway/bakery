@@ -2,7 +2,11 @@
 // what its chain says (observed against expected), the one sentence a screen reader hears, and
 // the short path's steps. The trace store's correlation is trace.test.ts's.
 import { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
+import { renderToStaticMarkup as markup } from 'react-dom/server';
+
+/** The markup as a reader meets it: a name's break opportunities (<wbr>) are not text. */
+const renderToStaticMarkup = (...args: Parameters<typeof markup>) =>
+  markup(...args).replaceAll('<wbr/>', '');
 import { describe, expect, test } from 'vitest';
 import { Note, resolveAnchor } from '../src/components/guide/Note';
 import { byGesture, hopLines, hopWords } from '../src/components/guide/Panel';
@@ -23,6 +27,9 @@ import {
 import {
   Observed,
   TraceChain,
+  Breakable,
+  ReasonsOnce,
+  nameParts,
   dayOf,
   madeBefore,
   deliveryWords,
@@ -1194,5 +1201,26 @@ describe('a board move says what it changes, and a repeat says it changed nothin
     expect(html).not.toContain('on its way');
     // The tab that made it sees its own event, not a repeat.
     expect(madeBefore(move('cmd-from-tab-b'), 'OrderProductionStarted', [other])).toBeNull();
+  });
+});
+
+describe('a name breaks only between its words', () => {
+  test('a command after each underscore, an event type between its capitalised words', () => {
+    expect(nameParts('cmd start_production')).toEqual(['cmd start_', 'production']);
+    expect(nameParts('OrderProductionStarted')).toEqual(['Order', 'Production', 'Started']);
+    expect(nameParts('POST …/orders/…M6TY92/payment')).toEqual([
+      'POST …/',
+      'orders/',
+      '…M6TY92/',
+      'payment',
+    ]);
+    expect(markup(createElement(Breakable, { text: 'OrderReady' }))).toBe('Order<wbr/>Ready');
+  });
+  test('the reasons are drawn twice the first time, in full and folded, for CSS to choose by width', () => {
+    const html = renderToStaticMarkup(
+      createElement(ReasonsOnce, { entry: entry('kitchen-board'), note: 9_001 }),
+    );
+    expect(html).toContain('guide-wide-only');
+    expect(html).toContain('guide-narrow-only');
   });
 });

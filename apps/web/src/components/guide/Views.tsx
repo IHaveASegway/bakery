@@ -1,4 +1,4 @@
-import { useMemo, useState, useSyncExternalStore } from 'react';
+import { Fragment, useMemo, useState, useSyncExternalStore } from 'react';
 import { apiOrigin } from '../../lib/api';
 import {
   curlText,
@@ -30,6 +30,40 @@ import { LATER, routeIdOf } from './match';
 import { ulid } from '../../lib/ulid';
 
 // ---- Words, pure, so the tests can read them ----
+
+/**
+ * A name with a break opportunity between its words and nowhere inside one: after an underscore,
+ * a slash, a hyphen, a dot or a colon (`start_ production`, `…/ orders/`), and between the
+ * capitalised words of an event type (`Order Production Started`), so a narrow note (a board
+ * column's) wraps a name between its words instead of cutting one in two.
+ */
+export function nameParts(name: string): string[] {
+  return name.split(/(?<=[_/\-.:])|(?<=[a-z])(?=[A-Z])/).filter((p) => p !== '');
+}
+
+export function Breakable({ text }: { text: string }) {
+  return (
+    <>
+      {nameParts(text).map((part, i) => (
+        <Fragment key={i}>
+          {i > 0 && <wbr />}
+          {part}
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+/** Running text whose event names may wrap between their words (Breakable on each name). */
+export function BreakableText({ text }: { text: string }) {
+  return (
+    <>
+      {text
+        .split(/(\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b)/)
+        .map((piece, i) => (i % 2 === 1 ? <Breakable key={i} text={piece} /> : piece))}
+    </>
+  );
+}
 
 /**
  * A path as a note shows it: the sandbox's part folded to `…`, every long id cut to its last six
@@ -404,7 +438,9 @@ export function TraceChain({
               {trace.transport === 'socket' ? 'Sent' : requestLabel(trace)}
             </span>
             <span className="guide-hop-body">
-              <code className="guide-chip">{sent}</code>
+              <code className="guide-chip">
+                <Breakable text={sent} />
+              </code>
               <code className={bad ? 'guide-chip guide-chip-bad' : 'guide-chip'}>{answer}</code>
               {trace.ms !== null && <span className="guide-meta">{trace.ms} ms</span>}
               {trace.key !== null && (
@@ -436,7 +472,9 @@ export function TraceChain({
             <li key={`${hop.type}-folded`} className="guide-hop" data-state="observed">
               <span className="guide-hop-kind">Event</span>
               <span className="guide-hop-body">
-                <code className="guide-chip">{hop.type}</code>
+                <code className="guide-chip">
+                  <Breakable text={hop.type} />
+                </code>
                 <span className="guide-meta">{foldedWords(all)}</span>
                 {taken !== null && taken !== undefined && (
                   <span className="guide-meta guide-deliveries">{taken}, each</span>
@@ -452,7 +490,9 @@ export function TraceChain({
             <li key={`${hop.type}-before`} className="guide-hop" data-state="noop">
               <span className="guide-hop-kind">Event</span>
               <span className="guide-hop-body">
-                <code className="guide-chip">{hop.type}</code>
+                <code className="guide-chip">
+                  <Breakable text={hop.type} />
+                </code>
                 <span className="guide-meta">
                   already made for this order under another command (another screen, or an earlier
                   press): the Order took this one as a repeat and wrote nothing new
@@ -467,7 +507,9 @@ export function TraceChain({
               {hop.state === 'observed' && event?.source === 'socket' ? 'Came back' : 'Event'}
             </span>
             <span className="guide-hop-body">
-              <code className="guide-chip">{hop.type}</code>
+              <code className="guide-chip">
+                <Breakable text={hop.type} />
+              </code>
               {hop.state === 'observed' && event !== null ? (
                 <span className="guide-meta">
                   {event.seq !== null && <>seq {event.seq}</>}
@@ -491,7 +533,9 @@ export function TraceChain({
         <li className="guide-hop" data-state="later">
           <span className="guide-hop-kind">Later</span>
           <span className="guide-hop-body">
-            <code className="guide-chip">{later.type}</code>
+            <code className="guide-chip">
+              <Breakable text={later.type} />
+            </code>
             <span className="guide-meta">{later.when}</span>
           </span>
         </li>
@@ -542,7 +586,21 @@ export function ReasonsOnce({
 }) {
   const first = reasonsShown.get(entry.id) ?? note;
   if (!reasonsShown.has(entry.id)) reasonsShown.set(entry.id, note);
-  if (first === note) return <WhyLines entry={entry} />;
+  // In a narrow note (a board column's) the reasons stay behind their line even the first time;
+  // CSS shows one of the two by the note's width (guide.css, the in-flow note).
+  if (first === note) {
+    return (
+      <>
+        <div className="guide-wide-only">
+          <WhyLines entry={entry} />
+        </div>
+        <details className="guide-reasons guide-narrow-only">
+          <summary>Why this tool, and when not</summary>
+          <WhyLines entry={entry} />
+        </details>
+      </>
+    );
+  }
   return (
     <details className="guide-reasons">
       <summary>Why this tool, and when not</summary>
