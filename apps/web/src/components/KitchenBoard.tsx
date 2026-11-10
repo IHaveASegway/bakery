@@ -52,6 +52,23 @@ const TONE: Record<Card['state'], string> = {
 /** The last six characters of a ULID: enough to tell cards apart. */
 const shortId = (id: string) => id.slice(-6);
 
+/**
+ * An id as its last six characters, the whole id in its title and read out in full: a ULID's 26
+ * characters wrapped over three lines on a card and were cut off on a phone. A stream's kind
+ * (`schedule:…`) stays in front of the tail.
+ */
+function IdTail({ id }: { id: string }) {
+  const colon = id.indexOf(':');
+  const kind = colon > 0 ? id.slice(0, colon + 1) : '';
+  const rest = id.slice(kind.length);
+  return (
+    <code title={id}>
+      <span aria-hidden="true">{rest.length > 8 ? `${kind}…${rest.slice(-6)}` : id}</span>
+      <span className="sr-only">{id}</span>
+    </code>
+  );
+}
+
 function commandText(c: Command): string {
   const what = `${ACTION_WORDS[c.action]} for ${shortId(c.order)}`;
   switch (c.status) {
@@ -139,10 +156,17 @@ export function CardView({
       {card.note && <p className="card-note">Note: {card.note}</p>}
       {(card.last || card.cause) && (
         <p className="hint">
-          {card.last ?? 'Last event'}
+          {card.last ? (
+            <span className="badge" data-tone="kind">
+              {card.last}
+            </span>
+          ) : (
+            'Last event'
+          )}
           {card.cause && (
             <>
-              , cause <code>{card.cause}</code>
+              {' '}
+              cause <IdTail id={card.cause} />
               {isSimulated(card.cause) && ' (simulated)'}
             </>
           )}
@@ -383,16 +407,18 @@ export default function KitchenBoard({
             <ol className="strip-list">
               {kitchen.feed.map((e) => (
                 <li key={e.id}>
-                  <strong>{e.type}</strong>{' '}
+                  <span className="badge" data-tone="kind">
+                    {e.type}
+                  </span>{' '}
                   <time dateTime={e.time} title={whenText(e.time, { seconds: true })}>
                     {whenText(e.time, { seconds: true }).split(' on ')[0]}
                   </time>
                   <span className="strip-stream">
-                    <code>{e.stream}</code> seq {e.seq}
+                    <IdTail id={e.stream} /> seq {e.seq}
                   </span>
                   {e.cause && (
                     <span className="strip-cause">
-                      cause <code>{e.cause}</code>
+                      cause <IdTail id={e.cause} />
                       {isSimulated(e.cause) && ' (simulated)'}
                     </span>
                   )}
