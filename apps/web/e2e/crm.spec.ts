@@ -88,8 +88,7 @@ test('the CRM panels show what the API holds, and a quote moves a lead along the
     )
     .toContain(lead);
 
-  await page.goto('/app/');
-  await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
+  await page.goto('/app/customers/');
 
   // Customers: the list is the API's, in its order.
   const customers = (await api<{ customers: Customer[] }>(page, 'GET', `${base}/customers`)).body
@@ -133,7 +132,8 @@ test('the CRM panels show what the API holds, and a quote moves a lead along the
   }
   await expectNoAxeViolations(page);
 
-  // The pipeline: a row a stage, with the API's count.
+  // The pipeline: a row a stage, with the API's count, on the catering page with the queue.
+  await page.goto('/app/catering/');
   const pipeline = page.getByRole('region', { name: 'Catering lead pipeline' });
   const stageRows = pipeline.locator('tbody tr');
   await expect(stageRows).toHaveCount(STAGES.length);

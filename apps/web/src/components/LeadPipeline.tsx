@@ -41,7 +41,7 @@ export default function LeadPipeline({
       <h3 id="leads-heading" tabIndex={-1} data-tour="crm-leads">
         Catering lead pipeline
       </h3>
-      <p>Every catering inquiry is a lead. It moves right as the event does.</p>
+      <p className="hint">Every catering inquiry is a lead, moving down as the event does.</p>
       <Message error={error} />
       {stages === null ? (
         error === null && <p aria-live="polite">Loading the pipeline…</p>

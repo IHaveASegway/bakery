@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { formatCountdown, utcClock } from '../src/lib/countdown';
+import { formatCountdown, roughCountdown, utcClock } from '../src/lib/countdown';
 import { parseProblem, problemSlug } from '../src/lib/problem';
 
 describe('parseProblem', () => {
@@ -57,6 +57,14 @@ describe('countdown', () => {
     expect(formatCountdown(12 * 60_000)).toBe('12 min');
     expect(formatCountdown(30_000)).toBe('under a minute');
     expect(formatCountdown(0)).toBe('now');
+  });
+
+  test('says it roughly for the top bar: whole hours, then minutes, then under a minute, then now', () => {
+    expect(roughCountdown((12 * 60 + 55) * 60_000)).toBe('12 h');
+    expect(roughCountdown(60 * 60_000)).toBe('1 h');
+    expect(roughCountdown(59 * 60_000)).toBe('59 min');
+    expect(roughCountdown(30_000)).toBe('under a minute');
+    expect(roughCountdown(-1)).toBe('now');
   });
 
   test('reads the clock time in UTC', () => {

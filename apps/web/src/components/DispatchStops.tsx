@@ -42,7 +42,7 @@ export default function DispatchStops({
   }
   return (
     <div className="table-scroll" role="region" aria-label="Stops table" tabIndex={0}>
-      <table className="[overflow-wrap:normal]">
+      <table className="table [overflow-wrap:normal]">
         <caption className="sr-only">The day’s delivery stops</caption>
         <thead>
           <tr>
@@ -73,7 +73,7 @@ export default function DispatchStops({
                 </td>
                 {/* "Zone 2" names itself, so it needs no label of its own. */}
                 <td className="whitespace-nowrap">{zoneText(row.zone)}</td>
-                <td>
+                <td className="num">
                   <Label name="Units" />
                   {row.units}
                 </td>

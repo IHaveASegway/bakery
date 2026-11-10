@@ -1,0 +1,13 @@
+---
+import Base from '../../../layouts/Base.astro';
+import MoneyWorkspace from '../../../components/workspaces/Money';
+---
+
+<Base
+  title="Money | Proof of Concept Bakery"
+  description="Your sandbox's ledger: every payment and refund, and the net."
+  screen="console"
+>
+  <h1>Money</h1>
+  <MoneyWorkspace client:load />
+</Base>

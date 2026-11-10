@@ -369,35 +369,42 @@ export default function KitchenBoard({
         </div>
       </section>
 
-      <div className="panel half">
-        <BakeList lists={bakeLists} today={today} />
-      </div>
-
-      <div className="panel half">
-        <h3 id="feed-heading" tabIndex={-1}>
-          Activity feed
-        </h3>
-        <p className="hint">The last 50 events the board applied, newest first.</p>
+      <section className="panel feed-strip" aria-labelledby="feed-heading">
+        <div className="panel-head">
+          <h3 id="feed-heading" tabIndex={-1}>
+            Activity feed
+          </h3>
+          <p className="hint">The last 50 events the board applied, newest first.</p>
+        </div>
         {kitchen.feed.length === 0 ? (
           <p className="hint">No events yet since this page connected.</p>
         ) : (
-          <div role="log" aria-labelledby="feed-heading" className="feed-scroll" tabIndex={0}>
-            <ol className="feed">
+          <div role="log" aria-labelledby="feed-heading" className="strip" tabIndex={0}>
+            <ol className="strip-list">
               {kitchen.feed.map((e) => (
                 <li key={e.id}>
-                  <strong>{e.type}</strong> <code>{e.stream}</code> seq {e.seq}
+                  <strong>{e.type}</strong>{' '}
+                  <time dateTime={e.time} title={whenText(e.time, { seconds: true })}>
+                    {whenText(e.time, { seconds: true }).split(' on ')[0]}
+                  </time>
+                  <span className="strip-stream">
+                    <code>{e.stream}</code> seq {e.seq}
+                  </span>
                   {e.cause && (
-                    <>
-                      , cause <code>{e.cause}</code>
+                    <span className="strip-cause">
+                      cause <code>{e.cause}</code>
                       {isSimulated(e.cause) && ' (simulated)'}
-                    </>
+                    </span>
                   )}
-                  , <time dateTime={e.time}>{whenText(e.time, { seconds: true })}</time>
                 </li>
               ))}
             </ol>
           </div>
         )}
+      </section>
+
+      <div className="panel">
+        <BakeList lists={bakeLists} today={today} />
       </div>
     </>
   );

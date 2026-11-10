@@ -7,8 +7,9 @@
 
   Four page classes. Every page gets the strict policy, which names no third party, so a visitor
   reading the privacy page loads nothing from Cloudflare. Pages that create a sandbox or an account
-  (/signin/ now, /app/ because it can create a sandbox too) are the challenge class: they add
-  Turnstile's origin to script-src and frame-src, and nothing else. Pages with an island but no
+  (/signin/ now, /app/ because it can create a sandbox too, and since 2026-11-09 the console's other
+  workspaces under it: /app/money/, /app/menu/, /app/catering/, /app/customers/ and /app/system/)
+  are the challenge class: they add Turnstile's origin to script-src and frame-src, and nothing else. Pages with an island but no
   third party (/menu/ and /inbox/, and since the tour /privacy/ and /docs/api/, and since PR 13
   /status/, and since 2026-11-09 the order's status page, /order/) are the island class: the strict
   policy plus the hashes below. The start page carries the tour too, but it has no rule of its own:

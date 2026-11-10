@@ -476,9 +476,8 @@ export default function Dispatch() {
 
             <div className="panel">
               <h2>Server’s plan</h2>
-              <p>
-                The server proposes with a savings heuristic written in Rust. It plans the day’s
-                confirmed stops; the vans and capacity you give become the day’s.
+              <p className="hint">
+                The server plans the day’s confirmed stops with a savings heuristic written in Rust.
               </p>
               <form
                 aria-label="Propose a plan"
@@ -536,12 +535,9 @@ export default function Dispatch() {
 
             <div className="panel">
               <h2 data-tour="dispatch-plan">Browser’s plan</h2>
-              <p>
-                VROOM, a vehicle routing solver, can plan the same stops in this browser, within the
-                same delivery windows: the vans leave at 9:00 am, and each stop is served in its
-                window. It loads when you first press the button, runs in a Web Worker, and sends
-                the stops of each van to the API, which checks them and works out the minutes
-                itself.
+              <p className="hint">
+                VROOM plans the same stops in this browser, in a Web Worker, within the same
+                windows.
               </p>
               <p>
                 <button
@@ -585,10 +581,8 @@ export default function Dispatch() {
 
             <div className="panel">
               <h2>Publish</h2>
-              <p>
-                Publishing makes one plan the record: drivers, the kitchen board and each order’s
-                status read it. The API checks the plan again against the day’s stops before it
-                accepts it, and publishing twice with one key stores one plan.
+              <p className="hint">
+                The published plan is the record drivers, the board and each order read.
               </p>
               <form
                 aria-label="Publish a plan"

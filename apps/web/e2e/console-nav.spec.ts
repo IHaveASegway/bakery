@@ -1,9 +1,10 @@
-// The console's in-page navigation (audit C26) and the menu tour on a phone (audit P3): a link in
-// "On this page" puts the focus on its heading so Tab goes on from there, the board's skip link
-// passes the cards, and the menu tour's list step rings one card that sits above the tour's bar.
+// The console's navigation (audit C26, and the seven pages of 2026-11-09) and the menu tour on a
+// phone (audit P3): the sidebar's pages, an old anchor that lands on its section's page with the
+// focus on its heading, the board's skip link past the cards, and the menu tour's list step, which
+// rings one card that sits above the tour's bar.
 import { demoAccount, expect, expectNoAxeViolations, liveSandbox, test } from './fixtures';
 
-test('the “On this page” list and the board’s skip link move the focus past the cards', async ({
+test('the sidebar’s pages, an old anchor of the one-page console, and the board’s skip link', async ({
   page,
 }) => {
   await demoAccount(page);
@@ -12,16 +13,20 @@ test('the “On this page” list and the board’s skip link move the focus pas
   await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
   await expectNoAxeViolations(page);
 
-  // The sidebar: the 20 sections in their seven workspaces, and the dispatch page under Dispatch.
-  const nav = page.getByRole('navigation', { name: 'On this page' });
-  await expect(nav.getByRole('link')).toHaveCount(21);
-  await expect(nav.getByRole('link', { name: 'Delivery plans' })).toHaveAttribute(
-    'href',
-    '/app/dispatch/',
-  );
+  // The sidebar: the seven workspaces, each a page, the Kitchen current here.
+  const nav = page.getByRole('navigation', { name: 'Console' });
+  await expect(nav.getByRole('link')).toHaveCount(7);
+  await expect(nav.getByRole('link', { name: 'Kitchen' })).toHaveAttribute('aria-current', 'page');
+  await nav.getByRole('link', { name: 'Money' }).click();
+  await expect(page).toHaveURL(/\/app\/money\/$/);
+  await expect(page.getByRole('heading', { name: 'Ledger' })).toBeVisible();
+  await expect(nav.getByRole('link', { name: 'Money' })).toHaveAttribute('aria-current', 'page');
+  await expectNoAxeViolations(page);
 
-  // A link lands the focus on the section's heading; Tab then goes to what follows it.
-  await nav.getByRole('link', { name: 'Ledger' }).click();
+  // A link to a section of the one-page console lands on its page, with the focus on its heading,
+  // so Tab goes on from there.
+  await page.goto('/app/#ledger-heading');
+  await expect(page).toHaveURL(/\/app\/money\/#ledger-heading$/);
   await expect(page.locator('#ledger-heading')).toBeFocused();
   await page.keyboard.press('Tab');
   const after = await page.evaluate(() => {
@@ -34,11 +39,13 @@ test('the “On this page” list and the board’s skip link move the focus pas
   expect(after).toBe(true);
 
   // The skip link shows on focus, and Enter lands on the first heading after the board's cards.
+  await page.goto('/app/');
+  await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
   const skip = page.getByRole('link', { name: 'Skip the board’s cards' });
   await skip.focus();
   await expect(skip).toBeInViewport();
   await page.keyboard.press('Enter');
-  await expect(page.locator('#bake-heading')).toBeFocused();
+  await expect(page.locator('#feed-heading')).toBeFocused();
 });
 
 test.describe('on a phone', () => {

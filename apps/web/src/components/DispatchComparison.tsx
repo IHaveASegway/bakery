@@ -1,5 +1,6 @@
 import { clockText, type BrowserSolver, type Figures, type Report } from '../lib/dispatch';
 import { HOW } from '../tour/how';
+import HowItWorks from './HowItWorks';
 
 const SOURCE_NAMES = { server: 'Server (savings heuristic)', browser: 'Browser (VROOM)' } as const;
 
@@ -31,35 +32,41 @@ export default function DispatchComparison({
     <>
       <p aria-live="polite">{report.summary}</p>
       <div className="table-scroll" role="region" aria-label="Plans compared" tabIndex={0}>
-        <table>
+        <table className="table">
           <thead>
             <tr>
               <th scope="col">
                 <span className="sr-only">Figure</span>
               </th>
-              <th scope="col">{SOURCE_NAMES.server}</th>
-              <th scope="col">{SOURCE_NAMES.browser}</th>
+              <th scope="col" className="num">
+                {SOURCE_NAMES.server}
+              </th>
+              <th scope="col" className="num">
+                {SOURCE_NAMES.browser}
+              </th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
               <tr key={row.name}>
                 <th scope="row">{row.name}</th>
-                <td>{cell(server, row.pick, 'Not proposed yet')}</td>
-                <td>{cell(browser, row.pick, noBrowser)}</td>
+                <td className="num">{cell(server, row.pick, 'Not proposed yet')}</td>
+                <td className="num">{cell(browser, row.pick, noBrowser)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <p className="hint">
-        Both plans keep to the delivery windows: the API refuses either one if a van would reach a
-        stop after its window closes. Drive minutes are free-flow times from the travel-time matrix,
-        with no traffic, no time at the door and no waiting for a window to open; the time the last
-        van is back counts both. The gap is the server’s total less the browser’s, as a percentage
-        of the browser’s.
-      </p>
-      <p className="hint">How this works: {HOW.dispatch}</p>
+      <HowItWorks>
+        <p>
+          Both plans keep to the delivery windows: the API refuses either one if a van would reach a
+          stop after its window closes. Drive minutes are free-flow times from the travel-time
+          matrix, with no traffic, no time at the door and no waiting for a window to open; the time
+          the last van is back counts both. The gap is the server’s total less the browser’s, as a
+          percentage of the browser’s.
+        </p>
+        <p>{HOW.dispatch}</p>
+      </HowItWorks>
     </>
   );
 }

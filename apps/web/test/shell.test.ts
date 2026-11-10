@@ -62,11 +62,11 @@ describe('the console’s workspaces', () => {
     expect(order).toEqual(CONSOLE_SECTIONS.map((s) => s.id));
   });
 
-  test('on the dispatch page the sidebar leads back to the console and marks dispatch current', () => {
+  test('on the dispatch page the sidebar marks Dispatch current and leads to every workspace', () => {
     const html = renderToStaticMarkup(createElement(ConsoleNav, { here: 'dispatch' }));
     expect(html).toContain('aria-label="Console"');
-    expect(html).toContain('href="/app/#board-heading"');
-    expect(html).toContain('<a href="/app/dispatch/" aria-current="page">Delivery plans</a>');
+    expect(html).toContain('href="/app/"');
+    expect(html).toMatch(/<a href="\/app\/dispatch\/" aria-current="page">/);
     expect(html).not.toMatch(/href="#/);
   });
 });

@@ -31,7 +31,12 @@ const PAGES = [
   '/docs/api/',
   '/inbox/',
   '/app/',
+  '/app/money/',
+  '/app/menu/',
+  '/app/catering/',
+  '/app/customers/',
   '/app/dispatch/',
+  '/app/system/',
 ];
 
 // A visitor with no session: a page that asks the API who it is gets 401, which Chromium logs.

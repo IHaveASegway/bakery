@@ -21,8 +21,12 @@ export default defineConfig({
   retries: 0,
   timeout: 90_000,
   expect: { timeout: 20_000 },
-  // The suite's budget (docs/roadmap.md, PR 11 prep): the whole run stays under five minutes.
-  globalTimeout: 5 * 60_000,
+  // The suite's limit. Five minutes from the PR 11 preparation until 2026-11-09, when 54 tests in
+  // 16 specs needed about 5.5 minutes on a busy cloud machine (one worker, load average 4 to 6;
+  // two runs stopped at 5 minutes with 42 and 50 passed and none failed), while CI ran #101's 55
+  // tests in 3.4 minutes. Ten minutes leaves room for both; the e2e job's own limit is 20 minutes
+  // (.github/workflows/ci.yml). docs/delivery.md, "The e2e suite".
+  globalTimeout: 10 * 60_000,
   reporter: process.env.CI ? [['list'], ['github']] : [['list']],
   use: {
     ...devices['Desktop Chrome'],
