@@ -531,8 +531,8 @@ describe('dist', () => {
   // later and is not counted), and the page's inline scripts. Each file counts once per page.
   //
   // Measured 2026-11-09 with node's gzipSync at its default level, per class (the largest page of
-  // the class): guide only 80,313 B (home, privacy); API reference 80,566 B; status 83,087 B;
-  // storefront 92,403 B (menu, sign-in); checkout 108,673 B; console screens 126,927 B (the
+  // the class): guide only 80,312 B (home, privacy); API reference 80,565 B; status 83,086 B;
+  // storefront 92,402 B (menu, sign-in); checkout 108,672 B; console screens 126,926 B (the
   // console, dispatch, catering and the inbox). Each budget is the measured size plus a quarter,
   // rounded up to the next 1,000 B. The ADR's own numbers (5,000 B for a public page, 120,000 B for
   // an app screen or the checkout) are not met on the public pages: every island page carries the
@@ -541,13 +541,13 @@ describe('dist', () => {
   //
   // Moved 2026-11-09, when the guide replaced the tour. These budgets hold the first load only:
   // the guide's bar and the trace store. With the guide on, the default, the page then loads the
-  // deferred layer (the test after these holds it, at 22,512 B to 23,001 B), so a page with the
+  // deferred layer (the test after these holds it, at 22,603 B to 23,092 B), so a page with the
   // guide on costs more than it did with the tour. Per class, first load / with the guide on /
-  // the tour's total it replaces (measured at f8b5192): guide only 80,313 / 103,314 / 94,187;
-  // API reference 80,566 / 103,567 / 94,440; status 83,087 / 106,088 / 96,960; storefront
-  // 92,403 / 114,915 / 103,417; checkout 108,673 / 131,185 / 119,472; console screens
-  // 126,927 / 149,708 / 136,394. The first load is smaller than the tour's by 9,467 B to 13,874 B;
-  // with the guide on the page is larger, by 9,127 B to 13,314 B. A visitor who turns the guide off
+  // the tour's total it replaces (measured at f8b5192): guide only 80,312 / 103,404 / 94,187;
+  // API reference 80,565 / 103,657 / 94,440; status 83,086 / 106,178 / 96,960; storefront
+  // 92,402 / 115,005 / 103,417; checkout 108,672 / 131,275 / 119,472; console screens
+  // 126,926 / 149,798 / 136,394. The first load is smaller than the tour's by 9,468 B to 13,875 B;
+  // with the guide on the page is larger, by 9,217 B to 13,404 B. A visitor who turns the guide off
   // loads the first load alone on later pages.
   describe('JavaScript per page', () => {
     const KB = 1_000;
@@ -615,7 +615,7 @@ describe('dist', () => {
     // The guide's deferred load (components/Guide.tsx): the Layer chunk that a dynamic import brings
     // once the island has mounted and the guide is on or the recorder is open, with every chunk it
     // imports statically that the page's first load does not already carry, gzipped the same way.
-    // Measured 2026-11-09: 22,512 B to 23,001 B (the light pages carry less React in their first
+    // Measured 2026-11-09: 22,603 B to 23,092 B (the light pages carry less React in their first
     // load, so their deferred load is the larger). The budget is the largest plus a quarter,
     // rounded up to the next 1,000 B. The bytes buy the 65 entries, the notes, the hotspots, the
     // recorder panel and the short path.
