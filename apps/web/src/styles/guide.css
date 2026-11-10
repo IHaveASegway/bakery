@@ -201,9 +201,11 @@
 
 /* ---- Hotspots ---- */
 
+/* Under the app's sticky top bar (18) and the phone's tab bar (19), over the sidebar (16): a mark
+   scrolled up under the top bar must not sit on the bar's own controls. */
 .guide-layer .guide-spot {
   position: absolute;
-  z-index: 25;
+  z-index: 17;
   display: grid;
   place-items: center;
   width: 24px;
