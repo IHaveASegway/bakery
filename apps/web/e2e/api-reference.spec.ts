@@ -165,7 +165,55 @@ test('on paper every section is laid out, as it is on the screen only near the w
     );
   // On the screen most of the 256 tables are skipped ...
   expect(await skipped()).toBeGreaterThan(100);
-  // ... on paper none is, so the whole document prints.
+  // ... on paper none is, so the whole document prints. The browser lets go of a skipped section at
+  // its next rendering update, not at the style change, so this is a poll: read at once after the
+  // switch it still counted 255 in two tries of four on 2026-11-10.
   await page.emulateMedia({ media: 'print' });
-  expect(await skipped()).toBe(0);
+  await expect.poll(skipped).toBe(0);
 });
+
+// A column is never narrower than its longest word. `main` breaks anywhere, and inside a table that
+// let the browser squeeze a short column until "Required", "string" and "yes" stood on two lines:
+// on 2026-11-10 more than 400 of the 16,033 words in these tables were broken so at 1280, 1024 and
+// 768 px. A run of letters, digits and underscores is one word here; a break after a hyphen or a
+// slash is the language's own and is not counted. Under 40rem the rows stack and the column heads
+// are hidden from sight, so the widths asked are the ones that draw a table as a table.
+for (const width of [768, 1024, 1280] as const) {
+  test(`at ${width} px no word in a table of the reference is broken in two`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto('/docs/api/');
+    await expect(page.locator('h1')).toBeVisible();
+    const read = await page.evaluate(() => {
+      // Every section laid out for the read: a skipped section has no lines to count.
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync('* { content-visibility: visible !important; }');
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+      const broken = new Set<string>();
+      let words = 0;
+      const tables = document.querySelectorAll(
+        'table.params-table, table.schema-table, table.frames-table',
+      );
+      for (const table of tables) {
+        const walker = document.createTreeWalker(table, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+          for (const match of (node.textContent ?? '').matchAll(/[\p{L}\p{N}_]{2,}/gu)) {
+            words += 1;
+            const range = document.createRange();
+            range.setStart(node, match.index);
+            range.setEnd(node, match.index + match[0].length);
+            const lines = new Set(
+              [...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)),
+            );
+            if (lines.size > 1) broken.add(match[0]);
+          }
+        }
+      }
+      document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== sheet);
+      return { tables: tables.length, words, broken: [...broken].slice(0, 12) };
+    });
+    // The premise: the read saw the page's tables and their words.
+    expect(read.tables).toBeGreaterThan(200);
+    expect(read.words).toBeGreaterThan(10_000);
+    expect(read.broken, 'words broken in two').toEqual([]);
+  });
+}

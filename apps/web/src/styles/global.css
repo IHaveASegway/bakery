@@ -1292,31 +1292,42 @@ progress::-moz-progress-bar {
   border-top: 1px solid var(--border);
 }
 
+/* A column of the reference's tables is never narrower than its longest word. `main` breaks
+   anywhere, so that a long token cannot push a page sideways; inside a table that also told the
+   browser a column may be one letter wide, and at 1280 px it squeezed the short columns until
+   "Required" and "string" stood on two lines (read 2026-11-10). `break-word` still breaks a word
+   that cannot fit, but does not count that break when the columns are sized; a table that then
+   cannot fit scrolls in its own box (`.table-scroll`), and under 40rem the rows stack as before. */
+:is(.params-table, .schema-table, .frames-table) :is(th, td) {
+  overflow-wrap: break-word;
+}
+
 /* The reference is 76 operations and 127 schemas, 256 tables in all. The browser lays out and paints
    a section only when it is near the window; `auto` in the size keeps the height it measured once
    the section has been laid out, so the page does not jump on the way back. The estimates are the
    median heights measured on 2026-11-10 at 1280 px and, under 40rem where the tables stack, at
-   390 px. */
+   390 px. Only the block size is estimated: a section is as wide as its column either way, and an
+   estimate of its width would only feed a wrong number to whatever sizes itself by its content. */
 .api-op,
 .api-schema {
   content-visibility: auto;
 }
 
 .api-op {
-  contain-intrinsic-size: auto 1048px;
+  contain-intrinsic-block-size: auto 1035px;
 }
 
 .api-schema {
-  contain-intrinsic-size: auto 186px;
+  contain-intrinsic-block-size: auto 186px;
 }
 
 @media (max-width: 40rem) {
   .api-op {
-    contain-intrinsic-size: auto 2260px;
+    contain-intrinsic-block-size: auto 2279px;
   }
 
   .api-schema {
-    contain-intrinsic-size: auto 377px;
+    contain-intrinsic-block-size: auto 377px;
   }
 }
 
