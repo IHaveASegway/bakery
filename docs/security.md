@@ -102,7 +102,7 @@ The API is a second origin (Q8 · Q-api-host, [ADR 0009](adr/0009-the-api-on-its
 | `Access-Control-Allow-Credentials` | `true` | The cookie rides on every call |
 | `Access-Control-Allow-Methods` | `GET, POST, PATCH, DELETE` | Nothing else exists under `/v1/` |
 | `Access-Control-Allow-Headers` | `Content-Type, Idempotency-Key, If-Match, If-None-Match` | JSON, idempotency, ETags |
-| `Access-Control-Expose-Headers` | `ETag, Location, Retry-After, Bakery-Cache` | What the islands read; `Bakery-Cache` (`miss` or `hit`, added in PR 4) is the Cache Lab's miss-or-hit line in the drawer |
+| `Access-Control-Expose-Headers` | `ETag, Location, Retry-After, Bakery-Cache, Bakery-Cause` | What the islands read; `Bakery-Cache` (`miss` or `hit`, added in PR 4) is the Cache Lab's miss-or-hit line in the drawer; `Bakery-Cause` (added on 2026-11-10, [ADR 0013](adr/0013-the-api-and-socket-contract-v1.md)'s postscript) names the cause a command's events carry, so the guide can follow a write |
 | `Access-Control-Max-Age` | `7200` | Chromium's cap ([MDN](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Access-Control-Max-Age)); the cache is per URL, so [cost.md](cost.md#the-per-sandbox-meter) counts preflights |
 | `Vary` | `Origin` | No cache serves one origin's answer to another |
 
