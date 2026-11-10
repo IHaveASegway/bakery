@@ -510,6 +510,9 @@ check "today's stops are the seed's open delivery orders, provisional exactly wh
   process.exit(ok ? 0 : 1);\""
 expect_json a_today "b.proposed !== null && b.proposed.source === 'server' && b.proposed.unassigned.length === 0 && b.published === null && b.submitted === null && b.plan_v === 0 && b.comparison === null"
 expect_json a_today "b.capacity === 250 && b.vans === (new Date('$SEEDED_DAY' + 'T12:00:00Z').getUTCDay() === 6 ? 4 : 1)"
+expect_json a_today "(() => { const z = new Map(); return b.stops.every((s) => (z.has(s.place) ? z.get(s.place) === s.zone : (z.set(s.place, s.zone), true))); })()"
+SHARED="$(node -e "const g = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); const by = new Map(); for (const c of g.customers) by.set(c.place, [...(by.get(c.place) || []), c.home_zone]); const shared = [...by.values()].filter((z) => z.length > 1); process.stdout.write(shared.every((z) => new Set(z).size === 1) ? String(shared.length) : 'split')" "$TMP/seed.json")"
+check "one place, one zone in the seed: every persona at a place has its zone ($SHARED places hold two or more personas)" "[[ '$SHARED' =~ ^[0-9]+$ ]]"
 check "the seeded proposal carries every confirmed stop once" "node -e \"
   const b = JSON.parse(require('fs').readFileSync('$TMP/a_today.body', 'utf8'));
   const planned = b.proposed.vans.flatMap((v) => v.stops);
