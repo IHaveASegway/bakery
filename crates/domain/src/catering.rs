@@ -69,8 +69,9 @@ pub const MAX_HEADCOUNT: u16 = 200;
 /// The date is at least 7 business days after the inquiry (Q16 · Q-catering).
 pub const LEAD_BUSINESS_DAYS: u32 = 7;
 /// The date is at most 365 calendar days after business today (roadmap R19 and R66, decided
-/// 2026-11-09): a year's notice is the longest a bakery quotes, and the catering hold registers
-/// its `Schedule` day without the 30-day limit orders have, so the bound is here.
+/// 2026-11-09). Before it an inquiry's date had no upper bound, and the catering hold registers
+/// its `Schedule` day without the 30-day limit orders have, so the bound is here. The record
+/// gives no reason for 365 over another number.
 pub const MAX_DAYS_AHEAD: i64 = 365;
 /// A quote is valid for 14 business days (docs/domain.md, "Ubiquitous language": Quote).
 pub const QUOTE_VALID_BUSINESS_DAYS: u32 = 14;
