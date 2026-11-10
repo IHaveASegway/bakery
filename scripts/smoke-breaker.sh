@@ -32,6 +32,12 @@
 # - A rejected token (401): every meter unread with status 401, `breaker_failed`.
 # - The forced trip of the launch checklist (item 6): a Worker with BREAKER_CEILING_USD=0 trips on
 #   quiet usage.
+# - Dead letters while `off` (roadmap R67, 2026-11-10): in a demo sandbox, an order placed with
+#   the `kitchen` fault on dies of the fault while `live` and is kept unmarked and counted; after a
+#   loop window trips `off`, an order's event dies of the switch (the consumer retries everything
+#   at `off`) and is kept with `made_while_off`, logged with `"counted":false`, so no `dlq` point
+#   is written; its redrive answers 200 as any other. The fake Turnstile (scripts/fake-providers.mjs)
+#   runs for this phase only, on SMOKE_FAKE_PORT.
 #
 # It prints ok or FAIL per check as scripts/smoke-status.sh does, and exits non-zero on any
 # failure. Usage: scripts/smoke-breaker.sh   (from anywhere; needs cargo, worker-build, pnpm,
@@ -45,6 +51,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${SMOKE_PORT:-8788}"
 CF_PORT="${SMOKE_CF_PORT:-8793}"
+FAKE_PORT="${SMOKE_FAKE_PORT:-8790}"
+FAKE="http://127.0.0.1:${FAKE_PORT}"
 BASE="http://127.0.0.1:${PORT}"
 CF="http://127.0.0.1:${CF_PORT}"
 STOREFRONT="http://127.0.0.1:8787"
@@ -67,6 +75,7 @@ PHASE=0
 MARK=0
 SERVER_PID=""
 CF_PID=""
+FAKE_PID=""
 WROTE_DEV_VARS=""
 BACKUP=""
 
@@ -81,6 +90,7 @@ stop_pid() {
 stop() {
   stop_pid "$SERVER_PID"
   stop_pid "$CF_PID"
+  stop_pid "$FAKE_PID"
   if [[ -n "$WROTE_DEV_VARS" ]]; then rm -f "$DEV_VARS"; fi
   if [[ -n "$BACKUP" && -f "$BACKUP" ]]; then mv "$BACKUP" "$DEV_VARS"; fi
   if [[ -n "${SMOKE_BREAKER_LOG:-}" ]]; then cp "$LOG" "$SMOKE_BREAKER_LOG" 2>/dev/null || true; fi
@@ -105,9 +115,9 @@ if [[ -e "$DEV_VARS" ]]; then
   BACKUP="$TMP/dev.vars.backup"
   mv "$DEV_VARS" "$BACKUP"
 fi
-for p in "$PORT" "$CF_PORT"; do
+for p in "$PORT" "$CF_PORT" "$FAKE_PORT"; do
   if curl -s -o /dev/null "http://127.0.0.1:$p/" 2>/dev/null; then
-    echo "something already listens on port $p; stop it or set SMOKE_PORT / SMOKE_CF_PORT" >&2
+    echo "something already listens on port $p; stop it or set SMOKE_PORT / SMOKE_CF_PORT / SMOKE_FAKE_PORT" >&2
     exit 2
   fi
 done
@@ -202,7 +212,7 @@ write_dev_vars() {
     echo "SESSION_HMAC_KEY=$(random_text 48)"
     echo "ACCOUNT_HMAC_KEY=$(random_text 48)"
     echo "TURNSTILE_SECRET=1x0000000000000000000000000000000AA"
-    echo "TURNSTILE_SITEVERIFY_URL=http://127.0.0.1:1/turnstile/siteverify"
+    echo "TURNSTILE_SITEVERIFY_URL=${SITEVERIFY_URL:-http://127.0.0.1:1/turnstile/siteverify}"
     echo "ALLOWED_ORIGIN=$STOREFRONT"
     echo "API_ORIGIN=$BASE"
     if [[ "$mode" != none ]]; then
@@ -504,6 +514,138 @@ breaker_is r401 unconfigured
 check "the rejected token is not in the log" "! whole_has 'not-the-fakes-token'"
 cf requests_401 GET "" /_requests
 expect_json requests_401 "b.length === 4 && b.every((r) => r.status === 401 && r.token_ok === false)"
+
+# ---------- dead letters while off: kept, marked, not counted (R67) ----------
+
+echo "--- starting the fake Turnstile on $FAKE"
+set -m
+node "$ROOT/scripts/fake-providers.mjs" --port "$FAKE_PORT" > "$TMP/fake.log" 2>&1 < /dev/null &
+FAKE_PID=$!
+set +m
+for _ in $(seq 1 50); do curl -s -o /dev/null "$FAKE/_health" && break; sleep 0.1; done
+SITEVERIFY_URL="$FAKE/turnstile/siteverify"
+phase full
+JAR="$TMP/demo.jar"
+touch "$JAR"
+# The demo account's cookies, kept by hand as scripts/smoke-orders.sh keeps them: they are Secure,
+# and this is plain HTTP on 127.0.0.1.
+jar_update() {
+  while IFS= read -r line; do
+    local pair="${line#set-cookie: }"; pair="${pair%%;*}"
+    local key="${pair%%=*}" value="${pair#*=}"
+    grep -v "^$key=" "$JAR" > "$JAR.new" || true
+    if [[ -n "$value" ]] && ! grep -qi 'max-age=0' <<<"$line"; then echo "$key=$value" >> "$JAR.new"; fi
+    mv "$JAR.new" "$JAR"
+  done < <(grep '^set-cookie: ' "$TMP/$1.headers" || true)
+}
+ulid() {
+  node -e "const A='0123456789ABCDEFGHJKMNPQRSTVWXYZ';let t=Date.now(),s='';for(let i=0;i<10;i++){s=A[t%32]+s;t=Math.floor(t/32)}const r=require('crypto').randomBytes(16);for(let i=0;i<16;i++)s+=A[r[i]%32];process.stdout.write(s)"
+}
+# demo NAME METHOD PATH [BODY]: one request as the demo account, its cookies kept in $JAR.
+demo() {
+  local name="$1" method="$2" path="$3" body="${4:-}"
+  local args=(-X "$method" -H "Origin: $STOREFRONT" -H "CF-Connecting-IP: 192.0.2.77")
+  if [[ "$method" == POST ]]; then args+=(-H "Idempotency-Key: $(ulid)"); fi
+  if [[ -n "$body" ]]; then args+=(-H 'Content-Type: application/json' --data "$body"); fi
+  if [[ -s "$JAR" ]]; then args+=(-H "Cookie: $(paste -sd';' "$JAR" | sed 's/;/; /g')"); fi
+  request "$name" "${args[@]}" "$BASE$path"
+  jar_update "$name"
+}
+# The first pickup slot an hour or more ahead that the Schedule takes (07:00 to 14:45 on the
+# quarter hour in America/Denver, closed Mondays), and an available variant baked that day, from
+# the menu in NAME.body; as scripts/smoke-orders.sh picks them, without the season and lead rules
+# beyond the variant's lead time.
+pick() {
+  node -e "
+    const TZ = 'America/Denver';
+    const parts = (ms) => { const o = {}; for (const p of new Intl.DateTimeFormat('en-US', { timeZone: TZ, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short' }).formatToParts(new Date(ms))) o[p.type] = p.value; return o; };
+    const offsetMin = (ms) => { const p = parts(ms); return Math.round((Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - Math.floor(ms / 1000) * 1000) / 60000); };
+    const iso = (ms) => { const p = parts(ms), o = offsetMin(ms), a = Math.abs(o); return p.year + '-' + p.month + '-' + p.day + 'T' + p.hour + ':' + p.minute + ':' + p.second + (o < 0 ? '-' : '+') + String(Math.floor(a / 60)).padStart(2, '0') + ':' + String(a % 60).padStart(2, '0'); };
+    const wd = (ms) => parts(ms).weekday.toLowerCase().slice(0, 3);
+    const minuteOf = (ms) => { const p = parts(ms); return +p.hour * 60 + +p.minute; };
+    const isSlot = (ms) => wd(ms) !== 'mon' && minuteOf(ms) >= 420 && minuteOf(ms) <= 885 && minuteOf(ms) % 15 === 0;
+    const menu = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'));
+    let slot = Math.ceil((Date.now() + Number(process.argv[2]) * 60000) / 900000) * 900000;
+    for (;;) {
+      while (!isSlot(slot)) slot += 900000;
+      const p = parts(slot);
+      const md = p.month + '-' + p.day;
+      const inSeason = (s) => !s || (s.from <= s.to ? s.from <= md && md <= s.to : md >= s.from || md <= s.to);
+      const lead = Math.floor((slot - Date.now()) / 60000) - 30;
+      for (const c of menu.categories) for (const i of c.items) {
+        if (i.status !== 'available' || !i.days_baked.includes(wd(slot)) || !inSeason(i.season)) continue;
+        const v = i.variants.find((v) => v.lead_minutes <= lead);
+        if (v) { console.log(JSON.stringify({ variant: v.slug, slot: iso(slot) })); process.exit(0); }
+      }
+      slot += 900000;
+    }" "$TMP/$1.body" "$2"
+}
+# dead_for NAME ORDER: polls the dead-letter list, up to 30 s, until it holds ORDER's OrderPlaced.
+dead_for() {
+  for _ in $(seq 1 150); do
+    demo "$1" GET "/v1/sandboxes/$DSB/dead-letters"
+    if node -e "const b = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); process.exit(Array.isArray(b) && b.some(d => d.type === 'OrderPlaced' && d.stream.endsWith(':$2')) ? 0 : 1)" "$TMP/$1.body" 2>/dev/null; then return 0; fi
+    sleep 0.2
+  done
+  return 1
+}
+demo signup POST /v1/auth/demo "{\"password\":\"$(random_text 24)\",\"turnstile_token\":\"pass-1\"}"
+expect_status signup 201
+demo sandbox POST /v1/sandboxes '{"replace":false}'
+expect_status sandbox 201
+DSB="$(json_field sandbox b.id)"
+for _ in $(seq 1 100); do
+  demo sandbox_state GET "/v1/sandboxes/$DSB"
+  [[ "$(json_field sandbox_state b.state)" == live ]] && break
+  sleep 0.2
+done
+expect_json sandbox_state "b.state === 'live'"
+demo menu GET "/v1/sandboxes/$DSB/menu"
+PICK="$(pick menu 60)"
+VARIANT="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).variant)" "$PICK")"
+SLOT="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).slot)" "$PICK")"
+ORDER_BODY="{\"kind\":\"pickup\",\"slot\":\"$SLOT\",\"lines\":[{\"variant\":\"$VARIANT\",\"qty\":1}]}"
+
+# A real dead letter, while live: the Kitchen refuses every try.
+demo fault_on POST "/v1/sandboxes/$DSB/faults" '{"fault":"kitchen","on":true}'
+expect_json fault_on "b.faults.kitchen === true"
+mark
+demo real_order POST "/v1/sandboxes/$DSB/orders" "$ORDER_BODY"
+expect_status real_order 201
+REAL="$(json_field real_order b.id)"
+check "live: the faulted OrderPlaced reaches the dead-letter list" "dead_for real_dead '$REAL'"
+expect_json real_dead "b.find(d => d.stream.endsWith(':$REAL')).made_while_off === false && b.find(d => d.stream.endsWith(':$REAL')).error === 'Kitchen answered 503'"
+settle
+check "live: the dead letter is kept and counted" "ev_has dlq '\"outcome\":\"kept\"' '\"while_off\":false' '\"counted\":true'"
+demo fault_off POST "/v1/sandboxes/$DSB/faults" '{"fault":"kitchen","on":false}'
+expect_json fault_off "b.faults.kitchen === false"
+
+# The switch: a loop window trips straight to off, and the consumer retries everything.
+cf usage_off POST '{"rows_written":4320000}' /_usage
+run_cron cron_off_dlq
+status off_dlq
+expect_json off_dlq "b.flag === 'off'"
+# A consumer isolate keeps its copy of the flag for 60 s (FLAG_CACHE_MS in queue.rs), so it reads
+# `off` only once its copy of `live` from the order above has expired.
+sleep 62
+mark
+demo off_order POST "/v1/sandboxes/$DSB/orders" "$ORDER_BODY"
+expect_status off_order 201
+OFF="$(json_field off_order b.id)"
+check "off: the order's OrderPlaced reaches the dead-letter list" "dead_for off_dead '$OFF'"
+expect_json off_dead "b.find(d => d.stream.endsWith(':$OFF')).made_while_off === true"
+expect_json off_dead "b.find(d => d.stream.endsWith(':$REAL')).made_while_off === false"
+settle
+check "off: the dead letter is kept, marked and not counted (no dlq point)" "ev_has dlq '\"outcome\":\"kept\"' '\"while_off\":true' '\"counted\":false' && ! ev_has dlq '\"outcome\":\"kept\"' '\"counted\":true'"
+check "off: the consumer retried at off" "ev_has queue_batch '\"off\":true'"
+OFF_EVENT="$(json_field off_dead "(b.find(d => d.stream.endsWith(':$OFF')) || {}).id")"
+demo redrive_off POST "/v1/sandboxes/$DSB/dead-letters/$OFF_EVENT/redrive"
+expect_status redrive_off 200
+expect_json redrive_off "b.id === '$OFF_EVENT' && b.made_while_off === true"
+demo after_redrive GET "/v1/sandboxes/$DSB/dead-letters"
+expect_json after_redrive "!b.some(d => d.id === '$OFF_EVENT') || b.find(d => d.id === '$OFF_EVENT').made_while_off === true"
+stop_pid "$FAKE_PID"; FAKE_PID=""
+SITEVERIFY_URL=""
 
 # ---------- the launch checklist's forced trip: a ceiling of 0 ----------
 

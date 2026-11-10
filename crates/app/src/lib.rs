@@ -19,11 +19,13 @@
 //!   the status page's counters (docs/operations.md, "Observability").
 //! - [`breaker`]: the 15-minute cron breaker's meters, requests, prices, lines and verdict
 //!   (docs/cost.md, "Guardrails").
+//! - [`dead_letters`]: whether a dead letter was made while the bakery was `off` (roadmap R67).
 
 pub mod admission;
 pub mod analytics;
 pub mod auth;
 pub mod breaker;
+pub mod dead_letters;
 pub mod dispatch_view;
 pub mod health;
 pub mod log;

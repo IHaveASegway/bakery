@@ -772,6 +772,11 @@ pub struct DeadLetter {
     pub error: String,
     /// When it was dead-lettered, a wall time.
     pub at: String,
+    /// Made while the bakery was `off`, or within two minutes of the flag's last change (added
+    /// 2026-11-10): such a letter is kept and not counted on the status page. It says when the
+    /// message died, not why: a real fault while `off` is marked too (docs/operations.md, "Breaker
+    /// tripped"). A redrive works the same either way.
+    pub made_while_off: bool,
 }
 
 /// How far one clock advance moves business time.
@@ -2509,8 +2514,10 @@ mod tests {
             seq: 1,
             error: "Kitchen answered 503".into(),
             at: "2026-11-05T12:00:00.000Z".into(),
+            made_while_off: true,
         };
         assert_eq!(serde_json::to_value(&dead).unwrap()["type"], "OrderPlaced");
+        assert_eq!(serde_json::to_value(&dead).unwrap()["made_while_off"], true);
     }
 
     #[test]
