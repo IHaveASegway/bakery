@@ -256,9 +256,16 @@ test('the menu’s read opens a note with what answered, and Ask again shows the
 }) => {
   await demoAccount(page);
   await liveSandbox(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto('/menu/');
-  // No click: the page's own read of its menu is the story, told when it happens.
+  // No click: the page's own read is told when it happens, but folded to one line, over nothing.
+  const line = page.locator('.guide-line');
+  await expect(line).toContainText('Where the menu came from');
+  await expect(line).toContainText(/200, cache (hit|miss)/);
+  expect(await guideOverControls(page)).toEqual([]);
   const note = page.getByRole('region', { name: 'Under the hood: Where the menu came from' });
+  await expect(note).toHaveCount(0);
+  await line.getByRole('button', { name: /Where the menu came from/ }).click();
   await expect(note).toBeVisible();
   await expect(note).toContainText('GET …/menu');
   await expect(note).toContainText(/Bakery-Cache: (hit|miss)/);
@@ -276,6 +283,32 @@ test('the menu’s read opens a note with what answered, and Ask again shows the
   await expect(note).toContainText('This page’s copy was current');
   await expectNoAxeViolations(page);
 });
+
+/**
+ * The guide's notes and folded lines against the page's controls (buttons, inputs, links, the slot
+ * picker's labels), as boxes on the screen now: each that meets one, named.
+ */
+async function guideOverControls(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const boxes = [...document.querySelectorAll('.guide-note, .guide-line')].map((n) =>
+      n.getBoundingClientRect(),
+    );
+    const hits: string[] = [];
+    for (const c of document.querySelectorAll(
+      'a[href], button, input, select, textarea, label, [role="button"]',
+    )) {
+      if (c.closest('[data-guide-root]') !== null) continue;
+      const r = c.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      for (const b of boxes) {
+        if (r.left < b.right && r.right > b.left && r.top < b.bottom && r.bottom > b.top) {
+          hits.push(`${c.tagName} "${(c.textContent ?? '').trim().slice(0, 30)}"`);
+        }
+      }
+    }
+    return hits;
+  });
+}
 
 /**
  * The Recorder's button. In the app shell's top bar the guide is one pill and the Recorder sits in
@@ -524,6 +557,46 @@ test.describe('on a phone', () => {
     // No cart bar here: the control sits in the masthead's first row and scrolls away with it.
     expect(await underIt('form button, form input, form select, form label')).toEqual([]);
     await expectNoAxeViolations(page);
+  });
+
+  test('a note the page caused by itself is one line, over no control, until it is opened', async ({
+    page,
+  }) => {
+    await demoAccount(page);
+    const sandbox = await liveSandbox(page);
+    const menu = await api<Parameters<typeof pickupOrder>[0]>(
+      page,
+      'GET',
+      `/v1/sandboxes/${sandbox.id}/menu`,
+    );
+    const want = pickupOrder(menu.body, sandbox.clock_offset_s ?? 0, 2);
+    const line = page.locator('.guide-line');
+
+    await page.goto('/menu/');
+    await expect(line).toContainText('Where the menu came from');
+    expect(await guideOverControls(page), 'menu').toEqual([]);
+
+    await page.evaluate((cart) => sessionStorage.setItem('bakery.cart.v1', JSON.stringify(cart)), {
+      lines: want.lines,
+      note: '',
+      kind: 'pickup',
+      zone: 'z1',
+      slot: '',
+    });
+    await page.goto('/checkout/');
+    await expect(line).toContainText('The menu this checkout read');
+    await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
+    expect(await guideOverControls(page), 'checkout, step one').toEqual([]);
+    // Opened, it is a note in full; a press in the page folds it back to the line.
+    await line.getByRole('button', { name: /The menu this checkout read/ }).click();
+    const note = page.getByRole('region', { name: 'Under the hood: The menu this checkout read' });
+    await expect(note).toBeVisible();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await expect(note).toHaveCount(0);
+    await expect(line).toBeVisible();
+    // Step two: the slots are clear of it.
+    await expect(page.locator('input[name="slot"]').first()).toBeAttached();
+    expect(await guideOverControls(page), 'checkout, step two').toEqual([]);
   });
 
   test('a live note opened by a control low on the screen does not cover that control', async ({

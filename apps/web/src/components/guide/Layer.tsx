@@ -20,7 +20,7 @@ import {
   type GuideEntry,
   type PageId,
 } from '../../lib/guide';
-import { traces } from '../../lib/trace';
+import { traces, type Trace } from '../../lib/trace';
 import {
   entryForTraces,
   expectedFor,
@@ -145,7 +145,26 @@ export default function Layer({
     said.current.add(live.gesture);
     announce(traceSentence(first, liveEntry));
   }, [live, first, liveEntry, announce]);
-  const closeLive = useCallback(() => setLive(null), []);
+  const closeLive = useCallback(() => {
+    setLive(null);
+    setStoryOpen(false);
+  }, []);
+
+  // A note the page caused by itself (a story read on load) opens as one line, docked where it
+  // covers nothing, until the visitor taps it; a press anywhere in the page outside it, unless it
+  // is pinned, folds it back to the line. A note caused by a press opens in full, as ever. An
+  // Ask again from the open note keeps it open: the visitor asked for it.
+  const [storyOpen, setStoryOpen] = useState(false);
+  useEffect(() => {
+    if (!story || !storyOpen || live?.pinned === true) return;
+    const fold = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('[data-guide-root]')) return;
+      setStoryOpen(false);
+    };
+    document.addEventListener('pointerdown', fold, { capture: true });
+    return () => document.removeEventListener('pointerdown', fold, { capture: true });
+  }, [story, storyOpen, live?.pinned]);
 
   // ---- The watch note: on a page that watches an order, what it heard and how it listens ----
   const watchSeen = useRef(
@@ -285,149 +304,212 @@ export default function Layer({
   }, []);
 
   const showLive = on && live !== null && group.length > 0;
+  const folded = showLive && story && !storyOpen;
+  // The line stays while its note is open (the page does not jump under the visitor's finger).
+  const lined = showLive && story;
+  const lineSlot =
+    lined && window.matchMedia('(max-width: 60rem)').matches
+      ? document.querySelector('.guide-line-slot')
+      : null;
+  const line = lined ? (
+    <p className="guide-line" role="group" aria-label="Under the hood, what this page read">
+      <button
+        type="button"
+        className="guide-line-open"
+        aria-expanded={storyOpen}
+        aria-controls={storyOpen ? 'guide-live' : undefined}
+        onClick={() => setStoryOpen((open) => !open)}
+      >
+        <span className="guide-eyebrow">Under the hood</span>{' '}
+        <span className="guide-line-title">{liveEntry?.title ?? 'What this page read'}</span>{' '}
+        {group[0] !== undefined && <code className="guide-chip">{lineStatus(group[0])}</code>}
+      </button>
+      <button
+        type="button"
+        className="guide-icon"
+        aria-label="Close this note"
+        title="Close"
+        onClick={closeLive}
+      >
+        ×
+      </button>
+    </p>
+  ) : null;
   // The layer lives in the body, so a note or a mark is placed against the page, wherever the
   // guide's bar is (the app shell's top bar is sticky, and would hold them otherwise).
-  return createPortal(
-    <div className="guide-layer" data-guide-root="" ref={root}>
-      {on && (
-        <Hotspots
-          entries={entries}
-          open={standing?.target ?? null}
-          onOpen={(target, pinned) =>
-            setStanding((now) =>
-              now?.target === target
-                ? { ...now, pinned: pinned ? !now.pinned : now.pinned }
-                : { target, index: 0, pinned },
-            )
-          }
-        />
-      )}
-      {on && standing !== null && standingEntry !== null && (
-        <Note
-          id="guide-standing"
-          anchor={standingAnchor}
-          label={`Under the hood: ${standingEntry.title}`}
-          pinned={standing.pinned}
-          changed={`${standing.target}-${standing.index}`}
-          onClose={closeStanding}
-        >
-          <NoteHead
-            eyebrow="Under the hood"
-            title={standingEntry.title}
-            pinned={standing.pinned}
-            onPin={() => setStanding({ ...standing, pinned: !standing.pinned })}
-            onClose={closeStanding}
-          />
-          {standingEntries.length > 1 && (
-            <p className="guide-tabs" role="group" aria-label="Also here">
-              {standingEntries.map((e, i) => (
-                <button
-                  key={e.id}
-                  type="button"
-                  className="guide-tab"
-                  aria-pressed={i === standing.index}
-                  onClick={() => setStanding({ ...standing, index: i, pinned: true })}
-                >
-                  {e.title}
-                </button>
-              ))}
-            </p>
+  return (
+    <>
+      {line !== null &&
+        lineSlot !== null &&
+        createPortal(
+          <div className="guide-layer guide-line-docked" data-guide-root="">
+            {line}
+          </div>,
+          lineSlot,
+        )}
+      {createPortal(
+        <div className="guide-layer" data-guide-root="" ref={root}>
+          {on && (
+            <Hotspots
+              notes={[
+                showLive ? live?.gesture : '',
+                folded ? 'line' : '',
+                standing?.target ?? '',
+                standing?.index ?? '',
+                path.open ? path.index : '',
+                watch === null ? '' : 'watch',
+                panel ? 'panel' : '',
+              ].join('|')}
+              entries={entries}
+              open={standing?.target ?? null}
+              onOpen={(target, pinned) =>
+                setStanding((now) =>
+                  now?.target === target
+                    ? { ...now, pinned: pinned ? !now.pinned : now.pinned }
+                    : { target, index: 0, pinned },
+                )
+              }
+            />
           )}
-          <EntryBody entry={standingEntry} />
-        </Note>
-      )}
-      {on && watch !== null && watchEntry !== null && !showLive && (
-        <Note
-          id="guide-watch"
-          anchor={watchAnchor}
-          label={`Under the hood: ${watchEntry.title}`}
-          pinned={watch.pinned}
-          changed={snapshot.version}
-          onClose={closeWatch}
-        >
-          <NoteHead
-            eyebrow="Under the hood · heard just now"
-            title={watchEntry.title}
-            pinned={watch.pinned}
-            onPin={() => setWatch({ ...watch, pinned: !watch.pinned })}
-            onClose={closeWatch}
-          />
-          <WatchChain
-            heard={watch.news.kind === 'heard' ? watch.news.event : (snapshot.heard[0] ?? null)}
-            listening={snapshot.listening}
-          />
-          <WhyLines entry={watchEntry} />
-        </Note>
-      )}
-      {showLive && (
-        <Note
-          id="guide-live"
-          anchor={liveAnchor}
-          label={`Under the hood: ${liveEntry?.title ?? 'your last action'}`}
-          pinned={live.pinned}
-          changed={snapshot.version}
-          onClose={closeLive}
-        >
-          <NoteHead
-            eyebrow="Under the hood · just now"
-            title={liveEntry?.title ?? 'Your last action'}
-            pinned={live.pinned}
-            onPin={() => setLive({ ...live, pinned: !live.pinned })}
-            onClose={closeLive}
-          />
-          <TraceChain
-            traces={group}
-            expected={expectedFor(liveEntry, group)}
-            feed={snapshot.feed}
-          />
-          {group[0]?.read !== undefined && <ReadStory trace={group[0]} />}
-          {liveEntry?.happened !== undefined && (
-            <p className="guide-happened">{liveEntry.happened}</p>
-          )}
-          {liveEntry !== null && <WhyLines entry={liveEntry} />}
-        </Note>
-      )}
-      {on && !showLive && pathStep !== undefined && pathEntry !== null && (
-        <Note
-          id="guide-path"
-          anchor={pathAnchor}
-          label={`Show me around, step ${path.index + 1} of ${steps.length}`}
-          pinned
-          changed={path.index}
-          onClose={pathEnd}
-        >
-          <NoteHead
-            eyebrow={`Show me around · ${path.index + 1} of ${steps.length}`}
-            title={pathEntry.title}
-            onClose={pathEnd}
-          />
-          <p className="guide-do">{pathStep.do}</p>
-          <p className="guide-meta">{pathEntry.what}</p>
-          <p className="guide-actions">
-            <button
-              type="button"
-              className="guide-secondary"
-              onClick={() => step({ type: 'skip' })}
+          {on && standing !== null && standingEntry !== null && (
+            <Note
+              id="guide-standing"
+              anchor={standingAnchor}
+              label={`Under the hood: ${standingEntry.title}`}
+              pinned={standing.pinned}
+              changed={`${standing.target}-${standing.index}`}
+              onClose={closeStanding}
             >
-              {path.index + 1 === steps.length ? 'Done' : 'Next'}
-            </button>
-          </p>
-        </Note>
+              <NoteHead
+                eyebrow="Under the hood"
+                title={standingEntry.title}
+                pinned={standing.pinned}
+                onPin={() => setStanding({ ...standing, pinned: !standing.pinned })}
+                onClose={closeStanding}
+              />
+              {standingEntries.length > 1 && (
+                <p className="guide-tabs" role="group" aria-label="Also here">
+                  {standingEntries.map((e, i) => (
+                    <button
+                      key={e.id}
+                      type="button"
+                      className="guide-tab"
+                      aria-pressed={i === standing.index}
+                      onClick={() => setStanding({ ...standing, index: i, pinned: true })}
+                    >
+                      {e.title}
+                    </button>
+                  ))}
+                </p>
+              )}
+              <EntryBody entry={standingEntry} />
+            </Note>
+          )}
+          {on && watch !== null && watchEntry !== null && !showLive && (
+            <Note
+              id="guide-watch"
+              anchor={watchAnchor}
+              label={`Under the hood: ${watchEntry.title}`}
+              pinned={watch.pinned}
+              changed={snapshot.version}
+              onClose={closeWatch}
+            >
+              <NoteHead
+                eyebrow="Under the hood · heard just now"
+                title={watchEntry.title}
+                pinned={watch.pinned}
+                onPin={() => setWatch({ ...watch, pinned: !watch.pinned })}
+                onClose={closeWatch}
+              />
+              <WatchChain
+                heard={watch.news.kind === 'heard' ? watch.news.event : (snapshot.heard[0] ?? null)}
+                listening={snapshot.listening}
+              />
+              <WhyLines entry={watchEntry} />
+            </Note>
+          )}
+          {line !== null && lineSlot === null && line}
+          {showLive && !folded && (
+            <Note
+              id="guide-live"
+              anchor={liveAnchor}
+              label={`Under the hood: ${liveEntry?.title ?? 'your last action'}`}
+              pinned={live.pinned}
+              changed={snapshot.version}
+              onClose={closeLive}
+            >
+              <NoteHead
+                eyebrow="Under the hood · just now"
+                title={liveEntry?.title ?? 'Your last action'}
+                pinned={live.pinned}
+                onPin={() => setLive({ ...live, pinned: !live.pinned })}
+                onClose={closeLive}
+              />
+              <TraceChain
+                traces={group}
+                expected={expectedFor(liveEntry, group)}
+                feed={snapshot.feed}
+              />
+              {group[0]?.read !== undefined && <ReadStory trace={group[0]} />}
+              {liveEntry?.happened !== undefined && (
+                <p className="guide-happened">{liveEntry.happened}</p>
+              )}
+              {liveEntry !== null && <WhyLines entry={liveEntry} />}
+            </Note>
+          )}
+          {on && !showLive && pathStep !== undefined && pathEntry !== null && (
+            <Note
+              id="guide-path"
+              anchor={pathAnchor}
+              label={`Show me around, step ${path.index + 1} of ${steps.length}`}
+              pinned
+              changed={path.index}
+              onClose={pathEnd}
+            >
+              <NoteHead
+                eyebrow={`Show me around · ${path.index + 1} of ${steps.length}`}
+                title={pathEntry.title}
+                onClose={pathEnd}
+              />
+              <p className="guide-do">{pathStep.do}</p>
+              <p className="guide-meta">{pathEntry.what}</p>
+              <p className="guide-actions">
+                <button
+                  type="button"
+                  className="guide-secondary"
+                  onClick={() => step({ type: 'skip' })}
+                >
+                  {path.index + 1 === steps.length ? 'Done' : 'Next'}
+                </button>
+              </p>
+            </Note>
+          )}
+          {panel && (
+            <Panel
+              screen={screenGroup}
+              entries={entries}
+              traces={snapshot.traces.filter((t) => t.gesture !== null)}
+              feed={snapshot.feed}
+              heard={snapshot.heard}
+              listening={snapshot.listening}
+              onClose={onClosePanel}
+            />
+          )}
+        </div>,
+        document.body,
       )}
-      {panel && (
-        <Panel
-          screen={screenGroup}
-          entries={entries}
-          traces={snapshot.traces.filter((t) => t.gesture !== null)}
-          feed={snapshot.feed}
-          heard={snapshot.heard}
-          listening={snapshot.listening}
-          onClose={onClosePanel}
-        />
-      )}
-    </div>,
-    document.body,
+    </>
   );
+}
+
+/** A story read's answer in a chip: its status and, for a 200, whether the cache answered. */
+function lineStatus(trace: Trace): string {
+  if (trace.status === null) return 'no answer';
+  if (trace.status === 304) return '304, current';
+  const cache = trace.read?.cache;
+  return cache === 'hit' || cache === 'miss'
+    ? `${trace.status}, cache ${cache}`
+    : String(trace.status);
 }
 
 interface Spot {
@@ -446,10 +528,13 @@ function Hotspots({
   entries,
   open,
   onOpen,
+  notes,
 }: {
   entries: readonly GuideEntry[];
   open: string | null;
   onOpen: (target: string, pinned: boolean) => void;
+  /** Changes whenever a note opens, moves to another action or closes: the marks look again. */
+  notes: string;
 }) {
   const targets = useMemo(() => {
     const seen = new Map<string, GuideEntry>();
@@ -464,7 +549,19 @@ function Hotspots({
     const measure = () => {
       frame = 0;
       const view = { width: document.documentElement.clientWidth, height: window.innerHeight };
-      const taken = barBoxes();
+      // The bars, and whatever of the guide is open over the page: a mark half under a note's
+      // edge reads as a glitch, so none is drawn under one while it is open.
+      const taken = [
+        ...barBoxes(),
+        ...[
+          ...document.querySelectorAll(
+            '.guide-note, .guide-panel, .guide-layer > .guide-line, .guide-full[data-open]',
+          ),
+        ].map((el) => {
+          const r = el.getBoundingClientRect();
+          return { top: r.top, left: r.left, width: r.width, height: r.height };
+        }),
+      ];
       const next: Spot[] = [];
       for (const entry of targets) {
         const element = targetOf(entry.target);
@@ -508,7 +605,7 @@ function Hotspots({
       sizes?.disconnect();
       changes?.disconnect();
     };
-  }, [targets]);
+  }, [targets, notes]);
 
   // Place each mark through the style object: the page's markup never carries a style attribute.
   useLayoutEffect(() => {

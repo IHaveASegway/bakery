@@ -121,11 +121,6 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
             </svg>
             <span>Proof of Concept Bakery</span>
           </a>
-          {screen && (
-            <div class="masthead-guide" data-guide-slot>
-              <Guide screen={screen} placement="dock" client:idle />
-            </div>
-          )}
           <nav aria-label="The bakery" class="site-nav-row">
             <ul class="site-nav site-nav-links">
               {NAV.map(({ href, label }) => (
@@ -136,6 +131,11 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
                 </li>
               ))}
             </ul>
+            {screen && (
+              <div class="masthead-guide" data-guide-slot>
+                <Guide screen={screen} placement="dock" client:idle />
+              </div>
+            )}
             <ul class="site-nav site-nav-session">
               <li>
                 <a
@@ -149,6 +149,8 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
               </li>
             </ul>
           </nav>
+          {/* Where a note the page caused by itself waits as one line, on a narrow screen. */}
+          {screen && <div class="guide-line-slot" />}
         </div>
       </header>
     )}

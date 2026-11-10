@@ -810,8 +810,16 @@
     text-align: left;
   }
 
+  /* In the nav's row, left of the session link, in the row's flow: nothing touches it. */
   body:not(:has(.cart-bar)) .masthead-guide {
     display: block;
+    flex: none;
+    margin-left: 8px;
+  }
+
+  body:not(:has(.cart-bar)) .guide-layer .guide-bar-dock .guide-compact {
+    width: 44px;
+    height: 44px;
   }
 
   body:not(:has(.cart-bar)) .guide-bar-dock {
@@ -825,6 +833,73 @@
     top: calc(100% + 8px);
     right: 0;
   }
+}
+
+/* ---- A note the page caused by itself, folded to one line ----
+
+   A read on load opens no full note over the page: it waits as one line, its title and its
+   answer in a chip. On a narrow screen the line sits in the masthead's own row (an empty slot
+   until then), so it is in the page's flow and over nothing; on a wide one, just above the dock. */
+.guide-line-slot {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.guide-line-slot:empty {
+  display: none;
+}
+
+.guide-layer .guide-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  max-width: 100%;
+  margin: 0;
+  padding: 2px 4px;
+  border: 1px solid var(--guide-edge);
+  border-radius: 10px;
+  background: var(--guide-surface);
+}
+
+.guide-layer:not(.guide-line-docked) > .guide-line {
+  position: fixed;
+  right: 16px;
+  bottom: 68px;
+  z-index: 50;
+  max-width: min(440px, calc(100vw - 32px));
+  box-shadow: var(--shadow-raised);
+}
+
+.guide-layer .guide-line-open {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  border-color: transparent;
+  text-align: left;
+}
+
+.guide-line-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guide-line .guide-eyebrow {
+  flex: none;
+}
+
+.guide-line .guide-chip {
+  flex: none;
+}
+
+/* A note whose content runs past its edge fades out at the foot until it is scrolled to the end,
+   so a cut line reads as "there is more" (Note.tsx sets data-more). */
+.guide-note[data-more] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
 }
 
 /* ---- A phone: the note is a sheet over the lower third, the panel most of the screen ---- */
