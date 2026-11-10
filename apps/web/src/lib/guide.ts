@@ -111,6 +111,13 @@ export interface GuideEntry {
    * stop explaining: each a short sentence or two, shown under `what` in the standing note.
    */
   facts?: string[];
+  /** The records to read, by title, beyond the principle's own (a runbook section, a postscript). */
+  records?: { title: string; href: string }[];
+  /**
+   * A value the page itself read that the standing note shows as observed (lib/trace.ts,
+   * `observations`): the status page's `flag`.
+   */
+  observe?: string;
 }
 
 /** The number of sentences in a text: a stop, a question or an exclamation and then a space or the end. */

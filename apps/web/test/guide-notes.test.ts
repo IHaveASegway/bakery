@@ -19,6 +19,7 @@ import {
   watchToOpen,
 } from '../src/components/guide/match';
 import {
+  Observed,
   TraceChain,
   deliveryWords,
   WatchChain,
@@ -45,7 +46,7 @@ import {
   switchOn,
   type GuideEntry,
 } from '../src/lib/guide';
-import type { Trace } from '../src/lib/trace';
+import { observations, type Trace } from '../src/lib/trace';
 
 const entry = (id: string): GuideEntry => ALL_ENTRIES.find((e) => e.id === id)!;
 const T0 = Date.parse('2026-11-09T15:00:00Z');
@@ -500,6 +501,20 @@ describe('a guest and the board', () => {
     ).toBe('kitchen-board');
   });
 
+  test('a move refused with the rule read-only is the kill switch’s board entry, with what happened', () => {
+    const entry = entryForTraces(
+      [command({ outcome: 'refused', rule: 'read-only' })],
+      'console',
+      null,
+    );
+    expect(entry?.id).toBe('kitchen-read-only');
+    expect(entry?.happened).toContain('the demo is read-only');
+    // The board's hotspot stays the board's own entry: the read-only one opens only on that refusal.
+    const board = ALL_ENTRIES.filter((e) => e.target === 'kitchen-board').map((e) => e.id);
+    expect(board[0]).toBe('kitchen-board');
+    expect(board).toContain('kitchen-read-only');
+  });
+
   test('the guided paths never ask a guest for a console write: only the board’s move, a read and the persona’s own consent are unmarked', () => {
     const consoleScreens = [
       'console',
@@ -710,5 +725,32 @@ describe('the order page’s note: what it heard and how it listens', () => {
     expect(html).toContain('seq 4 on Order');
     expect(html).toContain('listening only');
     expect(html).not.toContain('style=');
+  });
+});
+
+describe('a value the page read', () => {
+  test('is shown as observed, with where it came from and when, and as nothing before it is read', () => {
+    const draw = () => renderToStaticMarkup(createElement(Observed, { name: 'flag-test' }));
+    expect(draw()).toContain('nothing yet');
+    observations.set('flag-test', {
+      value: 'read-only',
+      from: 'GET /v1/status',
+      at: Date.parse('2026-11-10T14:05:09Z'),
+    });
+    const seen = draw();
+    expect(seen).toContain('GET /v1/status');
+    expect(seen).toContain('flag-test: read-only');
+    expect(seen).toContain('14:05:09 UTC');
+  });
+
+  test('the kill switch’s entry shows the flag as observed and links its records', () => {
+    const flag = ALL_ENTRIES.find((e) => e.id === 'status-flag');
+    expect(flag?.observe).toBe('flag');
+    expect(flag?.records?.map((r) => r.href).join(' ')).toMatch(/kill-switch-l0-to-l4/);
+    expect(flag?.records?.map((r) => r.href).join(' ')).toMatch(/0013-.*#postscript-2026-11-10/);
+    expect(flag?.records?.map((r) => r.href).join(' ')).toMatch(/roadmap\.md/);
+    const zone = ALL_ENTRIES.find((e) => e.id === 'checkout-zone');
+    expect(zone?.what).toContain('wrong-zone');
+    expect(zone?.facts?.join(' ')).toContain('first breaking change');
   });
 });

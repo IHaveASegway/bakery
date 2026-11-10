@@ -22,6 +22,7 @@ export const CONSOLE_ORDER = [
   'console-token',
   'kitchen-board',
   'kitchen-rate-limit',
+  'kitchen-read-only',
   'kitchen-guest',
   'kitchen-refund',
   'kitchen-bake',

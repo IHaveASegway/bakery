@@ -121,6 +121,11 @@ export function readStatus(raw: unknown): StatusData | null {
     breaker: readBreaker(raw.breaker),
     // An API from before 2026-11-10, or a kept answer from then, has no count: it is not known.
     sandboxes_past_wipe: isCount(raw.sandboxes_past_wipe) ? raw.sandboxes_past_wipe : null,
+    // An answer kept from an API without the flag says nothing of it, rather than guess.
+    flag:
+      raw.flag === 'live' || raw.flag === 'read-only' || raw.flag === 'off'
+        ? raw.flag
+        : (null as unknown as StatusResponse['flag']),
   };
 }
 
@@ -242,6 +247,24 @@ export function pastWipeWords(count: number | null): string {
   }
   const many = count === 1 ? '1 sandbox is' : `${count} sandboxes are`;
   return `${many} still here more than 2 hours after the nightly 10:00 UTC wipe. A wipe failed, or never started.`;
+}
+
+/**
+ * The kill switch's line (Control's flag; crates/app/src/flag_gate.rs, roadmap R85): what each
+ * value lets through since 2026-11-10. Null, an answer from an API without the field, says
+ * nothing.
+ */
+export function flagWords(flag: string | null | undefined): string | null {
+  switch (flag) {
+    case 'live':
+      return 'live. Every route answers.';
+    case 'read-only':
+      return 'read-only. Pages and sandboxes can be read, nothing in them changed; signing in and Wipe now still work.';
+    case 'off':
+      return 'off. Only the storefront’s pages, the health and status checks and Stripe’s webhook answer.';
+    default:
+      return null;
+  }
 }
 
 /** The bold label for a failed look: an answer that was an error is not an unreachable API. */

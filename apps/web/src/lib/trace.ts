@@ -560,6 +560,30 @@ export const storyReads = {
   has: (name: ReadName) => repeats.has(name),
 };
 
+/**
+ * What a page last read that an entry's note shows as observed, by name: the status page's flag
+ * (`flag`). A page sets it when its read answers; a note reads it, never a promise in its place.
+ */
+export interface Observation {
+  value: string;
+  /** The request it came from, as a note shows it. */
+  from: string;
+  at: number;
+}
+const observed = new Map<string, Observation>();
+const watchers = new Set<() => void>();
+export const observations = {
+  set(name: string, value: Observation) {
+    observed.set(name, value);
+    for (const w of watchers) w();
+  },
+  get: (name: string): Observation | null => observed.get(name) ?? null,
+  subscribe(watcher: () => void) {
+    watchers.add(watcher);
+    return () => watchers.delete(watcher);
+  },
+};
+
 /** The one store of the page, shared by every island because they share this module. */
 export const traces = createTraceStore({
   sources: [pageSource, socketSource, watchSource, feedSource, recorderSource],

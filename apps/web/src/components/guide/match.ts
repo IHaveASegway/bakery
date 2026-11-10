@@ -17,6 +17,10 @@ export function entryForTraces(group: readonly Trace[], screen: ScreenId, anchor
   if (first.transport === 'socket' && first.rule === 'rate-limit') {
     return ALL_ENTRIES.find((e) => e.id === 'kitchen-rate-limit') ?? null;
   }
+  // The demo's flag (roadmap R85): a move refused with the rule read-only is that entry's story.
+  if (first.transport === 'socket' && first.rule === 'read-only') {
+    return ALL_ENTRIES.find((e) => e.id === 'kitchen-read-only') ?? null;
+  }
   const types = group.flatMap((t) => t.events.map((e) => e.type));
   const inTarget = (target: string) =>
     typeof Element !== 'undefined' &&

@@ -365,7 +365,9 @@ export default function Checkout() {
             ))}
           </fieldset>
           {cart.kind === 'delivery' && (
-            <p className="hint zone-line">{zoneWords(personaZone)}, where your place is.</p>
+            <p className="hint zone-line" data-tour="checkout-zone">
+              {zoneWords(personaZone)}, where your place is.
+            </p>
           )}
           {blocker !== null && <p className="problem">{blocker}</p>}
           <p className="step-actions">

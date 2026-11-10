@@ -166,8 +166,7 @@ describe('the console’s entries', () => {
     expect(ENTRIES.console.map((entry) => entry.target)).toEqual([
       'console-sandbox',
       'console-token',
-      'kitchen-board',
-      'kitchen-board',
+      ...Array<string>(3).fill('kitchen-board'),
       'kitchen-guest',
       'kitchen-refund',
       'kitchen-bake',

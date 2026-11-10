@@ -1,7 +1,7 @@
 // The console's kitchen board and the money beside it. The board is a panel of the console, not a
 // screen of its own, so its entries belong to the console's list.
 import type { GuideEntry } from '../lib/guide';
-import { CQRS, PAYMENTS, QUEUE, RAFT } from './principles';
+import { BREAKER, CQRS, PAYMENTS, QUEUE, RAFT } from './principles';
 
 export const KITCHEN: GuideEntry[] = [
   {
@@ -64,6 +64,30 @@ export const KITCHEN: GuideEntry[] = [
     },
     happened:
       'The Kitchen refused the move before calling the order: the sandbox’s budget is spent for now, and one token comes back each second.',
+  },
+  {
+    id: 'kitchen-read-only',
+    screen: 'console',
+    target: 'kitchen-board',
+    title: 'A board to watch, not move',
+    what: 'At read-only the Kitchen answers a move with nack and the rule read-only before it spends the budget or calls the order. The socket stays open and its events keep coming.',
+    facts: [
+      'The Kitchen reads the demo’s flag from its isolate’s copy, at most 60 s old; at off it says bye with the reason off and closes the socket at its next frame.',
+    ],
+    why: 'Refused in the one object that takes the frame, the move starts no write, and the board still shows the truth.',
+    whenNot:
+      'Not a fault of the order or the visitor: the demo’s flag refused it, and the same press works once it is live.',
+    events: [],
+    principle: BREAKER,
+    triggers: [],
+    api: {
+      routeId: 'kitchen-socket',
+      method: 'GET',
+      path: '/v1/sandboxes/{id}/kitchen/ws',
+      note: 'A refused move is {"t":"nack","rule":"read-only"}; at off the socket gets {"t":"bye","reason":"off"} and a close with 1013.',
+    },
+    happened:
+      'The Kitchen refused the move before calling the order: the demo is read-only, so the board can be watched but not moved until the flag is live again.',
   },
   {
     id: 'kitchen-refund',
