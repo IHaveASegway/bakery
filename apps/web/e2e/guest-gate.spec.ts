@@ -3,7 +3,8 @@
 // right there, through Turnstile (the stand-in in fixtures.ts), and the visitor stays on the
 // checkout with the cart they had, then picks a time. The gate's Sign in comes back to the page,
 // the menu's banner does the same thing in place, and a guest who comes to the sign-in page with no
-// `next` lands on the menu, where they came to order.
+// `next` lands on the menu, where they came to order. Since later on 2026-11-10 the catering page
+// shows the same gate, with its own title and button.
 import type { Page } from '@playwright/test';
 import { expect, expectNoAxeViolations, test } from './fixtures';
 
@@ -146,4 +147,46 @@ test('a guest who comes to the sign-in page with no next lands on the menu', asy
   await expect(button).toBeEnabled();
   await Promise.all([sandboxMade(page), button.click()]);
   await page.waitForURL((url) => url.pathname === '/menu/');
+});
+
+test('the catering page shows the same gate, starts a sandbox in place, and then the inquiry form', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.goto('/catering/');
+  const gate = page.getByRole('region', { name: 'Catering starts with your own sandbox.' });
+  await expect(gate).toBeVisible();
+  // One way: no second sentence with a link to the sign-in page beside it.
+  await expect(page.getByText('Sign in or try it as a guest')).toHaveCount(0);
+  await expect(gate.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
+    'href',
+    '/signin/?next=/catering/',
+  );
+  await expectNoAxeViolations(page);
+  const [made] = await Promise.all([
+    sandboxMade(page),
+    gate.getByRole('button', { name: 'Start an inquiry' }).click(),
+  ]);
+  expect(made.status()).toBe(201);
+  const form = page.getByRole('heading', { name: 'Ask about an event' });
+  await expect(form).toBeVisible({ timeout: 60_000 });
+  await expect(form).toBeFocused();
+  expect(new URL(page.url()).pathname).toBe('/catering/');
+  await expect(gate).toHaveCount(0);
+  await expect(page.getByText('Your sandbox is live.')).toBeVisible();
+});
+
+test('the catering gate’s Sign in comes back to the catering page', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto('/catering/');
+  const gate = page.getByRole('region', { name: 'Catering starts with your own sandbox.' });
+  await gate.getByRole('link', { name: 'Sign in' }).click();
+  await expect(page.getByText('Then on to catering.')).toBeVisible();
+  const button = page.getByRole('button', { name: 'Continue as a guest' });
+  await expect(button).toBeEnabled();
+  await Promise.all([sandboxMade(page), button.click()]);
+  await page.waitForURL((url) => url.pathname === '/catering/');
+  await expect(page.getByRole('heading', { name: 'Ask about an event' })).toBeVisible({
+    timeout: 60_000,
+  });
 });

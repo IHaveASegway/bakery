@@ -25,12 +25,10 @@ test.describe('signed out', () => {
   // A visitor with no session: the page asks once and the API answers 401, which Chromium logs.
   test.use({ allowedStatuses: [401] });
 
-  test('the catering page says there are no events, not that the menu is a seed menu', async ({
-    page,
-  }) => {
+  test('the catering page shows its gate, not that the menu is a seed menu', async ({ page }) => {
     await page.goto('/catering/');
     await expect(
-      page.getByText('You have no sandbox yet, so there are no catering events to show.'),
+      page.getByRole('region', { name: 'Catering starts with your own sandbox.' }),
     ).toBeVisible();
     await expect(page.getByText('seed menu')).toHaveCount(0);
     await expectNoAxeViolations(page);

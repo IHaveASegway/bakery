@@ -90,6 +90,7 @@ Corrected on 2026-11-10 by the session, under the owner's delegation of 2026-11-
 
 - Context's pins are stale. As of 2026-11-10 `apps/web/package.json` holds Astro 7.4.7, `@astrojs/react` 7.1.4 and Tailwind 4.3.5, and the pnpm catalog holds Wrangler `^4.158.0`, 4.158.0 in `pnpm-lock.yaml`.
 - Decision 1's "the Turnstile widget where a sandbox is created" stands, and since 2026-11-10 two more pages are such places: the menu and the checkout start a guest sandbox in place with Start ordering ([roadmap R87](../roadmap.md#remaining-work)). `/menu/*` is in the challenge class and `/checkout/*` in a new `checkout` class, the payment class plus Turnstile (`apps/web/src/policy.ts`). Both load the widget's script only when Start ordering is pressed, so they still ship no third-party script to a visitor who only reads them.
+- Added on 2026-11-10, later the same day: the catering page is a third such place. Its gate, Start an inquiry, makes a guest sandbox in place, and `/catering/*` moved from the payment class to the `checkout` class (`apps/web/src/policy.ts`), loading the widget's script only on that press.
 
 ## Patterns and further reading
 

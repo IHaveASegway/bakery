@@ -4,7 +4,16 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
-import { AlreadyIn, START_SENTENCE, START_TITLE, StartHere } from '../src/components/Guest';
+import {
+  AlreadyIn,
+  START_ACTION,
+  START_SENTENCE,
+  START_TITLE,
+  StartHere,
+} from '../src/components/Guest';
+import { CATERING_START } from '../src/lib/catering';
+
+const CATERING_PROPS = { title: CATERING_START.title, action: CATERING_START.action };
 
 const html = (props: Parameters<typeof StartHere>[0]) =>
   renderToStaticMarkup(createElement(StartHere, props));
@@ -47,5 +56,21 @@ describe('StartHere', () => {
 describe('AlreadyIn', () => {
   test('draws nothing until the API has said there is a sandbox', () => {
     expect(renderToStaticMarkup(createElement(AlreadyIn))).toBe('');
+  });
+});
+
+describe('StartHere on the catering page (2026-11-10)', () => {
+  test('takes its own title and button, keeps the sentence, and comes back to /catering/', () => {
+    const out = html({ here: '/catering/', ...CATERING_PROPS });
+    expect(out).toContain('Catering starts with your own sandbox.');
+    expect(out).toMatch(/<button type="button" class="btn btn-primary">Start an inquiry<\/button>/);
+    expect(out).toContain(START_SENTENCE.replaceAll('’', '’'));
+    expect(out).toContain('href="/signin/?next=/catering/"');
+    expect(out).not.toContain('Start ordering');
+  });
+
+  test('the menu’s and the checkout’s words are the defaults, unchanged', () => {
+    expect(START_TITLE).toBe('Ordering starts with your own sandbox.');
+    expect(START_ACTION).toBe('Start ordering');
   });
 });

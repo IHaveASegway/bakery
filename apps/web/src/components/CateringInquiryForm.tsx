@@ -115,7 +115,9 @@ export default function CateringInquiryForm({
         void send();
       }}
     >
-      <h2 id="inquiry-heading">Ask about an event</h2>
+      <h2 id="inquiry-heading" tabIndex={-1}>
+        Ask about an event
+      </h2>
       {/* Laid out as the checkout's fields are: each a label, its control, its hint and, when a
           value it holds will not do, the reason in the field's own words, marked invalid. */}
       <div className="inquiry-fields">

@@ -439,6 +439,11 @@
   display: none;
 }
 
+/* On the catering page the gate stands where the inquiry form goes. */
+.catering-gate {
+  margin: 0 0 var(--space-5);
+}
+
 /* While the page asks the API, the gate's frame holds the place, quietly. */
 .start-looking {
   display: block;
