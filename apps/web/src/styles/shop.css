@@ -562,15 +562,10 @@
   white-space: nowrap;
 }
 
-/* A phone: the cart is a bar at the foot of the window, and a sheet when the bar is pressed. The
-   tour's button moves up to sit above the bar (until the guide replaces the tour). */
+/* A phone: the cart is a bar at the foot of the window, and a sheet when the bar is pressed. */
 @media (max-width: 60rem) {
   .menu-shop {
     padding-bottom: 72px;
-  }
-
-  body:has(.cart-bar) .tour-trigger:not(.tour-dock .tour-trigger) {
-    bottom: 80px;
   }
 
   .category-bar {

@@ -51,6 +51,9 @@ const ON_FILL: Record<string, string[]> = {
   'guide-text': ['guide-surface', 'guide-raised'],
   'guide-muted': ['guide-surface', 'guide-raised'],
   'guide-accent': ['guide-surface', 'guide-raised'],
+  // A refused request's chip, and the ink on the accent (the switch on, an open hotspot).
+  'guide-bad': ['guide-surface', 'guide-raised'],
+  'guide-accent-ink': ['guide-accent'],
 };
 /** A mark that is not text, against what it sits on: 3:1 (SC 1.4.11). A status's solid mark sits on
  *  its own tint and on every surface; the guide's hairline separates hops on its card. */
@@ -62,6 +65,8 @@ const MARKS: Record<string, string[]> = {
     ]),
   ),
   'focus-ring': ['accent-tint'],
+  // The edge of a guide note, its bar and its recorder against the page they float over.
+  'guide-edge': ['surface', 'surface-raised', 'surface-sunken'],
 };
 
 const source = readFileSync(new URL('../src/styles/tokens.css', import.meta.url), 'utf8');
@@ -133,6 +138,21 @@ for (const [themeName, colors] of Object.entries(themes)) {
           expect(wcagContrast(get(name), get(ground))).toBeGreaterThanOrEqual(3);
         });
       }
+    }
+  });
+}
+
+// A hotspot is a dark disc with the accent's ring. Over a light page the disc is what shows, over a
+// dark one the ring: in each scheme one of the two reaches 3:1 on every page surface (SC 1.4.11).
+for (const [themeName, colors] of Object.entries(themes)) {
+  test(`${themeName}: a guide hotspot's disc or ring reaches 3:1 on every page surface`, () => {
+    const get = (name: string) => colors.get(name) as Color;
+    for (const surface of ['surface', 'surface-raised', 'surface-sunken']) {
+      const best = Math.max(
+        wcagContrast(get('guide-surface'), get(surface)),
+        wcagContrast(get('guide-accent'), get(surface)),
+      );
+      expect(best, surface).toBeGreaterThanOrEqual(3);
     }
   });
 }

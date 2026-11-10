@@ -1,19 +1,21 @@
 // The dispatch screen: one day's delivery stops, two plans and the one that is published.
-import type { TourStep } from '../lib/tour';
-import { HOW } from './how';
+import type { GuideEntry } from '../lib/guide';
 import { IDEMPOTENCY, ROUTE } from './principles';
 
 const STOPS = ['01JC8Z5R0T2B6Y8C4V1N3K7Q01', '01JC8Z5R0T2B6Y8C4V1N3K7Q02'];
 
-export const DISPATCH: TourStep[] = [
+export const DISPATCH: GuideEntry[] = [
   {
     id: 'dispatch-how',
     screen: 'dispatch',
     target: 'dispatch-root',
     title: 'Two plans, one record',
-    what: HOW.dispatch,
+    what: 'The server plans with a savings heuristic; your browser plans the same stops with VROOM. Neither is the record until the Dispatch object checks it. The stops are public places that stand in for made-up addresses.',
+    why: 'Solving in the browser costs the server nothing, and checking on the server keeps a bad plan out.',
+    whenNot: 'Not for plans that need live traffic: these times are free-flow.',
     events: ['RouteProposed', 'PlanSubmitted', 'RoutePublished'],
     principle: ROUTE,
+    triggers: [],
     api: {
       routeId: 'get-dispatch',
       method: 'GET',
@@ -26,9 +28,13 @@ export const DISPATCH: TourStep[] = [
     screen: 'dispatch',
     target: 'dispatch-propose',
     title: 'The server’s plan',
-    what: 'Pick one to four vans and how many units each carries; the server plans the confirmed stops with a savings heuristic and stores the plan.',
+    what: 'Pick one to four vans and how much each carries. The server plans the confirmed stops and stores the plan.',
+    why: 'A fast heuristic on the server gives every visitor a good plan at a fixed cost.',
+    whenNot:
+      'Not when the shortest plan matters more than a quick one: the heuristic is good, not exact.',
     events: ['RouteProposed'],
     principle: ROUTE,
+    triggers: ['propose-dispatch', 'RouteProposed'],
     api: {
       routeId: 'propose-dispatch',
       method: 'POST',
@@ -42,9 +48,12 @@ export const DISPATCH: TourStep[] = [
     screen: 'dispatch',
     target: 'dispatch-plan',
     title: 'The browser’s plan',
-    what: 'VROOM, compiled to WebAssembly, plans the same stops in your browser. Nothing is solved on the server; the plan is sent to the Dispatch object, which recomputes its minutes from its own matrix and refuses anything that misses a stop, repeats one or overloads a van.',
+    what: 'VROOM, compiled to WebAssembly, loads on the first press and plans in a Web Worker in your browser. The Dispatch object works out the minutes itself and refuses a plan that misses a stop or overloads a van.',
+    why: 'Heavy computing runs where it is free, and the server trusts nothing it did not work out again.',
+    whenNot: 'Not on a device too slow for the solver: the server’s plan is always there.',
     events: ['PlanSubmitted'],
     principle: ROUTE,
+    triggers: ['submit-plan', 'PlanSubmitted'],
     api: {
       routeId: 'submit-plan',
       method: 'POST',
@@ -58,9 +67,12 @@ export const DISPATCH: TourStep[] = [
     screen: 'dispatch',
     target: 'dispatch-publish',
     title: 'Publishing a plan',
-    what: 'Publishing makes one stored plan the record: each stop’s order goes out for delivery. It is checked again against the day’s stops, and a repeat with the same key publishes nothing more.',
+    what: 'Publishing makes one stored plan the record and sends each stop’s order out for delivery. A repeat with the same key publishes nothing more.',
+    why: 'The key makes Publish safe to press twice, which matters when it moves every order on the plan.',
+    whenNot: 'Not for changing a published plan: publish another plan instead.',
     events: ['RoutePublished', 'OrderOutForDelivery'],
     principle: IDEMPOTENCY,
+    triggers: ['publish-dispatch', 'RoutePublished', 'OrderOutForDelivery'],
     api: {
       routeId: 'publish-dispatch',
       method: 'POST',
@@ -74,9 +86,12 @@ export const DISPATCH: TourStep[] = [
     screen: 'dispatch',
     target: 'dispatch-complete',
     title: 'Completing a stop',
-    what: 'Once a plan is published, staff mark each stop delivered, and the order becomes delivered. Marking a delivered stop again changes nothing.',
+    what: 'Staff mark each stop of the published plan delivered, and its order becomes delivered. Marking it again changes nothing.',
+    why: 'Completing a stop is idempotent by nature, so a driver’s retry on a bad connection is harmless.',
+    whenNot: 'Not before the kitchen marks the order ready: the stop answers 409 until then.',
     events: ['StopCompleted', 'OrderDelivered'],
     principle: IDEMPOTENCY,
+    triggers: ['complete-stop', 'StopCompleted', 'OrderDelivered'],
     api: {
       routeId: 'complete-stop',
       method: 'POST',

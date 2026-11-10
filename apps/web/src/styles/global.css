@@ -260,8 +260,8 @@ main:focus {
   text-decoration: underline;
 }
 
-/* Room under the footer for the tour's docked button, so it never covers a footer link. */
-.site-footer.with-tour {
+/* Room under the footer for the guide's bar (components/Guide.tsx), so it never covers a footer link. */
+.site-footer.with-guide {
   padding-bottom: 5rem;
 }
 
@@ -961,119 +961,6 @@ progress::-moz-progress-bar {
   white-space: pre-line;
 }
 
-/* The guided tour (components/Tour.tsx). While it is open the card sits in a bar at the foot of
-   the window, with the one Close button under it, and the page keeps room for the bar, so a step
-   scrolls its target above the bar and the card never covers it. Nothing is positioned from the
-   target and no element needs a style attribute. The ring is drawn on the target itself by an
-   attribute the island sets. */
-.tour-trigger {
-  position: fixed;
-  right: 1rem;
-  bottom: 1rem;
-  z-index: 20;
-}
-
-.tour-dock {
-  position: fixed;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
-  max-height: 45vh;
-  padding: 0.5rem 1rem;
-  border-top: 2px solid var(--primary);
-  background: var(--background);
-  color: var(--foreground);
-}
-
-.tour-dock .tour-trigger {
-  position: static;
-  flex: none;
-  margin-left: auto;
-}
-
-html.tour-open {
-  padding-bottom: var(--tour-dock-h, 0);
-}
-
-.tour-card {
-  box-sizing: border-box;
-  flex: 1 1 auto;
-  width: 100%;
-  min-height: 0;
-  max-width: 40rem;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-}
-
-/* Only the step's text scrolls; the action row below it stays pinned at the foot of the bar. */
-.tour-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0 0.25rem 0.5rem;
-}
-
-.tour-nav {
-  flex: none;
-  align-items: center;
-  margin: 0;
-  padding: 0.5rem 0.25rem 0;
-  border-top: 1px solid var(--border);
-}
-
-@media (max-width: 40rem) {
-  .tour-dock {
-    max-height: 40vh;
-  }
-}
-
-.tour-card h2 {
-  margin: 0 0 0.5rem;
-  font-size: 1.25rem;
-}
-
-.tour-card h2:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-
-.tour-card h3 {
-  margin: 1rem 0 0.25rem;
-  font-size: 1rem;
-}
-
-.tour-progress {
-  margin: 0;
-  color: var(--muted-foreground);
-  font-size: 0.9375rem;
-  font-weight: 600;
-}
-
-.tour-curl {
-  margin: 0.5rem 0;
-  padding: 0.5rem 0.75rem;
-  overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface-2);
-  font-size: 0.875rem;
-}
-
-.tour-curl code {
-  font-family: var(--font-mono);
-  white-space: pre;
-}
-
-[data-tour-current] {
-  outline: 3px solid var(--ring);
-  outline-offset: 4px;
-}
-
 /* The API token's reveal box and the reference page. */
 .reveal {
   margin: 0.75rem 0;
@@ -1128,12 +1015,6 @@ html.tour-open {
 
 .api-curl code {
   white-space: pre;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tour-card {
-    scroll-behavior: auto;
-  }
 }
 
 /* The shop's screens (design brief, 2026-11-09). The menu and the checkout put the cart in a side
@@ -1677,15 +1558,6 @@ html.tour-open {
     margin-bottom: calc(-1 * var(--space-4));
     padding-inline: var(--space-4);
   }
-}
-
-/* The tour's button keeps its look over the new shells until the guide replaces it. */
-.tour-trigger,
-.tour-trigger:hover {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--accent-foreground);
-  box-shadow: var(--shadow-raised);
 }
 
 /* Dispatch: the map large, the stops and the plans beside it. */

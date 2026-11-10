@@ -17,6 +17,7 @@ import {
   type FeedEntry,
   type Frame,
 } from './kitchen';
+import { socketSource } from './trace';
 import { ulid } from './ulid';
 
 export type Status = 'connecting' | 'open' | 'closed' | 'ended';
@@ -120,6 +121,23 @@ function reduce(state: KitchenState, event: Event): KitchenState {
   }
 }
 
+/**
+ * The guide's trace hears the socket: each command's answer, and each event with its id, stream,
+ * sequence and cause, which tie it to the command (or the request) that caused it.
+ */
+function traceFrame(frame: Frame): void {
+  const at = Date.now();
+  if (frame.t === 'ack')
+    socketSource.emit({ kind: 'answer', key: frame.id, outcome: 'ack', rule: null, at });
+  if (frame.t === 'nack') {
+    socketSource.emit({ kind: 'answer', key: frame.id, outcome: 'nack', rule: frame.rule, at });
+  }
+  if (frame.t === 'evt') {
+    const { id, type, stream, seq, cause } = frame.env;
+    socketSource.emit({ kind: 'event', source: 'socket', id, type, stream, seq, cause, at });
+  }
+}
+
 export interface Kitchen extends KitchenState {
   /** Sends a staff command; the id comes back, or null when the socket is not open. */
   send(order: string, action: Action): string | null;
@@ -162,6 +180,7 @@ export function useKitchen(sandboxId: string, onWiped: () => void): Kitchen {
         if (frame === null) return;
         if (frame.t === 'snapshot') attempt = 0;
         if (frame.t === 'bye') ended = frame.reason;
+        traceFrame(frame);
         dispatch({ kind: 'frame', frame });
       };
       // An error is always followed by a close, which does the work.
@@ -210,6 +229,7 @@ export function useKitchen(sandboxId: string, onWiped: () => void): Kitchen {
     if (socket === null || socket.readyState !== WebSocket.OPEN) return null;
     const id = ulid();
     socket.send(commandFrame(id, order, action));
+    socketSource.emit({ kind: 'command', key: id, action, order, at: Date.now() });
     dispatch({ kind: 'sent', command: { id, order, action, status: 'sent', rule: null } });
     return id;
   }, []);

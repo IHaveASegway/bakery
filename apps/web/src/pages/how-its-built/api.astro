@@ -54,7 +54,7 @@ const SOURCES = [
     <p class="lead">
       A demo you can only click proves that the screens work. This is how the bakery lets an
       engineer do the same thing from a terminal: one contract that the console, the reference and
-      the tour all come from, a token that reaches one sandbox and nobody else’s, and the page
+      the guide all come from, a token that reaches one sandbox and nobody else’s, and the page
       weight that the generated reference costs.
     </p>
 
@@ -64,7 +64,7 @@ const SOURCES = [
       They would like to send it again from a shell, with a different number, and see the same thing
       happen on the board. If the console used private routes, that is impossible, and if the public
       ones were written up by hand, it works until the day the two drift apart. Three readers depend
-      on one description: the console, the visitor’s script and the tour’s copyable requests (
+      on one description: the console, the visitor’s script and the guide’s copyable requests (
       <code>docs/adr/0013</code>).
     </p>
 
@@ -115,8 +115,8 @@ const SOURCES = [
       and the Worker’s README: a route the Worker serves that the contract lacks fails, as does a
       different method, path, session rule or bearer rule, and so does a route of a covered pull
       request that the Worker does not serve. Because the reference is rendered from the contract,
-      every route the Worker serves is in the reference. The tour is held the same way: a test in{' '}
-      <code>apps/web/test/tour.test.ts</code> checks each step’s request against the document, its
+      every route the Worker serves is in the reference. The guide is held the same way: a test in{' '}
+      <code>apps/web/test/guide.test.ts</code> checks each entry’s request against the document, its
       method, its path, its bearer rule and its body against the request’s schema. The console is
       held too. Its request helpers in <code>apps/web/src/lib/api.ts</code> are written by hand over
       the generated types, and <code>apps/web/test/api-paths.test.ts</code> calls every one against
@@ -175,10 +175,10 @@ const SOURCES = [
 
     <h2>Try it</h2>
     <p>
-      Sign in, open <a href="/app/">the console</a> and issue a token, which is shown once. Take any
-      step of the tour, copy its curl, which fills the token in for you, and run it from a terminal.
-      Then read the same route in <a href="/docs/api/">the reference</a>, and send the request a
-      61st time inside a minute to see the refusal and its <code>Retry-After</code>.
+      Sign in, open <a href="/app/">the console</a> and issue a token, which is shown once. Open any
+      part’s Under the hood note, copy its curl, which fills the token in for you, and run it from a
+      terminal. Then read the same route in <a href="/docs/api/">the reference</a>, and send the
+      request a 61st time inside a minute to see the refusal and its <code>Retry-After</code>.
     </p>
 
     <h2>Sources</h2>

@@ -1,18 +1,21 @@
 // The console's staff screens over catering and the CRM: the catering queue, customers, segments,
 // campaigns, the lead pipeline, the activity feed and the rebuild.
-import type { TourStep } from '../lib/tour';
-import { HOW } from './how';
+import type { GuideEntry } from '../lib/guide';
 import { BACKFILL, CQRS, SAGA } from './principles';
 
-export const CRM: TourStep[] = [
+export const CRM: GuideEntry[] = [
   {
     id: 'crm-quote',
     screen: 'console',
     target: 'crm-catering-queue',
     title: 'Quoting a catering inquiry',
-    what: 'Staff answer an inquiry with a quote: the package’s price per head times the headcount unless they override the total. The deposit is 25% of the total, rounded half-up. Sending the quote is the saga’s second transaction.',
+    what: 'Staff answer an inquiry with a quote: price per head times headcount, unless they set the total. The deposit is 25% of the total.',
+    why: 'Each step of a catering job is one object’s transaction, so a failure undoes one step and not the whole job.',
+    whenNot:
+      'Not where every step must happen at once or not at all: between steps the job is visible half done.',
     events: ['CateringQuoteSent'],
     principle: SAGA,
+    triggers: ['send-quote', 'CateringQuoteSent'],
     api: {
       routeId: 'send-quote',
       method: 'POST',
@@ -26,9 +29,12 @@ export const CRM: TourStep[] = [
     screen: 'console',
     target: 'crm-catering-queue',
     title: 'Declining an inquiry',
-    what: 'Staff can decline an inquiry that has not been quoted. A quoted event cannot be declined: it answers 409 out-of-order, because the saga only moves forward.',
+    what: 'Staff can decline an inquiry that has not been quoted. A quoted event answers 409, because the saga only moves forward.',
+    why: 'A saga that only moves forward turns an out-of-order command into a clear 409 instead of a silent overwrite.',
+    whenNot: 'Not for a record that should move back and forth freely, such as a draft.',
     events: ['CateringDeclined'],
     principle: SAGA,
+    triggers: ['decline-catering', 'CateringDeclined'],
     api: {
       routeId: 'decline-catering',
       method: 'POST',
@@ -42,9 +48,12 @@ export const CRM: TourStep[] = [
     screen: 'console',
     target: 'crm-catering-queue',
     title: 'Starting production',
-    what: 'Once the deposit is paid and the day is near, staff start production and the event joins the kitchen board.',
+    what: 'Once the deposit is paid and the day is near, staff start production. The event joins the kitchen board.',
+    why: 'The saga checks its own state before it moves, so production cannot start before the deposit.',
+    whenNot: 'Not a scheduler: this step waits for a person, and only the reminders run on timers.',
     events: ['CateringProductionStarted'],
     principle: SAGA,
+    triggers: ['start-catering-production', 'CateringProductionStarted'],
     api: {
       routeId: 'start-catering-production',
       method: 'POST',
@@ -57,9 +66,13 @@ export const CRM: TourStep[] = [
     screen: 'console',
     target: 'crm-catering-queue',
     title: 'Marking it delivered',
-    what: 'Delivery does not raise the balance invoice itself: it appends an event, and the invoice is raised afterwards by the queue. Refresh a moment later and the invoice message is in the inbox.',
+    what: 'Marking it delivered appends an event, and the queue raises the balance invoice afterwards. The invoice reaches the inbox a moment later.',
+    why: 'Raising the invoice from the event keeps delivery quick and lets the invoice be retried on its own.',
+    whenNot:
+      'Not where the caller needs the invoice in the same answer: it arrives a moment later.',
     events: ['CateringDelivered', 'InvoiceIssued', 'CateringBalanceInvoiced'],
     principle: SAGA,
+    triggers: ['mark-catering-delivered', 'CateringDelivered'],
     api: {
       routeId: 'mark-catering-delivered',
       method: 'POST',
@@ -72,9 +85,13 @@ export const CRM: TourStep[] = [
     screen: 'console',
     target: 'crm-catering-queue',
     title: 'Cancelling as staff',
-    what: 'Staff can cancel a confirmed event. The deposit is refunded when the event day is more than seven days away, and the day’s place is released.',
+    what: 'Staff can cancel a confirmed event. The deposit is refunded when the day is more than seven days away, and the place is released.',
+    why: 'Cancelling is a step of its own that undoes the earlier ones, never a rollback.',
+    whenNot:
+      'Not undoable itself: a cancelled event stays cancelled, and a new inquiry starts again.',
     events: ['CateringCancelled'],
     principle: SAGA,
+    triggers: ['staff-cancel-catering', 'CateringCancelled'],
     api: {
       routeId: 'staff-cancel-catering',
       method: 'POST',
@@ -87,10 +104,14 @@ export const CRM: TourStep[] = [
     id: 'crm-customers',
     screen: 'console',
     target: 'crm-customers',
-    title: 'Customers and consent',
-    what: 'Sixty made-up customers, read from the CRM’s projection, not from the orders. Changing a marketing consent is a command to the Customer object; the CRM learns of it from the event, a moment later. Select one to see their timeline.',
+    title: 'Changing a customer’s consent',
+    what: 'Sixty made-up customers, read from the CRM’s projection, not from the orders. Pick one to see their timeline and their consent to marketing email, which is a command to the Customer object.',
+    why: 'Commands go to the object that owns the customer and the list is only a view, so the list can be rebuilt and never decides.',
+    whenNot:
+      'Not where a change must show in the list in the same instant: the view learns of it a moment later.',
     events: ['ConsentChanged'],
     principle: CQRS,
+    triggers: ['set-consent', 'ConsentChanged'],
     api: {
       routeId: 'set-consent',
       method: 'POST',
@@ -103,10 +124,13 @@ export const CRM: TourStep[] = [
     id: 'crm-segments',
     screen: 'console',
     target: 'crm-segments',
-    title: 'Segments',
-    what: 'Five segments, each a query over the CRM’s projections, with a member count and a sample. They are what a campaign is aimed at, and they move as orders and consents change.',
+    title: 'Who a campaign reaches',
+    what: 'Five segments, each a rule over the CRM’s projections, with a count and a sample. Who is in changes when an event arrives: an order, a consent changed, the clock moved.',
+    why: 'A projection shaped for the question makes a count one query, not a scan of every order.',
+    whenNot: 'Not for a count that must be exact to the second: it trails the events by a moment.',
     events: [],
     principle: CQRS,
+    triggers: [],
     api: {
       routeId: 'list-segments',
       method: 'GET',
@@ -119,9 +143,12 @@ export const CRM: TourStep[] = [
     screen: 'console',
     target: 'crm-campaigns',
     title: 'Drafting a campaign',
-    what: HOW.campaigns,
+    what: 'A campaign picks a subject and a body from named templates, and a segment. It holds no free text.',
+    why: 'Templates by name keep personal data out of a campaign, so the inbox can be shown to anyone.',
+    whenNot: 'Not for a message that must say something new: a new template is a code change.',
     events: ['CampaignDrafted'],
     principle: CQRS,
+    triggers: ['create-campaign', 'CampaignDrafted'],
     api: {
       routeId: 'create-campaign',
       method: 'POST',
@@ -135,9 +162,12 @@ export const CRM: TourStep[] = [
     screen: 'console',
     target: 'crm-campaigns',
     title: 'Editing a draft',
-    what: 'Only a draft can be edited. Once a campaign is scheduled, sent or cancelled, an edit answers 409 out-of-order.',
+    what: 'Only a draft can be edited. Once a campaign is scheduled, sent or cancelled, an edit answers 409.',
+    why: 'The campaign object owns its state, so an edit and a send cannot race.',
+    whenNot: 'Not for changing a campaign already sent: send a new one.',
     events: ['CampaignEdited'],
     principle: CQRS,
+    triggers: ['edit-campaign', 'CampaignEdited'],
     api: {
       routeId: 'edit-campaign',
       method: 'PATCH',
@@ -151,9 +181,12 @@ export const CRM: TourStep[] = [
     screen: 'console',
     target: 'crm-campaigns',
     title: 'Scheduling a send',
-    what: 'The send time is a business time at least 15 minutes ahead. Advance the clock past it and the timer fires, freezing the recipients and sending one message each to the inbox.',
+    what: 'The send time is a business time at least 15 minutes ahead. When the clock passes it, the timer freezes the recipients and sends one message each.',
+    why: 'A timer on the object sends once however often the alarm fires, because the second firing finds it sent.',
+    whenNot: 'Not for a send at a wall-clock minute: the alarm fires when business time passes it.',
     events: ['CampaignScheduled', 'CampaignSent', 'MessageDelivered'],
     principle: SAGA,
+    triggers: ['schedule-campaign', 'CampaignScheduled', 'CampaignSent'],
     api: {
       routeId: 'schedule-campaign',
       method: 'POST',
@@ -167,9 +200,12 @@ export const CRM: TourStep[] = [
     screen: 'console',
     target: 'crm-campaigns',
     title: 'Cancelling a campaign',
-    what: 'Cancelling a scheduled campaign takes it back to a draft; cancelling a draft cancels it for good. A sent campaign cannot be cancelled.',
+    what: 'Cancelling a scheduled campaign takes it back to a draft; cancelling a draft ends it. A sent campaign cannot be cancelled.',
+    why: 'Each state names the moves it allows, so a cancel after the send is refused instead of half applied.',
+    whenNot: 'Not a recall: once sent, the messages are in the inbox.',
     events: ['CampaignCancelled'],
     principle: SAGA,
+    triggers: ['cancel-campaign', 'CampaignCancelled'],
     api: {
       routeId: 'cancel-campaign',
       method: 'POST',
@@ -181,10 +217,14 @@ export const CRM: TourStep[] = [
     id: 'crm-leads',
     screen: 'console',
     target: 'crm-leads',
-    title: 'The catering lead pipeline',
-    what: 'Catering events grouped by stage, from inquiry to won or lost. It is another projection of the same events, so it lags the catering queue by a moment.',
+    title: 'Catering, stage by stage',
+    what: 'Catering events grouped by stage, from inquiry to won or lost. It is another projection of the same events.',
+    why: 'Another view of the same events costs one more consumer, not a change to the catering object.',
+    whenNot:
+      'Not where the stage must be current to the millisecond: it trails the catering queue by a moment.',
     events: ['CateringInquiryReceived', 'CateringQuoteSent', 'CateringDepositPaid'],
     principle: CQRS,
+    triggers: [],
     api: {
       routeId: 'get-leads',
       method: 'GET',
@@ -197,9 +237,12 @@ export const CRM: TourStep[] = [
     screen: 'console',
     target: 'crm-activity',
     title: 'The activity feed',
-    what: 'What the CRM has logged, newest first, each line written by the API from an event and holding no free text. It is the feed this tour reads to show you the events of your last action.',
+    what: 'What the CRM has logged, newest first, each line written from an event. The guide reads it for the events of your last action where it holds no socket.',
+    why: 'An append-only feed is cheap to write and lets any screen show what happened without asking every object.',
+    whenNot: 'Not a complete log: it lists only the events the CRM consumes.',
     events: ['ClockAdvanced', 'FaultSet', 'MenuPublished', 'TrafficStarted'],
     principle: CQRS,
+    triggers: [],
     api: {
       routeId: 'get-activity',
       method: 'GET',
@@ -212,9 +255,13 @@ export const CRM: TourStep[] = [
     screen: 'console',
     target: 'crm-rebuild',
     title: 'Rebuild projections',
-    what: HOW.rebuild,
+    what: 'A rebuild empties the CRM’s projections and replays the log 200 events at a time. Commands keep working, and the result is the same bytes.',
+    why: 'Projections rebuilt from a log are disposable, so a wrong view is fixed by replaying, not by migrating.',
+    whenNot:
+      'Not for a log too long to replay inside the alarm guard: the rebuild would stall partway.',
     events: ['ProjectionRebuildFinished'],
     principle: BACKFILL,
+    triggers: ['start-rebuild', 'ProjectionRebuildFinished'],
     api: {
       routeId: 'start-rebuild',
       method: 'POST',

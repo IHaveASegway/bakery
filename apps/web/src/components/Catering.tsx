@@ -17,7 +17,7 @@ import CateringDetail from './CateringDetail';
 import CateringInquiryForm from './CateringInquiryForm';
 import Message from './Message';
 import StatusLine from './StatusLine';
-import { HOW } from '../tour/how';
+import { HOW } from '../guide/how';
 
 /**
  * The /catering/ island: the inquiry, the visitor's events, and the one open for reading. The list
