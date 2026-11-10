@@ -148,6 +148,7 @@ pub async fn place(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answer {
         Some(&RegisterOrder {
             key: key.to_string(),
             date: Some(BakeryDate::of(slot)),
+            customer: None,
         }),
     )
     .await?;
@@ -172,6 +173,12 @@ pub async fn place(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answer {
         _ => return Err(problem::internal()),
     };
 
+    // A delivery goes to the customer's own zone, their place's (roadmap R69): a body that names
+    // none gets it, one that names it is accepted, another is 422 `order` `wrong-zone`.
+    let zone =
+        bakery_domain::order::delivery_zone(kind, body.zone.as_deref(), slot_of.zone.as_deref())
+            .map_err(|e| order_problem(&e))?;
+
     let name = order::name(id, slot_of.order);
     let at = business_at(cx.now, slot_of.clock_offset_s);
     let hash = body_hash(&text);
@@ -188,7 +195,7 @@ pub async fn place(cx: &Cx, req: &mut Request, id: Option<&str>) -> Answer {
         customer: slot_of.persona,
         kind,
         slot,
-        zone: body.zone,
+        zone,
         lines: body
             .lines
             .into_iter()

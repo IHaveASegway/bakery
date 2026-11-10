@@ -12,8 +12,17 @@ export type Phase =
   | { name: 'nosession' }
   | { name: 'nosandbox' }
   | { name: 'seeding'; id: string; kind: SessionKind }
-  /** `clockOffsetS`: business time minus wall time, from the sandbox as of this look. */
-  | { name: 'live'; id: string; kind: SessionKind; clockOffsetS: number };
+  /**
+   * `clockOffsetS`: business time minus wall time, from the sandbox as of this look.
+   * `personaZone`: the persona's delivery zone, their place's, where a delivery goes (R69).
+   */
+  | {
+      name: 'live';
+      id: string;
+      kind: SessionKind;
+      clockOffsetS: number;
+      personaZone?: string | null;
+    };
 
 // The page's first read of a sandbox, shared by every island that asks for the same id, as
 // readSession shares the session: a console page's frame and its dispatch view ask once between
@@ -50,7 +59,13 @@ export function useSandboxPhase(): Phase {
           setPhase({ name: 'seeding', id, kind });
           timer = setTimeout(() => void look(id, kind), 1_000);
         } else if (sandbox.state === 'live') {
-          setPhase({ name: 'live', id, kind, clockOffsetS: sandbox.clock_offset_s });
+          setPhase({
+            name: 'live',
+            id,
+            kind,
+            clockOffsetS: sandbox.clock_offset_s,
+            personaZone: sandbox.persona_zone ?? null,
+          });
         } else {
           setPhase({ name: 'nosandbox' });
         }

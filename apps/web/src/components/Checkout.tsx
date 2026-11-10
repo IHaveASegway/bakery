@@ -26,15 +26,7 @@ import {
   windowChoices,
   type SlotConflict,
 } from '../lib/schedule';
-import {
-  ZONES,
-  byDate,
-  deliveryWindows,
-  mountainLocal,
-  mountainToMs,
-  pickupSlots,
-  type Zone,
-} from '../lib/slots';
+import { byDate, deliveryWindows, mountainLocal, mountainToMs, pickupSlots } from '../lib/slots';
 import { useCart } from '../lib/use-cart';
 import { useSchedule } from '../lib/use-schedule';
 import { useLiveMenu } from '../lib/use-live-menu';
@@ -108,24 +100,9 @@ function Step({
   );
 }
 
-/**
- * Delivery's zone. The API will derive it from the customer's place (roadmap R69); when it does,
- * this field and the `zone` in the order body go, and nothing else in the step changes.
- */
-function ZoneField({ zone, onZone }: { zone: Zone; onZone: (zone: Zone) => void }) {
-  return (
-    <p className="field zone-field">
-      <label htmlFor="zone">Delivery zone</label>
-      <select id="zone" value={zone} onChange={(e) => onZone(e.target.value as Zone)}>
-        {ZONES.map((z) => (
-          <option key={z} value={z}>
-            Zone {z.slice(1)}
-          </option>
-        ))}
-      </select>
-    </p>
-  );
-}
+/** "Delivery to zone 2": the zone the server derives from the persona's place (roadmap R69). */
+const zoneWords = (zone: string | null) =>
+  zone === null ? 'Delivery to your zone' : `Delivery to zone ${zone.slice(1)}`;
 
 /** "Tue 10 Nov, 9:15 am" for a pickup, "Tue 10 Nov, 9:00 am to 11:00 am" for a delivery. */
 function slotWords(kind: 'pickup' | 'delivery', start: string): string {
@@ -137,6 +114,8 @@ function slotWords(kind: 'pickup' | 'delivery', start: string): string {
 /** The /checkout/ island: how, when, pay, with the cart or the placed order beside the steps. */
 export default function Checkout() {
   const phase = useSandboxPhase();
+  // A delivery goes to the persona's own zone, which the API derives from their place (R69).
+  const personaZone = phase.name === 'live' ? (phase.personaZone ?? null) : null;
   const menu = useLiveMenu(phase);
   const { cart, ready, update } = useCart();
   const [now, setNow] = useState<number | null>(null);
@@ -238,8 +217,10 @@ export default function Checkout() {
     const ctx = { nowMs: now, leadMinutes: lead, baked };
     return cart.kind === 'pickup'
       ? pickupChoices(schedule.schedule, ctx)
-      : windowChoices(schedule.schedule, cart.zone, ctx);
-  }, [schedule.schedule, now, lead, baked, cart.kind, cart.zone]);
+      : personaZone === null
+        ? []
+        : windowChoices(schedule.schedule, personaZone, ctx);
+  }, [schedule.schedule, now, lead, baked, cart.kind, personaZone]);
   const chosenLive = choices.find((c) => c.start === cart.slot && pickable(c)) ?? null;
   const chosenStart = live ? (chosenLive?.start ?? null) : (chosen?.value ?? null);
   // Days the page's own rules find nothing on for this cart: offered, but quiet.
@@ -272,7 +253,6 @@ export default function Checkout() {
     const body: OrderRequest = {
       kind: cart.kind,
       slot: chosenStart,
-      ...(cart.kind === 'delivery' ? { zone: cart.zone } : {}),
       lines: cart.lines.map(({ variant, qty }) => ({ variant, qty })),
       ...(cart.note.trim() === '' ? {} : { note: cart.note }),
     };
@@ -306,9 +286,7 @@ export default function Checkout() {
   const placed = result?.order ?? null;
   const kind = placed?.kind ?? cart.kind;
   const howWords =
-    kind === 'pickup'
-      ? 'Pickup at the bakery'
-      : `Delivery to zone ${(placed?.zone ?? cart.zone).slice(1)}`;
+    kind === 'pickup' ? 'Pickup at the bakery' : zoneWords(placed?.zone ?? personaZone);
   const whenStart = placed?.slot ?? chosenStart;
 
   // Nothing to check out: one sentence and the way back.
@@ -387,13 +365,7 @@ export default function Checkout() {
             ))}
           </fieldset>
           {cart.kind === 'delivery' && (
-            <ZoneField
-              zone={cart.zone}
-              onZone={(zone) => {
-                setConflict(null);
-                update((c) => ({ ...c, zone }));
-              }}
-            />
+            <p className="hint zone-line">{zoneWords(personaZone)}, where your place is.</p>
           )}
           {blocker !== null && <p className="problem">{blocker}</p>}
           <p className="step-actions">

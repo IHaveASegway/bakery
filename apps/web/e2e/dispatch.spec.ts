@@ -67,7 +67,8 @@ test('a day’s paid deliveries are its stops, and a proposal plans every one of
   for (const order of orders) {
     const row = stops.getByRole('row').filter({ hasText: order.slice(-6) });
     await expect(row).toContainText('Confirmed');
-    await expect(row).toContainText('Zone 2');
+    // The persona's own zone, their place's, which the API derived (R69).
+    await expect(row).toContainText(`Zone ${(sandbox.persona_zone ?? '').slice(1)}`);
   }
   await expect(page.getByText('Loading the map…')).toHaveCount(0);
   await expectNoAxeViolations(page);

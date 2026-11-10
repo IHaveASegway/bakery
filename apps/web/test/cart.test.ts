@@ -149,7 +149,6 @@ describe('the cart in sessionStorage', () => {
       lines: [{ variant: 'country-loaf/whole', qty: 2 }],
       note: 'Crusty please',
       kind: 'delivery' as const,
-      zone: 'z2' as const,
       slot: '2026-11-06T09:00:00-07:00',
     };
     saveCart(storage, cart);
@@ -157,7 +156,6 @@ describe('the cart in sessionStorage', () => {
       'lines',
       'note',
       'kind',
-      'zone',
       'slot',
     ]);
     expect(loadCart(storage)).toEqual(cart);
@@ -199,6 +197,7 @@ describe('the cart in sessionStorage', () => {
           'junk',
         ],
         kind: 'teleport',
+        // A cart saved before 2026-11-10 holds a zone; the zone is the persona's now (R69).
         zone: 'z9',
         note: 5,
         slot: 7,

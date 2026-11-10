@@ -167,6 +167,8 @@ describe('the console’s entries', () => {
       'console-sandbox',
       'console-token',
       'kitchen-board',
+      'kitchen-board',
+      'kitchen-guest',
       'kitchen-refund',
       'kitchen-bake',
       'kitchen-ledger',

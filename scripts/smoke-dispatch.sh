@@ -371,7 +371,8 @@ until_json() {
   return 1
 }
 
-# delivery_order MENU_NAME DATE QTY: a delivery to zone z2 at DATE's 09:00 window, QTY of one
+# delivery_order MENU_NAME DATE QTY: a delivery at DATE's 09:00 window, naming no zone (the server
+# derives the persona's, roadmap R69), QTY of one
 # item baked that weekday, never pickup-only or seasonal, with a lead time inside 2 hours.
 delivery_order() {
   node -e "
@@ -383,7 +384,7 @@ delivery_order() {
       if (i.status !== 'available' || i.pickup_only || i.season || !i.days_baked.includes(wd)) continue;
       const v = i.variants.find((v) => v.lead_minutes <= 120);
       if (!v) continue;
-      console.log(JSON.stringify({ kind: 'delivery', slot: date + 'T09:00:00' + offset, zone: 'z2', lines: [{ variant: v.slug, qty }] }));
+      console.log(JSON.stringify({ kind: 'delivery', slot: date + 'T09:00:00' + offset, lines: [{ variant: v.slug, qty }] }));
       process.exit(0);
     }
     process.exit(1);" "$TMP/$1.body" "$2" "$3"
@@ -509,6 +510,9 @@ check "today's stops are the seed's open delivery orders, provisional exactly wh
   process.exit(ok ? 0 : 1);\""
 expect_json a_today "b.proposed !== null && b.proposed.source === 'server' && b.proposed.unassigned.length === 0 && b.published === null && b.submitted === null && b.plan_v === 0 && b.comparison === null"
 expect_json a_today "b.capacity === 250 && b.vans === (new Date('$SEEDED_DAY' + 'T12:00:00Z').getUTCDay() === 6 ? 4 : 1)"
+expect_json a_today "(() => { const z = new Map(); return b.stops.every((s) => (z.has(s.place) ? z.get(s.place) === s.zone : (z.set(s.place, s.zone), true))); })()"
+SHARED="$(node -e "const g = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); const by = new Map(); for (const c of g.customers) by.set(c.place, [...(by.get(c.place) || []), c.home_zone]); const shared = [...by.values()].filter((z) => z.length > 1); process.stdout.write(shared.every((z) => new Set(z).size === 1) ? String(shared.length) : 'split')" "$TMP/seed.json")"
+check "one place, one zone in the seed: every persona at a place has its zone ($SHARED places hold two or more personas)" "[[ '$SHARED' =~ ^[0-9]+$ ]]"
 check "the seeded proposal carries every confirmed stop once" "node -e \"
   const b = JSON.parse(require('fs').readFileSync('$TMP/a_today.body', 'utf8'));
   const planned = b.proposed.vans.flatMap((v) => v.stops);
@@ -563,6 +567,15 @@ done
 # ---------- three delivery orders for $DAY: two paid, one left to expire ----------
 
 get_as a_menu D "/v1/sandboxes/$AID/menu"
+# A delivery's zone is the persona's place's (roadmap R69, 2026-11-10): the sandbox says which, the
+# seed agrees, and an order that names another zone is refused with the rule and holds nothing.
+PZONE="$(json_field a_live b.persona_zone)"
+check "the sandbox names the persona's zone, $PZONE, the seed's home zone for their place" "node -e \"const g = JSON.parse(require('fs').readFileSync('$TMP/seed.json', 'utf8')); const c = g.customers.find((c) => c.id === '$(json_field a_live b.persona)'); process.exit(c && c.home_zone === '$PZONE' && /^z[123]\$/.test('$PZONE') ? 0 : 1)\""
+OTHER_ZONE="$( [[ "$PZONE" == z1 ]] && echo z2 || echo z1 )"
+WRONG="$(delivery_order a_menu "$DAY" 1 | node -e "const b = JSON.parse(require('fs').readFileSync(0, 'utf8')); b.zone = process.argv[1]; process.stdout.write(JSON.stringify(b))" "$OTHER_ZONE")" || WRONG='{}'
+command_as a_wrong_zone D 192.0.2.92 POST "/v1/sandboxes/$AID/orders" "$WRONG"
+expect_problem a_wrong_zone 422 order
+expect_json a_wrong_zone "b.detail.includes('The rule is wrong-zone.')"
 ORDER_A="$(delivery_order a_menu "$DAY" 3)" || { fail "no item fits a delivery on $DAY"; ORDER_A='{}'; }
 ORDER_B="$(delivery_order a_menu "$DAY" 4)" || ORDER_B='{}'
 ORDER_C="$(delivery_order a_menu "$DAY" 2)" || ORDER_C='{}'
@@ -575,11 +588,13 @@ OB="$(json_field a_place_b b.id)"
 command_as a_place_c D 192.0.2.92 POST "/v1/sandboxes/$AID/orders" "$ORDER_C"
 expect_status a_place_c 201
 OC="$(json_field a_place_c b.id)"
-check "the three orders are stops of $DAY, provisional" "until_json a_prov D '/v1/sandboxes/$AID/dispatch/$DAY' \"['$OA', '$OB', '$OC'].every((o) => b.stops.some((s) => s.order === o && s.status === 'provisional' && s.zone === 'z2' && s.window.startsWith('$DAY' + 'T09:00:00')))\""
+check "the three orders are stops of $DAY, provisional" "until_json a_prov D '/v1/sandboxes/$AID/dispatch/$DAY' \"['$OA', '$OB', '$OC'].every((o) => b.stops.some((s) => s.order === o && s.status === 'provisional' && s.zone === '$PZONE' && s.window.startsWith('$DAY' + 'T09:00:00')))\""
 expect_json a_prov "b.stops.find((s) => s.order === '$OA').units === 3 && b.stops.find((s) => s.order === '$OB').units === 4"
 PERSONA="$(json_field a_live b.persona)"
 PLACE="$(node -e "const g = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')); process.stdout.write(String(Number(g.customers.find((c) => c.id === process.argv[2]).place.slice(1)) - 1))" "$TMP/seed.json" "$PERSONA")"
 expect_json a_prov "b.stops.filter((s) => s.customer === '$PERSONA').every((s) => s.place === $PLACE)"
+expect_json a_prov "(() => { const z = new Map(); return b.stops.every((s) => (z.has(s.place) ? z.get(s.place) === s.zone : (z.set(s.place, s.zone), true))); })()"
+check "one place, one zone: $(json_field a_prov "new Set(b.stops.map((s) => s.place)).size") places among $(json_field a_prov "b.stops.length") stops of $DAY, each in one zone" "true"
 for o in A B; do
   oid="O$o"; oid="${!oid}"
   KEY="$oid" command_as "a_pay_$o" D 192.0.2.92 POST "/v1/sandboxes/$AID/orders/$oid/payment"

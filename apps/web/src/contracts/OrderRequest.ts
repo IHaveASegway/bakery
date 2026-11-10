@@ -29,7 +29,9 @@ export interface OrderRequest {
    */
   slot: string;
   /**
-   * `z1`, `z2` or `z3` for a delivery; absent for a pickup.
+   * A delivery's zone, which the customer's place decides (since 2026-11-10, roadmap R69): left
+   * out, the server uses the persona's (`persona_zone` on the sandbox); named, it must be that
+   * zone, or the order is 422 `order` with the rule `wrong-zone`. Absent for a pickup.
    */
   zone?: string | null;
 }
