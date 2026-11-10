@@ -12,6 +12,9 @@ import {
   receiptOf,
   receiptOrder,
   recipientName,
+  inboxToText,
+  orderedAsText,
+  orderingAsText,
 } from '../src/lib/inbox';
 import { fakeFetch, json } from './support';
 
@@ -78,6 +81,21 @@ describe('names and words', () => {
     ]);
     expect(recipientName(names, '01JAAAAAAAAAAAAAAAAAAAAAAB')).toBe('Drizzle Trowel');
     expect(recipientName(names, '01JZZZZZZZZZZZZZZZZZZZ123456')).toBe('customer 123456');
+  });
+
+  test('a name is always said with whose it is', () => {
+    expect(orderingAsText('Drizzle Trowel')).toBe(
+      'You are ordering as Drizzle Trowel, one of this sandbox’s made-up customers, so a delivery has a place and the customer list has a history. It is not you, and nothing about you is asked for.',
+    );
+    expect(orderingAsText(null)).toMatch(
+      /^You are ordering as one of this sandbox’s made-up customers/,
+    );
+    expect(orderedAsText('Drizzle Trowel')).toBe(
+      'Placed as Drizzle Trowel, a made-up customer of this sandbox, not you.',
+    );
+    expect(orderedAsText(undefined)).toBe('Placed as a made-up customer of this sandbox, not you.');
+    expect(inboxToText('Drizzle Trowel')).toMatch(/never to you.*addressed to Drizzle Trowel/);
+    expect(inboxToText(null)).toBe('Messages go to made-up customers, never to you.');
   });
 
   test('opens and clicks as they appear', () => {

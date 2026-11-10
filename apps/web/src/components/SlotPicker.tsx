@@ -1,4 +1,12 @@
-import { blockerText, conflictText, freeText } from '../lib/schedule';
+import {
+  blockerText,
+  conflictText,
+  earlierText,
+  freeText,
+  nextOpenDay,
+  nothingLeftText,
+  offerOf,
+} from '../lib/schedule';
 import { momentText } from '../lib/when';
 import type { Choice, SlotConflict } from '../lib/schedule';
 import type { LiveSchedule } from '../lib/use-schedule';
@@ -99,7 +107,8 @@ export default function SlotPicker({
   conflict,
   onTakeNext,
   baked,
-  leadHours,
+  leadMinutes,
+  nowMs,
   quiet,
 }: {
   kind: 'pickup' | 'delivery';
@@ -114,18 +123,34 @@ export default function SlotPicker({
   conflict: SlotConflict | null;
   onTakeNext: (start: string) => void;
   baked: boolean;
-  leadHours: number;
+  leadMinutes: number;
+  /** Business now, in Unix milliseconds, to tell the times already too soon. */
+  nowMs: number;
   quiet?: ReadonlySet<string> | undefined;
 }) {
   const noun = kind === 'pickup' ? 'Pickup time' : 'Delivery window';
   const schedule = live.schedule;
+  const leadHours = Math.round(leadMinutes / 60);
   const open = choices.filter((c) => c.blocked === null).length;
+  const listed = schedule === null || (schedule.open && baked);
+  // The list starts at the first time that can be chosen. The ones before it are one line.
+  const offer = offerOf(choices, { nowMs, leadMinutes });
+  const isToday = day === today;
+  const earlier = listed && schedule !== null ? earlierText(offer, kind, isToday) : null;
+  const none = listed && schedule !== null ? nothingLeftText(choices, offer, isToday) : null;
+  const next = none === null ? null : nextOpenDay(dates, day, quiet);
+  const nextWords = next === null ? '' : `${dayParts(next).weekday} ${dayParts(next).day}`;
 
   return (
     <>
       <DayChips dates={dates} day={day} today={today} quiet={quiet} onDay={onDay} />
 
-      <fieldset aria-describedby="slot-status" className="slot-chips">
+      <fieldset
+        aria-describedby={
+          earlier === null && none === null ? 'slot-status' : 'slot-status slot-earlier'
+        }
+        className="slot-chips"
+      >
         <legend>{noun}</legend>
         <p id="slot-status" aria-live="polite" className="hint">
           {live.error
@@ -141,11 +166,32 @@ export default function SlotPicker({
                       ? ` Your cart needs ${leadHours} ${leadHours === 1 ? 'hour' : 'hours'}’ notice at least.`
                       : '')}
         </p>
+        {(earlier !== null || none !== null) && (
+          <p id="slot-earlier" className="hint slot-earlier">
+            {earlier ?? none}
+            {next !== null && (
+              <>
+                {' '}
+                The next open day is {nextWords}.
+                <span className="slot-earlier-next">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => onDay(next)}
+                  >
+                    See {nextWords}
+                  </button>
+                </span>
+              </>
+            )}
+          </p>
+        )}
         {/* A day the bakery is shut or the cart cannot have offers nothing to pick: the line above
-            says so, and no list of greyed-out times repeats it. */}
-        {(schedule === null || (schedule.open && baked)) && (
+            says so, and no list of greyed-out times repeats it. A day whose early times are gone
+            starts at its first open one. */}
+        {listed && (
           <ul className="choices" data-kind={kind}>
-            {choices.map((c) => (
+            {(schedule === null ? choices : offer.shown).map((c) => (
               <li key={c.start}>
                 <SlotChip choice={c} checked={slot === c.start} onSlot={onSlot} />
               </li>

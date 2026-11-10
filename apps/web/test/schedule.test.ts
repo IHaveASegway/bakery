@@ -5,8 +5,12 @@ import {
   blockerText,
   dateLabel,
   dateOfStart,
+  earlierText,
   freeText,
   horizonDates,
+  nextOpenDay,
+  nothingLeftText,
+  offerOf,
   pickable,
   pickupChoices,
   slotConflict,
@@ -252,5 +256,86 @@ describe('a screen that shows a day opens on the first open one (F13, 2026-11-10
     expect(firstOpenDate(['2026-11-10', '2026-11-11'])).toBe('2026-11-10');
     expect(firstOpenDate(['2026-11-09'])).toBe('2026-11-09');
     expect(firstOpenDate([])).toBe('');
+  });
+});
+
+describe('the list starts at the first time that can be chosen', () => {
+  // 08:07 now, a cart that needs three hours: 11:07, so 11:15 is the first open time.
+  const cart = { ...ctx, leadMinutes: 180 };
+
+  test('the times already too soon are counted, not listed, and the first open one is named', () => {
+    const choices = pickupChoices(scheduleFor(DAY), cart);
+    const offer = offerOf(choices, cart);
+    expect(offer.tooSoon).toBe(17);
+    expect(offer.shown).toHaveLength(15);
+    expect(offer.shown[0]?.label).toBe('11:15 am');
+    expect(offer.first?.label).toBe('11:15 am');
+    expect(earlierText(offer, 'pickup', true)).toBe(
+      'Earlier times today need more notice: the first open time is 11:15 am.',
+    );
+    expect(earlierText(offer, 'pickup', false)).toMatch(/^Earlier times that day need more notice/);
+    expect(nothingLeftText(choices, offer, true)).toBeNull();
+  });
+
+  test('a full time among the open ones stays where it stands', () => {
+    const choices = pickupChoices(scheduleFor(DAY, { taken: { '12:00': 6 } }), cart);
+    const offer = offerOf(choices, cart);
+    expect(offer.shown.find((c) => c.label === '12:00 pm')?.blocked).toBe('full');
+    expect(offer.shown[0]?.label).toBe('11:15 am');
+  });
+
+  test('a full time that is also too soon goes with the rest of the early ones', () => {
+    const choices = pickupChoices(scheduleFor(DAY, { taken: { '09:00': 6 } }), cart);
+    const offer = offerOf(choices, cart);
+    expect(offer.tooSoon).toBe(17);
+    expect(offer.shown[0]?.label).toBe('11:15 am');
+  });
+
+  test('a day when every time is open lists every time and says nothing', () => {
+    const early = { nowMs: Date.UTC(2026, 10, 7, 13, 0, 0), leadMinutes: 0, baked: true };
+    const choices = pickupChoices(scheduleFor(DAY), early);
+    const offer = offerOf(choices, early);
+    expect(offer.tooSoon).toBe(0);
+    expect(offer.shown).toHaveLength(32);
+    expect(earlierText(offer, 'pickup', true)).toBeNull();
+    expect(nothingLeftText(choices, offer, true)).toBeNull();
+  });
+
+  test('a day with nothing left lists nothing and says why', () => {
+    const late = { nowMs: Date.UTC(2026, 10, 7, 22, 30, 0), leadMinutes: 0, baked: true };
+    const choices = pickupChoices(scheduleFor(DAY), late);
+    const offer = offerOf(choices, late);
+    expect(offer.shown).toEqual([]);
+    expect(offer.first).toBeNull();
+    expect(earlierText(offer, 'pickup', true)).toBeNull();
+    expect(nothingLeftText(choices, offer, true)).toBe(
+      'Nothing is left today: every time has passed or needs more notice.',
+    );
+  });
+
+  test('a day that is full all through says so, and so does one that is part past, part full', () => {
+    const early = { nowMs: Date.UTC(2026, 10, 7, 13, 0, 0), leadMinutes: 0, baked: true };
+    const full = pickupChoices(scheduleFor(DAY, { capacity: 0 }), early);
+    expect(nothingLeftText(full, offerOf(full, early), false)).toBe('Every time that day is full.');
+    const mixed = pickupChoices(scheduleFor(DAY, { capacity: 0 }), cart);
+    expect(nothingLeftText(mixed, offerOf(mixed, cart), true)).toBe(
+      'Nothing is left today: earlier times need more notice and the rest are full.',
+    );
+  });
+
+  test('delivery windows say window, not time', () => {
+    const choices = windowChoices(scheduleFor(DAY), 'z1', { ...ctx, leadMinutes: 180 });
+    const offer = offerOf(choices, { ...ctx, leadMinutes: 180 });
+    expect(earlierText(offer, 'delivery', true)).toMatch(
+      /^Earlier windows today .*first open window is /,
+    );
+  });
+
+  test('the next open day skips a closed Monday and a day the cart has nothing on', () => {
+    const dates = horizonDates(SATURDAY);
+    expect(nextOpenDay(dates, '2026-11-07')).toBe('2026-11-08');
+    expect(nextOpenDay(dates, '2026-11-08')).toBe('2026-11-10');
+    expect(nextOpenDay(dates, '2026-11-08', new Set(['2026-11-10']))).toBe('2026-11-11');
+    expect(nextOpenDay(dates, '2026-11-13')).toBeNull();
   });
 });

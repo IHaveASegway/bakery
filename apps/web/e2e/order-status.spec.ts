@@ -69,7 +69,11 @@ test('an order placed in three steps and paid follows the kitchen on its own pag
   await expect(slot).toBeEnabled();
   await slot.check();
   await expectNoAxeViolations(page);
+  await expect(page.getByTestId('ordering-as')).toContainText('made-up customers');
   await page.getByRole('button', { name: 'Place order' }).click();
+  await expect(page.getByTestId('ordered-as')).toContainText(
+    'a made-up customer of this sandbox, not you.',
+  );
 
   // Step 3, pay: the hold as time left, and Stripe's form, which cannot load here.
   await expect(page.getByText(/\d+ min left to pay\./)).toBeVisible();
@@ -87,6 +91,9 @@ test('an order placed in three steps and paid follows the kitchen on its own pag
     .locator('[aria-current="step"]');
   await expect(current).toContainText('Placed');
   await expect(page.getByText('Waiting for payment')).toBeVisible();
+  await expect(page.getByTestId('ordered-as')).toContainText(
+    'a made-up customer of this sandbox, not you.',
+  );
   await expect(page.getByRole('link', { name: 'Pay for this order' })).toHaveAttribute(
     'href',
     `/checkout/?order=${id}`,

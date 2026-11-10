@@ -273,7 +273,13 @@ export default function OrderStatus() {
         </p>
       </section>
 
-      <Receipt order={order} menu={menu} paid={isPaid(track.status)} now={businessNowMs(offsetS)} />
+      <Receipt
+        order={order}
+        menu={menu}
+        paid={isPaid(track.status)}
+        now={businessNowMs(offsetS)}
+        customer={phase.name === 'live' ? phase.personaName : null}
+      />
     </div>
   );
 }

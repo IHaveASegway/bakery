@@ -15,6 +15,7 @@ import { type Message as Text } from '../lib/messages';
 import { findVariant, taxBpOf } from '../lib/menu';
 import { dollars, taxPercent } from '../lib/money';
 import { describeOrderError } from '../lib/order-errors';
+import { orderedAsText, orderingAsText } from '../lib/inbox';
 import { isPaid } from '../lib/payment';
 import { rememberPlacedOrder } from '../lib/placed-orders';
 import {
@@ -457,7 +458,8 @@ export default function Checkout() {
                 update((c) => ({ ...c, slot: start }));
               }}
               baked={baked}
-              leadHours={Math.round(lead / 60)}
+              leadMinutes={lead}
+              nowMs={now ?? 0}
               quiet={quiet}
             />
 
@@ -481,6 +483,10 @@ export default function Checkout() {
                   The note is {noteChars - NOTE_MAX} characters over the limit.
                 </span>
               )}
+            </p>
+
+            <p className="hint ordering-as" data-testid="ordering-as">
+              {orderingAsText(phase.name === 'live' ? phase.personaName : null)}
             </p>
 
             <p className="step-actions">
@@ -538,6 +544,9 @@ export default function Checkout() {
           </>
         ) : (
           <>
+            <p className="hint" data-testid="ordered-as">
+              {orderedAsText(phase.name === 'live' ? phase.personaName : null)}
+            </p>
             <p className="hint">
               Order <code title={placed.id}>{placed.id.slice(-6)}</code>, priced by the API from
               menu version {placed.menu_version}.
