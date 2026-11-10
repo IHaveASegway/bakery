@@ -10,7 +10,7 @@ import { DISPATCH } from './dispatch';
 import { INBOX } from './inbox';
 import { KITCHEN } from './kitchen';
 import { ORDER } from './order';
-import { API_PAGE, CHECKOUT, HOME, MENU, PRIVACY, SIGNIN, STATUS } from './simple';
+import { API_PAGE, CATERING_START, CHECKOUT, HOME, MENU, PRIVACY, SIGNIN, STATUS } from './simple';
 
 export { PATHS } from './paths';
 
@@ -73,7 +73,8 @@ export const ENTRIES: Record<ScreenId, GuideEntry[]> = {
   checkout: CHECKOUT,
   order: ORDER,
   console: inPageOrder([...CONSOLE, ...KITCHEN, ...CRM, ...CONTROLS], CONSOLE_ORDER),
-  catering: CATERING,
+  // The gate comes first: a visitor with no sandbox meets it before the inquiry.
+  catering: [CATERING_START, ...CATERING],
   inbox: INBOX,
   dispatch: DISPATCH,
   api: API_PAGE,

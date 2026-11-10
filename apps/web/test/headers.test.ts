@@ -176,15 +176,15 @@ describe('dist/_headers', () => {
   );
 
   test.each(paymentRules)(
-    '%s is a payment page: the island policy plus exactly Stripe’s three origins',
+    '%s is a payment page: the island policy plus exactly Stripe’s three origins and Turnstile’s',
     (path) => {
       const lines = rule(text, path);
       expect(lines.indexOf('! Content-Security-Policy')).toBe(0);
       const policy = policyOf(lines);
       const base = policyOf(rule(text, '/*'));
-      // The checkout also starts a guest sandbox in place (2026-11-10), so it names Turnstile too.
-      const turnstile = path === '/checkout/*' ? ['https://challenges.cloudflare.com'] : [];
-      if (turnstile.length === 0) expect(policy).not.toContain('challenges.cloudflare.com');
+      // Both start a guest sandbox in place (the checkout since 2026-11-10, the catering page since
+      // later that day), so both name Turnstile too.
+      const turnstile = ['https://challenges.cloudflare.com'];
       expect(directive(policy, 'script-src').slice(0, 2 + turnstile.length)).toEqual([
         "'self'",
         ...turnstile,

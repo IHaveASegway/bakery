@@ -107,23 +107,40 @@ export default function Guest() {
 
 /** What the gate says, on the menu and the checkout alike: one title, one sentence (audit F3). */
 export const START_TITLE = 'Ordering starts with your own sandbox.';
+/** The gate's button on the menu and the checkout; a page that takes no order names its own. */
+export const START_ACTION = 'Start ordering';
 export const START_SENTENCE =
   'A sandbox is your own private copy of the bakery: made in a few seconds, no account needed, wiped at 10:00 UTC.';
 
 /**
- * The gate, shown one way wherever ordering needs a sandbox (audit F1 and F3, 2026-11-10): one
- * sentence, Start ordering, which makes a guest sandbox right here and leaves the visitor where
- * they were with their cart, and a quieter Sign in that comes back to this page. Turnstile's script
- * loads only once the visitor presses Start ordering, so a visitor who only reads the menu still
- * loads nothing from Cloudflare.
+ * The gate, shown one way wherever a page needs a sandbox (audit F1 and F3, 2026-11-10; the
+ * catering page since the same day's follow-up): one sentence, a button (Start ordering on the menu
+ * and the checkout) that makes a guest sandbox right here and leaves the visitor where they were,
+ * with their cart, and a quieter Sign in that comes back to this page. Turnstile's script loads
+ * only once the button is pressed, so a visitor who only reads the page still loads nothing from
+ * Cloudflare.
  */
 export function StartHere({
   here,
   seeding = false,
   className = '',
+  title = START_TITLE,
+  action = START_ACTION,
+  tour,
 }: {
   /** This page, for the sign-in link's way back. */
   here: NextPath;
+  /**
+   * The title and the button's label, where ordering is not what the page does (the catering
+   * page, 2026-11-10). The sentence on what a sandbox is stays the same everywhere.
+   */
+  title?: string;
+  action?: string;
+  /**
+   * The guide's target on the gate, where the page puts its mark on the gate itself: the checkout
+   * and the catering page. The menu marks the banner's wrapper instead (StoreMenu.tsx).
+   */
+  tour?: string;
   /** The sandbox exists and its first alarm is seeding it: the gate says so and waits. */
   seeding?: boolean;
   className?: string;
@@ -162,17 +179,18 @@ export function StartHere({
   const working = busy || made || seeding;
   const waiting = asked && token === null && error === null;
   const words =
-    seeding || made ? 'Setting up your sandbox…' : busy || waiting ? 'Starting…' : 'Start ordering';
+    seeding || made ? 'Setting up your sandbox…' : busy || waiting ? 'Starting…' : action;
 
   return (
     <section
       className={`start-here ${className}`.trim()}
       aria-labelledby={`${id}-title`}
       aria-busy={working || undefined}
+      data-tour={tour}
     >
       <div className="start-words">
         <h2 id={`${id}-title`} className="start-title">
-          {START_TITLE}
+          {title}
         </h2>
         <p className="hint">{START_SENTENCE}</p>
       </div>

@@ -439,6 +439,16 @@
   display: none;
 }
 
+/* On the catering page the gate stands where the inquiry form goes, apart from the lead above it.
+   The form's heading takes the focus once the gate's sandbox is live, and its ring hugs the words. */
+.catering-gate {
+  margin: var(--space-4) 0 var(--space-5);
+}
+
+#inquiry-heading {
+  width: fit-content;
+}
+
 /* While the page asks the API, the gate's frame holds the place, quietly. */
 .start-looking {
   display: block;
@@ -621,13 +631,29 @@
   display: none;
 }
 
-/* A line's price never breaks beside the wider stepper. */
+/* A line's price never breaks, and the row fits the panel (2026-11-10): at 1280 px the stepper, the
+   price and Remove were wider than the panel beside the list, and the row ran past its edge. As on
+   the checkout's summary, Remove sits beside the name, and the stepper and the price share the row
+   below (checkout.css). */
 .cart .cart-lines li {
-  grid-template-columns: auto minmax(max-content, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'name remove'
+    'qty price';
+}
+
+.cart .cart-lines .stepper {
+  justify-self: start;
+}
+
+.cart .cart-lines .remove,
+.cart .cart-lines .price {
+  justify-self: end;
 }
 
 .cart .cart-lines .price {
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 /* A phone: the cart is a bar at the foot of the window, and a sheet when the bar is pressed. */

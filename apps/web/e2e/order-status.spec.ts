@@ -236,3 +236,37 @@ test.describe('an order of another sandbox', () => {
     await expectNoAxeViolations(page);
   });
 });
+
+// R94 (the fourth audit, F17): a step done before the page opened still shows its time, on the
+// first load and after a reload, from the order's own answer; the tab keeps nothing.
+test('an order paid before its page opens shows when it was paid, after a reload too', async ({
+  page,
+}) => {
+  const sandbox = await guestSandbox(page);
+  const menu = await api<Menu>(page, 'GET', `/v1/sandboxes/${sandbox.id}/menu`);
+  expect(menu.status).toBe(200);
+  const want = pickupOrder(menu.body, sandbox.clock_offset_s ?? 0);
+  const placed = await api<{ id: string }>(
+    page,
+    'POST',
+    `/v1/sandboxes/${sandbox.id}/orders`,
+    want,
+  );
+  expect(placed.status, JSON.stringify(placed.body)).toBe(201);
+  const id = placed.body.id;
+  await payOrder(page, sandbox.id, id);
+
+  await page.goto(`/order/?id=${id}`);
+  const steps = page.getByRole('list', { name: 'Your order’s steps' });
+  const paid = steps.locator('li').filter({ hasText: 'Paid' }).locator('time');
+  await expect(steps.locator('[aria-current="step"]')).toContainText('Paid');
+  await expect(paid).toBeVisible();
+  await expect(paid).toHaveAttribute('dateTime', /^\d{4}-\d{2}-\d{2}T/);
+  const firstLoad = await paid.getAttribute('dateTime');
+
+  await page.reload();
+  await expect(paid).toBeVisible();
+  await expect(paid).toHaveAttribute('dateTime', firstLoad ?? '');
+  const keys = await page.evaluate(() => Object.keys(sessionStorage));
+  expect(keys.filter((k) => k.includes('order-times'))).toEqual([]);
+});
