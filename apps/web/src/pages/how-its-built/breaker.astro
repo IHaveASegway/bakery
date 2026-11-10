@@ -122,8 +122,8 @@ const SOURCES = [
       <code>Control</code>’s cap of 300 sandboxes times the per-sandbox meter in{' '}
       <code>docs/cost.md</code>: 1,875 Worker requests and 62,500 rows written, for example. The
       Worker does not judge. It sends the reads to <code>Control</code>, which calls a pure function
-      in <code>crates/app/src/breaker.rs</code> and, on a rise, raises the admission flag in the
-      same transaction, so the verdict and the flag cannot disagree.
+      in <code>crates/app/src/breaker.rs</code> and, on a rise, raises <code>Control</code>’s flag
+      in the same transaction, so the verdict and the flag cannot disagree.
     </p>
     <p>
       The steps are two. A window over a meter’s line, or priced over the dollar line, sets{' '}
@@ -183,9 +183,10 @@ const SOURCES = [
       about one row, which <code>docs/cost.md</code> counts in its idle month: 2,910 Worker requests
       with the wipes, 0.03% of those included. The API Worker’s wasm was 4,400,280 bytes on
       2026-11-06, against a budget of 5,317,776 (<code>docs/roadmap.md</code>, PR 17). The larger
-      cost is the reach of a false trip. Read-only turns away new work at the door, and off blocks
-      the API hostname, so the public pages stay but the signed-in screens go offline. There is no
-      email yet, so the signals are the status page’s Breaker line and a morning issue.
+      cost is the reach of a false trip. Since 2026-11-10 read-only refuses every command while
+      reads go on, and off answers only health, status and Stripe’s webhook, then blocks the API
+      hostname, so the public pages stay but the signed-in screens go offline. There is no email
+      yet, so the signals are the status page’s Breaker line and a morning issue.
     </p>
     <p>
       What the breaker cannot do is stop an alarm: neither the flag nor the rule reaches a loop
