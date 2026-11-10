@@ -46,9 +46,9 @@ STOREFRONT="http://127.0.0.1:8787"
 STARTUP_TIMEOUT_S="${STARTUP_TIMEOUT_S:-240}"
 DEV_VARS="$ROOT/workers/api/.dev.vars"
 
-# The children a sandbox has once seeded: 36 since PR 9 (today's `Dispatch`). The one count here
-# that PR 9 moved.
-CHILDREN=36
+# The children a sandbox has once seeded: 36 since PR 9 (today's `Dispatch`), 37 since 2026-11-09
+# (the flight recorder's `Recorder`). The one count here that a new child moves.
+CHILDREN=37
 # TOKEN_LIMIT in workers/api/wrangler.jsonc: requests a minute per token, the session's command
 # rate (COMMAND_LIMIT).
 TOKEN_LIMIT_PER_MINUTE=60

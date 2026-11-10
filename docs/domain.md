@@ -535,7 +535,7 @@ All of them live and die with the sandbox, so none needs pruning. A command and 
 
 **Simulated traffic starts stopped.** No `Simulator` exists at seed; a signed-in visitor's first "Start traffic" registers one (Q40 · Q-traffic).
 
-**Approximate rows written at seed, as built on 2026-11-06** (sources: `workers/api/src/objects/sandbox.rs` for the 36 children, `crates/seed/src/dispatch.rs` for the Dispatch; the other rows are PR 4's estimates, not recounted; the sum is 40 + 106 + 460 + 120 + 13 + 72 + 107 + 13 + 942 + 241 + 4 = 2,118), for [cost.md](cost.md), which prices the same table:
+**Approximate rows written at seed, as built on 2026-11-06** (sources: `workers/api/src/objects/sandbox.rs` for the 36 children of that date, 37 since the `Recorder` of 2026-11-09, `crates/seed/src/dispatch.rs` for the Dispatch; the other rows are PR 4's estimates, not recounted; the sum is 40 + 106 + 460 + 120 + 13 + 72 + 107 + 13 + 942 + 241 + 4 = 2,118), for [cost.md](cost.md), which prices the same table:
 
 | Object | Instances | Tables | Rows |
 |---|---|---|---|
@@ -578,6 +578,8 @@ The row estimates above were not measured again: the Schedule is now 10 objects,
 - **Seeded engagement:** an open or a click of a seeded message that falls before the sandbox's birth is written into the message; one still ahead would get a timer in the Inbox. For seeds 42 and 8 none is ahead, so the Inbox's seeding armed no timer, and `scripts/smoke-crm.sh` counted 111 of 240 opened and 38 clicked for seed 8, the same in two sandboxes. The Rows column above for Crm (942) and the Inbox (241) is the estimate; the real counts were not measured in this pull request (spike S5 measures them).
 - **A catering event's events** are not relayed by an outbox in the seed, so each seeded event's log is read right after it is seeded and handed to Crm and, for its facts only, to the Inbox. The seed's 240 messages are its history, so the seeded catering events make no new messages.
 
+
+**As built on 2026-11-09.** The flight recorder's `Recorder` (`recorder:<sandbox>`) is seeded after the Inbox, so a sandbox seeds 37 children, still in six batches; it holds no domain state, only the consumer's hops ([architecture.md](architecture.md#the-flight-recorder)). The PR 9 paragraph below gives the count as it stood then.
 
 **As built in PR 9 (2026-11-05).** A sandbox seeds 36 children in six batches of up to 7 (`workers/api/src/objects/sandbox.rs`, and its test that the plan has 36 and takes six runs): the Catalog, the Kitchen, `Billing`, Crm and the Inbox first, then the 7 Schedule days, then today's Dispatch, the 12 open orders, the 8 catering events and the 3 days that hold their places. The Dispatch day for business today is among them, seeded by `bakery_seed::seed_dispatch` with one stop for each open delivery order, confirmed when the order is paid, and the server's proposal (4 vans on a Saturday, 1 otherwise, 250 units a van); nothing is published, because a published plan would send the seeded ready orders out for delivery. A day with no confirmed delivery has no proposal. The Dispatch goes before the orders so an order's events find its stop's day already born. The seed's JSON is unchanged, 614,580 B and byte-identical to PR 8's, because the dispatch day makes no new draw. The row above counts the day for seed 42, where the open orders give 2 deliveries; the figure of 10 stops this table first assumed would need new draws, and so move pinned values.
 

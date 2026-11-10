@@ -197,6 +197,7 @@ const TITLES: Record<string, string> = {
   crm: 'CRM, inbox and activity',
   dispatch: 'Dispatch',
   token: 'API token',
+  trace: 'Flight recorder',
 };
 
 // ---- Schemas ----
@@ -474,7 +475,9 @@ export function operationView(
     curlNote: callable
       ? null
       : op['x-websocket'] !== undefined
-        ? 'A WebSocket takes the console’s cookie only; see the kitchen socket below.'
+        ? op.operationId === 'kitchen-socket'
+          ? 'A WebSocket takes the console’s cookie only; see the kitchen socket below.'
+          : 'A WebSocket takes the console’s cookie only; GET …/trace gives a token the same hops.'
         : 'This route takes the console’s cookie only, so a token cannot call it: a token never mints its successor, and a browser session is the only way to sign in.',
   };
 }
@@ -488,7 +491,9 @@ export function buildPage(doc: OpenApiDoc): PageModel {
       const op = item[method] as Operation | undefined;
       if (op === undefined) continue;
       views.push(operationView(doc, method, path, op));
-      if (op['x-websocket'] !== undefined) {
+      // The page's socket section is the kitchen's; the flight recorder's socket (2026-11-09)
+      // keeps its frames in its own operation's x-websocket.
+      if (op['x-websocket'] !== undefined && op.operationId === 'kitchen-socket') {
         socket = {
           operation: op.operationId,
           description: spans(op['x-websocket'].description),
