@@ -20,6 +20,7 @@ import {
   withOrder,
   type Track,
 } from './order-track';
+import { watchSource } from './trace';
 
 /**
  * Where the page's news comes from: `live` the socket, `polling` a read every ten seconds,
@@ -79,8 +80,27 @@ const RECONNECTS = 3;
  * @param sandboxId the session's sandbox, or null while it is not known (no socket, no read)
  * @param orderId the order to follow, from the page's `?id=`
  */
+/**
+ * The guide's store (lib/trace.ts) hears how the page listens: on the socket, reading every ten
+ * seconds and why, paused or done. Connecting is not news, so it is not told.
+ */
+function tellListening(source: Source, why: NoSocket | undefined): void {
+  if (source === 'connecting') return;
+  const how = source === 'live' ? 'socket' : source === 'polling' ? 'reading' : source;
+  watchSource.emit({
+    kind: 'listening',
+    how,
+    why: how === 'reading' ? (why ?? null) : null,
+    at: Date.now(),
+  });
+}
+
 export function useOrderWatch(sandboxId: string | null, orderId: string): Watch {
-  const [state, dispatch] = useReducer(reduce, INITIAL);
+  const [state, base] = useReducer(reduce, INITIAL);
+  const dispatch = (event: Event) => {
+    if (event.kind === 'source') tellListening(event.source, event.noSocket);
+    base(event);
+  };
 
   useEffect(() => {
     if (sandboxId === null || orderId === '') return;
@@ -164,14 +184,17 @@ export function useOrderWatch(sandboxId: string | null, orderId: string): Watch 
             else dispatch({ kind: 'card', card });
             break;
           }
-          case 'evt':
+          case 'evt': {
             if (!isAbout(frame.env, orderId)) break;
+            const { id, type, stream, seq, cause } = frame.env;
+            watchSource.emit({ kind: 'heard', id, type, stream, seq, cause, at: Date.now() });
             dispatch({ kind: 'event', env: frame.env });
             if (needsRead(frame.env)) void read();
             else if (frame.env.type === 'OrderPickedUp' || frame.env.type === 'OrderDelivered') {
               finish();
             }
             break;
+          }
           case 'presence':
             // Four open, this page's among them: give the place back to the board's screens.
             if (shouldYield(frame.sockets)) {

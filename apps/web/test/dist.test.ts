@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { SCREENS } from '../src/lib/tour';
+import { PAGES } from '../src/lib/guide';
 import { PRINCIPLE_TABLE, PRINCIPLES } from '../src/lib/how-its-built';
+import { decisionRows } from '../src/guide/decisions';
 import { ESSAYS, ESSAY_PAGES, HOW_PATH, SITE_LAB, adrUrl, labUrl } from '../src/lib/links';
 import { RULE_PATHS } from '../src/policy';
 import { fileURLToPath } from 'node:url';
@@ -10,8 +11,9 @@ import { readLock, verifyFolder } from '../../../scripts/fetch-solver.mjs';
 
 // The built pages against the policy: a page with no island carries no script at all (ADR 0008;
 // as of 2026-11-09 seventeen pages: About, How it's built, its fourteen essays and the 404), and
-// every inline script or style on a page with an island (the guided tour's, on every other
-// screen since PR 10) is covered by a hash in the page's own rule.
+// every inline script or style on a page with an island (the guide's, on every other screen,
+// since PR 10 as the tour and since 2026-11-09 as the guide) is covered by a hash in the page's
+// own rule.
 // Run after `pnpm build`.
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
@@ -83,27 +85,41 @@ describe('dist', () => {
     ['signin/index.html', 'signin'],
     ['menu/index.html', 'menu'],
     ['checkout/index.html', 'checkout'],
+    ['order/index.html', 'order'],
     ['app/index.html', 'console'],
-    ['app/money/index.html', 'console'],
-    ['app/menu/index.html', 'console'],
-    ['app/catering/index.html', 'console'],
-    ['app/customers/index.html', 'console'],
-    ['app/system/index.html', 'console'],
+    ['app/money/index.html', 'console-money'],
+    ['app/menu/index.html', 'console-menu'],
+    ['app/catering/index.html', 'console-catering'],
+    ['app/customers/index.html', 'console-customers'],
+    ['app/system/index.html', 'console-system'],
     ['catering/index.html', 'catering'],
     ['inbox/index.html', 'inbox'],
     ['app/dispatch/index.html', 'dispatch'],
     ['docs/api/index.html', 'api'],
     ['privacy/index.html', 'privacy'],
-  ])('%s carries the tour island for the %s screen, closed', (file, screen) => {
-    expect(SCREENS).toContain(screen);
+  ])('%s carries the guide island for the %s screen, quiet', (file, screen) => {
+    expect(PAGES).toContain(screen);
     const html = page(file);
-    expect(html).toContain('Tour.');
+    expect(html).toContain('Guide.');
     expect(html).toContain(`&quot;${screen}&quot;`);
-    expect(html).toContain('class="tour-trigger"');
+    expect(html).toMatch(/class="guide-bar guide-bar-(dock|topbar)"/);
+    expect(html).toMatch(/role="switch" aria-checked="true"/);
     expect(html).toContain('aria-expanded="false"');
-    // Closed, the island draws no card and no ring, so the server HTML has none either.
-    expect(html).not.toContain('class="tour-card"');
-    expect(html).not.toContain('data-tour-current');
+    // Before anything is done the island draws no note, no mark and no ring, so the server HTML
+    // has none either, and no style attribute (the policy has no 'unsafe-inline').
+    expect(html).not.toContain('guide-note');
+    expect(html).not.toContain('guide-spot');
+    expect(html).not.toContain('data-guide-anchor');
+    expect(html).not.toMatch(/<div class="guide-layer"[^>]*style=/);
+  });
+
+  // The guide stores one thing, in the tab's sessionStorage (lib/guide.ts, SWITCH_KEY), and the
+  // privacy page says so in its table of what is kept.
+  test('the privacy page names what the guide keeps, and where', () => {
+    const html = page('privacy/index.html');
+    expect(html).toContain('That you turned “Under the hood” off');
+    expect(html).toContain('In this browser tab, until you close it');
+    expect(html).toContain('never sent anywhere');
   });
 
   // A Cloudflare _headers path: a splat matches anything, including nothing; a path without one
@@ -182,6 +198,24 @@ describe('dist', () => {
 
   describe('the How it’s built page', () => {
     const html = () => page('how-its-built/index.html');
+
+    // The decision table (guide/decisions.ts): a row a principle, in the guide's own words, on a
+    // page that still loads no script.
+    test('carries the decision table: each principle’s tool, why, when not and essay', () => {
+      const text = html();
+      expect(text).toContain('Why each tool, and when not');
+      const rows = [...text.matchAll(/<tr id="decision-([a-z-]+)"/g)].map((m) => m[1]);
+      expect(rows).toEqual(PRINCIPLE_TABLE.map((p) => p.id));
+      for (const entry of decisionRows()) {
+        const row = text.slice(text.indexOf(`id="decision-${entry.principle.id}"`));
+        const cells = row.slice(0, row.indexOf('</tr>'));
+        expect(cells, entry.id).toContain(entry.principle.name);
+        expect(cells, entry.id).toContain(entry.why.replaceAll('’', '’'));
+        expect(cells, entry.id).toContain(entry.whenNot.replaceAll('’', '’'));
+        expect(cells, entry.id).toContain(`href="${entry.principle.essay?.url}"`);
+      }
+      expect(text).not.toContain('<script');
+    });
 
     test('has a section for every principle, in order, each with its lab page where there is one and its ADR', () => {
       let at = -1;
@@ -383,8 +417,8 @@ describe('dist', () => {
       return page(`_astro/${url}`);
     };
 
-    // The Status island and, since PR 18, the tour's: every other page carries the tour's.
-    test('is a static page with two islands, the status one and the tour’s, and no third party', () => {
+    // The Status island and, since PR 18, the guide's (the tour's until 2026-11-09).
+    test('is a static page with two islands, the status one and the guide’s, and no third party', () => {
       expect(html().split('<astro-island').length - 1).toBe(2);
       expect(html()).toContain('<h1>Status</h1>');
       expect(html()).not.toMatch(/<(link(?![^>]*rel="canonical")|script)[^>]+(href|src)="https?:/);
@@ -485,7 +519,7 @@ describe('dist', () => {
       }
     });
 
-    test('names the document, the kitchen socket, the bearer header and the tour’s targets', () => {
+    test('names the document, the kitchen socket, the bearer header and the guide’s targets', () => {
       const text = html();
       expect(text).toContain('href="/docs/api/openapi.json"');
       expect(text).toContain('id="socket"');
@@ -523,33 +557,46 @@ describe('dist', () => {
   // island's component and renderer, every chunk those import statically (a dynamic import loads
   // later and is not counted), and the page's inline scripts. Each file counts once per page.
   //
-  // Measured 2026-11-09 with node's gzipSync at its default level, per class (the largest page of
-  // the class): tour only 93,993 B (home, privacy); API reference 94,246 B; status 96,768 B;
-  // storefront 103,074 B (menu, sign-in); checkout 119,128 B; console screens 135,699 B (the
-  // console, dispatch, catering and the inbox). Each budget is the measured size plus a quarter,
-  // rounded up to the next 1,000 B. The ADR's own numbers (5,000 B for a public page, 120,000 B for
-  // an app screen or the checkout) are not met today: every island page carries the tour, and its
-  // React runtime is 65,840 B of the total. The budgets here hold the line where the pages are and
-  // fail a page that grows by a quarter. A page that is not named below must load no script.
+  // Measured 2026-11-10 with node's gzipSync at its default level, per class (the largest page of
+  // the class), after the console's seven pages (#106) merged: guide only 81,485 B
+  // (home, privacy); API reference 81,738 B; status 84,258 B; storefront 95,439 B (menu, sign-in);
+  // checkout 113,645 B; the order's page 105,120 B; console screens 112,749 B (the kitchen; the
+  // console's seven pages, the shop's catering and the inbox). Each budget is the measured size
+  // plus a quarter, rounded up to the next 1,000 B. The ADR's own numbers (5,000 B for a public
+  // page, 120,000 B for an app screen or the checkout) are not met on the public pages: every
+  // island page carries the guide's bar, and its React runtime is most of the total. A page that
+  // is not named below must load no script.
   //
-  // The order's status page (/order/, 2026-11-09) is a class of its own: 97,911 B measured, which
-  // buys the order's read, its watch on the kitchen socket and the tracker; it carries no tour.
+  // Since the guide replaced the tour (2026-11-09) these budgets hold the first load only: the
+  // guide's bar and the trace store. With the guide on, the default, the page then loads the
+  // deferred layer (the test after these holds it, at 24,741 B to 25,505 B), so a page with the
+  // guide on costs more than it did with the tour. Per class, first load / with the guide on /
+  // the tour's total it replaces, as main last measured it: guide only 81,485 / 106,990 / 94,187;
+  // API reference 81,738 / 107,243 / 94,440; status 84,258 / 109,763 / 96,960; storefront
+  // 95,439 / 120,400 / 103,417; checkout 113,645 / 138,606 / 122,775 (its three steps, #101);
+  // console screens 112,749 / 137,710 / 122,232 (the kitchen as its own page). The first load is
+  // smaller than the tour's by 7,978 B to 12,702 B; with the guide on the page is larger, by
+  // 12,803 B to 16,983 B. The tour's totals were taken before the shop's and the console's later
+  // changes merged, so part of each gap is theirs, not the guide's. The order's status page
+  // (/order/, #101) had no tour, at 97,911 B; with the guide's bar it is 105,120 B first and
+  // 130,081 B with the guide on, which buys the order's read, its watch on the kitchen socket, the
+  // tracker and the guide there. A visitor who turns the guide off loads the first load alone on
+  // later pages.
   describe('JavaScript per page', () => {
     const KB = 1_000;
     const BUDGETS: Record<string, { budget: number; pages: string[] }> = {
       none: { budget: 0, pages: [] },
-      tour: { budget: 118 * KB, pages: ['index.html', 'privacy/index.html'] },
-      api: { budget: 118 * KB, pages: ['docs/api/index.html'] },
-      status: { budget: 121 * KB, pages: ['status/index.html'] },
-      order: { budget: 123 * KB, pages: ['order/index.html'] },
-      storefront: { budget: 129 * KB, pages: ['menu/index.html', 'signin/index.html'] },
-      checkout: { budget: 149 * KB, pages: ['checkout/index.html'] },
-      // Re-measured 2026-11-09 after the console became seven pages (the largest is the kitchen,
-      // 122,195 B; it was 137,999 B as one page): each page now loads its own workspace and the
-      // frame they share, which reads the session and draws the top bar. The budget is that plus
-      // a quarter, down from 170,000 B.
+      guide: { budget: 102 * KB, pages: ['index.html', 'privacy/index.html'] },
+      api: { budget: 103 * KB, pages: ['docs/api/index.html'] },
+      status: { budget: 106 * KB, pages: ['status/index.html'] },
+      order: { budget: 132 * KB, pages: ['order/index.html'] },
+      storefront: { budget: 120 * KB, pages: ['menu/index.html', 'signin/index.html'] },
+      checkout: { budget: 143 * KB, pages: ['checkout/index.html'] },
+      // The console became seven pages on 2026-11-09 (the largest, the kitchen, was 122,232 B with
+      // the tour; it was 137,999 B as one page): each page loads its own workspace and the frame
+      // they share, which reads the session and draws the top bar.
       console: {
-        budget: 153 * KB,
+        budget: 141 * KB,
         pages: [
           'app/index.html',
           'app/money/index.html',
@@ -606,6 +653,57 @@ describe('dist', () => {
     };
 
     const files = htmlFiles('');
+
+    // The guide's deferred load (components/Guide.tsx): the Layer chunk that a dynamic import brings
+    // once the island has mounted and the guide is on or the recorder is open, with every chunk it
+    // imports statically that the page's first load does not already carry, gzipped the same way.
+    // Measured 2026-11-10: 24,741 B to 25,505 B (the light pages carry less React in their first
+    // load, so their deferred load is the larger). The budget is the largest plus a quarter,
+    // rounded up to the next 1,000 B. The bytes buy the 71 entries, the notes, the hotspots, the
+    // recorder panel, the short path and, since 2026-11-10, the order page's watch note.
+    const DEFERRED_BUDGET = 32_000;
+    const firstLoad = (html: string) => {
+      const queue = [
+        ...[...html.matchAll(/<script[^>]*\ssrc="\/_astro\/([^"]+)"/g)].map((m) => m[1]),
+        ...[...html.matchAll(/<link[^>]*rel="modulepreload"[^>]*href="\/_astro\/([^"]+)"/g)].map(
+          (m) => m[1],
+        ),
+        ...[...html.matchAll(/(?:component|renderer)-url="\/_astro\/([^"]+)"/g)].map((m) => m[1]),
+      ];
+      return closure(queue, new Set());
+    };
+    const closure = (start: (string | undefined)[], skip: Set<string>) => {
+      const queue = [...start];
+      const seen = new Set<string>();
+      for (let name = queue.pop(); name !== undefined; name = queue.pop()) {
+        if (seen.has(name) || skip.has(name)) continue;
+        seen.add(name);
+        queue.push(...staticImports(page(`_astro/${name}`)));
+      }
+      return seen;
+    };
+
+    test('the guide’s deferred load, the layer and what only it imports, is within 32,000 B gzipped on every island page', async () => {
+      const { gzipSync } = await import('node:zlib');
+      const pages = files.filter((f) => classOf(f) !== 'none');
+      expect(pages.length).toBeGreaterThan(5);
+      for (const file of pages) {
+        const first = firstLoad(page(file));
+        const guide = [...first].find((name) => name.startsWith('Guide.'));
+        expect(guide, `${file}: the guide island in the first load`).toBeDefined();
+        const layer = page(`_astro/${guide}`).match(
+          /import\([`"']\.\/(Layer\.[^`"']+\.js)[`"']\)/,
+        )?.[1];
+        expect(layer, `${file}: the layer, imported dynamically by the guide`).toBeDefined();
+        const deferred = closure([layer], first);
+        const bytes = [...deferred].reduce(
+          (n, name) => n + gzipSync(page(`_astro/${name}`)).length,
+          0,
+        );
+        expect(bytes, `${file}: ${bytes} B gzipped`).toBeGreaterThan(10_000);
+        expect(bytes, `${file}: ${bytes} B gzipped`).toBeLessThanOrEqual(DEFERRED_BUDGET);
+      }
+    });
 
     test('every page named in a class is built', () => {
       for (const c of Object.values(BUDGETS)) for (const f of c.pages) expect(files).toContain(f);

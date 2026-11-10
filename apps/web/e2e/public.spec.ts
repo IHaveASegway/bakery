@@ -83,16 +83,18 @@ test.describe('an unknown path', () => {
   });
 });
 
-test('a page asks for the session once, with the tour open too (audit P2)', async ({ page }) => {
+test('a page asks for the session once, with the guide open too (audit P2)', async ({ page }) => {
   let asked = 0;
   page.on('request', (request) => {
     if (new URL(request.url()).pathname === '/v1/session') asked += 1;
   });
   await page.goto('/menu/');
-  await page.getByRole('button', { name: /take the tour/i }).click();
-  await expect(
-    page.getByRole('dialog').or(page.getByRole('region', { name: /tour/i })),
-  ).toBeVisible();
+  await page.getByRole('button', { name: 'Recorder' }).click();
+  const panel = page.getByRole('region', { name: 'Recorder' });
+  await expect(panel).toBeVisible();
+  // An entry's body reads the session for its curl, as the tour's card did.
+  await panel.getByRole('button', { name: 'Where the menu came from' }).click();
+  await expect(panel.getByText('The same call with curl')).toBeVisible();
   await page.waitForLoadState('networkidle');
   expect(asked).toBe(1);
 });

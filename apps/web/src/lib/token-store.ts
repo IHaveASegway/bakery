@@ -1,6 +1,6 @@
 // The API token, in memory for the page's life and nowhere else (docs/security.md, "The API
 // token": shown once, kept only in memory). The console's token panel puts it here when the API
-// issues or rotates it; the tour reads it to fill the `curl` examples. A new page load starts
+// issues or rotates it; the guide reads it to fill the `curl` examples. A new page load starts
 // empty. It is never written to localStorage, sessionStorage, a cookie or a URL, and it is
 // shared only among the islands of one page because they share this module.
 import type { TokenResponse } from '../contracts';

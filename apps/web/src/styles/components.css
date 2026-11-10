@@ -13,7 +13,7 @@
   or sits in a .menu, never beside the primary at the same weight.
 */
 
-/* Buttons. A bare <button> with no class (the tour's, until the guide replaces it) gets the
+/* Buttons. A bare <button> with no class gets the
    secondary look at the lowest specificity, so nothing is ever an unstyled browser button. */
 :where(button, .action),
 .btn {
