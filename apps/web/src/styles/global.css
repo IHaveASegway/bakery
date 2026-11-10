@@ -697,6 +697,18 @@ td {
   }
 }
 
+/* The principle table on /how-its-built/: on a phone its rows stack (the table rule below), so each
+   stacked cell carries its column's name, as the tools page labels its lines. */
+@media (max-width: 40rem) {
+  .decisions td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    padding-top: var(--space-2);
+    font-size: var(--type-14);
+    font-weight: 600;
+  }
+}
+
 /* The tools page (/how-its-built/tools/): one article a tool, three labelled lines in a label
    column beside the text on a wide screen and stacked on a phone, and a closed list of what was
    not chosen. */
