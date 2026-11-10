@@ -1,12 +1,16 @@
 import type { TraceHop } from '../contracts';
 
-// The guide's evidence (docs/architecture.md, "The guide"; ADR 0014): a small store in the page that
-// keeps what the visitor's own actions did, as traces. Evidence arrives from sources behind one
-// interface: the page's own calls (lib/api.ts), the kitchen socket's frames where the page holds it
-// (lib/use-kitchen.ts), the activity feed the console already reads (lib/activity-feed.ts), and,
-// later, the server's flight recorder (typed below, not built yet). The store keeps no response
-// body: a call is its method, path, status, time and key; an event is its envelope's id, type,
-// stream, sequence and cause, which the board already shows. Nothing is stored outside memory.
+// The guide's evidence (docs/architecture.md, "The guide"; ADR 0014): a small store in the page
+// that keeps what the visitor's own actions did, as traces. Evidence arrives from sources behind
+// one interface: the page's own calls (lib/api.ts), the kitchen socket's frames where the page
+// holds it (lib/use-kitchen.ts), a page watching one order (lib/use-order-watch.ts), the activity
+// feed the console already reads (lib/activity-feed.ts), and the server's flight recorder, whose
+// hops lib/recorder.ts reads after a write, or follows while the recorder panel is open, and turns
+// into evidence here (`fromHop`). The store keeps no response body: a call is its method, path,
+// status, time and key; an event is its envelope's id, type, stream, sequence and cause, which the
+// board already shows. Beside the traces, a few values a page read (`observations`, such as the
+// status page's flag) are kept so a note can show them as observed. Nothing is stored outside
+// memory.
 
 /** Where a piece of evidence came from. */
 export type SourceKind = 'page' | 'socket' | 'feed' | 'recorder';
