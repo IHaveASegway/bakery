@@ -13,6 +13,7 @@ pub mod dispatch;
 pub mod inbox;
 pub mod kitchen;
 pub mod order;
+pub mod recorder;
 pub mod sandbox;
 pub mod schedule;
 pub mod simulator;

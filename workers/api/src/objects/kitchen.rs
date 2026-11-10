@@ -91,8 +91,10 @@ pub const KEEP_COMMANDS: i64 = 64;
 /// `WebSocket.OPEN` (WHATWG WebSockets, "readyState").
 const OPEN: u16 = 1;
 
-const PING: &str = r#"{"t":"ping","v":1}"#;
-const PONG: &str = r#"{"t":"pong","v":1}"#;
+/// The ping a client may send and the pong the platform answers it with, without waking the
+/// object; the Recorder's socket (recorder.rs) answers the same pair.
+pub(super) const PING: &str = r#"{"t":"ping","v":1}"#;
+pub(super) const PONG: &str = r#"{"t":"pong","v":1}"#;
 
 const SCHEMA: &[&str] = &[
     child::META,
@@ -365,7 +367,7 @@ pub fn read_frame(
 }
 
 /// One socket's frame count in the current second; `false` once it passes the limit.
-fn within_rate(count: &mut (i64, u32), second: i64) -> bool {
+pub(super) fn within_rate(count: &mut (i64, u32), second: i64) -> bool {
     if count.0 != second {
         *count = (second, 0);
     }
@@ -609,12 +611,12 @@ fn tag_of(ws: &WebSocket) -> Option<Tag> {
     serde_json::from_str(&text).ok()
 }
 
-fn is_open(ws: &WebSocket) -> bool {
+pub(super) fn is_open(ws: &WebSocket) -> bool {
     let raw: &worker::web_sys::WebSocket = ws.as_ref();
     raw.ready_state() == OPEN
 }
 
-fn broadcast(sockets: &[WebSocket], frame: &str) {
+pub(super) fn broadcast(sockets: &[WebSocket], frame: &str) {
     for ws in sockets {
         // A socket that went away between the read and the send is closed by the platform.
         let _ = ws.send_with_str(frame);
