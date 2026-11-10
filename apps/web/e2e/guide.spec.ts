@@ -444,13 +444,46 @@ test('the recorder is never wider than the window, after the window narrows with
   await (await recorderButton(page)).click();
   const panel = page.locator('.guide-panel');
   await expect(panel).toBeVisible();
-  const sizes = await page.evaluate(() => ({
-    panel: document.querySelector('.guide-panel')?.getBoundingClientRect().width ?? 0,
-    page: document.documentElement.scrollWidth,
-    window: document.documentElement.clientWidth,
-  }));
-  expect(sizes.panel).toBeLessThanOrEqual(sizes.window);
-  expect(sizes.page).toBeLessThanOrEqual(sizes.window);
+  // The panel is sized by the window at once; the page is read once it is at rest (the marks
+  // placed for the new width), and what sticks out past the window, outside any box that scrolls
+  // or clips it, is named: on a phone the layout widens to the widest content, and every fixed
+  // part of the guide with it.
+  const sizes = () =>
+    page.evaluate(() => {
+      const width = document.documentElement.clientWidth;
+      const clipped = (el: Element) => {
+        for (
+          let up = el.parentElement;
+          up !== null && up !== document.body;
+          up = up.parentElement
+        ) {
+          if (getComputedStyle(up).overflowX !== 'visible') return true;
+        }
+        return false;
+      };
+      const wide = [...document.querySelectorAll('body *')]
+        .filter((el) => el.getBoundingClientRect().right > width + 0.5 && !clipped(el))
+        .slice(0, 6)
+        .map(
+          (el) =>
+            `${el.tagName.toLowerCase()}.${String(el.className)} ${Math.round(el.getBoundingClientRect().right)}`,
+        );
+      return {
+        panel: document.querySelector('.guide-panel')?.getBoundingClientRect().width ?? 0,
+        page: document.documentElement.scrollWidth,
+        width,
+        wide,
+        settled: document.documentElement.dataset.guideMarks === 'settled',
+      };
+    });
+  const first = await sizes();
+  expect(first.panel).toBeLessThanOrEqual(first.width);
+  await expect
+    .poll(async () => {
+      const now = await sizes();
+      return now.settled && now.page <= now.width ? 'fits' : `${now.page}: ${now.wide.join('; ')}`;
+    })
+    .toBe('fits');
 });
 
 /**

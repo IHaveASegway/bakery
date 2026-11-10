@@ -128,7 +128,7 @@ export const SIGNIN: GuideEntry[] = [
     screen: 'signin',
     target: 'signin-guest',
     title: 'Try it as a guest',
-    what: 'No account: a Turnstile pass buys a sandbox and a cookie. Guests browse, order, pay with a test card and move their own orders on the kitchen board; the console’s other writes need a sign-in.',
+    what: 'No account: a Turnstile pass buys a sandbox and a cookie. Guests browse, order, pay with a test card and move any order on their own sandbox’s kitchen board, seeded ones included; the console’s other writes need a sign-in.',
     why: 'Admission happens once, at the door, so every later request is cheap and the daily cap is counted in one place.',
     whenNot:
       'Not where a refusal is unacceptable: on a busy day the cap turns a visitor away rather than spend more.',

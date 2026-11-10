@@ -383,6 +383,13 @@ body > main {
   flex: 1 0 auto;
 }
 
+/* The shop's and the prose pages' column is centred by auto side margins, which in a flex column
+   would shrink it to its content: it keeps its full width, up to the shell's max-width. (The
+   console's main is stretched as before, beside its fixed sidebar.) */
+body:not(.shell-app) > main {
+  width: 100%;
+}
+
 .topbar {
   position: sticky;
   top: 0;
