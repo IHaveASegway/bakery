@@ -22,6 +22,27 @@ import Turnstile from './Turnstile';
 const makeGuest = (token: string) => createSandbox({ turnstile_token: token, replace: false });
 
 /**
+ * The visitor's session when it holds a sandbox that is still there (live or seeding), else null.
+ * Asked only when this browser last saw a session, so a stranger's visit logs no 401; a guest whose
+ * sandbox was wiped gets null and is offered a new one. The sign-in page's islands share the one
+ * request each (lib/session.ts, lib/use-session.ts).
+ */
+function useLiveSandbox(): SessionResponse | null {
+  const [session, setSession] = useState<SessionResponse | null>(null);
+  useEffect(() => {
+    if (!rememberedSignedIn()) return;
+    readSession()
+      .then(async (found) => {
+        if (!found.sandbox) return;
+        const sandbox = await readSandbox(found.sandbox);
+        if (sandbox.state === 'live' || sandbox.state === 'seeding') setSession(found);
+      })
+      .catch(() => undefined);
+  }, []);
+  return session;
+}
+
+/**
  * "Continue as a guest", the sign-in page's first choice: the visitor goes on to the page that
  * sent them here (`next`, G2), or to the menu, since a guest came to order.
  */
@@ -34,6 +55,8 @@ export default function Guest() {
   // Read after mount, so the server's HTML and the first render agree.
   const [next, setNext] = useState<NextPath>(GUEST_NEXT);
   useEffect(() => setNext(nextFrom(window.location.search, GUEST_NEXT)), []);
+  // A visitor who already has a sandbox is not offered a second start (AlreadyIn says why).
+  const existing = useLiveSandbox();
 
   async function submit(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -50,6 +73,7 @@ export default function Guest() {
     }
   }
 
+  if (existing !== null) return null;
   return (
     <form
       onSubmit={submit}
@@ -191,29 +215,24 @@ export function StartHere({
  * suggesting the sandbox is gone. Nothing shows until the API has answered.
  */
 export function AlreadyIn() {
-  const [session, setSession] = useState<SessionResponse | null>(null);
+  const session = useLiveSandbox();
   const [next, setNext] = useState<NextPath>(DEFAULT_NEXT);
-  useEffect(() => {
-    setNext(nextFrom(window.location.search));
-    // Asked only when this browser last saw a session, so a stranger's visit logs no 401; shown only
-    // for a sandbox that is still there, so a guest whose sandbox was wiped is offered a new one.
-    if (!rememberedSignedIn()) return;
-    readSession()
-      .then(async (found) => {
-        if (!found.sandbox) return;
-        const sandbox = await readSandbox(found.sandbox);
-        if (sandbox.state === 'live' || sandbox.state === 'seeding') setSession(found);
-      })
-      .catch(() => undefined);
-  }, []);
+  useEffect(() => setNext(nextFrom(window.location.search)), []);
   if (session === null || !session.sandbox) return null;
+  const guest = session.kind === 'guest';
   return (
     <section className="already-in" aria-labelledby="already-heading">
       <h2 id="already-heading">You already have a sandbox</h2>
       <p className="hint">
         Sandbox <code>{session.sandbox.slice(-6)}</code>, as a{' '}
-        {session.kind === 'guest' ? 'guest' : 'signed-in visitor'}. It stays until 10:00 UTC.
+        {guest ? 'guest' : 'signed-in visitor'}. It stays until 10:00 UTC.
       </p>
+      {guest && (
+        <p className="hint">
+          Signing in to an account below leaves this guest sandbox behind for good: no account holds
+          it.
+        </p>
+      )}
       <p className="start-actions">
         <a className="btn btn-primary" href={next}>
           Go to {NEXT_PATHS[next]}

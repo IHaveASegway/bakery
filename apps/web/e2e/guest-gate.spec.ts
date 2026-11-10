@@ -128,6 +128,9 @@ test('the menu’s banner starts in place too, and the sign-in page then says th
   const nav = page.getByRole('navigation', { name: 'The bakery' });
   await nav.getByRole('link', { name: 'Your bakery' }).click();
   await expect(page.getByRole('heading', { name: 'You already have a sandbox' })).toBeVisible();
+  // No second start beside it, and the account cards say what they cost a guest.
+  await expect(page.getByRole('heading', { name: 'Continue as a guest' })).toHaveCount(0);
+  await expect(page.getByText('leaves this guest sandbox behind for good')).toBeVisible();
   await expect(page.getByRole('link', { name: 'Go to the console' })).toHaveAttribute(
     'href',
     '/app/',
