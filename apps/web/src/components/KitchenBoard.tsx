@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import {
   actionFor,
   bakeListsByDate,
+  eventWords,
+  followedOrders,
   groupByState,
   isSimulated,
   routeWords,
+  waitingFor,
   type Card,
 } from '../lib/kitchen';
-import { AFTER_BOARD } from '../lib/console-sections';
+import { AFTER_BOARD, WORKSPACES } from '../lib/console-sections';
 import { dateOf, mountainLocal } from '../lib/slots';
 import { useKitchen, type Command } from '../lib/use-kitchen';
 import { clockOfText, shortDate, whenText } from '../lib/when';
@@ -97,6 +100,9 @@ const TONE: Record<Card['state'], string> = {
   out_for_delivery: 'out',
 };
 
+/** The Dispatch page, where a ready delivery's van is planned and published. */
+const DISPATCH_PATH = WORKSPACES.find((w) => w.id === 'dispatch')?.path ?? '/app/dispatch/';
+
 /** The last six characters of a ULID: enough to tell cards apart. */
 const shortId = (id: string) => id.slice(-6);
 
@@ -142,6 +148,7 @@ export function CardView({
   onAct,
   onRefunded,
   now,
+  yours = false,
 }: {
   card: Card;
   sandboxId: string;
@@ -159,9 +166,12 @@ export function CardView({
   onRefunded: (said: string, whole: boolean) => void;
   /** Business now (wall clock plus the sandbox's offset), so "this year" is the bakery's. */
   now?: number | undefined;
+  /** The order this browser tab followed on the order's page: the visitor's own (G7). */
+  yours?: boolean;
 }) {
   const action = actionFor(card);
   const route = routeWords(card);
+  const waits = waitingFor(card);
   const item = useRef<HTMLLIElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -174,11 +184,18 @@ export function CardView({
   const refundable = canRefund && card.state !== 'pending';
   const more = useCardMenu();
   return (
-    <li className="card" ref={item} tabIndex={-1}>
+    <li className="card" ref={item} tabIndex={-1} data-yours={yours || undefined}>
       <p className="card-head">
         <span className="badge" data-tone="kind">
           {card.kind === 'pickup' ? 'Pickup' : 'Delivery'}
         </span>{' '}
+        {yours && (
+          <>
+            <span className="badge" data-tone="yours" title="The order you placed in this tab">
+              Yours
+            </span>{' '}
+          </>
+        )}
         <code className="card-id">{shortId(card.order)}</code>
       </p>
       <p className="card-when">
@@ -211,8 +228,13 @@ export function CardView({
       {(card.last || card.cause) && (
         <p className="hint">
           {card.last ? (
-            <span className="badge" data-tone="kind">
-              {card.last}
+            <span className="badge card-event" data-tone="kind">
+              {eventWords(card.last).map((word, i) => (
+                <Fragment key={i}>
+                  {i > 0 && <wbr />}
+                  {word}
+                </Fragment>
+              ))}
             </span>
           ) : (
             'Last event'
@@ -222,6 +244,17 @@ export function CardView({
               {' '}
               cause <IdTail id={card.cause} />
               {isSimulated(card.cause) && ' (simulated)'}
+            </>
+          )}
+        </p>
+      )}
+      {waits !== null && (
+        <p className="card-waits">
+          {waits.text}
+          {waits.dispatch && (
+            <>
+              {' '}
+              <a href={DISPATCH_PATH}>Dispatch</a>.
             </>
           )}
         </p>
@@ -297,6 +330,20 @@ export default function KitchenBoard({
   const clearFollow = useRef(() => setFollow(null)).current;
   // The column a phone shows; null until the visitor picks one.
   const [shown, setShown] = useState<Card['state'] | null>(null);
+  // The orders this tab followed on the order's page, marked "Yours" (G7). Read after the first
+  // paint: the server has no storage, and the page's first render must match its.
+  const [yours, setYours] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    let store: Storage | null = null;
+    try {
+      store = window.sessionStorage;
+    } catch {
+      // Blocked storage: no card is marked.
+    }
+    setYours(followedOrders(store));
+  }, []);
+  // Which of the last two things this page said is the newer: a refund's line or a move's (G8).
+  const [latest, setLatest] = useState<'refund' | 'command'>('command');
   const open = kitchen.status === 'open';
   const groups = groupByState(kitchen.board);
   const total = groups.reduce((n, g) => n + g.cards.length, 0);
@@ -345,7 +392,20 @@ export default function KitchenBoard({
     follow !== null && followed !== undefined && followed.state !== follow.from
       ? followed.state
       : null;
-  const showing = moved ?? shown ?? groups.find((g) => g.cards.length > 0)?.state ?? 'pending';
+  // The visitor's own order, when the board has it, is the column it opens on.
+  const own = groups.find((g) => g.cards.some((c) => yours.has(c.order)))?.state;
+  const showing =
+    moved ?? shown ?? own ?? groups.find((g) => g.cards.length > 0)?.state ?? 'pending';
+  // One line above the board, the latest; the activity feed under it keeps the rest (G8).
+  const command = kitchen.commands[0];
+  const line =
+    latest === 'refund' && refunded !== null
+      ? 'refund'
+      : command !== undefined
+        ? 'command'
+        : refunded !== null
+          ? 'refund'
+          : null;
 
   return (
     <>
@@ -378,20 +438,21 @@ export default function KitchenBoard({
             You can move any order here; a refund needs a sign-in.
           </GuestNote>
         )}
-        <div aria-live="polite" className="messages">
-          {refunded !== null && (
+        <div aria-live="polite" className="messages board-said">
+          {line === 'refund' && refunded !== null && (
             <p className="hint" ref={refundLine} tabIndex={-1}>
               {refunded.said}
             </p>
           )}
-          {kitchen.commands.slice(0, 3).map((c) => (
+          {line === 'command' && command !== undefined && (
             <p
-              key={c.id}
-              className={c.status === 'nack' || c.status === 'lost' ? 'problem' : 'hint'}
+              className={
+                command.status === 'nack' || command.status === 'lost' ? 'problem' : 'hint'
+              }
             >
-              {commandText(c)}
+              {commandText(command)}
             </p>
-          ))}
+          )}
         </div>
         <a className="skip-inline" href={`#${AFTER_BOARD}`}>
           Skip the board’s cards
@@ -428,8 +489,10 @@ export default function KitchenBoard({
                       key={card.order}
                       card={card}
                       sandboxId={sandboxId}
+                      yours={yours.has(card.order)}
                       onRefunded={(said) => {
                         setRefunded({ said, order: card.order });
+                        setLatest('refund');
                         onRefunded();
                       }}
                       canRefund={!isGuest}
@@ -443,6 +506,7 @@ export default function KitchenBoard({
                         const a = actionFor(c);
                         if (!a) return;
                         setFollow({ order: c.order, from: c.state });
+                        setLatest('command');
                         kitchen.send(c.order, a.action);
                       }}
                     />

@@ -519,6 +519,61 @@ export function actionFor(card: Card): { action: Action; label: string } | null 
   }
 }
 
+/**
+ * What a card with no button waits for, in words, or null when it has a button (G9, 2026-11-10).
+ * A ready delivery leaves with a van, not from the board: once the day's plan is published on
+ * Dispatch, a delivery that is ready goes out on it, at the publish or as soon as Dispatch hears it
+ * is ready (workers/api/src/objects/order.rs: `RoutePublished` and `StopReady` become
+ * `MarkOutForDelivery`). `dispatch` is true when the next step is on the Dispatch page.
+ */
+export function waitingFor(
+  card: Pick<Card, 'state' | 'kind' | 'van'>,
+): { text: string; dispatch: boolean } | null {
+  if (card.state !== 'ready' || card.kind !== 'delivery') return null;
+  if (card.van !== null)
+    return { text: 'Goes out with its van, from the published plan.', dispatch: false };
+  return {
+    text: 'Waits for a van: it goes out when the day’s plan is published on',
+    dispatch: true,
+  };
+}
+
+/**
+ * Where the order's page keeps, per tab, the times it saw an order's steps
+ * (components/OrderStatus.tsx, `timesKey`): `bakery.order-times.v1.<order id>`. A key of this
+ * shape means this tab followed that order, which in a sandbox is the order the visitor placed.
+ */
+export const FOLLOWED_KEY_PREFIX = 'bakery.order-times.v1.';
+
+/**
+ * The orders this browser tab followed on the order's page, read from the keys that page already
+ * keeps; the board adds no key of its own (G7, 2026-11-10). The kitchen's snapshot does not say
+ * which cards a visitor placed: a card carries a `cause` only for an event this page saw live, and
+ * a seeded order and a visitor's look alike in it. Empty when storage is missing or blocked.
+ */
+export function followedOrders(store: Pick<Storage, 'length' | 'key'> | null): Set<string> {
+  const out = new Set<string>();
+  if (store === null) return out;
+  try {
+    for (let i = 0; i < store.length; i++) {
+      const key = store.key(i);
+      if (key?.startsWith(FOLLOWED_KEY_PREFIX)) {
+        const order = key.slice(FOLLOWED_KEY_PREFIX.length);
+        if (order !== '') out.add(order);
+      }
+    }
+  } catch {
+    // Blocked storage: no card is marked.
+  }
+  return out;
+}
+
+/**
+ * An event's type in its words, `OrderProductionStarted` as `Order`, `Production`, `Started`, so a
+ * chip can break between them inside a narrow card instead of running past its edge.
+ */
+export const eventWords = (type: string): string[] => type.split(/(?=[A-Z][a-z])/);
+
 /** The activity feed's entries: the last 50 events, newest first. */
 export const FEED_MAX = 50;
 

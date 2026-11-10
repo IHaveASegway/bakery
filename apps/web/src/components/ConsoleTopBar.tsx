@@ -4,8 +4,8 @@ import type { SandboxResponse, SessionResponse, TrafficResponse } from '../contr
 import { getTraffic, startTraffic, stopTraffic } from '../lib/api';
 import { businessNowMs } from '../lib/clock';
 import type { WorkspaceId } from '../lib/console-sections';
-import { roughCountdown, utcClock, utcStamp } from '../lib/countdown';
-import { clockOfText, shortDate, whenText } from '../lib/when';
+import { roughCountdown } from '../lib/countdown';
+import { clockOfText, shortDate, utcMomentText, whenText } from '../lib/when';
 import ClockControl from './ClockControl';
 
 /** The same, short, for a top bar that has run out of room (console.css): the long one is still read out. */
@@ -107,9 +107,9 @@ function Controls({
                 <code>{sandbox.id}</code>
               </dd>
               <dt>Born</dt>
-              <dd>{utcStamp(sandbox.born)}</dd>
+              <dd>{utcMomentText(sandbox.born)}</dd>
               <dt>Wiped</dt>
-              <dd>at {utcClock(sandbox.wipe_at)}</dd>
+              <dd>at {utcMomentText(sandbox.wipe_at)}</dd>
             </dl>
             <p className="actions">
               <button

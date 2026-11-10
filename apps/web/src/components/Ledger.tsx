@@ -3,7 +3,7 @@ import type { LedgerResponse } from '../contracts';
 import { getLedger } from '../lib/api';
 import { describeError, type Message as Text } from '../lib/messages';
 import { dollars } from '../lib/money';
-import { LEDGER_HINT, ledgerSource } from '../lib/payment';
+import { LEDGER_HINT, recordedBy } from '../lib/payment';
 import { shortWhen, whenText } from '../lib/when';
 import Message from './Message';
 
@@ -123,7 +123,7 @@ export default function Ledger({
                         {PURPOSES[e.purpose] ?? e.purpose} <code>{e.ref.slice(-6)}</code>
                       </td>
                       <td data-label="Recorded by">
-                        {ledgerSource(e) === '' ? 'Stripe' : 'Billing (seeded)'}
+                        <span title={recordedBy(e).title}>{recordedBy(e).text}</span>
                       </td>
                       <td className="num" data-label="Amount">
                         {e.kind === 'payment' ? '+' : '−'}

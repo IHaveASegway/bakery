@@ -152,3 +152,31 @@ export const isSeededLine = (entry: { stripe_id: string }): boolean =>
 /** The words after a ledger line's amount that say where it came from: empty for Stripe's. */
 export const ledgerSource = (entry: { stripe_id: string }): string =>
   isSeededLine(entry) ? ' (seeded, no Stripe call)' : '';
+
+/**
+ * Who recorded a ledger line, as the ledger's "Recorded by" column says it (G13, 2026-11-10).
+ * Stripe's lines are Stripe's. A `seed:` payment is the seed's, written by Billing at birth. A
+ * `seed:` refund is not seeded: it is a refund someone made of a seeded payment, which Billing
+ * records alone because Stripe never saw that payment (workers/api/src/objects/billing.rs,
+ * `RecordSeededRefund`). Until 2026-11-10 both read "Billing (seeded)", so a refund made a moment
+ * ago claimed to come from the seed.
+ */
+export function recordedBy(entry: { stripe_id: string; kind: 'payment' | 'refund' }): {
+  text: string;
+  title: string;
+} {
+  if (!isSeededLine(entry)) {
+    return { text: 'Stripe', title: 'Reported by Stripe’s sandbox and recorded by Billing.' };
+  }
+  if (entry.kind === 'refund') {
+    return {
+      text: 'Billing, no Stripe call',
+      title:
+        'A refund of a payment the seed made. Stripe never saw that payment, so Billing recorded the refund alone.',
+    };
+  }
+  return {
+    text: 'Billing (seeded)',
+    title: 'A payment the seed made when the sandbox was born. Stripe never saw it.',
+  };
+}
