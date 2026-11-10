@@ -322,7 +322,7 @@ export function foldedWords(events: readonly TracedEvent[]): string {
       ? ''
       : days.length === 1
         ? `, for ${days[0]}`
-        : `, one for each day from ${days[0]} to ${days.at(-1)}`;
+        : `, for ${days.length} days between ${days[0]} and ${days.at(-1)}`;
   return `${events.length} times${object === null ? '' : ` on ${object}`}${span}`;
 }
 

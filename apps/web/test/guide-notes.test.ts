@@ -1134,7 +1134,7 @@ describe('a chain folds an event it did not name when it comes many times', () =
       }),
     );
     expect(html.match(/CapsRefreshed/g)).toHaveLength(1);
-    expect(html).toContain('3 times on Schedule, one for each day from 10 Nov to 12 Nov');
+    expect(html).toContain('3 times on Schedule, for 3 days between 10 Nov and 12 Nov');
     expect(html).toContain('written; nothing subscribes to it, each');
     expect(dayOf('schedule:sbx-one:2026-11-10')).toBe('10 Nov');
     expect(dayOf('order:sbx-one:ord-one')).toBeNull();
