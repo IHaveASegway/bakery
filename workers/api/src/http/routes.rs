@@ -63,6 +63,8 @@ pub enum RouteId {
     AdvanceClock,
     KitchenSocket,
     Heartbeat,
+    GetTrace,
+    TraceSocket,
     GetTraffic,
     StartTraffic,
     StopTraffic,
@@ -371,6 +373,24 @@ pub const ROUTES: &[Route] = &[
         Scope::Session,
         Limit::Command,
         Bearer::Yes,
+    ),
+    // 2026-11-09: the flight recorder (ADR 0015), read as the sandbox is, and its socket as the
+    // kitchen's: the cookie only, the exact Origin and the upgrade limit.
+    route(
+        RouteId::GetTrace,
+        "GET",
+        "/v1/sandboxes/{id}/trace",
+        Scope::Session,
+        Limit::None,
+        Bearer::Yes,
+    ),
+    route(
+        RouteId::TraceSocket,
+        "GET",
+        "/v1/sandboxes/{id}/trace/ws",
+        Scope::Session,
+        Limit::Upgrade,
+        Bearer::No,
     ),
     route(
         RouteId::GetTraffic,
@@ -1307,6 +1327,8 @@ mod tests {
             RouteId::KitchenSocket,
             RouteId::Heartbeat,
             RouteId::GetTraffic,
+            RouteId::GetTrace,
+            RouteId::TraceSocket,
         ] {
             assert_eq!(
                 scope(id),
@@ -1350,6 +1372,31 @@ mod tests {
             .find(|r| r.id == RouteId::KitchenSocket)
             .unwrap();
         assert_eq!(socket.limit, Limit::Upgrade);
+        // The flight recorder: its read as the sandbox's, its socket as the kitchen's.
+        let get = |id| ROUTES.iter().find(|r| r.id == id).unwrap();
+        let (trace, sandbox) = (get(RouteId::GetTrace), get(RouteId::GetSandbox));
+        assert_eq!(
+            (trace.scope, trace.bearer, trace.limit),
+            (sandbox.scope, sandbox.bearer, sandbox.limit)
+        );
+        let (trace, kitchen) = (get(RouteId::TraceSocket), get(RouteId::KitchenSocket));
+        assert_eq!(
+            (trace.scope, trace.bearer, trace.limit),
+            (kitchen.scope, kitchen.bearer, kitchen.limit)
+        );
+        let s = "01JC8Z6K3W9QF2N4T7XRB5M0HD";
+        assert_eq!(
+            id_of(match_route("GET", &format!("/v1/sandboxes/{s}/trace"))),
+            Some((RouteId::GetTrace, Some(s.to_owned())))
+        );
+        assert_eq!(
+            id_of(match_route("GET", &format!("/v1/sandboxes/{s}/trace/ws"))),
+            Some((RouteId::TraceSocket, Some(s.to_owned())))
+        );
+        assert_eq!(
+            match_route("POST", &format!("/v1/sandboxes/{s}/trace")),
+            Matched::MethodNotAllowed("GET, OPTIONS".into())
+        );
     }
 
     // ---------- the route table in crates/contracts, both ways ----------
@@ -1477,7 +1524,10 @@ mod tests {
             let sandbox_route = r.pattern.starts_with("/v1/sandboxes/{id}");
             let minted_or_socket = matches!(
                 r.id,
-                RouteId::IssueToken | RouteId::RotateToken | RouteId::KitchenSocket
+                RouteId::IssueToken
+                    | RouteId::RotateToken
+                    | RouteId::KitchenSocket
+                    | RouteId::TraceSocket
             );
             assert_eq!(
                 r.takes_bearer(),
@@ -1488,7 +1538,7 @@ mod tests {
             if minted_or_socket || r.id == RouteId::GetToken {
                 assert_eq!(
                     r.scope,
-                    if r.id == RouteId::KitchenSocket {
+                    if matches!(r.id, RouteId::KitchenSocket | RouteId::TraceSocket) {
                         Scope::Session
                     } else {
                         Scope::SignedIn

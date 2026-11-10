@@ -20,6 +20,7 @@ mod routes;
 mod sandboxes;
 mod schedule;
 mod token;
+mod trace;
 mod traffic;
 mod webhook;
 
@@ -244,7 +245,8 @@ async fn checked(
     }
     // The socket's upgrade is a GET, but it carries the cookie and ignores CORS: the exact
     // Origin is the defence against cross-site hijacking (docs/security.md, the threats table).
-    if bearer.is_none() && (guard::is_command(route.method) || route.id == RouteId::KitchenSocket) {
+    let socket = matches!(route.id, RouteId::KitchenSocket | RouteId::TraceSocket);
+    if bearer.is_none() && (guard::is_command(route.method) || socket) {
         let allowed = cx.cfg.origin()?;
         let origin = headers.get("Origin").ok().flatten();
         let site = headers.get("Sec-Fetch-Site").ok().flatten();
@@ -348,6 +350,8 @@ async fn checked(
         RouteId::AdvanceClock => sandboxes::advance_clock(cx, req, id.as_deref()).await,
         RouteId::KitchenSocket => kitchen::socket(cx, req, id.as_deref()).await,
         RouteId::Heartbeat => kitchen::heartbeat(cx, id.as_deref()).await,
+        RouteId::GetTrace => trace::get(cx, req, id.as_deref()).await,
+        RouteId::TraceSocket => trace::socket(cx, req, id.as_deref()).await,
         RouteId::GetTraffic => traffic::get(cx, id.as_deref()).await,
         RouteId::StartTraffic => traffic::start(cx, req, id.as_deref()).await,
         RouteId::StopTraffic => traffic::stop(cx, id.as_deref()).await,

@@ -80,6 +80,23 @@ As built, 2026-11-09: the table has 73 routes in 65 paths, and 58 accept a beare
 
 Accepted by delegation on 2026-11-09 (roadmap R12), so from that date the v1 contract changes only by addition, as decision and Door say.
 
+Later still on 2026-11-09 the flight recorder ([ADR 0015](0015-a-lossy-flight-recorder-beside-the-event-path.md)) added two routes numbered 21 in `x-pr`: `GET /v1/sandboxes/{id}/trace`, which accepts a token, and `GET /v1/sandboxes/{id}/trace/ws`, a second cookie-only socket. The table has 76 routes in 68 paths, 60 accepting a token, and the document is 451,229 B pretty-printed, 37,792 B gzipped (`gzip -c`), with 126 component schemas. The socket is protocol `v: 1` beside the kitchen's, with five frames, each typed by the `TraceFrame` contract:
+
+| Frame | Direction | Meaning |
+|---|---|---|
+| `snapshot {hops, cursor}` | server to client | On open: the hops of the ring's last 50 batches, newest last; `cursor` is the newest batch's, as `GET .../trace` gives it |
+| `hops {hops, cursor}` | server to client | Each batch the Queue's consumer records after the snapshot |
+| `bye {reason}` | server to client | `wiped` or `limit`, before the server closes: 1001 at the wipe; 1008, 1009 or 1003 at a limit |
+| `ping` and `pong` | client to server, and back | The platform's auto-response, as on the kitchen socket; a client sends nothing else, and any other frame is ignored |
+
+Decision 2's session rule "cookie-only (the socket)" now names two sockets, and both take the same checks. The document carries each socket's frames in its own operation's `x-websocket` (`crates/contracts/src/openapi.rs`, `TRACE_SOCKET_FRAMES`); the API page at `/docs/api/` still draws its socket section from the kitchen's.
+
+## Postscript 2026-11-10
+
+Corrected on 2026-11-10 by the session, under the owner's delegation of 2026-11-09; revisable. Each line names a sentence above that the build or a later record contradicts, and gives what is true, with its source. The decision text above is not rewritten.
+
+- The Worker routes with a table of its own, `workers/api/src/http/routes.rs` matched by `match_route`, and not the `worker` crate's `Router` ([ADR 0002](0002-rust-for-every-backend.md)'s postscript). Its reason, recorded on 2026-11-10: the table is data. Each route's method, pattern, scope, rate limit and bearer rule is one row, so the 405's `Allow`, the Origin exemptions and the scopes come from one list, and native tests hold it to the contract table in `crates/contracts`, from which the OpenAPI document and the TypeScript are generated (the module's header). The SDK's `Router` takes a handler per pattern and, in `worker` 0.8.7, has no method that lists its routes (`src/router.rs` of the crate, read on 2026-11-10), so none of that could be derived from it or tested against it. The `Router`'s code is still in the tree, as `matchit`, the router inside `worker` (`deny.toml`).
+
 ## Patterns and further reading
 
 - Problem details for HTTP APIs: [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457), as of 2026-11-05.

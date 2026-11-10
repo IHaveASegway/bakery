@@ -476,9 +476,9 @@ expect_status sandbox_a 201
 AID="$SID"
 SANDBOX="$AID"
 check "guest: seeding reaches live" "wait_live guest_live G '$GID'"
-expect_json guest_live "b.state === 'live' && b.children >= 36 && b.seed === $SEED"
+expect_json guest_live "b.state === 'live' && b.children >= 37 && b.seed === $SEED"
 check "a: seeding reaches live" "wait_live a_live D '$AID'"
-expect_json a_live "b.children >= 36 && b.seed === $SEED"
+expect_json a_live "b.children >= 37 && b.seed === $SEED"
 # The seed as sandbox a holds it: its open orders placed and paid before its birth, and an order
 # only placed whose slot was too near paid instead (Generated::born_at).
 BORN_A="$(json_field a_live b.born)"
@@ -487,7 +487,7 @@ check "the seed as born at $BORN_A: nothing placed or paid after it, nothing pen
   const g = JSON.parse(require('fs').readFileSync('$TMP/seed.json', 'utf8'));
   const born = Date.parse('$BORN_A');
   process.exit(g.open_orders.every((o) => Date.parse(o.placed_at) < born && (o.state !== 'placed' || Date.parse(o.slot_start) - born >= 15 * 60000)) ? 0 : 1);\""
-check "the Dispatch was seeded with the rest (sandbox_seeded with 36 children)" "log_has '\"event\":\"sandbox_seeded\",\"children\":36'"
+check "the Dispatch was seeded with the rest (sandbox_seeded with 37 children, the Recorder's since 2026-11-09)" "log_has '\"event\":\"sandbox_seeded\",\"children\":37'"
 
 # ---------- today's seeded day ----------
 

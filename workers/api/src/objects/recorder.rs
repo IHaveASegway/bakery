@@ -4,27 +4,36 @@
 //!
 //! The consumer feeds it after the fact and best effort: at the end of each batch it sends every
 //! sandbox's Recorder one `/_record` with that sandbox's hops, after the messages are acked, and a
-//! failure is one `trace_drop` log line and nothing else. Nothing in a command's path calls it. A
+//! failure is one `trace_drop` log line and nothing else; when the platform ends the invocation
+//! before every sandbox's request has gone, the rest are lost with no line at all. The
+//! dead-letter queue's consumer sends `/_dead` the same way for the events it has kept as dead
+//! letters. Nothing in a command's path calls it. A
 //! hop is identifiers, type names, sequence numbers and times (`bakery_contracts::TraceHop`):
 //! never an event's `data`. It is its own object, not the Kitchen's job: observability gets its
 //! own single writer, and no object becomes the hub for everything.
 //!
-//! Storage is bounded: one `batches` row per `/_record`, the hops as JSON, the oldest trimmed in
-//! the same transaction once more than [`KEEP_BATCHES`] are kept; and a `retries` row for each
-//! event whose last hop was not delivered everywhere, which is how the Recorder counts attempts:
-//! `worker` 0.8.7 does not expose the Queue's attempt count (docs/architecture.md, "Dead
-//! letters"), so an event's next hop is attempt `n + 1`, and a hop that still fails on the
-//! fourth attempt, the Queue's last after 3 retries (wrangler.jsonc), is `dead_lettered`. The
-//! count is as lossy as the recorder: a hop never recorded is not counted.
-//!
-//! Shipped expand first (ADR 0015): the class is bound and exported before anything seeds it,
-//! feeds it or routes to it, so the items only the consumer and the routes use are marked so.
+//! Storage is bounded: one `batches` row per `/_record` or `/_dead`, the hops as JSON, the oldest
+//! trimmed in the same transaction once more than [`KEEP_BATCHES`] are kept; and a `retries` row
+//! for each event whose last recorded hop was not delivered everywhere, the newest
+//! [`KEEP_RETRIES`] kept, trimmed the same way. A row holds the event's `attempt` so far and how
+//! many routes had answered on its last hop. `worker` 0.8.7 does not expose the Queue's attempt
+//! count (docs/architecture.md, "Dead letters"), so `attempt` is the Recorder's own count of the
+//! hops it recorded for the event, in the order they arrived: a lower bound on the Queue's
+//! attempts, which misses a retry the consumer made with the flag `off` (no hop is built) and a
+//! `/_record` that was lost, and which two batches recorded out of order can swap. So a dead
+//! letter is never inferred from the count: it is recorded when the dead-letter queue's consumer
+//! says the event is dead (`/_dead`), and that hop marks `dead_lettered` the routes from the one
+//! that had not answered on the event's last recorded hop, or every routed class when the
+//! Recorder holds no row for it.
 //!
 //! Paths:
 //!
 //! - `POST /_seed {birth}` → 201; 200 when already seeded. An empty ring.
 //! - `POST /_record {hops}` → 200 `{recorded, cursor}`: one batch row, its attempts counted, the
 //!   ring trimmed, and a `hops` frame to every open socket.
+//! - `POST /_dead {hops}` → 200 `{recorded, cursor}`: the same for hops the dead-letter queue's
+//!   consumer sends, each with every routed class; their outcomes are set from the `retries` row,
+//!   which is then removed.
 //! - `GET /_trace?after=<cursor>` → 200 `TraceResponse`: the hops of the batches after the
 //!   cursor, at most [`PAGE_BATCHES`] of them, oldest first.
 //! - `GET /_ws` with `Upgrade: websocket` → 101: the socket, accepted on the Hibernation API. The
@@ -62,11 +71,9 @@ use super::stream::{self, BACKSTOP};
 use crate::clock::SystemClock;
 use crate::random;
 
-#[allow(dead_code)] // nothing calls the class until the consumer and the routes are wired
 pub const BINDING: &str = "RECORDER";
 pub const CLASS: &str = "Recorder";
 
-#[allow(dead_code)] // nothing calls the class until the consumer and the routes are wired
 pub fn name(sandbox: Ulid) -> String {
     format!("recorder:{sandbox}")
 }
@@ -77,8 +84,9 @@ pub const PROTOCOL: u8 = 1;
 pub const KEEP_BATCHES: i64 = 200;
 /// Batches one `/_trace` answer or one snapshot carries at most.
 pub const PAGE_BATCHES: i64 = 50;
-/// The Queue's last attempt at a message: the first, then `max_retries` 3 (wrangler.jsonc).
-pub const LAST_ATTEMPT: u32 = 4;
+/// `retries` rows kept: an event whose hop never got its sequel leaves one, and the newest this
+/// many are kept, as the ring keeps its batches.
+pub const KEEP_RETRIES: i64 = 200;
 
 const SCHEMA: &[&str] = &[
     child::META,
@@ -89,10 +97,13 @@ const SCHEMA: &[&str] = &[
        seq INTEGER PRIMARY KEY,
        hops TEXT NOT NULL,
        recorded_at TEXT NOT NULL)",
-    // The events whose last recorded hop was not delivered everywhere: their attempt so far.
+    // The events whose last recorded hop was not delivered everywhere: their attempt so far, how
+    // many routes had answered on that hop, and the batch that wrote the row, for the trim.
     "CREATE TABLE IF NOT EXISTS retries (
        id TEXT PRIMARY KEY,
-       attempt INTEGER NOT NULL)",
+       attempt INTEGER NOT NULL,
+       answered INTEGER NOT NULL,
+       batch INTEGER NOT NULL)",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,7 +111,8 @@ pub struct SeedRecorder {
     pub birth: Birth,
 }
 
-/// `POST /_record`: one batch's hops for this sandbox, from the consumer.
+/// `POST /_record` and `POST /_dead`: one batch's hops for this sandbox, from the consumer or the
+/// dead-letter queue's consumer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecordIn {
     pub hops: Vec<TraceHop>,
@@ -121,6 +133,7 @@ struct BatchRow {
 #[derive(Deserialize)]
 struct AttemptRow {
     attempt: i64,
+    answered: i64,
 }
 
 #[derive(Deserialize)]
@@ -131,7 +144,6 @@ struct SeqRow {
 // ---------- hops, attempts and pages (pure, tested natively) ----------
 
 /// `delivered_at - recorded_at` in milliseconds, 0 when the clocks disagree.
-#[allow(dead_code)] // nothing calls the class until the consumer and the routes are wired
 pub fn lag_ms(recorded_at: WallTime, delivered_at: WallTime) -> u64 {
     u64::try_from(delivered_at.unix_ms() - recorded_at.unix_ms()).unwrap_or(0)
 }
@@ -141,7 +153,6 @@ pub fn lag_ms(recorded_at: WallTime, delivered_at: WallTime) -> u64 {
 /// when `failed` the one after them did not, so it and every later one wait for the retry. The
 /// envelope's `data` is not read: a hop carries none of it. The attempt is the Recorder's to
 /// count, so it is 1 here.
-#[allow(dead_code)] // nothing calls the class until the consumer and the routes are wired
 pub fn hop(
     envelope: &Envelope,
     routes: &[Subscriber],
@@ -176,37 +187,88 @@ pub fn hop(
     }
 }
 
+/// An event's `retries` row: its attempt so far and how many routes had answered on its last
+/// recorded hop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Earlier {
+    pub attempt: u32,
+    pub answered: usize,
+}
+
+/// The hop the dead-letter queue's consumer sends for an event it kept as a dead letter: every
+/// routed class `dead_lettered`, for the Recorder to set from its `retries` row ([`mark_dead`]).
+pub fn dead_hop(envelope: &Envelope, routes: &[Subscriber], now: WallTime) -> TraceHop {
+    let mut h = hop(envelope, routes, 0, true, now);
+    for d in &mut h.deliveries {
+        d.outcome = TraceOutcome::DeadLettered;
+    }
+    h
+}
+
 /// What the `retries` table must learn from one hop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Track {
-    /// Not delivered everywhere: keep the attempt for the next hop.
-    Remember(u32),
-    /// Delivered at last, or dead-lettered: the event's count is done.
+    /// Not delivered everywhere: keep the attempt and the routes that answered for the next hop.
+    Remember(Earlier),
+    /// Delivered at last, or dead: the event's row is done.
     Forget,
     /// A first attempt that was delivered: nothing to keep or delete.
     Nothing,
 }
 
-/// Counts the hop's attempt from the event's earlier one, if the Recorder holds it, and on the
-/// Queue's last attempt turns `retried` into `dead_lettered`.
-pub fn count_attempt(hop: &mut TraceHop, earlier: Option<u32>) -> Track {
-    hop.attempt = earlier.map_or(1, |n| n.saturating_add(1));
+/// The routes that answered on a hop: those before its first undelivered one.
+fn answered(hop: &TraceHop) -> usize {
+    hop.deliveries
+        .iter()
+        .take_while(|d| d.outcome == TraceOutcome::Delivered)
+        .count()
+}
+
+/// Numbers the hop from the event's earlier one, if the Recorder holds it: the Recorder's own
+/// count of the hops it recorded, a lower bound on the Queue's attempts. It never decides a dead
+/// letter; a hop that failed stays `retried` whatever its number.
+pub fn count_attempt(hop: &mut TraceHop, earlier: Option<Earlier>) -> Track {
+    hop.attempt = earlier.map_or(1, |e| e.attempt.saturating_add(1));
     let failed = hop
         .deliveries
         .iter()
         .any(|d| d.outcome != TraceOutcome::Delivered);
-    if failed && hop.attempt >= LAST_ATTEMPT {
-        for d in &mut hop.deliveries {
-            if d.outcome == TraceOutcome::Retried {
-                d.outcome = TraceOutcome::DeadLettered;
-            }
-        }
-        return Track::Forget;
-    }
     match (failed, earlier) {
-        (true, _) => Track::Remember(hop.attempt),
+        (true, _) => Track::Remember(Earlier {
+            attempt: hop.attempt,
+            answered: answered(hop),
+        }),
         (false, Some(_)) => Track::Forget,
         (false, None) => Track::Nothing,
+    }
+}
+
+/// A dead hop, as the dead-letter queue's consumer sends it (every routed class, each
+/// `dead_lettered`): the routes that had answered on the event's last recorded hop are set back
+/// to `delivered`, and it repeats that hop's attempt, since it is no delivery attempt of its own.
+/// With no row the Recorder cannot know which class failed, so every routed class stays
+/// `dead_lettered` and the attempt is 1, the least it can have been.
+pub fn mark_dead(hop: &mut TraceHop, earlier: Option<Earlier>) -> Track {
+    let from = earlier.map_or(0, |e| e.answered);
+    for (i, d) in hop.deliveries.iter_mut().enumerate() {
+        d.outcome = if i < from {
+            TraceOutcome::Delivered
+        } else {
+            TraceOutcome::DeadLettered
+        };
+    }
+    hop.attempt = earlier.map_or(1, |e| e.attempt);
+    Track::Forget
+}
+
+/// Where a read starts: at `after`, unless `after` is past the newest batch the ring has held (a
+/// cursor kept from another sandbox's ring, whose numbers start again at 1). Such a cursor reads
+/// from the start, and the answer says hops were missed.
+pub fn start_of(after: u64, newest: Option<u64>) -> (u64, bool) {
+    if after > newest.unwrap_or(0) {
+        (0, true)
+    } else {
+        (after, false)
     }
 }
 
@@ -336,7 +398,11 @@ impl DurableObject for Recorder {
                 match (method, path) {
                     (Method::Post, "/_record") => {
                         let body: RecordIn = sql::body(&mut req).await?;
-                        self.record(body, now)
+                        self.record(body, now, false)
+                    }
+                    (Method::Post, "/_dead") => {
+                        let body: RecordIn = sql::body(&mut req).await?;
+                        self.record(body, now, true)
                     }
                     (Method::Get, "/_trace") => {
                         let after = after_of(req.url()?.query());
@@ -496,33 +562,56 @@ impl Recorder {
         json(&serde_json::json!({ "seeded": true }), 201)
     }
 
-    /// One batch: each hop's attempt counted from `retries`, the row written and the ring
-    /// trimmed in one transaction, then the batch to every open socket.
-    fn record(&self, body: RecordIn, now: WallTime) -> Result<Response> {
+    /// One batch: each hop numbered from `retries` (or, for `/_dead`, its outcomes set from it),
+    /// the batch row written, both tables trimmed in one transaction, then the batch to every
+    /// open socket.
+    fn record(&self, body: RecordIn, now: WallTime, dead: bool) -> Result<Response> {
         let sql = self.sql();
         let mut hops = body.hops;
         let mut tracks = Vec::with_capacity(hops.len());
         for hop in &mut hops {
             let earlier: Option<AttemptRow> = first(
                 &sql,
-                "SELECT attempt FROM retries WHERE id = ?",
+                "SELECT attempt, answered FROM retries WHERE id = ?",
                 vec![hop.id.as_str().into()],
             )?;
-            let earlier = earlier.map(|r| u32::try_from(r.attempt).unwrap_or(u32::MAX));
-            tracks.push((hop.id.clone(), count_attempt(hop, earlier)));
+            let earlier = earlier.map(|r| Earlier {
+                attempt: u32::try_from(r.attempt).unwrap_or(u32::MAX),
+                answered: usize::try_from(r.answered).unwrap_or(0),
+            });
+            let track = if dead {
+                mark_dead(hop, earlier)
+            } else {
+                count_attempt(hop, earlier)
+            };
+            tracks.push((hop.id.clone(), track));
         }
         let text = serde_json::to_string(&hops)?;
         let n = hops.len();
         let write = sql.clone();
         let seq = transaction_sync(&self.state.storage(), move || {
+            exec(
+                &write,
+                "INSERT INTO batches (hops, recorded_at) VALUES (?, ?)",
+                vec![text.into(), now.to_string().into()],
+            )?;
+            let newest: Option<SeqRow> =
+                first(&write, "SELECT max(seq) AS seq FROM batches", vec![])?;
+            let newest = newest.and_then(|r| r.seq).unwrap_or(0);
             for (id, track) in &tracks {
                 match track {
-                    Track::Remember(attempt) => {
+                    Track::Remember(e) => {
                         exec(
                             &write,
-                            "INSERT INTO retries (id, attempt) VALUES (?, ?)
-                             ON CONFLICT (id) DO UPDATE SET attempt = excluded.attempt",
-                            vec![id.as_str().into(), i64::from(*attempt).into()],
+                            "INSERT INTO retries (id, attempt, answered, batch) VALUES (?, ?, ?, ?)
+                             ON CONFLICT (id) DO UPDATE SET attempt = excluded.attempt,
+                               answered = excluded.answered, batch = excluded.batch",
+                            vec![
+                                id.as_str().into(),
+                                i64::from(e.attempt).into(),
+                                i64::try_from(e.answered).unwrap_or(0).into(),
+                                newest.into(),
+                            ],
                         )?;
                     }
                     Track::Forget => {
@@ -537,16 +626,14 @@ impl Recorder {
             }
             exec(
                 &write,
-                "INSERT INTO batches (hops, recorded_at) VALUES (?, ?)",
-                vec![text.into(), now.to_string().into()],
-            )?;
-            let newest: Option<SeqRow> =
-                first(&write, "SELECT max(seq) AS seq FROM batches", vec![])?;
-            let newest = newest.and_then(|r| r.seq).unwrap_or(0);
-            exec(
-                &write,
                 "DELETE FROM batches WHERE seq <= ?",
                 vec![trim_through(newest).into()],
+            )?;
+            exec(
+                &write,
+                "DELETE FROM retries WHERE id IN
+                   (SELECT id FROM retries ORDER BY batch DESC, id LIMIT -1 OFFSET ?)",
+                vec![KEEP_RETRIES.into()],
             )?;
             Ok(newest)
         })?;
@@ -567,20 +654,27 @@ impl Recorder {
             .and_then(|s| u64::try_from(s).ok()))
     }
 
+    fn newest(&self) -> Result<Option<u64>> {
+        let newest: Option<SeqRow> =
+            first(&self.sql(), "SELECT max(seq) AS seq FROM batches", vec![])?;
+        Ok(newest
+            .and_then(|r| r.seq)
+            .and_then(|s| u64::try_from(s).ok()))
+    }
+
     fn trace(&self, after: u64) -> Result<TraceResponse> {
+        let (from, future) = start_of(after, self.newest()?);
         let found: Vec<BatchRow> = rows(
             &self.sql(),
             "SELECT seq, hops FROM batches WHERE seq > ? ORDER BY seq LIMIT ?",
             vec![
-                i64::try_from(after).unwrap_or(i64::MAX).into(),
+                i64::try_from(from).unwrap_or(i64::MAX).into(),
                 (PAGE_BATCHES + 1).into(),
             ],
         )?;
-        Ok(page(
-            after,
-            found.iter().map(read_batch).collect(),
-            self.oldest()?,
-        ))
+        let mut answer = page(from, found.iter().map(read_batch).collect(), self.oldest()?);
+        answer.missed |= future;
+        Ok(answer)
     }
 
     /// The ring's last [`PAGE_BATCHES`] batches, newest last, and the newest one's cursor.
@@ -735,36 +829,92 @@ mod tests {
     }
 
     #[test]
-    fn attempts_count_up_and_the_fourth_failure_is_dead_lettered() {
-        let routes = [Subscriber::Kitchen, Subscriber::Crm];
-        let failing = || hop(&envelope(), &routes, 0, true, after_ms(700));
-        let mut first = failing();
-        assert_eq!(count_attempt(&mut first, None), Track::Remember(1));
-        assert_eq!(first.attempt, 1);
-        let mut third = failing();
-        assert_eq!(count_attempt(&mut third, Some(2)), Track::Remember(3));
-        assert!(
-            third
-                .deliveries
-                .iter()
-                .all(|d| d.outcome == TraceOutcome::Retried)
+    fn attempts_are_the_hops_recorded_and_never_decide_a_dead_letter() {
+        let routes = [Subscriber::Kitchen, Subscriber::Crm, Subscriber::Inbox];
+        let failing = |answered| hop(&envelope(), &routes, answered, true, after_ms(700));
+        let mut first = failing(0);
+        assert_eq!(
+            count_attempt(&mut first, None),
+            Track::Remember(Earlier {
+                attempt: 1,
+                answered: 0
+            })
         );
-        let mut last = failing();
-        assert_eq!(count_attempt(&mut last, Some(3)), Track::Forget);
-        assert_eq!(last.attempt, LAST_ATTEMPT);
-        assert!(
-            last.deliveries
-                .iter()
-                .all(|d| d.outcome == TraceOutcome::DeadLettered)
-        );
-        // Delivered on a retry: the count is done.
-        let mut healed = hop(&envelope(), &routes, 2, false, after_ms(700));
-        assert_eq!(count_attempt(&mut healed, Some(1)), Track::Forget);
+        // The fourth, fifth or any later recorded failure is still `retried`: the count is a
+        // lower bound on the Queue's attempts, so it cannot say the last one was the last.
+        for n in [3, 4, 9] {
+            let mut later = failing(1);
+            assert_eq!(
+                count_attempt(
+                    &mut later,
+                    Some(Earlier {
+                        attempt: n,
+                        answered: 0
+                    })
+                ),
+                Track::Remember(Earlier {
+                    attempt: n + 1,
+                    answered: 1
+                })
+            );
+            assert!(
+                later.deliveries[1..]
+                    .iter()
+                    .all(|d| d.outcome == TraceOutcome::Retried),
+                "attempt {}",
+                n + 1
+            );
+        }
+        // Delivered on a retry: the row is done.
+        let mut healed = hop(&envelope(), &routes, 3, false, after_ms(700));
+        let earlier = Earlier {
+            attempt: 1,
+            answered: 0,
+        };
+        assert_eq!(count_attempt(&mut healed, Some(earlier)), Track::Forget);
         assert_eq!(healed.attempt, 2);
         // Delivered the first time: nothing to keep.
-        let mut plain = hop(&envelope(), &routes, 2, false, after_ms(700));
+        let mut plain = hop(&envelope(), &routes, 3, false, after_ms(700));
         assert_eq!(count_attempt(&mut plain, None), Track::Nothing);
         assert_eq!(plain.attempt, 1);
+    }
+
+    #[test]
+    fn a_dead_hop_marks_the_routes_from_the_one_that_had_not_answered() {
+        use TraceOutcome::{DeadLettered, Delivered};
+        let routes = [Subscriber::Kitchen, Subscriber::Crm, Subscriber::Inbox];
+        let outcomes = |h: &TraceHop| h.deliveries.iter().map(|d| d.outcome).collect::<Vec<_>>();
+        let sent = dead_hop(&envelope(), &routes, after_ms(900));
+        assert_eq!(outcomes(&sent), [DeadLettered, DeadLettered, DeadLettered]);
+        // The last recorded hop had Kitchen answer and Crm fail: Crm and Inbox are dead.
+        let mut dead = sent.clone();
+        let earlier = Earlier {
+            attempt: 4,
+            answered: 1,
+        };
+        assert_eq!(mark_dead(&mut dead, Some(earlier)), Track::Forget);
+        assert_eq!(outcomes(&dead), [Delivered, DeadLettered, DeadLettered]);
+        assert_eq!(
+            dead.attempt, 4,
+            "the dead hop repeats the last recorded attempt"
+        );
+        // The Kitchen refused every attempt: all three are dead.
+        let mut dead = sent.clone();
+        let earlier = Earlier {
+            attempt: 2,
+            answered: 0,
+        };
+        mark_dead(&mut dead, Some(earlier));
+        assert_eq!(outcomes(&dead), [DeadLettered, DeadLettered, DeadLettered]);
+        // No row (its hops were lost, or made with the flag off): which class failed is not
+        // known, so every routed class is dead and the attempt is the least it can be.
+        let mut unknown = sent;
+        assert_eq!(mark_dead(&mut unknown, None), Track::Forget);
+        assert_eq!(
+            outcomes(&unknown),
+            [DeadLettered, DeadLettered, DeadLettered]
+        );
+        assert_eq!(unknown.attempt, 1);
     }
 
     #[test]
@@ -774,6 +924,10 @@ mod tests {
         assert_eq!(trim_through(201), 1, "the 201st drops the first");
         let kept = (1..=500_i64).filter(|s| *s > trim_through(500)).count();
         assert_eq!(kept, 200);
+        assert_eq!(
+            KEEP_RETRIES, KEEP_BATCHES,
+            "the retry rows are bounded as the ring is"
+        );
     }
 
     #[test]
@@ -805,6 +959,29 @@ mod tests {
         let late = page(2, vec![(10, vec![h.clone()])], Some(10));
         assert!(late.missed);
         assert!(!page(9, vec![(10, vec![h])], Some(10)).missed);
+    }
+
+    /// A cursor past the newest batch (kept from another sandbox's ring) reads from the start and
+    /// says hops were missed, instead of waiting for ever.
+    #[test]
+    fn a_cursor_from_the_future_reads_from_the_start_and_says_so() {
+        assert_eq!(start_of(9, Some(12)), (9, false));
+        assert_eq!(
+            start_of(12, Some(12)),
+            (12, false),
+            "the newest cursor is current"
+        );
+        assert_eq!(start_of(40_000, Some(12)), (0, true));
+        assert_eq!(start_of(5, None), (0, true), "an empty ring");
+        assert_eq!(start_of(0, None), (0, false));
+        let h = hop(&envelope(), &[], 0, false, after_ms(700));
+        let (from, future) = start_of(40_000, Some(2));
+        let mut answer = page(from, vec![(1, vec![h.clone()]), (2, vec![h])], Some(1));
+        answer.missed |= future;
+        assert_eq!(
+            (answer.hops.len(), answer.cursor, answer.missed),
+            (2, 2, true)
+        );
     }
 
     #[test]

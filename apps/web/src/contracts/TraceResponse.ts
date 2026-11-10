@@ -10,10 +10,12 @@
 export type TraceOutcome = 'delivered' | 'retried' | 'dead_lettered';
 
 /**
- * The flight recorder's read, `GET .../trace` once its route is served: the hops recorded after
- * the cursor `after`, oldest first and newest last, at most 50 batches of them; then `cursor` for the next call. Any session of the
+ * `GET /v1/sandboxes/{id}/trace`: the hops recorded after the cursor `after`, oldest first and
+ * newest last, at most 50 batches of them; then `cursor` for the next call. Any session of the
  * sandbox reads it, a guest's included. The recorder keeps the last 200 batches the consumer
- * sent it and drops older ones, so a cursor older than that misses hops, and says so.
+ * sent it and drops older ones, so a cursor older than that misses hops, and says so. A live
+ * sandbox whose recorder was never seeded (one born before the recorder's deploy) answers an
+ * empty page; one being wiped answers 410 `wiped`.
  */
 export interface TraceResponse {
   /**
@@ -22,7 +24,9 @@ export interface TraceResponse {
   cursor: number;
   hops: TraceHop[];
   /**
-   * Batches after `after` were dropped from the ring before this read.
+   * Hops were missed: batches after `after` were dropped from the ring before this read, or
+   * `after` was past the ring's newest batch (a cursor kept from another sandbox), so the read
+   * started again from the oldest kept.
    */
   missed: boolean;
   /**
@@ -41,8 +45,10 @@ export interface TraceHop {
    */
   at: string;
   /**
-   * The attempt this hop records, from 1, as the recorder counts the hops it was sent for the
-   * event (lossy, like the recorder: a dropped hop is not counted).
+   * The recorder's own count of the hops it recorded for the event, from 1, in the order they
+   * arrived: a lower bound on the Queue's attempts, not the Queue's number. A retry made with
+   * the flag `off` builds no hop, and a hop whose recording was lost is not counted. A dead hop
+   * repeats the event's last count (1 when it held none), since it is no attempt of its own.
    */
   attempt: number;
   /**

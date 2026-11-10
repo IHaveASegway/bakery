@@ -1865,10 +1865,15 @@ pub enum TraceOutcome {
     /// (`subscriber_unborn`, `schedule_no_day`, `dispatch_no_day`, `stop_order_gone`).
     Delivered,
     /// It did not get the event on this attempt, by its own failure or an earlier subscriber's,
-    /// and the Queue sends the message again.
+    /// and the message went back to the Queue. A hop never says this attempt was the last: that
+    /// is only known once the message is dead.
     Retried,
-    /// It did not get the event on the last attempt the Queue makes (the fourth, after 3
-    /// retries): the message goes to the dead letters.
+    /// The message is a dead letter and this class never got it: observed, never inferred. Only
+    /// a dead hop carries it, recorded when the dead-letter queue's consumer has kept the message
+    /// (the Queue gives up after 3 retries). It marks the classes from the one that had not
+    /// answered on the event's last recorded hop. When the recorder held no earlier hop for the
+    /// event (they were lost, or every attempt was retried with the flag `off`), which class
+    /// failed is not known, and every routed class is `dead_lettered`.
     DeadLettered,
 }
 
@@ -1908,18 +1913,22 @@ pub struct TraceHop {
     pub delivered_at: String,
     /// `delivered_at` less `recorded_at` in milliseconds, 0 when the clocks disagree.
     pub lag_ms: u64,
-    /// The attempt this hop records, from 1, as the recorder counts the hops it was sent for the
-    /// event (lossy, like the recorder: a dropped hop is not counted).
+    /// The recorder's own count of the hops it recorded for the event, from 1, in the order they
+    /// arrived: a lower bound on the Queue's attempts, not the Queue's number. A retry made with
+    /// the flag `off` builds no hop, and a hop whose recording was lost is not counted. A dead hop
+    /// repeats the event's last count (1 when it held none), since it is no attempt of its own.
     pub attempt: u32,
     /// Each subscriber class the event was routed to, in the routing table's order; empty for an
     /// event no class consumes.
     pub deliveries: Vec<TraceDelivery>,
 }
 
-/// The flight recorder's read, `GET .../trace` once its route is served: the hops recorded after
-/// the cursor `after`, oldest first and newest last, at most 50 batches of them; then `cursor` for the next call. Any session of the
+/// `GET /v1/sandboxes/{id}/trace`: the hops recorded after the cursor `after`, oldest first and
+/// newest last, at most 50 batches of them; then `cursor` for the next call. Any session of the
 /// sandbox reads it, a guest's included. The recorder keeps the last 200 batches the consumer
-/// sent it and drops older ones, so a cursor older than that misses hops, and says so.
+/// sent it and drops older ones, so a cursor older than that misses hops, and says so. A live
+/// sandbox whose recorder was never seeded (one born before the recorder's deploy) answers an
+/// empty page; one being wiped answers 410 `wiped`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TraceResponse {
@@ -1928,7 +1937,9 @@ pub struct TraceResponse {
     pub cursor: u64,
     /// More batches wait after `cursor`: ask again at once.
     pub more: bool,
-    /// Batches after `after` were dropped from the ring before this read.
+    /// Hops were missed: batches after `after` were dropped from the ring before this read, or
+    /// `after` was past the ring's newest batch (a cursor kept from another sandbox), so the read
+    /// started again from the oldest kept.
     pub missed: bool,
 }
 

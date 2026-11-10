@@ -84,6 +84,12 @@ As built on 2026-11-09, the live guide replaced the tour ([ADR 0014](0014-a-live
 
 Measured again on 2026-11-10, after the checkout's three steps, the order's page (#101) and the console's seven pages (#106) merged: the deferred layer is 24,741 B to 25,505 B (budget 32,000 B). Per class, first load / with the guide on / the tour's total as last measured on main: home and privacy 81,485 / 106,990 / 94,187 B; the API reference 81,738 / 107,243 / 94,440 B; status 84,258 / 109,763 / 96,960 B; the storefront 95,439 / 120,400 / 103,417 B; the checkout 113,645 / 138,606 / 122,775 B; the console's largest page, the kitchen, 112,749 / 137,710 / 122,232 B. The order's page had no tour (97,911 B); it is 105,120 B first and 130,081 B with the guide on.
 
+## Postscript 2026-11-10
+
+Corrected on 2026-11-10 by the session, under the owner's delegation of 2026-11-09; revisable. Each line names a sentence above that the build or a later record contradicts, and gives what is true, with its source. The decision text above is not rewritten.
+
+- Context's pins are stale. As of 2026-11-10 `apps/web/package.json` holds Astro 7.4.7, `@astrojs/react` 7.1.4 and Tailwind 4.3.5, and the pnpm catalog holds Wrangler `^4.158.0`, 4.158.0 in `pnpm-lock.yaml`.
+
 ## Patterns and further reading
 
 - Islands architecture: ["Islands Architecture"](https://jasonformat.com/islands-architecture/) (blog, 2020).
