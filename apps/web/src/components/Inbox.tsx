@@ -6,6 +6,7 @@ import {
   ALL_KINDS,
   MESSAGE_KINDS,
   countText,
+  inboxToText,
   engagementText,
   filterOf,
   kindLabel,
@@ -182,6 +183,11 @@ export default function Inbox() {
                 {countText(messages.length, total, kind)}
               </p>
               {messages.length > 0 && (
+                <p className="hint" data-testid="inbox-to">
+                  {inboxToText(phase.name === 'live' ? phase.personaName : null)}
+                </p>
+              )}
+              {messages.length > 0 && (
                 <div
                   className="table-scroll"
                   onKeyDown={(e) => {
@@ -243,8 +249,9 @@ export default function Inbox() {
                                     {open.subject}
                                   </h2>
                                   <p className="hint">
-                                    {kindLabel(open.kind)} to {recipientName(names, open.to)},
-                                    delivered {momentText(open.delivered_at, { now })}.{' '}
+                                    {kindLabel(open.kind)} to {recipientName(names, open.to)}, a
+                                    made-up customer, delivered{' '}
+                                    {momentText(open.delivered_at, { now })}.{' '}
                                     {engagementText(open, now)}.
                                   </p>
                                   <p className="brief">{open.body}</p>

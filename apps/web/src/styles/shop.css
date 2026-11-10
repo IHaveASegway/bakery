@@ -813,3 +813,24 @@
   margin: 0 0 var(--space-3);
   font-size: var(--type-16);
 }
+
+/* The When step's line about the times left out, and the next open day beside it. It sits between
+   the status line and the first time, so it is read before the list. */
+.slot-chips > .slot-earlier {
+  margin: 0 0 var(--space-2);
+}
+
+.slot-earlier-next {
+  display: block;
+  margin-top: var(--space-2);
+}
+
+/* Whose name the order carries, said above the button that places it. */
+.ordering-as {
+  max-width: 36rem;
+  margin: var(--space-3) 0 0;
+}
+
+.receipt > .hint[data-testid='ordered-as'] {
+  margin: var(--space-2) 0 var(--space-3);
+}

@@ -1,5 +1,6 @@
 import type { OrderResponse } from '../contracts';
 import { findVariant } from '../lib/menu';
+import { orderedAsText } from '../lib/inbox';
 import { dollars } from '../lib/money';
 import { shortWhen, whenText, windowText } from '../lib/when';
 import type { useLiveMenu } from '../lib/use-live-menu';
@@ -18,12 +19,15 @@ export default function Receipt({
   menu,
   paid,
   now,
+  customer,
 }: {
   order: OrderResponse;
   menu: ReturnType<typeof useLiveMenu>;
   paid: boolean;
   /** The sandbox's business time, so "this year" is the bakery's (lib/when.ts). */
   now?: number | undefined;
+  /** The sandbox's made-up customer, whose name the order carries. */
+  customer?: string | null | undefined;
 }) {
   return (
     <section
@@ -50,6 +54,9 @@ export default function Receipt({
         <dt>Menu version</dt>
         <dd>{order.menu_version}</dd>
       </dl>
+      <p className="hint" data-testid="ordered-as">
+        {orderedAsText(customer)}
+      </p>
       <ul className="receipt-lines">
         {order.lines.map((line) => (
           <li key={line.variant}>
