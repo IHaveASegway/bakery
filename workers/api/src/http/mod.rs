@@ -28,6 +28,7 @@ use std::cell::RefCell;
 
 use bakery_app::Clock;
 use bakery_app::auth::{Keyring, SESSION_COOKIE, check_request, cookie_value};
+use bakery_app::flag_gate::{self, RouteKind};
 use bakery_app::log::RequestLine;
 use bakery_app::{BuildInfo, health};
 use bakery_contracts::{HealthResponse, HealthStatus};
@@ -134,11 +135,24 @@ pub async fn handle(req: Request, env: Env) -> Result<Response> {
             if route.id != RouteId::Health {
                 ip_hash = outbound::ip_hash_for(&env, ip.as_deref(), started).await;
             }
-            let mut req = req;
-            let (result, n) =
-                run(route, params, &mut req, env, cfg, started, ip_hash.clone()).await;
-            note = n;
-            result
+            // The flag (roadmap R85): the isolate's copy, at most 60 s old, so a request pays
+            // no Control call but the copy's refresh. The probes and the webhook never ask.
+            let kind = route.kind();
+            let refused = if matches!(kind, RouteKind::Probe | RouteKind::Webhook) {
+                None
+            } else {
+                flag_gate::gate(crate::flag::current(&env).await, kind).err()
+            };
+            match refused {
+                Some(r) => Err(problem::flagged(r)),
+                None => {
+                    let mut req = req;
+                    let (result, n) =
+                        run(route, params, &mut req, env, cfg, started, ip_hash.clone()).await;
+                    note = n;
+                    result
+                }
+            }
         }
     };
 
