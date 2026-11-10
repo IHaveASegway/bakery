@@ -10,6 +10,7 @@ import {
 import { liveToken, tokenStore } from '../../lib/token-store';
 import {
   expectedHops,
+  observations,
   storyReads,
   type Delivery,
   type FeedArrival,
@@ -393,6 +394,26 @@ export function WhyLines({
   );
 }
 
+/**
+ * A value this page itself read, shown as observed with where it came from and when: the note
+ * says what the page saw, not what the system promises. Nothing yet, and it says so.
+ */
+export function Observed({ name }: { name: string }) {
+  // The note is drawn in the browser only, so the server's snapshot is the same read.
+  const read = () => observations.get(name);
+  const seen = useSyncExternalStore(observations.subscribe, read, read);
+  if (seen === null) {
+    return <p className="guide-meta">Observed: nothing yet; this page has not read it.</p>;
+  }
+  return (
+    <p className="guide-observed">
+      <span className="guide-label">Observed</span> <code className="guide-chip">{seen.from}</code>{' '}
+      answered <code className="guide-chip">{`${name}: ${seen.value}`}</code>{' '}
+      <span className="guide-meta">at {new Date(seen.at).toISOString().slice(11, 19)} UTC</span>
+    </p>
+  );
+}
+
 /** Why the command says <your token>, and what the visitor can do about it, by who is looking. */
 export function tokenHint(phase: ReturnType<typeof useSandboxPhase>): string {
   const lead = 'No token is held by this page, so the command says <your token>.';
@@ -468,6 +489,7 @@ export function EntryBody({ entry }: { entry: GuideEntry }) {
           ))}
         </ul>
       )}
+      {entry.observe !== undefined && <Observed name={entry.observe} />}
       {entry.events.length === 0 ? (
         <p className="guide-meta">This makes no event of its own.</p>
       ) : (
@@ -482,6 +504,17 @@ export function EntryBody({ entry }: { entry: GuideEntry }) {
       )}
       <WhyLines entry={entry} read={false} />
       <Principle principle={entry.principle} />
+      {entry.records !== undefined && entry.records.length > 0 && (
+        <p className="guide-meta guide-records">
+          Records:{' '}
+          {entry.records.map((r, n) => (
+            <span key={r.href}>
+              {n > 0 && ' · '}
+              <a href={r.href}>{r.title}</a>
+            </span>
+          ))}
+        </p>
+      )}
       <details className="guide-curl">
         <summary>The same call with curl</summary>
         <p className="guide-meta">{entry.api.note}</p>

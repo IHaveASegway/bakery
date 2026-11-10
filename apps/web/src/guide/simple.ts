@@ -3,6 +3,7 @@
 // (lib/guide.ts, GuideEntry); test/guide.test.ts checks every `api` against the OpenAPI document,
 // every body against its request schema and every trigger against the routes and the event catalog.
 import type { GuideEntry } from '../lib/guide';
+import { adrUrl, REPO } from '../lib/links';
 import {
   ADMISSION,
   API,
@@ -324,6 +325,41 @@ export const CHECKOUT: GuideEntry[] = [
     },
   },
   {
+    id: 'checkout-zone',
+    screen: 'checkout',
+    target: 'checkout-zone',
+    title: 'A zone the server derives',
+    what: 'The API derives a delivery’s zone from the persona’s place (delivery_zone, zone_of_place), so the order leaves it out. Naming the persona’s own zone is accepted; another is refused 422 with the rule wrong-zone.',
+    facts: [
+      'It was v1’s first breaking change: the request’s zone changed meaning, from the zone the caller chose to a claim that must match the persona’s, so a delivery naming another zone went from 201 to 422.',
+      'ADR 0013’s postscript of 2026-11-10 records it and four reasons it was taken without a /v2/. The first: the choice it removed was a defect, one place served in three zones.',
+      'The page shows the zone before the order is placed from the sandbox’s persona_zone, and the placed order’s OrderPlaced carries it.',
+    ],
+    why: 'A value the server can derive is not asked of the client, so no client can get it wrong.',
+    whenNot:
+      'Not when the client knows what the server cannot, such as an address the visitor types.',
+    events: ['OrderPlaced'],
+    principle: API,
+    triggers: [],
+    api: {
+      routeId: 'place-order',
+      method: 'POST',
+      path: '/v1/sandboxes/{id}/orders',
+      body: {
+        kind: 'delivery',
+        slot: '2026-11-07T11:00:00-07:00',
+        lines: [{ variant: 'country-loaf/whole', qty: 2 }],
+      },
+      note: 'No zone in the body: the server takes the persona’s. A body naming another zone is 422 order with the rule wrong-zone.',
+    },
+    records: [
+      {
+        title: 'ADR 0013, postscript of 2026-11-10',
+        href: `${adrUrl('0013')}#postscript-2026-11-10`,
+      },
+    ],
+  },
+  {
     id: 'checkout-pay',
     screen: 'checkout',
     target: 'checkout-pay',
@@ -501,5 +537,43 @@ export const STATUS: GuideEntry[] = [
       path: '/v1/status',
       note: 'Public and cheap. The breaker field holds its state, since when, the last run, that run’s price in dollars and the meters it could not read.',
     },
+  },
+  {
+    id: 'status-flag',
+    screen: 'status',
+    target: 'status-flag',
+    title: 'A kill switch in one row',
+    what: 'One row in Control’s flags table says live, read-only or off. The breaker raises it and never lowers it; the owner sets it by hand in Data Studio, since there is no admin endpoint.',
+    facts: [
+      'Since 2026-11-10 four readers obey it: the router for every route, the Kitchen for each frame of a board’s socket, the Simulator for each tick and the Queue’s consumer.',
+      'At read-only a command answers 503 read-only, while reads, signing in and Wipe now still work. At off everything answers 503 off but the health and status checks and Stripe’s webhook, and a board’s socket ends at its next frame.',
+      'Each isolate keeps a copy for 60 s, so a request at live pays no Control call but the copy’s refresh. The price: a change bites within about a minute, not at once.',
+      'A failed read keeps the last flag, however old, and asks again after 5 s, so a Control failure at off lets no write through. Only an isolate that never read the flag treats it as live, and the harm is bounded: Control’s admission reads the flag in its own transaction, and when the breaker sets off it also turns on the edge rule that blocks the API’s hostname.',
+      'Stripe’s webhook passes at every flag because it records money that already moved at Stripe, and Stripe retries a sandbox’s events three times over a few hours (Stripe documentation, “Webhooks”, “Automatic retries”, read 2026-11-10). Once the edge rule is on, it stops there all the same.',
+    ],
+    why: 'A switch every route reads stops the writes that cost money from one row, with no deploy.',
+    whenNot:
+      'Not a rate limit for one client, since it stops everyone, and not instant: a change takes about a minute to bite.',
+    events: [],
+    principle: BREAKER,
+    triggers: [],
+    observe: 'flag',
+    api: {
+      routeId: 'status',
+      method: 'GET',
+      path: '/v1/status',
+      note: 'The flag field is live, read-only or off. An answer from an older API has no flag, and the page then says nothing about it.',
+    },
+    records: [
+      {
+        title: 'operations.md, “Kill switch L0 to L4”',
+        href: `${REPO}/blob/main/docs/operations.md#kill-switch-l0-to-l4`,
+      },
+      {
+        title: 'ADR 0013, postscript of 2026-11-10',
+        href: `${adrUrl('0013')}#postscript-2026-11-10`,
+      },
+      { title: 'roadmap.md, R85', href: `${REPO}/blob/main/docs/roadmap.md#remaining-work` },
+    ],
   },
 ];
