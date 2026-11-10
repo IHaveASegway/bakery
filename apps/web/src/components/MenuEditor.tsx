@@ -193,11 +193,9 @@ export default function MenuEditor({
       <h3 id="menu-heading" tabIndex={-1} data-tour="controls-menu">
         Menu
       </h3>
-      <p>
-        Version {menu?.version ?? '…'} is published. A new price waits as a draft until you publish;
-        one publish makes a new version, and the next read of the menu misses the cache once. Pause
-        and Resume take effect at once: each publishes a version of its own, and any price drafts
-        keep waiting. So does the tax rate.
+      <p className="hint">
+        Version {menu?.version ?? '…'} is published; prices wait for Publish, while Pause, Resume
+        and the tax rate publish at once.
       </p>
       {isGuest && <GuestNote />}
       <section aria-labelledby="tax-heading" data-tour="controls-tax">
@@ -250,6 +248,11 @@ export default function MenuEditor({
           </button>
         </p>
       </section>
+      {menu !== null && (
+        <p className="hint editor-note">
+          Prices are in dollars, and one price sets every variant of an item.
+        </p>
+      )}
       {menu?.categories.map((category) => (
         <section key={category.slug} aria-labelledby={`edit-${category.slug}`}>
           <h4 id={`edit-${category.slug}`}>{category.name}</h4>
@@ -284,9 +287,9 @@ export default function MenuEditor({
                     </span>
                   </p>
                   <p>
-                    <label htmlFor={id}>Price for every variant, in dollars</label>
                     <input
                       id={id}
+                      aria-label={`Price of ${item.name}, in dollars`}
                       type="text"
                       inputMode="decimal"
                       value={field}
@@ -296,7 +299,7 @@ export default function MenuEditor({
                       onChange={(e) => setFields((f) => ({ ...f, [item.slug]: e.target.value }))}
                     />
                     {sets && (
-                      <span id={`${id}-sets`} className="hint">
+                      <span id={`${id}-sets`} className="sr-only">
                         {sets}
                       </span>
                     )}

@@ -21,10 +21,11 @@ test('a demo account is created, signed in to, and makes a sandbox', async ({ pa
   await page.getByRole('link', { name: 'Continue to the console' }).click();
   await expect(page.getByRole('heading', { name: 'Signed in with a demo account' })).toBeVisible();
 
-  // The header says "Console" for a signed-in visitor, on the console and on a page (the privacy page) whose islands
-  // never ask for the session themselves (audit C17).
+  // On the console the top bar's bakery nav is one link, back to the shop, and never "Sign in".
+  // The shop's header says "Console" for a signed-in visitor, on a page (the privacy page) whose
+  // islands never ask for the session themselves (audit C17).
   const nav = page.getByRole('navigation', { name: 'The bakery' });
-  await expect(nav.getByRole('link', { name: 'Console' })).toHaveAttribute('href', '/app/');
+  await expect(nav.getByRole('link', { name: 'The shop' })).toHaveAttribute('href', '/menu/');
   await expect(nav.getByRole('link', { name: 'Sign in' })).toHaveCount(0);
   await page.goto('/privacy/');
   await expect(nav.getByRole('link', { name: 'Console' })).toHaveAttribute('href', '/app/');
@@ -46,7 +47,8 @@ test('a demo account is created, signed in to, and makes a sandbox', async ({ pa
 
   // A sandbox, seeded by its first alarm; the console updates by itself.
   await page.getByRole('button', { name: 'New sandbox' }).click();
-  await expect(page.getByRole('heading', { name: 'Your sandbox' })).toBeVisible();
+  // The top bar names the new sandbox on every console page.
+  await expect(page.getByRole('button', { name: /^Sandbox / })).toBeVisible();
   await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible({
     timeout: 30_000,
   });

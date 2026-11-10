@@ -119,9 +119,9 @@
   /* The roles every component reads (design brief, 2026-11-09). Surfaces: the page, a card or
      panel raised on it, a well or table header sunk into it. One hairline, one stronger line for
      controls, the ink and its quieter step, and one accent for what can be pressed. */
-  --surface: oklch(0.97 0.01 255);
+  --surface: oklch(97.5% 1% 255);
   --surface-raised: oklch(1 0 0);
-  --surface-sunken: oklch(0.95 0.01 255);
+  --surface-sunken: oklch(95.5% 1.5% 255);
   --text: oklch(0.2 0.02 262);
   --text-muted: oklch(0.45 0.02 262);
   --border-strong: oklch(0.6 0.02 258);
@@ -142,21 +142,21 @@
   --tone-pending-solid: oklch(0.6 0.12 70);
   --tone-confirmed-tint: oklch(0.95 0.02 255);
   --tone-confirmed-solid: oklch(0.53 0.19 260);
-  --tone-making-tint: oklch(0.95 0.02 300);
+  --tone-making-tint: oklch(95% 6.25% 300);
   --tone-making-solid: oklch(0.52 0.2 300);
   --tone-ready-tint: oklch(0.95 0.05 150);
   --tone-ready-solid: oklch(0.55 0.14 150);
   --tone-out-tint: oklch(0.95 0.04 195);
   --tone-out-solid: oklch(0.55 0.09 200);
-  --tone-done-tint: oklch(0.94 0.01 255);
-  --tone-done-solid: oklch(0.55 0.03 255);
+  --tone-done-tint: oklch(94% 2% 255);
+  --tone-done-solid: oklch(55% 6.25% 255);
   --tone-problem-tint: oklch(0.95 0.02 25);
   --tone-problem-solid: oklch(0.55 0.2 27);
   /* The guide's own layer, dark in both schemes so it never reads as part of the bakery. */
   --guide-surface: oklch(0.22 0.02 262);
-  --guide-raised: oklch(0.28 0.02 262);
+  --guide-raised: oklch(28% 5.5% 262);
   --guide-border: oklch(0.4 0.02 262);
-  --guide-text: oklch(0.97 0.01 240);
+  --guide-text: oklch(97% 1.25% 240);
   --guide-muted: oklch(0.8 0.02 248);
   --guide-accent: oklch(0.82 0.14 212);
   --guide-edge: oklch(0.62 0.03 255);
@@ -169,7 +169,7 @@
   --foreground: var(--text);
   --muted-foreground: var(--text-muted);
   --subtle-foreground: var(--muted-foreground);
-  --border: oklch(0.9 0.01 255);
+  --border: oklch(90% 1.5% 255);
   --ground: oklch(0.975 0.004 255);
   --grid-line: oklch(0.17 0.02 262 / 0.045);
   --field-line: oklch(0.5 0.27 264 / 0.11);
@@ -197,8 +197,8 @@
   --line-cache: oklch(0.535 0.15 46);
   --line-backfill: oklch(0.56 0.09 205);
 
-  --map-water: oklch(0.99 0 0);
-  --map-land: oklch(0.95 0.01 255);
+  --map-water: oklch(99% 0.5% 255);
+  --map-land: oklch(95.5% 1.25% 255);
   --map-park: oklch(0.88 0.03 150);
   --map-band-1: oklch(0.648 0.034 171);
   --map-band-2: oklch(0.695 0.027 172);
@@ -222,10 +222,10 @@
 /* Night, chosen in this browser: the blueprint. */
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --surface: oklch(0.16 0.01 262);
-  --surface-raised: oklch(0.2 0.02 262);
-  --surface-sunken: oklch(0.13 0.01 262);
-  --text: oklch(0.97 0.01 240);
+  --surface: oklch(15.5% 3.5% 262);
+  --surface-raised: oklch(19.5% 4% 262);
+  --surface-sunken: oklch(13% 3% 262);
+  --text: oklch(97% 1.25% 240);
   --text-muted: oklch(0.78 0.02 248);
   --border-strong: oklch(0.6 0.03 255);
   --accent: oklch(0.82 0.14 212);
@@ -248,14 +248,14 @@
   --tone-ready-solid: oklch(0.78 0.15 150);
   --tone-out-tint: oklch(0.3 0.05 200);
   --tone-out-solid: oklch(0.8 0.11 195);
-  --tone-done-tint: oklch(0.28 0.02 255);
+  --tone-done-tint: oklch(28% 3.75% 255);
   --tone-done-solid: oklch(0.72 0.02 255);
   --tone-problem-tint: oklch(0.3 0.07 25);
   --tone-problem-solid: oklch(0.72 0.16 25);
   --guide-surface: oklch(0.22 0.02 262);
-  --guide-raised: oklch(0.28 0.02 262);
+  --guide-raised: oklch(28% 5.5% 262);
   --guide-border: oklch(0.4 0.02 262);
-  --guide-text: oklch(0.97 0.01 240);
+  --guide-text: oklch(97% 1.25% 240);
   --guide-muted: oklch(0.8 0.02 248);
   --guide-accent: oklch(0.82 0.14 212);
   --guide-edge: oklch(0.62 0.03 255);
@@ -333,10 +333,10 @@
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme='light'])) {
     color-scheme: dark;
-    --surface: oklch(0.16 0.01 262);
-    --surface-raised: oklch(0.2 0.02 262);
-    --surface-sunken: oklch(0.13 0.01 262);
-    --text: oklch(0.97 0.01 240);
+    --surface: oklch(15.5% 3.5% 262);
+    --surface-raised: oklch(19.5% 4% 262);
+    --surface-sunken: oklch(13% 3% 262);
+    --text: oklch(97% 1.25% 240);
     --text-muted: oklch(0.78 0.02 248);
     --border-strong: oklch(0.6 0.03 255);
     --accent: oklch(0.82 0.14 212);
@@ -359,14 +359,14 @@
     --tone-ready-solid: oklch(0.78 0.15 150);
     --tone-out-tint: oklch(0.3 0.05 200);
     --tone-out-solid: oklch(0.8 0.11 195);
-    --tone-done-tint: oklch(0.28 0.02 255);
+    --tone-done-tint: oklch(28% 3.75% 255);
     --tone-done-solid: oklch(0.72 0.02 255);
     --tone-problem-tint: oklch(0.3 0.07 25);
     --tone-problem-solid: oklch(0.72 0.16 25);
     --guide-surface: oklch(0.22 0.02 262);
-    --guide-raised: oklch(0.28 0.02 262);
+    --guide-raised: oklch(28% 5.5% 262);
     --guide-border: oklch(0.4 0.02 262);
-    --guide-text: oklch(0.97 0.01 240);
+    --guide-text: oklch(97% 1.25% 240);
     --guide-muted: oklch(0.8 0.02 248);
     --guide-accent: oklch(0.82 0.14 212);
     --guide-edge: oklch(0.62 0.03 255);

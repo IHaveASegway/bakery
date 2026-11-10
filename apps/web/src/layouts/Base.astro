@@ -5,6 +5,8 @@ import tokensCss from '../styles/tokens.css?raw';
 import { chromeColor } from '../lib/tokens';
 import SessionLink from '../components/SessionLink.astro';
 import Guide from '../components/Guide';
+import ConsoleNav from '../components/ConsoleNav';
+import { workspaceAt } from '../lib/console-sections';
 import type { ScreenId } from '../lib/guide';
 import { REPO, SITE_LAB } from '../lib/links';
 
@@ -17,7 +19,7 @@ interface Props {
   shell?: Shell;
   /** A page that is one visitor's own (an order's status): kept out of search and the sitemap. */
   noindex?: boolean;
-  /** A page with an island that calls the API but no tour: it runs the session link's script. */
+  /** A page with an island that calls the API but no guide: it runs the session link's script. */
   session?: boolean;
 }
 const { title, description, screen, noindex = false, session = false } = Astro.props;
@@ -83,32 +85,30 @@ const chrome = (['dark', 'light'] as const).map((scheme) => ({
       Skip to the page
     </a>
     {shell === 'app' ? (
-      <header class="topbar">
-        <a class="site-name" href="/" aria-current={here === '/' ? 'page' : undefined}>
-          <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M3 15c0-5 4-9 9-9s9 4 9 9v2H3z" />
-            <path d="M8 10l1.5 3M12 9v4M16 10l-1.5 3" />
-          </svg>
-          <span>Proof of Concept Bakery</span>
-        </a>
-        <span class="topbar-title">Console</span>
-        <nav aria-label="The bakery" class="topbar-nav">
-          <ul class="site-nav">
-            {NAV.map(({ href, label }) => (
+      <>
+        <header class="topbar">
+          <a class="site-name" href="/" aria-current={here === '/' ? 'page' : undefined}>
+            <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M3 15c0-5 4-9 9-9s9 4 9 9v2H3z" />
+              <path d="M8 10l1.5 3M12 9v4M16 10l-1.5 3" />
+            </svg>
+            <span>Proof of Concept Bakery</span>
+          </a>
+          <span class="topbar-title">Console</span>
+          {/* The page's island fills this with the sandbox, the clock, traffic and the way out. */}
+          <div id="topbar-live" class="topbar-live"></div>
+          <nav aria-label="The bakery" class="topbar-nav">
+            <ul class="site-nav">
               <li>
-                <a href={href} aria-current={current(href)}>
-                  {label}
-                </a>
+                <a href="/menu/">The shop</a>
               </li>
-            ))}
-            <li>
-              <a href={SESSION.href} aria-current={current(SESSION.href)} data-session-link>
-                {SESSION.label}
-              </a>
-            </li>
-          </ul>
-        </nav>
-      </header>
+            </ul>
+          </nav>
+          {/* Kept for the guide's switch, which the guide's own island puts here. */}
+          <div class="topbar-guide" data-guide-slot></div>
+        </header>
+        <ConsoleNav here={workspaceAt(here)} />
+      </>
     ) : (
       <header class="masthead">
         <div class="masthead-inner">

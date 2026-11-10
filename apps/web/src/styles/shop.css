@@ -1,0 +1,653 @@
+/* The shop's front (design brief, 2026-11-09): the landing page, sign-in and the menu. Imported
+   once from global.css, before its own rules, so a rule here that meets one there is written one
+   class more specific. Colours are tokens only (ADR 0010). */
+
+/* A control rendered on the server inside an island that has not hydrated yet: disabled, so a
+   press waits for the island, but drawn as it will be once live, so nothing flashes
+   (src/lib/use-mounted.ts). */
+.btn:disabled[data-hydrating],
+.btn-primary:disabled[data-hydrating] {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-foreground);
+  cursor: progress;
+}
+
+.btn-secondary:disabled[data-hydrating] {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+/* A page's one sentence under its heading. */
+.page-lead {
+  margin: 0 0 var(--space-5);
+  color: var(--text-muted);
+  font-size: var(--type-18);
+}
+
+/* ---------- The landing page ---------- */
+
+.home .hero {
+  padding: var(--space-6) 0 var(--space-7);
+}
+
+.eyebrow {
+  margin: 0 0 var(--space-3);
+  color: var(--accent);
+  font-size: var(--type-14);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.home .hero h1 {
+  max-width: 26ch;
+  margin: 0 0 var(--space-4);
+  font-size: var(--type-36);
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.hero-stack {
+  max-width: none;
+  margin: 0 0 var(--space-6);
+  color: var(--text-muted);
+  font-size: var(--type-18);
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.hero-actions .btn {
+  min-height: 48px;
+  padding-inline: var(--space-5);
+  font-size: var(--type-16);
+}
+
+.home .path {
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--border);
+}
+
+.home .path h2 {
+  margin: 0;
+}
+
+.path-lead {
+  margin: var(--space-1) 0 var(--space-5);
+  color: var(--text-muted);
+}
+
+/* The request path, drawn. The row on a wide screen, the chain on a narrow one. */
+.request-path {
+  margin: 0;
+}
+
+.rp {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  font-family: var(--font-sans);
+}
+
+.rp-narrow {
+  display: none;
+  max-width: 26rem;
+  margin: 0 auto;
+}
+
+.rp-card {
+  fill: var(--surface-raised);
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.rp-tech {
+  fill: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.rp-title {
+  fill: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.rp-text {
+  fill: var(--text-muted);
+  font-size: 13px;
+}
+
+.rp-rule {
+  stroke: var(--border);
+}
+
+.rp-why {
+  fill: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rp-arrow {
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+}
+
+.rp-head {
+  fill: var(--text-muted);
+}
+
+.rp-return {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+
+.rp-head-live {
+  fill: var(--accent);
+}
+
+.rp-return-bg {
+  fill: var(--surface);
+}
+
+.rp-return-label {
+  fill: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.rp-link:hover .rp-card,
+.rp-link:focus-visible .rp-card {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.rp-link:hover .rp-why {
+  text-decoration: underline;
+}
+
+.rp-link:focus-visible {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rp-card {
+    transition: stroke var(--motion-fast, 150ms) ease-out;
+  }
+}
+
+/* Three ways to look, under the drawing. */
+.roles {
+  margin-top: var(--space-7);
+}
+
+.role-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.role {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+}
+
+.role h3 {
+  margin: var(--space-3) 0 var(--space-2);
+  font-size: var(--type-18);
+}
+
+.role p {
+  flex: 1;
+  margin: 0 0 var(--space-4);
+  color: var(--text-muted);
+}
+
+.role code {
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.role-mark {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+:where(li) a.role-link {
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* The whole card is the link's target; the link keeps its own words and focus ring. */
+.role-link::after {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-card);
+  content: '';
+}
+
+.role:hover {
+  border-color: var(--accent);
+}
+
+.home .draft {
+  margin-top: var(--space-6);
+  color: var(--text-muted);
+}
+
+@media (max-width: 60rem) {
+  .rp-wide {
+    display: none;
+  }
+
+  .rp-narrow {
+    display: block;
+  }
+
+  .role-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 48rem) {
+  .home .hero {
+    padding: var(--space-3) 0 var(--space-6);
+  }
+
+  .home .hero h1 {
+    font-size: var(--type-28);
+  }
+
+  .hero-stack {
+    font-size: var(--type-16);
+  }
+
+  .hero-actions .btn {
+    flex: 1 1 100%;
+  }
+}
+
+/* ---------- Sign-in: three ways in, the quickest first ---------- */
+
+.ways-in {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--space-4);
+}
+
+.ways-in > astro-island {
+  display: contents;
+}
+
+.way-in {
+  margin: 0;
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+}
+
+.way-in-first {
+  border: 2px solid var(--accent);
+}
+
+.way-in-tag {
+  display: inline-block;
+  margin: 0 0 var(--space-2);
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  background: var(--accent-tint);
+  color: var(--text);
+  font-size: var(--type-12);
+  font-weight: 600;
+}
+
+.way-in h2 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--type-22);
+}
+
+.way-in > p {
+  margin: 0 0 var(--space-4);
+}
+
+.way-in h3 {
+  margin: var(--space-4) 0 var(--space-1);
+  font-size: var(--type-16);
+}
+
+.way-in form {
+  margin: 0;
+}
+
+.way-in .field {
+  margin: var(--space-3) 0;
+}
+
+.way-in .field input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.way-in .challenge:not(:empty) {
+  margin: var(--space-3) 0;
+}
+
+.way-in .demo-signin {
+  margin-top: var(--space-5);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.way-in .choices {
+  flex-direction: column;
+}
+
+.way-in .btn {
+  width: 100%;
+}
+
+@media (max-width: 60rem) {
+  .ways-in {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- The menu ---------- */
+
+.menu-status:empty {
+  display: none;
+}
+
+.menu-status > .hint {
+  margin: 0 0 var(--space-3);
+}
+
+/* No sandbox yet: one banner, one button. */
+.start-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-5);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-card);
+  background: var(--accent-tint);
+}
+
+.start-banner p {
+  margin: 0;
+}
+
+.start-title {
+  font-weight: 600;
+}
+
+.start-banner .hint {
+  color: var(--text);
+}
+
+/* The categories: a bar that stays under the top of the window while the list scrolls. */
+.category-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.category-bar ul {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: none;
+}
+
+.category-bar a.cat-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: var(--type-14);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.category-bar a.cat-link:hover {
+  border-color: var(--accent);
+}
+
+.category-bar .count {
+  color: var(--text-muted);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.menu-shop .category h2 {
+  scroll-margin-top: 72px;
+}
+
+/* The cart: a panel beside the grid on a wide screen. The bar and the close button are the
+   phone's. */
+.shop-split.menu-shop > .cart {
+  top: var(--space-4);
+}
+
+.cart-bar,
+.cart-close,
+.cart-scrim {
+  display: none;
+}
+
+.cart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cart-head h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--type-18);
+}
+
+.cart-head h2:focus {
+  outline: none;
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+}
+
+.stepper .btn-icon {
+  min-height: 34px;
+  width: 34px;
+  border-radius: 0;
+}
+
+.stepper .btn-icon:disabled {
+  border-style: solid;
+  border-color: transparent;
+  opacity: 0.45;
+}
+
+.stepper .qty input {
+  width: 3.25rem;
+  min-height: 34px;
+  padding: 0 var(--space-1);
+  border: 0;
+  border-inline: 1px solid var(--border);
+  border-radius: 0;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  appearance: textfield;
+}
+
+.stepper .qty input::-webkit-inner-spin-button,
+.stepper .qty input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.menu-shop .totals {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  max-width: none;
+  margin: var(--space-3) 0 0;
+  font-weight: 600;
+}
+
+.menu-shop .totals dt {
+  color: var(--text);
+}
+
+.menu-shop .cart-sheet > .hint {
+  margin: 0 0 var(--space-3);
+}
+
+.menu-shop .checkout-go {
+  width: 100%;
+  min-height: 44px;
+}
+
+.menu-shop .said:empty {
+  display: none;
+}
+
+/* A line's price never breaks beside the wider stepper. */
+.cart .cart-lines li {
+  grid-template-columns: auto minmax(max-content, 1fr) auto;
+}
+
+.cart .cart-lines .price {
+  white-space: nowrap;
+}
+
+/* A phone: the cart is a bar at the foot of the window, and a sheet when the bar is pressed. */
+@media (max-width: 60rem) {
+  .menu-shop {
+    padding-bottom: 72px;
+  }
+
+  .category-bar {
+    margin-inline: calc(-1 * var(--space-4));
+    padding-inline: var(--space-4);
+  }
+
+  .shop-split.menu-shop > .cart {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+
+  .cart-bar {
+    position: fixed;
+    right: var(--space-4);
+    bottom: var(--space-4);
+    left: var(--space-4);
+    z-index: 19;
+    display: flex;
+    justify-content: space-between;
+    min-height: 48px;
+    padding: 0 var(--space-4);
+    border-color: var(--accent);
+    background: var(--accent);
+    box-shadow: var(--shadow-raised);
+    color: var(--accent-foreground);
+    font-size: var(--type-16);
+  }
+
+  .cart-bar:hover {
+    background: var(--accent-hover);
+  }
+
+  .cart-bar:disabled[data-hydrating] {
+    border-style: solid;
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--accent-foreground);
+  }
+
+  .cart-sheet {
+    display: none;
+  }
+
+  .cart[data-open] .cart-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 21;
+    display: block;
+    background: var(--text);
+    opacity: 0.35;
+  }
+
+  .cart[data-open] .cart-sheet {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 22;
+    display: block;
+    max-height: 80vh;
+    box-sizing: border-box;
+    padding: var(--space-4) var(--space-4) var(--space-5);
+    border-top: 1px solid var(--border);
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-raised);
+    overflow-y: auto;
+  }
+
+  .cart[data-open] .cart-close {
+    display: inline-flex;
+  }
+
+  .menu-shop .said {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}

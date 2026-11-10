@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react';
 import type { SandboxResponse, SessionResponse } from '../contracts';
 import {
   ApiError,
@@ -9,10 +9,28 @@ import {
   signOut,
   wipeSandbox,
 } from '../lib/api';
+import type { WorkspaceId } from '../lib/console-sections';
 import { describeError, type Message as Text } from '../lib/messages';
-import { forgetSession, refreshSession } from '../lib/session';
+import { forgetSession, readSession, refreshSession } from '../lib/session';
+import { readSandbox } from '../lib/use-session';
+import ConsoleTopBar from './ConsoleTopBar';
 import Message from './Message';
-import SandboxView from './SandboxView';
+
+/** What a workspace's view is given: the sandbox, and the actions the frame owns. */
+export interface WorkspaceProps {
+  sandbox: SandboxResponse;
+  isGuest: boolean;
+  /** An action is running: the buttons wait. */
+  busy: boolean;
+  error: Text | null;
+  /** Ask the API for the sandbox again. */
+  onReload: () => void;
+  /** The board's socket closed with "wiped". */
+  onBoardWiped: () => void;
+  onFault: (fault: 'kitchen' | 'inbox', on: boolean) => void;
+  onWipe: () => void;
+  onReplace: () => void;
+}
 
 // Nothing here is stored in the browser: the session is the cookie, and every load asks the API.
 type View =
@@ -25,14 +43,18 @@ type View =
   | { name: 'wiped'; session: SessionResponse }
   | { name: 'sandbox'; session: SessionResponse; sandbox: SandboxResponse };
 
-const KINDS: Record<SessionResponse['kind'], string> = {
-  guest: 'Guest',
-  google: 'Signed in with Google',
-  github: 'Signed in with GitHub',
-  demo: 'Signed in with a demo account',
-};
-
-export default function Console() {
+/**
+ * The frame of every console page (design brief, 2026-11-09): it reads the session and the
+ * sandbox once, says what is wrong when there is no sandbox to show, fills the top bar's live
+ * controls, and hands the sandbox to the page's own workspace view.
+ */
+export default function Console({
+  workspace,
+  View,
+}: {
+  workspace: WorkspaceId;
+  View: ComponentType<WorkspaceProps>;
+}) {
   const [view, setView] = useState<View>({ name: 'loading' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Text | null>(null);
@@ -43,14 +65,16 @@ export default function Console() {
   // request's own answer decides the view, and a close it hid reloads only if the request fails.
   const ownWipe = useRef<'idle' | 'running' | 'closed'>('idle');
 
-  const load = useCallback(async () => {
+  /** `fresh`: ask again; the first look shares the page's one answer with the other islands. */
+  const load = useCallback(async (fresh = true) => {
     try {
-      const session = await refreshSession();
+      const session = await (fresh ? refreshSession() : readSession());
       // The schema marks the claim optional as well as nullable; both mean no sandbox.
       const sandboxId = session.sandbox ?? null;
       if (sandboxId === null) return setView({ name: 'none', session });
       try {
-        setView({ name: 'sandbox', session, sandbox: await getSandbox(sandboxId) });
+        const sandbox = await (fresh ? getSandbox(sandboxId) : readSandbox(sandboxId));
+        setView({ name: 'sandbox', session, sandbox });
       } catch (e) {
         // 410: wiped. 404: the cookie names a sandbox the API does not know; same page for both.
         if (e instanceof ApiError && e.status === 410) return setView({ name: 'deleted', session });
@@ -65,7 +89,7 @@ export default function Console() {
   }, []);
 
   useEffect(() => {
-    void load();
+    void load(false);
   }, [load]);
 
   // The first alarm seeds a new sandbox (ADR 0005); until it is live, ask every second.
@@ -85,6 +109,18 @@ export default function Console() {
     }, 1_000);
     return () => clearInterval(timer);
   }, [seedingId]);
+
+  // A link from elsewhere names a section (`/app/money/#ledger-heading`). The workspace is drawn
+  // after the sandbox is read, too late for the browser's own jump, so once it is drawn the
+  // section's heading is shown and takes the focus, as an in-page link would give it.
+  const shown = view.name === 'sandbox' && view.sandbox.state !== 'seeding';
+  useEffect(() => {
+    if (!shown || window.location.hash.length < 2) return;
+    const target = document.getElementById(decodeURIComponent(window.location.hash.slice(1)));
+    if (target === null) return;
+    target.scrollIntoView();
+    target.focus({ preventScroll: true });
+  }, [shown]);
 
   /**
    * Runs one action: busy while it runs, any problem shown in the live region. `wipes`: the
@@ -119,7 +155,7 @@ export default function Console() {
       return <p aria-live="polite">Loading your session…</p>;
     case 'offline':
       return (
-        <section>
+        <section className="empty">
           <h2>The API is unreachable</h2>
           <p>
             The console could not reach the bakery’s API. Check your connection, then try again.
@@ -149,7 +185,7 @@ export default function Console() {
       );
     case 'failed':
       return (
-        <section>
+        <section className="empty">
           <h2>The console could not load</h2>
           <Message error={view.error} />
           <button type="button" className="btn btn-primary" onClick={() => void load()}>
@@ -185,6 +221,28 @@ export default function Console() {
       window.location.assign('/signin/');
     });
 
+  const wipe = (sandbox: SandboxResponse) =>
+    act(async () => {
+      if (!window.confirm('Wipe this sandbox now? Everything in it is deleted for good.')) return;
+      await wipeSandbox(sandbox.id);
+      setView({ name: 'wiped', session });
+    }, true);
+
+  const sandbox = view.name === 'sandbox' ? view.sandbox : null;
+  const topBar = (
+    <ConsoleTopBar
+      kind={session.kind}
+      sandbox={sandbox}
+      isGuest={isGuest}
+      busy={busy}
+      here={workspace}
+      onLeave={() => void leave()}
+      onWipe={() => sandbox && void wipe(sandbox)}
+      onReplace={() => void newSandbox(true)}
+      onAdvanced={() => void load()}
+    />
+  );
+
   // A guest's new sandbox needs a Turnstile pass, and the widget lives on the sign-in page.
   const another = isGuest ? (
     <p>
@@ -205,44 +263,34 @@ export default function Console() {
     </p>
   );
 
-  const header = (
-    <div className="console-head">
-      <h2>{KINDS[session.kind]}</h2>
-      <button
-        type="button"
-        className="btn btn-secondary btn-sm"
-        disabled={busy}
-        onClick={() => void leave()}
-      >
-        Sign out
-      </button>
-    </div>
-  );
-
   if (view.name === 'none') {
     return (
-      <section>
-        {header}
-        <div className="empty">
-          <h3>You have no sandbox</h3>
+      <>
+        {topBar}
+        <section className="empty">
+          <h2>You have no sandbox</h2>
           <p>A sandbox is yours until 10:00 UTC, when every sandbox is deleted.</p>
           {another}
-        </div>
+        </section>
         <Message error={error} />
-      </section>
+      </>
     );
   }
 
   if (view.name === 'deleted' || view.name === 'wiped') {
-    return <Gone wiped={view.name === 'wiped'} header={header} another={another} error={error} />;
+    return (
+      <>
+        {topBar}
+        <Gone wiped={view.name === 'wiped'} header={null} another={another} error={error} />
+      </>
+    );
   }
 
-  const { sandbox } = view;
   return (
-    <section>
-      {header}
-      <SandboxView
-        sandbox={sandbox}
+    <>
+      {topBar}
+      <View
+        sandbox={view.sandbox}
         isGuest={isGuest}
         busy={busy}
         error={error}
@@ -250,21 +298,14 @@ export default function Console() {
         onBoardWiped={boardWiped}
         onFault={(fault, on) =>
           void act(async () => {
-            const { faults } = await setFault(sandbox.id, { fault, on });
-            setView({ ...view, sandbox: { ...sandbox, faults } });
+            const { faults } = await setFault(view.sandbox.id, { fault, on });
+            setView({ ...view, sandbox: { ...view.sandbox, faults } });
           })
         }
-        onWipe={() =>
-          void act(async () => {
-            if (!window.confirm('Wipe this sandbox now? Everything in it is deleted for good.'))
-              return;
-            await wipeSandbox(sandbox.id);
-            setView({ name: 'wiped', session });
-          }, true)
-        }
+        onWipe={() => void wipe(view.sandbox)}
         onReplace={() => void newSandbox(true)}
       />
-    </section>
+    </>
   );
 }
 

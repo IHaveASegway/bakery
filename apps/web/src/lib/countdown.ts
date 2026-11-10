@@ -23,3 +23,11 @@ export function utcStamp(wallTime: string): string {
   if (Number.isNaN(date.getTime())) return wallTime;
   return `${date.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 }
+
+/** The top bar's countdown, in round words: "12 h", "40 min", "under a minute", "now". */
+export function roughCountdown(ms: number): string {
+  if (ms <= 0) return 'now';
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return 'under a minute';
+  return minutes >= 60 ? `${Math.floor(minutes / 60)} h` : `${minutes} min`;
+}

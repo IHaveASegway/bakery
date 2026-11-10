@@ -74,11 +74,9 @@ export default function ApiToken({ sandboxId, isGuest }: { sandboxId: string; is
       <h3 id="token-heading" tabIndex={-1}>
         API token
       </h3>
-      <p>
-        A bearer token lets <code>curl</code> call this sandbox’s API without the cookie. It lasts
-        24 hours, stops when the sandbox is wiped or the token is rotated, and goes in an{' '}
-        <code>Authorization: Bearer</code> header, never in a URL. The API reference is at{' '}
-        <a href="/docs/api/">/docs/api/</a>.
+      <p className="hint">
+        For <code>curl</code>, in an <code>Authorization: Bearer</code> header, for 24 hours (
+        <a href="/docs/api/">the API reference</a>).
       </p>
       {isGuest ? (
         <>
