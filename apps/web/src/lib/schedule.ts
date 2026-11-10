@@ -79,7 +79,11 @@ export function pickupChoices(schedule: ScheduleResponse, ctx: PickContext): Cho
 }
 
 /** The chosen zone's three windows. A zone's stops are shared by its windows, so they share a count. */
-export function windowChoices(schedule: ScheduleResponse, zone: Zone, ctx: PickContext): Choice[] {
+export function windowChoices(
+  schedule: ScheduleResponse,
+  zone: Zone | string,
+  ctx: PickContext,
+): Choice[] {
   const view = schedule.zones.find((z) => z.zone === zone);
   if (!view) return [];
   return view.windows.map((start) => {

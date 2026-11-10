@@ -289,7 +289,6 @@ export const CHECKOUT: GuideEntry[] = [
       body: {
         kind: 'delivery',
         slot: '2026-11-07T11:00:00-07:00',
-        zone: 'z2',
         lines: [
           { variant: 'country-loaf/whole', qty: 2 },
           { variant: 'seeded-rye/half', qty: 1 },

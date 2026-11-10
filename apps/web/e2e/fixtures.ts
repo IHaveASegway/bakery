@@ -177,6 +177,7 @@ interface Sandbox {
   id: string;
   state: string;
   clock_offset_s?: number;
+  persona_zone?: string | null;
 }
 
 /** A signed-in visitor's new sandbox, waited on until its seeding is done. */
@@ -303,7 +304,7 @@ export function nthOpenDay(date: string, n: number): string {
 }
 
 /**
- * A delivery to zone z2 in a date's 09:00 window, qty of one item baked that weekday that is
+ * A delivery in a date's 09:00 window, naming no zone (the API derives the persona's, R69), qty of one item baked that weekday that is
  * neither pickup-only nor seasonal, with a lead time inside two hours: scripts/smoke-dispatch.sh's
  * delivery_order.
  */
@@ -325,7 +326,6 @@ export function deliveryOrder(
         return {
           kind: 'delivery',
           slot: `${date}T09:00:00${zone}`,
-          zone: 'z2',
           lines: [{ variant: variant.slug, qty }],
         };
       }
