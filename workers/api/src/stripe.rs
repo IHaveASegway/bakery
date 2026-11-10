@@ -254,7 +254,6 @@ impl PaymentGateway for Stripe {
 pub fn reason(e: &PortError) -> String {
     match e {
         PortError::Unavailable(r) | PortError::Rejected(r) => r.clone(),
-        PortError::Conflict { .. } => "conflict".into(),
     }
 }
 

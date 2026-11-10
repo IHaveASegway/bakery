@@ -17,8 +17,8 @@ use bakery_domain::{
 use bakery_seed::{BirthDate, Generated, Generator, Seed, TAX_BP};
 use serde_json::Value;
 
+use crate::Clock;
 use crate::test_support::{FixedClock, SequentialIds};
-use crate::{Clock, IdGen};
 
 const DAY_MS: i64 = 86_400_000;
 
