@@ -8,7 +8,8 @@
   Four page classes. Every page gets the strict policy, which names no third party, so a visitor
   reading the privacy page loads nothing from Cloudflare. Pages that create a sandbox or an account
   (/signin/ now, /app/ because it can create a sandbox too, and since 2026-11-09 the console's other
-  workspaces under it: /app/money/, /app/menu/, /app/catering/, /app/customers/ and /app/system/)
+  workspaces under it: /app/money/, /app/menu/, /app/catering/, /app/customers/ and /app/system/,
+  and since 2026-11-10 /app/start/, where a Google or GitHub sign-in lands and a sandbox is made)
   are the challenge class: they add Turnstile's origin to script-src and frame-src, and nothing else.
   Since 2026-11-10 the menu (/menu/) is in the challenge class too, and the checkout is the payment
   class plus Turnstile (the checkout class): both start a guest sandbox in place with Start ordering

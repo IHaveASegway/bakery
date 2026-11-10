@@ -38,6 +38,8 @@ const PAGES = [
   '/app/customers/',
   '/app/dispatch/',
   '/app/system/',
+  // The sign-in's landing (2026-11-10): with no session it goes on to the sign-in page.
+  '/app/start/',
 ];
 
 // A visitor with no session: a page that asks the API who it is gets 401, which Chromium logs.

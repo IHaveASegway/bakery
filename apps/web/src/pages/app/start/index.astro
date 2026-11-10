@@ -1,0 +1,19 @@
+---
+import Base from '../../../layouts/Base.astro';
+import StartConsole from '../../../components/StartConsole';
+
+// Where a sign-in with Google or GitHub comes back (lib/api.ts, signinUrl): the Kitchen's console,
+// which makes the session a sandbox first when it has no live one, then shows itself at /app/. A
+// step on the way in, not a page to find, so it is noindex and out of the sitemap. It is under
+// /app/*, so it has the console's policy (src/policy.ts, the challenge class).
+---
+
+<Base
+  title="Kitchen | Proof of Concept Bakery"
+  description="Your sandbox's kitchen, reached by signing in: the console starts your sandbox if you have none."
+  screen="console"
+  noindex
+>
+  <h1>Kitchen</h1>
+  <StartConsole client:load />
+</Base>

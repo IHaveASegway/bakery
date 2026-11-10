@@ -7,7 +7,9 @@
 // reaches a live Kitchen board and "You have no sandbox" is never drawn; the card's two actions
 // stand apart.
 // G10, the menu by keyboard: after Add, the way to the cart is the next Tab stop, and it takes the
-// focus to the cart (at 1280 px the panel, at 390 px the sheet).
+// focus to the cart (at 1280 px the panel, at 390 px the sheet), whose heading then shows a ring.
+// G11.2, Google and GitHub: a sign-in lands on /app/start/, which starts the sandbox; /app/ never
+// does.
 import type { Locator, Page } from '@playwright/test';
 import {
   api,
@@ -310,6 +312,11 @@ test.describe('the menu by keyboard', () => {
       await page.keyboard.press('Enter');
       await expect(page.locator('#cart-heading')).toBeFocused();
       if (width === 390) await expect(page.locator('.cart')).toHaveAttribute('data-open', '');
+      // Reached by the keyboard, the heading shows where the focus went, hugging its words.
+      const ring = await outlineOf(page, '#cart-heading');
+      expect(ring.style, 'the cart heading’s focus ring').not.toBe('none');
+      expect(ring.width).toBeGreaterThan(0);
+      expect(ring.box, 'the ring hugs the heading’s words').toBeLessThan(ring.parent);
       const checkout = page.getByRole('link', { name: 'Check out' });
       await expect(checkout).toBeVisible();
       // From the cart's heading, Check out is a few stops on, past the line's own controls.
@@ -321,4 +328,156 @@ test.describe('the menu by keyboard', () => {
       expect(found, 'Check out within a few Tab presses of the cart’s heading').toBe(true);
     });
   }
+
+  test('at 390 px a tapped cart bar opens the sheet with no stray ring on its heading', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/menu/');
+    const add = page.locator('.menu .variants button:enabled').first();
+    await expect(add).toBeVisible();
+    await add.click();
+    await page.locator('.cart-bar').click();
+    await expect(page.locator('#cart-heading')).toBeFocused();
+    expect((await outlineOf(page, '#cart-heading')).style).toBe('none');
+  });
+});
+
+/** The computed outline of an element, and its width against its parent's. */
+const outlineOf = (page: Page, selector: string) =>
+  page.locator(selector).evaluate((el) => {
+    const style = getComputedStyle(el);
+    return {
+      style: style.outlineStyle,
+      width: parseFloat(style.outlineWidth),
+      box: el.getBoundingClientRect().width,
+      parent: el.parentElement?.getBoundingClientRect().width ?? 0,
+    };
+  });
+
+// The sign-in's landing (audit G11.2, 2026-11-10): Google and GitHub come back to /app/start/,
+// which makes the session a sandbox when it has none and shows the console at /app/. The fake
+// providers (scripts/fake-providers.mjs) answer for a new account on each run.
+const FAKE = `http://127.0.0.1:${process.env.E2E_PROVIDERS_PORT || 8799}`;
+
+/** The fake providers' next sign-in is this account: a GitHub id, a Google subject. */
+async function nextAccount(): Promise<number> {
+  const id = 7_000_000 + Math.floor(Math.random() * 2_000_000);
+  const res = await fetch(`${FAKE}/_config`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      google: { sub: `fake-sub-e2e-${id}`, extra_claims: true, fault: 'none' },
+      github: { id, fault: 'none' },
+    }),
+  });
+  expect(res.status).toBe(200);
+  return id;
+}
+
+/** Signs in through the sign-in page's provider link and returns the sandbox creations it made. */
+async function signInWith(page: Page, provider: 'Google' | 'GitHub') {
+  const creations: number[] = [];
+  const watch = (r: { request(): { method(): string }; url(): string; status(): number }) => {
+    if (r.request().method() === 'POST' && new URL(r.url()).pathname === '/v1/sandboxes') {
+      creations.push(r.status());
+    }
+  };
+  page.on('response', watch);
+  await page.goto('/signin/');
+  await page.getByRole('link', { name: `Continue with ${provider}` }).click();
+  await page.waitForURL((url) => url.pathname === '/app/');
+  return { creations, stop: () => page.off('response', watch) };
+}
+
+test.describe('the sign-in’s landing', () => {
+  // The sign-in page asks for a session the visitor does not have yet.
+  test.use({ allowedStatuses: [401] });
+  test.afterEach(async () => {
+    await fetch(`${FAKE}/_reset`, { method: 'POST' });
+  });
+
+  for (const provider of ['Google', 'GitHub'] as const) {
+    test(`a first sign-in with ${provider} reaches a live board with no press`, async ({
+      page,
+    }) => {
+      test.setTimeout(120_000);
+      await nextAccount();
+      await page.addInitScript(WATCH_EMPTY);
+      const first = await signInWith(page, provider);
+      await expect(page.getByRole('heading', { name: 'Kitchen board' })).toBeVisible();
+      await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible({
+        timeout: 60_000,
+      });
+      first.stop();
+      expect(first.creations, 'one sandbox made, on the landing').toEqual([201]);
+      expect(
+        await page.evaluate(() => (window as { __sawNoSandbox?: boolean }).__sawNoSandbox),
+      ).toBe(false);
+      // The landing replaced its own address: Back goes to the sign-in page, not to it.
+      await page.goBack();
+      await expect(page).toHaveURL(/\/signin\/$/);
+
+      if (provider === 'GitHub') {
+        // The same account again, its sandbox live: no second one, straight to the console.
+        await page.context().clearCookies();
+        const again = await signInWith(page, provider);
+        await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible({
+          timeout: 30_000,
+        });
+        again.stop();
+        expect(again.creations, 'no second sandbox').toEqual([]);
+      }
+    });
+  }
+
+  test('with no session the landing goes to the sign-in page', async ({ page }) => {
+    await page.goto('/app/start/');
+    await expect(page).toHaveURL(/\/signin\/\?next=\/app\/$/);
+    await expect(page.getByRole('heading', { name: 'Get your own bakery' })).toBeVisible();
+  });
+});
+
+test.describe('a sandbox the landing cannot start', () => {
+  // The second creation from one address inside a minute is refused, and Chromium logs the 429.
+  test.use({ allowedStatuses: [401, 429] });
+  test.afterEach(async () => {
+    await fetch(`${FAKE}/_reset`, { method: 'POST' });
+  });
+
+  test('is said in the API’s words over the empty state, with no retry', async ({ page }) => {
+    test.setTimeout(120_000);
+    await nextAccount();
+    const first = await signInWith(page, 'GitHub');
+    await expect(page.getByRole('heading', { name: 'Kitchen board' })).toBeVisible();
+    first.stop();
+    expect(first.creations).toEqual([201]);
+
+    // Another new account from the same address within the minute: the API's limit refuses it.
+    await page.context().clearCookies();
+    await nextAccount();
+    const second = await signInWith(page, 'GitHub');
+    await expect(page.getByRole('heading', { name: 'You have no sandbox' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'New sandbox' })).toBeVisible();
+    await expect(page.locator('.problem')).toContainText('Slow down');
+    await page.waitForTimeout(3_000); // long enough for a retry to show itself
+    second.stop();
+    expect(second.creations, 'asked once, not retried').toEqual([429]);
+  });
+});
+
+test('a signed-in session with no sandbox still sees the empty state on /app/', async ({
+  page,
+}) => {
+  await demoAccount(page);
+  const creations: string[] = [];
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && new URL(r.url()).pathname === '/v1/sandboxes') {
+      creations.push(r.url());
+    }
+  });
+  await page.goto('/app/');
+  await expect(page.getByRole('heading', { name: 'You have no sandbox' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'New sandbox' })).toBeVisible();
+  expect(creations).toEqual([]);
 });

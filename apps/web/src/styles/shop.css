@@ -590,7 +590,10 @@
   font-size: var(--type-18);
 }
 
-.cart-head h2:focus {
+/* The heading takes the focus when the sheet opens or "Go to your cart" is pressed. A keyboard
+   visitor sees where it went, the ring hugging the words as the catering form's heading does; a
+   tap or a click draws none (2026-11-10). The flex row already sizes the heading to its words. */
+.cart-head h2:focus:not(:focus-visible) {
   outline: none;
 }
 
