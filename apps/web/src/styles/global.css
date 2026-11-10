@@ -1708,6 +1708,8 @@ progress::-moz-progress-bar {
   margin-top: 2px;
   color: var(--accent);
   font-size: var(--type-12);
+  /* A 24 px target: at the text's own 16 px, axe failed it whenever a control came near. */
+  line-height: 1.5rem;
   cursor: pointer;
 }
 
@@ -1907,40 +1909,6 @@ progress::-moz-progress-bar {
     margin-inline: calc(-1 * var(--space-4));
     margin-bottom: calc(-1 * var(--space-4));
     padding-inline: var(--space-4);
-  }
-}
-
-/* Dispatch: the map large, the stops and the plans beside it. */
-.dispatch-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  align-items: start;
-  gap: var(--space-4);
-  margin-top: var(--space-4);
-}
-
-.dispatch-map-panel {
-  position: sticky;
-  top: calc(var(--topbar-height) + var(--space-4));
-}
-
-.dispatch-side {
-  display: grid;
-  gap: var(--space-4);
-}
-
-.dispatch-layout .panel > h2:first-child {
-  margin: 0 0 var(--space-3);
-  font-size: var(--type-16);
-}
-
-@media (max-width: 75rem) {
-  .dispatch-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .dispatch-map-panel {
-    position: static;
   }
 }
 

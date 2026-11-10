@@ -519,6 +519,31 @@ export function actionFor(card: Card): { action: Action; label: string } | null 
   }
 }
 
+/**
+ * What a card with no button waits for, in words, or null when it has a button (G9, 2026-11-10).
+ * A ready delivery leaves with a van, not from the board: once the day's plan is published on
+ * Dispatch, a delivery that is ready goes out on it, at the publish or as soon as Dispatch hears it
+ * is ready (workers/api/src/objects/order.rs: `RoutePublished` and `StopReady` become
+ * `MarkOutForDelivery`). `dispatch` is true when the next step is on the Dispatch page.
+ */
+export function waitingFor(
+  card: Pick<Card, 'state' | 'kind' | 'van'>,
+): { text: string; dispatch: boolean } | null {
+  if (card.state !== 'ready' || card.kind !== 'delivery') return null;
+  if (card.van !== null)
+    return { text: 'Goes out with its van, from the published plan.', dispatch: false };
+  return {
+    text: 'Waits for a van: it goes out when the day’s plan is published on',
+    dispatch: true,
+  };
+}
+
+/**
+ * An event's type in its words, `OrderProductionStarted` as `Order`, `Production`, `Started`, so a
+ * chip can break between them inside a narrow card instead of running past its edge.
+ */
+export const eventWords = (type: string): string[] => type.split(/(?=[A-Z][a-z])/);
+
 /** The activity feed's entries: the last 50 events, newest first. */
 export const FEED_MAX = 50;
 

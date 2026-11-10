@@ -692,3 +692,102 @@ details.capacity-group .capacity-table {
   padding-top: var(--space-2);
   border-top: 1px solid var(--border);
 }
+
+/* Dispatch (G5, 2026-11-10): the map with the two plans beside it, then the stops at the page's full
+   width, so every column of the table reads without a sideways scroll at 1280 px, then the
+   comparison beside Publish. The stops had been a narrow column beside the map: the table was cut
+   at its right edge and that column ran far below the map, which left an empty block beside it.
+   Under 75rem every panel takes the full width, in the page's order. */
+.dispatch-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.dispatch-plans {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.dispatch-layout .panel > h2:first-child {
+  margin: 0 0 var(--space-3);
+  font-size: var(--type-16);
+}
+
+/* A window is one line, "9:00 am to 11:00 am", where the table has the room. */
+.dispatch-stops td[data-label='Window'] {
+  white-space: nowrap;
+}
+
+@media (min-width: 75rem) {
+  .dispatch-layout {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    grid-template-areas:
+      'map plans'
+      'stops stops'
+      'compare publish';
+  }
+
+  .dispatch-map-panel {
+    grid-area: map;
+  }
+
+  .dispatch-plans {
+    grid-area: plans;
+  }
+
+  .dispatch-stops {
+    grid-area: stops;
+  }
+
+  .dispatch-compare {
+    grid-area: compare;
+  }
+
+  .dispatch-publish {
+    grid-area: publish;
+  }
+}
+
+/* The visitor's own order on the board (G7, 2026-11-10): "Yours" in words beside its kind, and the
+   card drawn in the accent, so the order placed in this tab is found without its six characters. */
+.badge[data-tone='yours'] {
+  --badge-solid: var(--accent);
+  background: var(--accent-tint);
+}
+
+/* With "Yours" beside the kind, a narrow column has no room for the id on the same row: the row
+   wraps and the id keeps its six characters together, never one a line. */
+.board .card-head {
+  flex-wrap: wrap;
+}
+
+.board .card-head .card-id {
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
+.board .card[data-yours] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* A card's last event, `OrderProductionStarted`, breaks between its words and never runs past the
+   card's edge (G9, 2026-11-10). */
+.board .card .card-event {
+  flex-wrap: wrap;
+  gap: 0;
+  max-width: 100%;
+  border-radius: var(--space-2);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* What a card with no button waits for: a ready delivery's van (G9). */
+.board .card .card-waits {
+  margin-top: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--type-12);
+}

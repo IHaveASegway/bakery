@@ -16,9 +16,10 @@ const COLUMNS = ['Order', 'Place', 'Window', 'Zone', 'Units', 'Status', 'Van', '
  * The day's stops: order, place, window, zone, units, status, and the van and stop number once a
  * plan is published. The place is a public drop-off spot named on the map, never anyone’s home.
  *
- * The page's column is narrow and the global styles let text break anywhere, which cut "Delivered"
- * and the order ids mid-word; the table breaks only between words, and scrolls inside its box when
- * it must be wider than the column.
+ * The global styles let text break anywhere, which cut "Delivered" and the order ids mid-word; the
+ * table breaks only between words. It spans the page under the map and the plans (console.css), so
+ * at 1280 px every column reads without a sideways scroll; on a narrower page it still scrolls
+ * inside its box when it must, and on a phone its rows stack with their labels.
  */
 export default function DispatchStops({
   day,

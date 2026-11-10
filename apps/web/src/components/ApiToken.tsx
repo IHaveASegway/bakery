@@ -3,7 +3,7 @@ import { getTokenInfo, issueToken, rotateToken } from '../lib/api';
 import { INITIAL, canRotate, describeTokenError, panelReduce } from '../lib/api-token';
 import { KeyedAction } from '../lib/crm';
 import { tokenStore } from '../lib/token-store';
-import { utcStamp } from '../lib/countdown';
+import { utcMomentText } from '../lib/when';
 import GuestNote from './GuestNote';
 import Message from './Message';
 
@@ -96,9 +96,9 @@ export default function ApiToken({ sandboxId, isGuest }: { sandboxId: string; is
             <dt>Version</dt>
             <dd>{info === null ? 'not known yet' : info.token_v}</dd>
             <dt>Issued</dt>
-            <dd>{info?.issued_at ? utcStamp(info.issued_at) : 'no token yet'}</dd>
+            <dd>{info?.issued_at ? utcMomentText(info.issued_at) : 'no token yet'}</dd>
             <dt>Expires</dt>
-            <dd>{info?.expires_at ? utcStamp(info.expires_at) : 'no token yet'}</dd>
+            <dd>{info?.expires_at ? utcMomentText(info.expires_at) : 'no token yet'}</dd>
             <dt>Token</dt>
             <dd>
               <code>{info?.masked ?? 'none issued'}</code>
@@ -180,4 +180,4 @@ export default function ApiToken({ sandboxId, isGuest }: { sandboxId: string; is
 }
 
 const when = (state: typeof INITIAL) =>
-  state.info?.expires_at ? `at ${utcStamp(state.info.expires_at)}` : 'in 24 hours';
+  state.info?.expires_at ? `at ${utcMomentText(state.info.expires_at)}` : 'in 24 hours';

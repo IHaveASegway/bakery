@@ -16,6 +16,7 @@ import { findVariant, taxBpOf } from '../lib/menu';
 import { dollars, taxPercent } from '../lib/money';
 import { describeOrderError } from '../lib/order-errors';
 import { isPaid } from '../lib/payment';
+import { rememberPlacedOrder } from '../lib/placed-orders';
 import {
   HORIZON_DAYS,
   horizonDates,
@@ -280,6 +281,7 @@ export default function Checkout() {
     setConflict(null);
     try {
       const order = await placeOrder(phase.id, body, current.key);
+      rememberPlacedOrder(order.id);
       attempt.current = null;
       setRetry(false);
       update(() => EMPTY_CART);
