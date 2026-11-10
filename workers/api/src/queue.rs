@@ -34,9 +34,9 @@
 //! for delivery; `OrderOutForDelivery` reaches the day as well, whose stop then reads out for
 //! delivery.
 //!
-//! `Control`'s flag is read once a minute per isolate: `off` retries everything, so the
-//! messages drain to the DLQ after 3 retries rather than being lost (docs/architecture.md,
-//! "Bulkheads and failure modes").
+//! `Control`'s flag is read from the isolate's copy (`crate::flag`, at most 60 s old): `off`
+//! retries everything, so the messages drain to the DLQ after 3 retries rather than being lost
+//! (docs/architecture.md, "Bulkheads and failure modes").
 //!
 //! For each message on `bakery-events-dlq`: write it, with the consumer's last error for it,
 //! to the owning Sandbox (`/_dead-letter`), log `dlq` and ack. A wiped sandbox has nowhere to
@@ -120,20 +120,13 @@ async fn settled(mut res: Response) -> Result<Response> {
 /// The dead-letter queue's name, as `batch.queue()` reports it.
 const DLQ: &str = "bakery-events-dlq";
 
-/// How long an isolate trusts its copy of `Control`'s flag.
-const FLAG_CACHE_MS: i64 = 60_000;
-
-thread_local! {
-    static FLAG: RefCell<Option<(Flag, i64)>> = const { RefCell::new(None) };
-}
-
 #[event(queue)]
 async fn queue(batch: MessageBatch<String>, env: Env, ctx: Context) -> Result<()> {
     if batch.queue() == DLQ {
         let dead = dead_letters(&batch, &env).await?;
         // A dead letter is the Recorder's only news of the event's end; with the flag `off`
         // nothing is recorded, as on the main queue.
-        if !dead.is_empty() && flag(&env).await != Flag::Off {
+        if !dead.is_empty() && crate::flag::current(&env).await != Flag::Off {
             ctx.wait_until(record(env, dead, "/_dead"));
         }
         Ok(())
@@ -170,27 +163,6 @@ async fn record(env: Env, hops: BTreeMap<Ulid, Vec<TraceHop>>, path: &'static st
             console_log!(
                 "{{\"event\":\"trace_drop\",\"sandbox\":\"{sandbox}\",\"path\":{path:?},\"hops\":{n},\"status\":{status}}}"
             );
-        }
-    }
-}
-
-/// The flag, from the isolate's copy when it is under a minute old. An unreachable `Control`
-/// reads as `live`: the subscribers' own checks still hold, and a stalled flag read must not
-/// drain every sandbox's events to the DLQ.
-async fn flag(env: &Env) -> Flag {
-    let now = SystemClock::new().now_wall().unix_ms();
-    let cached = FLAG.with_borrow(|f| f.filter(|(_, at)| now - at < FLAG_CACHE_MS));
-    if let Some((flag, _)) = cached {
-        return flag;
-    }
-    match control::flag(env).await {
-        Ok(flag) => {
-            FLAG.with_borrow_mut(|f| *f = Some((flag, now)));
-            flag
-        }
-        Err(_) => {
-            console_log!("{{\"event\":\"flag_unavailable\"}}");
-            Flag::Live
         }
     }
 }
@@ -270,7 +242,7 @@ fn subscriber(to: Subscriber, envelope: &Envelope) -> Option<(&'static str, Stri
 
 /// The batch, and the hop of every message whose deliveries were decided, by sandbox.
 async fn consume(batch: &MessageBatch<String>, env: &Env) -> Result<BTreeMap<Ulid, Vec<TraceHop>>> {
-    let off = flag(env).await == Flag::Off;
+    let off = crate::flag::current(env).await == Flag::Off;
     let (mut acked, mut retried, mut poisoned) = (0u32, 0u32, 0u32);
     let mut hops: BTreeMap<Ulid, Vec<TraceHop>> = BTreeMap::new();
     for message in batch.raw_iter() {

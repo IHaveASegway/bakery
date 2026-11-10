@@ -209,9 +209,12 @@ impl BreakerState {
 pub enum Flag {
     /// Everything works.
     Live,
-    /// Reads work; commands get 503.
+    /// Reads work; commands get 503 `read-only`. Signing in, "Wipe now" and Stripe's webhook
+    /// still work. True of every route since 2026-11-10 (roadmap R85); until then only new
+    /// sandboxes and demo accounts were refused.
     ReadOnly,
-    /// Only the storefront's static pages work.
+    /// Only the storefront's static pages, `GET /v1/health`, `GET /v1/status` and Stripe's
+    /// webhook work; every other route gets 503 `off` (every route since 2026-11-10, roadmap R85).
     Off,
 }
 

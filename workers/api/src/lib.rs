@@ -21,6 +21,7 @@ mod breaker;
 mod clock;
 mod config;
 mod cron;
+mod flag;
 mod http;
 mod metrics;
 mod objects;

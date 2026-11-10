@@ -19,7 +19,8 @@
 //! and logged `sim_rate`; at most `TRAFFIC_MINUTES_CAP` minutes a sandbox a UTC day (30),
 //! reserved in `Control` at the start, the start refused and logged `sim_cap` when none is
 //! left, and the unused minutes settled at the stop; no socket and no heartbeat for 90 s stops
-//! it with `console_closed`; the wipe stops it with `wipe`.
+//! it with `console_closed`; the wipe stops it with `wipe`; since 2026-11-10 (roadmap R85) a
+//! tick that finds the demo's flag `read-only` or `off` stops it with `read_only` or `off`.
 //!
 //! Paths:
 //!
@@ -37,6 +38,7 @@
 use std::cell::Cell;
 
 use bakery_app::Clock;
+use bakery_app::flag_gate::traffic_stops;
 use bakery_contracts::{OrderResponse, TrafficResponse};
 use bakery_domain::Cents;
 use bakery_domain::billing::Purpose;
@@ -146,6 +148,11 @@ pub enum StopReason {
     ConsoleClosed,
     MinutesSpent,
     Wipe,
+    /// The demo's flag is `read-only` (roadmap R85): a tick places and pays orders, which are
+    /// writes.
+    ReadOnly,
+    /// The demo's flag is `off`.
+    Off,
 }
 
 impl StopReason {
@@ -155,6 +162,8 @@ impl StopReason {
             StopReason::ConsoleClosed => "console_closed",
             StopReason::MinutesSpent => "minutes_spent",
             StopReason::Wipe => "wipe",
+            StopReason::ReadOnly => "read_only",
+            StopReason::Off => "off",
         }
     }
 }
@@ -717,6 +726,13 @@ impl Simulator {
             stream::delete_timer(&sql, TICK)?;
             return Ok(());
         };
+        // The demo's flag (roadmap R85), from the isolate's copy: simulated traffic is writes, so
+        // it stops at `read-only` and `off` and says which.
+        match traffic_stops(crate::flag::current(&self.env).await) {
+            Some("off") => return self.stop(meta, StopReason::Off, now).await,
+            Some(_) => return self.stop(meta, StopReason::ReadOnly, now).await,
+            None => {}
+        }
         let sandbox = meta.sandbox_id()?;
         let presence = self.presence(sandbox).await;
         let started = run.started_at.as_deref().and_then(|t| t.parse().ok());
