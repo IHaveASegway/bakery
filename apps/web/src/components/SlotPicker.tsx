@@ -1,12 +1,89 @@
-import { blockerText, conflictText, dateLabel, freeText, startText } from '../lib/schedule';
+import { blockerText, conflictText, freeText, startText } from '../lib/schedule';
 import type { Choice, SlotConflict } from '../lib/schedule';
 import type { LiveSchedule } from '../lib/use-schedule';
+import { dayParts } from '../lib/when';
 
 /**
- * The checkout's slot picker for a live sandbox: one day's quarter-hour pickup slots or the chosen
- * zone's three windows, each with the free count the API gave it. Full slots and the ones the
- * cart's lead time rules out are disabled and say why in words. All of that is a hint; the order
- * is checked again by the API, and a 409 `slot-full` brings the next free place back here.
+ * The days on offer as chips, "Tue" over "10 Nov", one radio each (`name="day"`, the date as its
+ * value). `quiet` dates are offered but have nothing for this cart by the page's own rules.
+ */
+export function DayChips({
+  dates,
+  day,
+  today,
+  quiet,
+  onDay,
+}: {
+  dates: string[];
+  day: string;
+  today: string;
+  quiet?: ReadonlySet<string> | undefined;
+  onDay: (date: string) => void;
+}) {
+  return (
+    <fieldset className="day-chips">
+      <legend>Day</legend>
+      <ul className="choices">
+        {dates.map((d) => {
+          const { weekday, day: date } = dayParts(d);
+          return (
+            <li key={d}>
+              <label className="chip day-chip" data-quiet={quiet?.has(d) ? 'true' : undefined}>
+                <input
+                  type="radio"
+                  name="day"
+                  value={d}
+                  checked={day === d}
+                  onChange={() => onDay(d)}
+                />
+                <span className="day-weekday">{d === today ? 'Today' : weekday}</span>
+                <span className="day-date">
+                  {d === today && <span className="sr-only">{weekday} </span>}
+                  {date}
+                </span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+    </fieldset>
+  );
+}
+
+/** "10:00 am · 6 left", one line that never wraps inside its chip. */
+function SlotChip({
+  choice,
+  checked,
+  onSlot,
+}: {
+  choice: Choice;
+  checked: boolean;
+  onSlot: (start: string) => void;
+}) {
+  const left = choice.blocked === null ? freeText(choice) : blockerText(choice.blocked);
+  return (
+    <label className="chip slot-chip" data-tone={choice.blocked === null ? undefined : 'blocked'}>
+      <input
+        type="radio"
+        name="slot"
+        value={choice.start}
+        checked={checked}
+        disabled={choice.blocked !== null}
+        onChange={() => onSlot(choice.start)}
+      />
+      <span className="slot-time">{choice.label}</span>
+      <span className="slot-sep"> · </span>
+      <span className="slot-left">{left}</span>
+    </label>
+  );
+}
+
+/**
+ * The checkout's "when" for a live sandbox: the days as chips, then one day's quarter-hour pickup
+ * slots or the chosen zone's three windows, each with the places the API says are left. Full
+ * slots and the ones the cart's lead time rules out are disabled and say why in words. All of
+ * that is a hint; the order is checked again by the API, and a 409 `slot-full` brings the next
+ * free place back here.
  */
 export default function SlotPicker({
   kind,
@@ -22,6 +99,7 @@ export default function SlotPicker({
   onTakeNext,
   baked,
   leadHours,
+  quiet,
 }: {
   kind: 'pickup' | 'delivery';
   today: string;
@@ -36,6 +114,7 @@ export default function SlotPicker({
   onTakeNext: (start: string) => void;
   baked: boolean;
   leadHours: number;
+  quiet?: ReadonlySet<string> | undefined;
 }) {
   const noun = kind === 'pickup' ? 'Pickup time' : 'Delivery window';
   const schedule = live.schedule;
@@ -43,23 +122,9 @@ export default function SlotPicker({
 
   return (
     <>
-      <p>
-        <label htmlFor="day">Day</label>
-        <select id="day" value={day} onChange={(e) => onDay(e.target.value)}>
-          {dates.map((d) => (
-            <option key={d} value={d}>
-              {dateLabel(d)}
-              {d === today ? ' (today)' : ''}
-            </option>
-          ))}
-        </select>
-        <span className="hint">
-          Bakery time (Mountain). The next {dates.length} days are on offer; open Tuesday to Sunday,
-          7:00 am to 3:00 pm.
-        </span>
-      </p>
+      <DayChips dates={dates} day={day} today={today} quiet={quiet} onDay={onDay} />
 
-      <fieldset aria-describedby="slot-status">
+      <fieldset aria-describedby="slot-status" className="slot-chips">
         <legend>{noun}</legend>
         <p id="slot-status" aria-live="polite" className="hint">
           {live.error
@@ -75,25 +140,21 @@ export default function SlotPicker({
                       ? ` Your cart needs ${leadHours} ${leadHours === 1 ? 'hour' : 'hours'}’ notice at least.`
                       : '')}
         </p>
-        <ul className="choices">
-          {choices.map((c) => (
-            <li key={c.start}>
-              <label className="chip">
-                <input
-                  type="radio"
-                  name="slot"
-                  value={c.start}
-                  checked={slot === c.start}
-                  disabled={c.blocked !== null}
-                  onChange={() => onSlot(c.start)}
-                />{' '}
-                {c.label},{' '}
-                {c.blocked === null || c.blocked === 'lead' ? freeText(c) : blockerText(c.blocked)}
-                {c.blocked === 'lead' && ' (too soon)'}
-              </label>
-            </li>
-          ))}
-        </ul>
+        {/* A day the bakery is shut or the cart cannot have offers nothing to pick: the line above
+            says so, and no list of greyed-out times repeats it. */}
+        {(schedule === null || (schedule.open && baked)) && (
+          <ul className="choices" data-kind={kind}>
+            {choices.map((c) => (
+              <li key={c.start}>
+                <SlotChip choice={c} checked={slot === c.start} onSlot={onSlot} />
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="hint">
+          Bakery time (Mountain). The next {dates.length} days are on offer; open Tuesday to Sunday,
+          7:00 am to 3:00 pm.
+        </p>
       </fieldset>
 
       {conflict !== null && (

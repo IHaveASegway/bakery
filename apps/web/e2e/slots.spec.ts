@@ -86,22 +86,32 @@ test('a past slot and a full slot are not offered, and a free one is chosen', as
   expect([past, free, full].every(Boolean), JSON.stringify(schedule.slots)).toBe(true);
   if (past === undefined || free === undefined || full === undefined) return;
 
+  // A click before the menu's island has hydrated does nothing (the button is the server's HTML), so
+  // wait for Astro to mark the island hydrated (it drops the island's `ssr` attribute), and then for
+  // the cart's own line saying it took the item, before leaving the page.
   await page.goto('/menu/');
+  await expect(page.locator('astro-island[component-url*="StoreMenu"]')).not.toHaveAttribute(
+    'ssr',
+    /.*/,
+  );
   await page
     .getByRole('button', { name: `Add ${item.name}, ${variant.label}, to the cart` })
     .click();
+  await expect(page.getByText(`Added ${item.name}, ${variant.label}.`)).toBeVisible();
   await page.goto('/checkout/');
+  // Step 1 is pickup already; its one action opens step 2, the day and the time.
+  await page.getByRole('button', { name: 'Continue' }).click();
   const picker = page.getByRole('group', { name: 'Pickup time' });
-  await expect(page.locator('#day')).toHaveValue(day);
+  await expect(page.locator('input[name="day"]:checked')).toHaveValue(day);
   await expect(picker.getByText(/^\d+ of 32 slots open\./)).toBeVisible();
 
   const input = (start: string) => `input[type="radio"][value="${start}"]`;
   const radio = (start: string) => picker.locator(input(start));
   const label = (start: string) => picker.locator('label', { has: page.locator(input(start)) });
   await expect(radio(past)).toBeDisabled();
-  await expect(label(past)).toContainText('(too soon)');
+  await expect(label(past)).toContainText('too soon');
   await expect(radio(full)).toBeDisabled();
-  await expect(label(full)).toHaveText('2:45 pm, full');
+  await expect(label(full)).toHaveText('2:45 pm · full');
   await expect(radio(free)).toBeEnabled();
   await expectNoAxeViolations(page);
 
