@@ -94,6 +94,9 @@ function afterSettling(kept: () => boolean, fold: () => void): () => void {
   return () => cancelAnimationFrame(frame);
 }
 
+/** The width at and under which the guide's control and folded line sit in the masthead's row. */
+const PHONE_ROW = '(max-width: 48rem)';
+
 /** A menu open over the page, which an Escape closes before it closes any note. */
 const OPEN_MENUS =
   '.board details.menu[open], .popover > [aria-expanded="true"], .guide-extra[data-open], .guide-full[data-open]';
@@ -528,14 +531,23 @@ export default function Layer({
     };
   }, []);
 
+  // On a phone the folded line waits in the masthead's guide row; decided again whenever the
+  // window crosses that width, so the line never stays in a row the page no longer shows
+  // (pull request #143: it held the masthead 46 px taller after the window widened).
+  const narrow = useSyncExternalStore(
+    (changed) => {
+      const query = window.matchMedia(PHONE_ROW);
+      query.addEventListener('change', changed);
+      return () => query.removeEventListener('change', changed);
+    },
+    () => window.matchMedia(PHONE_ROW).matches,
+    () => false,
+  );
   const showLive = on && live !== null && group.length > 0 && !offStory;
   const folded = showLive && asLine && !storyOpen;
   // The line stays while its note is open (the page does not jump under the visitor's finger).
   const lined = showLive && asLine;
-  const lineSlot =
-    lined && window.matchMedia('(max-width: 60rem)').matches
-      ? document.querySelector('.guide-line-slot')
-      : null;
+  const lineSlot = lined && narrow ? document.querySelector('.guide-line-slot') : null;
   const line = lined ? (
     <p className="guide-line" role="group" aria-label="Under the hood, what this page read">
       <button

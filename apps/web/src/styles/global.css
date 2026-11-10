@@ -342,7 +342,7 @@ main:focus {
   }
 
   .masthead .masthead-guide {
-    flex: 1 1 100%;
+    flex: 0 0 auto;
     order: 4;
   }
 
@@ -364,7 +364,13 @@ main:focus {
     flex: none;
   }
 
+  /* The guide's folded line waits beside its control, in the row the control already holds, so
+     its arrival after load moves nothing (pull request #143). */
   .masthead .guide-line-slot {
+    display: flex;
+    flex: 1 1 0;
+    align-items: center;
+    min-height: 46px;
     order: 5;
   }
 }

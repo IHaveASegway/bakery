@@ -829,9 +829,63 @@
   /* A row of its own under the masthead's links, in the page's flow: nothing touches it, and it
      reads "Under the hood" beside its switch, so a stranger finds it without pressing anything. */
   .masthead-guide {
-    display: block;
-    flex: 1 1 100%;
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    /* The row's height is the server's: the control and up to three short lines of the folded
+       line beside it, so the line's arrival after load moves nothing. */
+    min-height: 46px;
     order: 4;
+  }
+
+  /* The guide's row: its control, then the folded line beside it in the room the control's row
+     already has (40 px), so a line arriving after load moves nothing (pull request #143). */
+  .masthead .guide-line-slot {
+    flex: 1 1 0;
+    min-width: 0;
+    order: 5;
+  }
+
+  .masthead .guide-line-slot:empty {
+    display: block;
+  }
+
+  .guide-line-docked .guide-line {
+    max-width: 100%;
+    padding-block: 0;
+    font-size: 12px;
+    line-height: 15px;
+  }
+
+  /* Beside the control there is room for the title alone: the answer's chip is read out, not
+     shown, and the opened note shows it whole. */
+  .guide-line-docked .guide-line .guide-chip {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .guide-line-docked .guide-icon {
+    flex: none;
+    min-width: 28px;
+    min-height: 28px;
+  }
+
+  .guide-layer.guide-line-docked .guide-line-open {
+    min-height: 38px;
+    padding: 2px 4px 2px 8px;
+    row-gap: 0;
+  }
+
+  .guide-line-docked .guide-line {
+    gap: 0;
+  }
+
+  .guide-line-docked .guide-icon {
+    width: 28px;
   }
 
   .guide-layer .guide-bar-dock .guide-compact {
@@ -849,6 +903,14 @@
     white-space: nowrap;
   }
 
+  /* On the narrowest phones the folded line beside the control keeps its title's room: its close
+     button is left to the opened note, which has its own. */
+  @media (max-width: 22.5rem) {
+    .guide-line-docked .guide-line .guide-icon {
+      display: none;
+    }
+  }
+
   .guide-bar-dock {
     position: relative;
     right: auto;
@@ -861,6 +923,26 @@
     top: calc(100% + 8px);
     left: 0;
   }
+}
+
+/* ---- Room for a mark at the end of the words it explains ----
+
+   A mark sits after the last word of its target's heading or paragraph (lib/guide.ts,
+   spotPlaces). The room is kept in the page's own layout, in the first-load stylesheet, so it
+   never depends on how wide the system's font sets the words and never shifts the page when the
+   guide loads: an inline end of 48 px (the mark, its 18 px gap and a margin) joined to the last
+   word by a word joiner, so a full line wraps the last word together with the room rather than
+   leave none (pull request #143: in DejaVu Sans the catering gate's title filled its line at
+   390 px and its mark was not drawn). The room is there with the guide off too, so turning it on
+   or off moves nothing. */
+:is(
+  [data-tour]:is(h1, h2, h3, h4, p),
+  [data-tour] > :is(h1, h2, h3, h4),
+  [data-tour] > * > :is(h1, h2, h3, h4):first-child,
+  [data-tour] .start-title
+)::after {
+  content: '\2060';
+  padding-inline-end: 48px;
 }
 
 /* An entry's reasons after its first note in a visit: one line that opens them (G12). */
