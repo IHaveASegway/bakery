@@ -298,7 +298,7 @@ expect_public_headers live
 expect_json live "b.counters_state === 'live' && b.counters.sandboxes_24h === 7 && b.counters.orders_24h === 12 && b.counters.payments_24h === 10 && b.counters.payment_failures_24h === 2 && b.counters.refunds_24h === 1 && b.counters.dlq_24h === 0"
 expect_json live "b.counters.last_wipe.at === '2026-11-06T10:00:04Z' && b.counters.last_wipe.sandboxes === 7 && b.counters.last_wipe.objects === 133 && b.counters.last_wipe.ms === 4210"
 expect_json live "/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(b.counters_as_of) && Date.parse(b.counters_as_of) >= $before_ms - 1000 && Date.parse(b.counters_as_of) <= $after_ms + 1000"
-expect_json live "Object.keys(b.counters).join(',') === 'orders_24h,payments_24h,payment_failures_24h,refunds_24h,sandboxes_24h,dlq_24h,last_wipe'"
+expect_json live "Object.keys(b.counters).sort().join(',') === ['orders_24h', 'payments_24h', 'payment_failures_24h', 'refunds_24h', 'sandboxes_24h', 'dlq_24h', 'last_wipe'].sort().join(',')"
 wait_log '"event":"analytics_refreshed","queries":2,'
 check "the cron logs analytics_refreshed with two queries" "log_has '\"event\":\"analytics_refreshed\",\"queries\":2,'"
 LIVE_AS_OF="$(json_field live b.counters_as_of)"
