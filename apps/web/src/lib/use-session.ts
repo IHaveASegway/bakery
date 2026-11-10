@@ -15,6 +15,7 @@ export type Phase =
   /**
    * `clockOffsetS`: business time minus wall time, from the sandbox as of this look.
    * `personaZone`: the persona's delivery zone, their place's, where a delivery goes (R69).
+   * `personaName`: the made-up customer every order and message of this sandbox is addressed to.
    */
   | {
       name: 'live';
@@ -22,6 +23,7 @@ export type Phase =
       kind: SessionKind;
       clockOffsetS: number;
       personaZone?: string | null;
+      personaName?: string | null;
     };
 
 // The page's first read of a sandbox, shared by every island that asks for the same id, as
@@ -79,6 +81,7 @@ export function useSandboxPhase(): Phase {
             kind,
             clockOffsetS: sandbox.clock_offset_s,
             personaZone: sandbox.persona_zone ?? null,
+            personaName: sandbox.persona_name ?? null,
           });
         } else {
           setPhase({ name: 'nosandbox' });

@@ -170,3 +170,72 @@ export function startText(start: string): string {
   const ms = Date.parse(start);
   return `${clockLabel(minutesOf(ms))} on ${dateLabel(dateOfStart(start))}`;
 }
+
+/** What the picker lists for a day, and what it says about the times it leaves out. */
+export interface Offer {
+  /** The choices to draw, in order: the first open time on, with full ones where they stand. */
+  shown: Choice[];
+  /** How many leading times were left out because the cart needs more notice than they give. */
+  tooSoon: number;
+  /** The first time that can be chosen, or null when none can. */
+  first: Choice | null;
+}
+
+/**
+ * The times worth drawing. The leading run that is already past or needs more notice than the
+ * cart's lead time is left out of the list, and `tooSoon` counts it so a line can say why. A full
+ * time among the open ones stays, since it tells the visitor something. A day with nothing open
+ * draws no list at all: its line says so.
+ */
+export function offerOf(choices: Choice[], ctx: Pick<PickContext, 'nowMs' | 'leadMinutes'>): Offer {
+  const first = choices.find((c) => c.blocked === null) ?? null;
+  if (first === null) {
+    return { shown: [], tooSoon: choices.filter((c) => isTooSoon(c, ctx)).length, first };
+  }
+  const at = choices.indexOf(first);
+  const hidden = choices.slice(0, at).filter((c) => isTooSoon(c, ctx)).length;
+  // Only a leading run goes: the times are in order, so what is too soon is always the first ones.
+  return { shown: choices.slice(hidden), tooSoon: hidden, first };
+}
+
+const isTooSoon = (c: Choice, ctx: Pick<PickContext, 'nowMs' | 'leadMinutes'>): boolean =>
+  (c.blocked === 'lead' || c.blocked === 'full') && c.ms - ctx.nowMs < ctx.leadMinutes * 60_000;
+
+/**
+ * The line before the first time: why the earlier ones are not listed ("Earlier times today need
+ * more notice: the first open time is 11:00 am"). Null when nothing was left out.
+ */
+export function earlierText(
+  offer: Offer,
+  kind: 'pickup' | 'delivery',
+  isToday: boolean,
+): string | null {
+  if (offer.tooSoon === 0 || offer.first === null) return null;
+  const noun = kind === 'pickup' ? 'times' : 'windows';
+  const first = kind === 'pickup' ? 'time' : 'window';
+  return `Earlier ${noun} ${isToday ? 'today' : 'that day'} need more notice: the first open ${first} is ${offer.first.label}.`;
+}
+
+/**
+ * What to say when a day that is open and baked has nothing left to choose, or null when it has
+ * something. It says why, and the page offers the next open day beside it.
+ */
+export function nothingLeftText(choices: Choice[], offer: Offer, isToday: boolean): string | null {
+  if (choices.length === 0 || offer.first !== null) return null;
+  const day = isToday ? 'today' : 'that day';
+  if (offer.tooSoon === 0) return `Every time ${day} is full.`;
+  const rest = choices.length - offer.tooSoon;
+  return rest > 0
+    ? `Nothing is left ${day}: earlier times need more notice and the rest are full.`
+    : `Nothing is left ${day}: every time has passed or needs more notice.`;
+}
+
+/** The first day after `day` in `dates` the bakery is open and has not been ruled out, or null. */
+export function nextOpenDay(
+  dates: readonly string[],
+  day: string,
+  quiet?: ReadonlySet<string>,
+): string | null {
+  const at = dates.indexOf(day);
+  return dates.slice(at + 1).find((d) => isOpenDate(d) && !quiet?.has(d)) ?? null;
+}

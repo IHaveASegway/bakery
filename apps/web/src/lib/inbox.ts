@@ -93,3 +93,32 @@ export function receiptOf(
 ): string | null {
   return messages.find((m) => m.kind === 'receipt' && m.ref === order)?.message ?? null;
 }
+
+/**
+ * Whose name an order and its messages carry. A guest gives no name, so the sandbox orders as one
+ * of its made-up customers (its persona): the delivery needs a place and the CRM needs a history to
+ * show. Every screen that shows that name says so in these words.
+ */
+export const ORDERING_AS_WHY =
+  'so a delivery has a place and the customer list has a history. It is not you, and nothing about you is asked for.';
+
+/** The checkout's line before a visitor pays. */
+export function orderingAsText(name: string | null | undefined): string {
+  return name
+    ? `You are ordering as ${name}, one of this sandbox’s made-up customers, ${ORDERING_AS_WHY}`
+    : `You are ordering as one of this sandbox’s made-up customers, ${ORDERING_AS_WHY}`;
+}
+
+/** The placed order's line, in the past tense. */
+export function orderedAsText(name: string | null | undefined): string {
+  return name
+    ? `Placed as ${name}, a made-up customer of this sandbox, not you.`
+    : 'Placed as a made-up customer of this sandbox, not you.';
+}
+
+/** The line above the inbox's list: whose name the "To" column shows. */
+export function inboxToText(name: string | null | undefined): string {
+  return name
+    ? `Messages go to made-up customers, never to you. Your own receipts are addressed to ${name}, the customer your orders are placed as.`
+    : 'Messages go to made-up customers, never to you.';
+}
