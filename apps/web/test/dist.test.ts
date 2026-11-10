@@ -2,7 +2,15 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { PAGES } from '../src/lib/guide';
 import { PRINCIPLE_TABLE, PRINCIPLES } from '../src/lib/how-its-built';
 import { decisionRows } from '../src/guide/decisions';
-import { ESSAYS, ESSAY_PAGES, HOW_PATH, SITE_LAB, adrUrl, labUrl } from '../src/lib/links';
+import {
+  ESSAYS,
+  ESSAY_PAGES,
+  HOW_PATH,
+  SITE_LAB,
+  TOOLS_PATH,
+  adrUrl,
+  labUrl,
+} from '../src/lib/links';
 import { RULE_PATHS } from '../src/policy';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
@@ -10,7 +18,8 @@ import { inlineHashes } from '../scripts/inline-hashes.mjs';
 import { readLock, verifyFolder } from '../../../scripts/fetch-solver.mjs';
 
 // The built pages against the policy: a page with no island carries no script at all (ADR 0008;
-// as of 2026-11-09 seventeen pages: About, How it's built, its fourteen essays and the 404), and
+// as of 2026-11-10 eighteen pages: About, How it's built, its fourteen essays, the tools page and
+// the 404), and
 // every inline script or style on a page with an island (the guide's, on every other screen,
 // since PR 10 as the tour and since 2026-11-09 as the guide) is covered by a hash in the page's
 // own rule.
@@ -46,6 +55,7 @@ describe('dist', () => {
     '404.html',
     'about/index.html',
     'how-its-built/index.html',
+    'how-its-built/tools/index.html',
     ...essays.map((e) => essayFile(e.path)),
   ])('%s carries no React or script', (file) => {
     const html = page(file);
@@ -127,7 +137,7 @@ describe('dist', () => {
   const matches = (rulePath: string, path: string) =>
     rulePath.endsWith('*') ? path.startsWith(rulePath.slice(0, -1)) : rulePath === path;
 
-  test.each(['/about/', '/how-its-built/', ...essays.map((e) => e.path)])(
+  test.each(['/about/', '/how-its-built/', TOOLS_PATH, ...essays.map((e) => e.path)])(
     '%s is in the dist and takes the strict policy of every page, with no rule of its own',
     (path) => {
       expect(existsSync(`${dist}${path.slice(1)}index.html`), path).toBe(true);
@@ -596,7 +606,8 @@ describe('dist', () => {
   describe('JavaScript per page', () => {
     const KB = 1_000;
     const BUDGETS: Record<string, { budget: number; pages: string[] }> = {
-      none: { budget: 0, pages: [] },
+      // Reading pages load no script; the tools page (2026-11-10) is named so its class is plain.
+      none: { budget: 0, pages: ['how-its-built/tools/index.html'] },
       guide: { budget: 102 * KB, pages: ['index.html', 'privacy/index.html'] },
       api: { budget: 103 * KB, pages: ['docs/api/index.html'] },
       status: { budget: 106 * KB, pages: ['status/index.html'] },
