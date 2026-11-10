@@ -350,8 +350,11 @@ after a missed one the day's next frame puts the count right.
 (`State::set_websocket_auto_response` exists in workers-rs 0.8.7), which does not wake the object;
 the storefront sends none and reconnects instead. Limits: 4 open sockets a sandbox (a fifth is
 accepted, told `bye` `limit` and closed with 1008, so the console knows not to retry), frames of
-at most 4 KB (1009), 10 frames a second a socket (1008), text frames only (1003). The last 64
-command ids, the board and the heartbeat are in SQLite, so all of it survives hibernation; the
+at most 4 KB (1009), 10 frames a second a socket (1008), text frames only (1003), and since
+2026-11-10 a command budget for the sandbox: 60 commands reach its Orders at once, then one a
+second, from all its sockets together; past it the answer is `nack` `rate-limit`, nothing is stored,
+and a repeated id or an order not on the board spends nothing. The budget is in memory and starts
+full at a wake. The last 64 command ids, the board and the heartbeat are in SQLite, so all of it survives hibernation; the
 per-socket frame counts are in memory and start again after a wake. `wrangler dev` hibernates an
 idle Kitchen with sockets open after about 10 s: the next frame or upgrade logs `kitchen_wake` with
 a new instance mark. `scripts/ws-probe.mjs` is the smoke test's client: Node 22's `WebSocket`, the

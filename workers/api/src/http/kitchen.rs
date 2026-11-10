@@ -53,6 +53,12 @@ pub async fn socket(cx: &Cx, req: &Request, id: Option<&str>) -> Answer {
     let res = stub.fetch_with_request(inner).await?;
     match res.status_code() {
         101 => {
+            // The log's one record of who opens the board, since a guest moves it too (R72).
+            cx.reason(if claims.is_guest() {
+                "socket-guest"
+            } else {
+                "socket-staff"
+            });
             // A response from an object has immutable headers; a fresh one takes the router's.
             let ws = res
                 .websocket()

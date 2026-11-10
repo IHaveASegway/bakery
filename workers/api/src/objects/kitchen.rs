@@ -90,6 +90,20 @@ pub const MAX_FRAME_BYTES: usize = 4_096;
 pub const FRAMES_PER_SECOND: u32 = 10;
 /// Command ids kept with their answers, so a repeated id is answered as the first time.
 pub const KEEP_COMMANDS: i64 = 64;
+/// Commands a sandbox's board may send to its Orders in one burst, and so the bucket's size; it
+/// then gets one more a second (`COMMAND_REFILL_MS`). 60 is `COMMAND_LIMIT`'s number, 60 a minute
+/// for each session's HTTP commands (workers/api/wrangler.jsonc), so a socket's moves cost no more
+/// than the HTTP commands do (roadmap R72, review of 2026-11-10). Without it the only rate was the
+/// frame rate, 10 a second on each of 4 sockets. The count is per Kitchen, and the Kitchen is the
+/// one object for its sandbox, so a counter here is exact and costs nothing; the Rate Limiting
+/// binding counts each Cloudflare location apart and only approximately, which is what the edge
+/// needs and the Kitchen does not. It is held in memory: a wake starts it full, and only an idle
+/// board is evicted, so a wake cannot be used to refill it while commands flow.
+pub const COMMAND_BURST: u32 = 60;
+/// One command token comes back each this many milliseconds.
+pub const COMMAND_REFILL_MS: i64 = 1_000;
+/// The rule of a command refused for the budget: HTTP's 429 slug (http/problem.rs).
+pub const RATE_LIMIT: &str = "rate-limit";
 /// `WebSocket.OPEN` (WHATWG WebSockets, "readyState").
 const OPEN: u16 = 1;
 
@@ -335,6 +349,44 @@ pub fn read_frame(text: &str) -> std::result::Result<Cmd, (String, &'static str)
     Ok(Cmd { id, order, action })
 }
 
+/// The sandbox's command tokens and when the last one was added.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Budget {
+    pub tokens: u32,
+    pub at_ms: i64,
+}
+
+impl Budget {
+    /// A full budget, as a fresh or woken Kitchen starts.
+    pub fn full(now_ms: i64) -> Budget {
+        Budget {
+            tokens: COMMAND_BURST,
+            at_ms: now_ms,
+        }
+    }
+}
+
+/// Spends one of the sandbox's command tokens, after adding one for each whole second since the
+/// last was added (at most `COMMAND_BURST`); `false` when none is left, and nothing is spent.
+pub(super) fn take_token(budget: &mut Budget, now_ms: i64) -> bool {
+    let earned = (now_ms - budget.at_ms).div_euclid(COMMAND_REFILL_MS).max(0);
+    if earned > 0 {
+        let tokens = i64::from(budget.tokens) + earned;
+        budget.tokens =
+            u32::try_from(tokens.min(i64::from(COMMAND_BURST))).unwrap_or(COMMAND_BURST);
+        budget.at_ms = if budget.tokens == COMMAND_BURST {
+            now_ms
+        } else {
+            budget.at_ms + earned * COMMAND_REFILL_MS
+        };
+    }
+    if budget.tokens == 0 {
+        return false;
+    }
+    budget.tokens -= 1;
+    true
+}
+
 /// One socket's frame count in the current second; `false` once it passes the limit.
 pub(super) fn within_rate(count: &mut (i64, u32), second: i64) -> bool {
     if count.0 != second {
@@ -357,6 +409,11 @@ pub struct Kitchen {
     /// Frames each socket sent in the current second, by its id. Lost at a wake, which only an
     /// idle board takes, so nothing it counts is lost.
     frames: RefCell<HashMap<String, (i64, u32)>>,
+    /// The sandbox's command budget (`COMMAND_BURST`), set full at the first command after a
+    /// start or a wake.
+    budget: Cell<Option<Budget>>,
+    /// The last command was refused `rate-limit`: a run of refusals logs its first only.
+    limited: Cell<bool>,
 }
 
 impl DurableObject for Kitchen {
@@ -378,6 +435,8 @@ impl DurableObject for Kitchen {
             schema_ready: Cell::new(false),
             instance,
             frames: RefCell::new(HashMap::new()),
+            budget: Cell::new(None),
+            limited: Cell::new(false),
         }
     }
 
@@ -492,7 +551,8 @@ impl DurableObject for Kitchen {
                 return Ok(());
             }
         };
-        let second = SystemClock::new().now_wall().unix_ms().div_euclid(1_000);
+        let now_ms = SystemClock::new().now_wall().unix_ms();
+        let second = now_ms.div_euclid(1_000);
         let fast = {
             let mut frames = self.frames.borrow_mut();
             !within_rate(frames.entry(tag.id.clone()).or_insert((second, 0)), second)
@@ -511,18 +571,25 @@ impl DurableObject for Kitchen {
         }
         let (id, answer) = match read_frame(&text) {
             Ok(cmd) => {
-                let answer = self.command(&cmd).await?;
+                let answer = self.command(&cmd, now_ms).await?;
                 (cmd.id.to_string(), answer)
             }
             Err((id, rule)) => (id, Answer::nack(rule)),
         };
-        console_log!(
-            "{{\"event\":\"kitchen_cmd\",\"instance\":\"{}\",\"id\":{:?},\"outcome\":\"{}\",\"rule\":{:?}}}",
-            self.instance,
-            safe_id(&id),
-            if answer.ok { "ack" } else { "nack" },
-            answer.rule.as_deref().unwrap_or("")
-        );
+        // A run of `rate-limit` refusals logs its first only, so a flood is one line.
+        let limited = answer.rule.as_deref() == Some(RATE_LIMIT);
+        if !(limited && self.limited.replace(true)) {
+            console_log!(
+                "{{\"event\":\"kitchen_cmd\",\"instance\":\"{}\",\"id\":{:?},\"outcome\":\"{}\",\"rule\":{:?}}}",
+                self.instance,
+                safe_id(&id),
+                if answer.ok { "ack" } else { "nack" },
+                answer.rule.as_deref().unwrap_or("")
+            );
+        }
+        if !limited {
+            self.limited.set(false);
+        }
         let _ = ws.send_with_str(answer.frame(safe_id(&id)));
         Ok(())
     }
@@ -704,9 +771,10 @@ impl Kitchen {
     }
 
     /// A command from a socket, any session's: answered from the last 64 ids when it is one of them,
-    /// else checked against the board and sent to its Order with the frame id as the key. An
-    /// answer the Order gave is kept; a failure to reach it is not, so the same id may retry.
-    async fn command(&self, cmd: &Cmd) -> Result<Answer> {
+    /// else checked against the board, then against the sandbox's command budget, and sent to its
+    /// Order with the frame id as the key. An answer the Order gave is kept; a failure to reach it
+    /// is not, nor is a `rate-limit` refusal, so the same id may retry.
+    async fn command(&self, cmd: &Cmd, now_ms: i64) -> Result<Answer> {
         let sql = self.sql();
         let hash = cmd.body_hash();
         #[derive(Deserialize)]
@@ -729,6 +797,12 @@ impl Kitchen {
         let board: Board = serde_json::from_str(&row.body)?;
         if board.card(cmd.order).is_none() {
             return Ok(Answer::nack("unknown-order"));
+        }
+        let mut budget = self.budget.get().unwrap_or_else(|| Budget::full(now_ms));
+        let spent = take_token(&mut budget, now_ms);
+        self.budget.set(Some(budget));
+        if !spent {
+            return Ok(Answer::nack(RATE_LIMIT));
         }
         let meta = child::meta(&sql)?.ok_or_else(|| Error::RustError("no meta".into()))?;
         let name = order::name(meta.sandbox_id()?, cmd.order);
@@ -933,6 +1007,60 @@ mod tests {
         }
         assert!(!within_rate(&mut count, 7));
         assert!(within_rate(&mut count, 8), "a new second starts again");
+    }
+
+    #[test]
+    fn sixty_commands_in_a_burst_then_one_a_second() {
+        let start = 1_700_000_000_000;
+        let mut b = Budget::full(start);
+        for _ in 0..COMMAND_BURST {
+            assert!(take_token(&mut b, start));
+        }
+        assert!(
+            !take_token(&mut b, start),
+            "the 61st in the burst is refused"
+        );
+        assert!(
+            !take_token(&mut b, start + 999),
+            "no token before a whole second"
+        );
+        assert_eq!(b.tokens, 0, "a refusal spends nothing");
+        assert!(take_token(&mut b, start + 1_000), "one back after a second");
+        assert!(!take_token(&mut b, start + 1_500));
+        assert!(
+            take_token(&mut b, start + 2_000),
+            "the half second was kept"
+        );
+        // Sustained: one a second and no more, whatever the wall-clock minute.
+        let mut accepted = 0;
+        for ms in (start + 2_000..start + 62_000).step_by(100) {
+            accepted += u32::from(take_token(&mut b, ms));
+        }
+        assert_eq!(
+            accepted, 59,
+            "one for each whole second after the last spend"
+        );
+    }
+
+    #[test]
+    fn an_idle_budget_fills_to_sixty_and_no_more() {
+        let start = 1_700_000_000_000;
+        let mut b = Budget::full(start);
+        for _ in 0..COMMAND_BURST {
+            take_token(&mut b, start);
+        }
+        take_token(&mut b, start + 3_600_000);
+        assert_eq!(
+            b.tokens,
+            COMMAND_BURST - 1,
+            "an hour idle gives a full bucket, not 3,600"
+        );
+        let mut early = Budget::full(start);
+        assert!(
+            take_token(&mut early, start - 5_000),
+            "a clock read earlier spends, adds none"
+        );
+        assert_eq!(early.tokens, COMMAND_BURST - 1);
     }
 
     #[test]
