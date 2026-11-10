@@ -90,6 +90,42 @@ pub const SOCKET_FRAMES: &[(&str, &str, &str, &str)] = &[
     ),
 ];
 
+/// The flight recorder's socket frames, protocol v1 (2026-11-09; ADR 0015), as
+/// workers/api/README.md's "The trace socket" table writes them: `(direction, t, shape, when)`.
+/// The `TraceFrame` schema is their type.
+pub const TRACE_SOCKET_FRAMES: &[(&str, &str, &str, &str)] = &[
+    (
+        "server-to-client",
+        "snapshot",
+        "{t: \"snapshot\", v: 1, hops: [TraceHop], cursor}",
+        "on open: the hops of the ring's last 50 batches, newest last; `cursor` is the newest batch's, as `GET .../trace` gives it",
+    ),
+    (
+        "server-to-client",
+        "hops",
+        "{t: \"hops\", v: 1, hops: [TraceHop], cursor}",
+        "each batch the Queue's consumer records after the snapshot, as it is written",
+    ),
+    (
+        "server-to-client",
+        "bye",
+        "{t: \"bye\", v: 1, reason: \"wiped\" | \"limit\"}",
+        "before the server closes: 1001 at the wipe; 1008, 1009 or 1003 at a limit",
+    ),
+    (
+        "client-to-server",
+        "ping",
+        "{t: \"ping\", v: 1}",
+        "answered `{t: \"pong\", v: 1}` by the platform's auto-response, which does not wake the object; any other frame is ignored",
+    ),
+    (
+        "server-to-client",
+        "pong",
+        "{t: \"pong\", v: 1}",
+        "the answer to a `ping`",
+    ),
+];
+
 /// Where the committed document lives, from the repository root.
 pub const DOCUMENT_PATH: &str = "apps/web/public/docs/api/openapi.json";
 
@@ -261,7 +297,7 @@ fn operation(route: &RouteSpec) -> Value {
     op.insert("security".into(), security(route));
 
     if route.session == Session::Cookie {
-        op.insert("x-websocket".into(), websocket());
+        op.insert("x-websocket".into(), websocket(route));
     }
     Value::Object(op)
 }
@@ -425,15 +461,28 @@ fn tag(path: &str) -> &'static str {
         }
         "dispatch" => "dispatch",
         "token" => "token",
+        "trace" => "trace",
         other => panic!("no tag for {other} ({path})"),
     }
 }
 
-fn websocket() -> Value {
+/// A socket route's `x-websocket`: the kitchen's frames, or the flight recorder's.
+fn websocket(route: &RouteSpec) -> Value {
+    let (description, frames) = if route.id == "trace-socket" {
+        (
+            "Frames are JSON text, each with `\"v\": 1`; the hops are `TraceHop`s and every frame is a `TraceFrame`. Read only: a client sends nothing but `ping`. Limits as the kitchen socket's: 4 open sockets a sandbox (a fifth is told `bye` `limit` and closed with 1008), frames of at most 4 KB (1009), 10 frames a second a socket (1008), text frames only (1003). Lossy by design: a batch the consumer could not record is not sent, and a reconnecting client reads `GET .../trace?after=<cursor>` for what it missed.",
+            TRACE_SOCKET_FRAMES,
+        )
+    } else {
+        (
+            "Frames are JSON text, each with `\"v\": 1`. Limits: 4 open sockets a sandbox (a fifth is told `bye` `limit` and closed with 1008), frames of at most 4 KB (1009), 10 frames a second a socket (1008), text frames only (1003). The storefront sends no ping and reconnects instead.",
+            SOCKET_FRAMES,
+        )
+    };
     json!({
         "protocol": "v1",
-        "description": "Frames are JSON text, each with `\"v\": 1`. Limits: 4 open sockets a sandbox (a fifth is told `bye` `limit` and closed with 1008), frames of at most 4 KB (1009), 10 frames a second a socket (1008), text frames only (1003). The storefront sends no ping and reconnects instead.",
-        "frames": SOCKET_FRAMES.iter().map(|(direction, t, shape, when)| json!({
+        "description": description,
+        "frames": frames.iter().map(|(direction, t, shape, when)| json!({
             "direction": direction,
             "t": t,
             "shape": shape,
@@ -772,6 +821,37 @@ mod tests {
         let ours: BTreeSet<String> = SOCKET_FRAMES.iter().map(|f| f.1.to_owned()).collect();
         assert!(in_readme.len() >= 8, "{in_readme:?}");
         assert_eq!(ours, in_readme);
+    }
+
+    /// The flight recorder's socket frames (2026-11-09) are the README's "The trace socket"
+    /// table, and its operation carries them, not the kitchen's.
+    #[test]
+    fn the_trace_socket_frames_are_the_readmes() {
+        let section = README
+            .split("\n## The trace socket\n")
+            .nth(1)
+            .and_then(|rest| rest.split("\n## ").next())
+            .expect("the README's trace socket section");
+        let mut in_readme = BTreeSet::new();
+        for piece in section.split("t: \"").skip(1) {
+            in_readme.insert(piece.split('"').next().unwrap().to_owned());
+        }
+        for piece in section.split("{\"t\":\"").skip(1) {
+            in_readme.insert(piece.split('"').next().unwrap().to_owned());
+        }
+        let ours: BTreeSet<String> = TRACE_SOCKET_FRAMES.iter().map(|f| f.1.to_owned()).collect();
+        assert_eq!(ours, in_readme);
+        let doc = document();
+        let socket = &doc["paths"]["/v1/sandboxes/{id}/trace/ws"]["get"];
+        assert_eq!(socket["security"], json!([{ "sessionCookie": [] }]));
+        let frames: BTreeSet<String> = socket["x-websocket"]["frames"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["t"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(frames, ours);
+        assert!(socket["responses"]["101"].is_object());
     }
 
     #[test]

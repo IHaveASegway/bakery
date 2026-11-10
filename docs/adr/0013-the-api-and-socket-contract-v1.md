@@ -80,11 +80,22 @@ As built, 2026-11-09: the table has 73 routes in 65 paths, and 58 accept a beare
 
 Accepted by delegation on 2026-11-09 (roadmap R12), so from that date the v1 contract changes only by addition, as decision and Door say.
 
+Later still on 2026-11-09 the flight recorder ([ADR 0015](0015-a-lossy-flight-recorder-beside-the-event-path.md)) added two routes numbered 21 in `x-pr`: `GET /v1/sandboxes/{id}/trace`, which accepts a token, and `GET /v1/sandboxes/{id}/trace/ws`, a second cookie-only socket. The table has 76 routes in 68 paths, 60 accepting a token, and the document is 451,229 B pretty-printed, 37,792 B gzipped (`gzip -c`), with 126 component schemas. The socket is protocol `v: 1` beside the kitchen's, with five frames, each typed by the `TraceFrame` contract:
+
+| Frame | Direction | Meaning |
+|---|---|---|
+| `snapshot {hops, cursor}` | server to client | On open: the hops of the ring's last 50 batches, newest last; `cursor` is the newest batch's, as `GET .../trace` gives it |
+| `hops {hops, cursor}` | server to client | Each batch the Queue's consumer records after the snapshot |
+| `bye {reason}` | server to client | `wiped` or `limit`, before the server closes: 1001 at the wipe; 1008, 1009 or 1003 at a limit |
+| `ping` and `pong` | client to server, and back | The platform's auto-response, as on the kitchen socket; a client sends nothing else, and any other frame is ignored |
+
+Decision 2's session rule "cookie-only (the socket)" now names two sockets, and both take the same checks. The document carries each socket's frames in its own operation's `x-websocket` (`crates/contracts/src/openapi.rs`, `TRACE_SOCKET_FRAMES`); the API page at `/docs/api/` still draws its socket section from the kitchen's.
+
 ## Postscript 2026-11-10
 
 What changed: a guest's command on the kitchen socket is read and applied as any session's ([roadmap.md](../roadmap.md#remaining-work), R72). Until this date a guest's `cmd` frame got `nack` with the rule `guest-scope` (`workers/api/src/objects/kitchen.rs`); now a guest's `start_production`, `mark_ready` and `mark_picked_up` get `ack`, or the same `nack` a signed-in session would get (`out-of-order`, `unknown-order`, `key-reused` and the frame's own rules). The socket no longer carries a session kind: nothing read it after the change. The route table's row for the socket is unchanged, still cookie-only, and every HTTP route that was signed-in still answers a guest 403 `guest-scope`. Why: a guest's paid order reached the board as Confirmed and nothing could move it, and the order moving is the point of the demonstration.
 
-Whether it is a breaking change, by Decision 3's rule: it is not, and the socket stays `v: 1`. No frame, field, type, status or slug is renamed or removed, and no field is made required; the `nack` frame and the `guest-scope` slug keep their meaning, and the slug is still sent on HTTP. What changed is which session the server accepts a command from, and a client already had to handle `ack` for every `cmd` it sends, since a signed-in session's command gets one; a client that sent a guest's command expecting the refusal now sees its move made, which is what sending a move asks for. This is the same reasoning as Decision 4's for rate limits: a rule that only refuses can be loosened without a version. The OpenAPI document's frame notes say so (`crates/contracts/src/openapi.rs`, regenerated on 2026-11-10: 441,158 B pretty-printed).
+Whether it is a breaking change, by Decision 3's rule: it is not, and the socket stays `v: 1`. No frame, field, type, status or slug is renamed or removed, and no field is made required; the `nack` frame and the `guest-scope` slug keep their meaning, and the slug is still sent on HTTP. What changed is which session the server accepts a command from, and a client already had to handle `ack` for every `cmd` it sends, since a signed-in session's command gets one; a client that sent a guest's command expecting the refusal now sees its move made, which is what sending a move asks for. This is the same reasoning as Decision 4's for rate limits: a rule that only refuses can be loosened without a version. The OpenAPI document's frame notes say so (`crates/contracts/src/openapi.rs`, regenerated on 2026-11-10: 452,619 B pretty-printed, with the flight recorder's routes).
 
 ## Patterns and further reading
 

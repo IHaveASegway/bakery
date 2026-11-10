@@ -20,8 +20,10 @@ export interface TraceHop {
    */
   at: string;
   /**
-   * The attempt this hop records, from 1, as the recorder counts the hops it was sent for the
-   * event (lossy, like the recorder: a dropped hop is not counted).
+   * The recorder's own count of the hops it recorded for the event, from 1, in the order they
+   * arrived: a lower bound on the Queue's attempts, not the Queue's number. A retry made with
+   * the flag `off` builds no hop, and a hop whose recording was lost is not counted. A dead hop
+   * repeats the event's last count (1 when it held none), since it is no attempt of its own.
    */
   attempt: number;
   /**
