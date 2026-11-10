@@ -2,7 +2,8 @@
 //!
 //! A small value type rather than the `ulid` crate: that crate pulls `web-time`, and with it
 //! `wasm-bindgen`, into any build for `wasm32`, and this crate depends on no platform crate. The
-//! random part comes from the `IdGen` port, so nothing here draws randomness.
+//! random part comes from the caller, the Worker's `random::ulid` or a test's counter, so
+//! nothing here draws randomness.
 
 use std::fmt;
 use std::str::FromStr;

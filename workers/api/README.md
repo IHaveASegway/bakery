@@ -574,10 +574,10 @@ seeded or born through the Sandbox and wiped with it.
 The consumer delivers to all three: Crm and the Inbox are the sandbox's one, and a 410 from either
 (not yet seeded, or wiped) counts as delivered; the Customer is the order's, which the Order's
 `/_customer` names, registered with the Sandbox when it answers 410. Crm and the Inbox never get a
-`note` or a `brief` on any event (`routing::strip_for`). The Mailbox port's rule, that no
-implementation can address a recipient outside its sandbox, is proven in `crates/app` (the
-compile-fail doctests on `Recipient` and `FakeMailbox`'s refusal); nothing implements `Mailbox`
-here yet, since every message is an Inbox row (Q22).
+`note` or a `brief` on any event (`routing::strip_for`). Every message is an Inbox row whose
+recipient is a customer id, `to: Ulid` on `MessageDelivered` (`crates/domain/src/inbox.rs`), so
+none can hold an address (Q22). The `Mailbox` port that once stood for a sender had no
+implementation and was removed on 2026-11-10 (roadmap R68).
 
 ## Dispatch
 
