@@ -68,6 +68,10 @@ pub const MIN_HEADCOUNT: u16 = 10;
 pub const MAX_HEADCOUNT: u16 = 200;
 /// The date is at least 7 business days after the inquiry (Q16 · Q-catering).
 pub const LEAD_BUSINESS_DAYS: u32 = 7;
+/// The date is at most 365 calendar days after business today (roadmap R19 and R66, decided
+/// 2026-11-09): a year's notice is the longest a bakery quotes, and the catering hold registers
+/// its `Schedule` day without the 30-day limit orders have, so the bound is here.
+pub const MAX_DAYS_AHEAD: i64 = 365;
 /// A quote is valid for 14 business days (docs/domain.md, "Ubiquitous language": Quote).
 pub const QUOTE_VALID_BUSINESS_DAYS: u32 = 14;
 /// The follow-up reminder, 3 business days after a quote.
@@ -394,6 +398,9 @@ pub enum CateringError {
         "a catering event needs {LEAD_BUSINESS_DAYS} business days' notice (Tuesday to Sunday); the earliest date is {earliest}"
     )]
     Lead { earliest: BakeryDate },
+    /// `latest` is the last date the 365-day bound allows.
+    #[error("a catering event is at most {MAX_DAYS_AHEAD} days ahead; the latest date is {latest}")]
+    TooFarAhead { latest: BakeryDate },
     #[error("the brief was refused: {}", brief_rule(*.0))]
     Brief(FreeTextError),
     #[error("a quote's total is at least 1 cent")]
@@ -457,6 +464,7 @@ impl CateringError {
             CateringError::UnknownVenue(_) => "unknown-venue",
             CateringError::ClosedDay => "closed-day",
             CateringError::Lead { .. } => "catering-lead",
+            CateringError::TooFarAhead { .. } => "catering-too-far",
             CateringError::Brief(e) => brief_rule(*e),
             CateringError::QuoteTotal => "quote-total",
             CateringError::QuoteExpired { .. } => "quote-expired",
@@ -476,6 +484,7 @@ impl CateringError {
                 | CateringError::UnknownVenue(_)
                 | CateringError::ClosedDay
                 | CateringError::Lead { .. }
+                | CateringError::TooFarAhead { .. }
                 | CateringError::Brief(_)
                 | CateringError::QuoteTotal
         )
@@ -698,6 +707,12 @@ pub fn earliest_date(now: BusinessTime) -> BakeryDate {
     BakeryDate::of(now).nth_open_day_after(LEAD_BUSINESS_DAYS)
 }
 
+/// The last date the 365-day bound allows for an inquiry made at `now`: business today plus 365
+/// calendar days, so from 2027-03-01 it is 2028-02-29.
+pub fn latest_date(now: BusinessTime) -> BakeryDate {
+    BakeryDate::of(now).plus_days(MAX_DAYS_AHEAD)
+}
+
 /// The first day staff may start production for an event on `date`: the day before it.
 pub fn production_day(date: BakeryDate) -> BakeryDate {
     date.plus_days(-PRODUCTION_DAYS_BEFORE)
@@ -886,6 +901,10 @@ fn submit(s: &SubmitInquiry, ctx: &DecideContext) -> Result<CateringEvent, Cater
     let earliest = earliest_date(ctx.now);
     if s.date < earliest {
         return Err(CateringError::Lead { earliest });
+    }
+    let latest = latest_date(ctx.now);
+    if s.date > latest {
+        return Err(CateringError::TooFarAhead { latest });
     }
     let brief = match &s.brief {
         None => None,
@@ -1519,6 +1538,58 @@ mod tests {
         assert_eq!(
             earliest_date(at("2026-11-09T12:00:00-07:00")),
             date("2026-11-17")
+        );
+    }
+
+    #[test]
+    fn the_date_is_at_most_365_days_ahead() {
+        let submit_on = |now: &str, d: &str| {
+            decide(
+                &CateringState::default(),
+                submit_cmd(SubmitInquiry {
+                    date: date(d),
+                    ..inquiry()
+                }),
+                now,
+            )
+        };
+        // From Tuesday 2026-11-03 (NOW): day 365 is Wednesday 2027-11-03, day 366 Thursday.
+        assert_eq!(latest_date(at(NOW)), date("2027-11-03"));
+        assert!(submit_on(NOW, "2027-11-03").is_ok());
+        let far = submit_on(NOW, "2027-11-04").unwrap_err();
+        assert_eq!(
+            far,
+            CateringError::TooFarAhead {
+                latest: date("2027-11-03")
+            }
+        );
+        assert_eq!(far.rule(), "catering-too-far");
+        assert!(far.is_inquiry_rule());
+        assert_eq!(
+            far.to_string(),
+            "a catering event is at most 365 days ahead; the latest date is 2027-11-03"
+        );
+        // Across 2028-02-29: from Thursday 2027-03-04, day 365 is Friday 2028-03-03 (366 days
+        // would be 2028-03-04, a Saturday), so the leap day takes one of the 365.
+        let thursday = "2027-03-04T12:00:00-07:00";
+        assert_eq!(latest_date(at(thursday)), date("2028-03-03"));
+        assert!(submit_on(thursday, "2028-03-03").is_ok());
+        assert_eq!(
+            submit_on(thursday, "2028-03-04").unwrap_err().rule(),
+            "catering-too-far"
+        );
+        // From the leap day itself, Tuesday 2028-02-29: day 365 is Wednesday 2029-02-28.
+        let leap = "2028-02-29T12:00:00-07:00";
+        assert_eq!(latest_date(at(leap)), date("2029-02-28"));
+        assert!(submit_on(leap, "2029-02-28").is_ok());
+        assert_eq!(
+            submit_on(leap, "2029-03-01").unwrap_err().rule(),
+            "catering-too-far"
+        );
+        // Business today is Denver's: 23:30 on Tuesday 2026-11-03 is Wednesday in UTC.
+        assert_eq!(
+            latest_date(at("2026-11-04T06:30:00+00:00")),
+            date("2027-11-03")
         );
     }
 

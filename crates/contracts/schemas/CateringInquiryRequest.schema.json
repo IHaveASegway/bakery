@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "CateringInquiryRequest",
-  "description": "`POST /v1/sandboxes/{id}/catering`, the customer's inquiry; the customer is the sandbox's\npersona. `201` with the `CateringResponse` (`200` with `Idempotent-Replayed: true` for the\nsame key again). A refused inquiry is `422` problem+json naming its rule: `headcount`,\n`unknown-package`, `unknown-venue`, `closed-day`, `catering-lead` (its detail names the\n7-business-day rule and the earliest date allowed), or `brief-too-long`, `brief-email`,\n`brief-phone`, `brief-card-number` or `brief-url`, which never echo the brief.",
+  "description": "`POST /v1/sandboxes/{id}/catering`, the customer's inquiry; the customer is the sandbox's\npersona. `201` with the `CateringResponse` (`200` with `Idempotent-Replayed: true` for the\nsame key again). A refused inquiry is `422` problem+json naming its rule: `headcount`,\n`unknown-package`, `unknown-venue`, `closed-day`, `catering-lead` (its detail names the\n7-business-day rule and the earliest date allowed), `catering-too-far` (since 2026-11-10:\nits detail names the 365-day bound and the latest date allowed), or `brief-too-long`,\n`brief-email`, `brief-phone`, `brief-card-number` or `brief-url`, which never echo the brief.",
   "type": "object",
   "properties": {
     "brief": {
@@ -12,7 +12,7 @@
       ]
     },
     "date": {
-      "description": "The event day, `YYYY-MM-DD`: an open day (Tuesday to Sunday) at least 7 business days\nafter today.",
+      "description": "The event day, `YYYY-MM-DD`: an open day (Tuesday to Sunday) at least 7 business days\nafter today and at most 365 days after it.",
       "type": "string"
     },
     "headcount": {

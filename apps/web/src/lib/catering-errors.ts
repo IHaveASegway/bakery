@@ -1,6 +1,7 @@
 // Words for what the catering routes refuse with. A refused inquiry is a 422 problem `catering`
 // whose `detail` names the rule (`CateringError::rule()`): `headcount`, `unknown-package`,
-// `unknown-venue`, `closed-day`, `catering-lead` (naming the earliest date), `brief-too-long`,
+// `unknown-venue`, `closed-day`, `catering-lead` (naming the earliest date), `catering-too-far`
+// (since 2026-11-10: more than 365 days ahead, naming the latest date), `brief-too-long`,
 // `brief-email`, `brief-phone`, `brief-card-number`, `brief-url`. A refused step is a 409
 // `catering` naming `quote-expired`, `out-of-order` or `too-early` (since 2026-11-08), or a 409
 // `slot-full` when the day's two catering places are taken; staff get a 403 `guest-scope` as a
@@ -16,6 +17,8 @@ const SENTENCES: Record<string, string> = {
   'closed-day': 'The bakery is closed that day: it opens Tuesday to Sunday. Choose another date.',
   'catering-lead':
     'Catering needs 7 business days’ notice (the bakery opens Tuesday to Sunday). Choose a later date.',
+  'catering-too-far':
+    'The bakery takes catering up to 365 days ahead, not further. Choose an earlier date.',
   'brief-too-long': 'The brief is longer than 500 characters. Shorten it.',
   'brief-email':
     'The brief looks like an email address. The bakery keeps no personal details, so leave it out.',
@@ -39,20 +42,28 @@ const SENTENCES: Record<string, string> = {
 const RULES = Object.keys(SENTENCES).sort((a, b) => b.length - a.length);
 
 /**
- * The rule a problem's detail names, if it names one these pages know. The lead rule is also
- * known by its words, since the domain's message for it (which the detail may carry whole) names
- * "7 business days" and the earliest date rather than the slug.
+ * The rule a problem's detail names, if it names one these pages know. The lead rule and the
+ * 365-day bound are also known by their words, since the domain's message for each (which the
+ * detail may carry whole) names "7 business days" or "365 days ahead" and a date rather than the
+ * slug.
  */
 export function ruleOf(detail: string | null): string | null {
   if (detail === null) return null;
   const lower = detail.toLowerCase();
   return (
     RULES.find((rule) => new RegExp(`(^|[^a-z-])${rule}($|[^a-z-])`).test(lower)) ??
-    (/7 business days/.test(lower) ? 'catering-lead' : null)
+    (/7 business days/.test(lower)
+      ? 'catering-lead'
+      : /365 days ahead/.test(lower)
+        ? 'catering-too-far'
+        : null)
   );
 }
 
-/** The first `YYYY-MM-DD` in a detail: for `catering-lead` this is the earliest date allowed. */
+/**
+ * The first `YYYY-MM-DD` in a detail: for `catering-lead` the earliest date allowed, for
+ * `catering-too-far` the latest.
+ */
 export function dateIn(detail: string | null): string | null {
   const found = /\d{4}-\d{2}-\d{2}/.exec(detail ?? '');
   return found === null ? null : found[0];
@@ -63,13 +74,17 @@ function ruleOfError(error: ApiError): string | null {
   return ruleOf(error.detail) ?? (error.slug in SENTENCES ? error.slug : null);
 }
 
-/** The sentence for a rule, with the earliest date added for the lead rule when the API gave it. */
+/**
+ * The sentence for a rule, with the date the API gave added: the earliest for the lead rule, the
+ * latest for the 365-day bound.
+ */
 export function sentenceFor(rule: string, detail: string | null = null): string | null {
   const sentence = SENTENCES[rule] ?? null;
-  const date = rule === 'catering-lead' ? dateIn(detail) : null;
-  return sentence !== null && date !== null
+  const date = rule === 'catering-lead' || rule === 'catering-too-far' ? dateIn(detail) : null;
+  if (sentence === null || date === null) return sentence;
+  return rule === 'catering-lead'
     ? `${sentence} The earliest date is ${date}.`
-    : sentence;
+    : `${sentence} The latest date is ${date}.`;
 }
 
 /**

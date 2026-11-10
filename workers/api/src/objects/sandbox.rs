@@ -27,8 +27,8 @@
 //!   paid order's `OrderPaid` reaches its customer then; 404 `{error: "unknown-persona"}`.
 //! - `POST /_register-day {date, catering?}` → `{name, clock_offset_s, clock_v}`: a `Schedule`
 //!   day, born on first touch, for a date from the birth day to 30 days after business today, or
-//!   any later one with `catering: true` (an accepted quote's event day, which the domain's
-//!   rules already bound); 404 `{error: "no-such-day"}` for any other.
+//!   any later one with `catering: true` (an accepted quote's event day, which the domain bounds
+//!   at 365 days after business today, `MAX_DAYS_AHEAD`, since 2026-11-10); 404 `{error: "no-such-day"}` for any other.
 //! - `POST /_register-dispatch {date}` → `{name, clock_offset_s, clock_v}`: the day's
 //!   `Dispatch`, born on first touch, for the same dates as a `Schedule` day (PR 9); 404
 //!   `{error: "no-such-day"}` for any other, 409 `{error: "seeding"}` before seeding is done.
