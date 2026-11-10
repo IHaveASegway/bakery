@@ -264,6 +264,33 @@ export function placeNote(
   return { ...best, side: 'none', caret: 0 };
 }
 
+/** A hotspot's size, with the ring drawn around it. */
+const SPOT = 28;
+
+/**
+ * Where a hotspot for `target` sits, in window coordinates: outside the target's top-right corner
+ * when the window has room, else just above its right end, so the mark never sits on the text it
+ * explains. Null when that place is not wholly in the window or touches one of `bars` (the top bar,
+ * the masthead, a tab bar, the cart bar, the guide's own bar): the mark waits until its target
+ * scrolls into view, and is never pushed onto a bar.
+ */
+export function placeSpot(
+  target: Box,
+  view: { width: number; height: number },
+  bars: readonly Box[],
+): { top: number; left: number } | null {
+  const outside = target.left + target.width + 8 + SPOT <= view.width;
+  const top = outside ? target.top : target.top - SPOT;
+  const left = outside ? target.left + target.width + 8 : target.left + target.width - 24;
+  if (top < 0 || left < 0 || top + SPOT > view.height || left + SPOT > view.width) return null;
+  const touches = (bar: Box) =>
+    left < bar.left + bar.width &&
+    left + SPOT > bar.left &&
+    top < bar.top + bar.height &&
+    top + SPOT > bar.top;
+  return bars.some(touches) ? null : { top, left };
+}
+
 // ---- The short path ("Show me around") ----
 
 /** One stop of a short path: the entry it explains and what the visitor is asked to do. */

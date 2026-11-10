@@ -5,6 +5,31 @@ import { placeNote } from '../../lib/guide';
 const PHONE = '(max-width: 40rem)';
 /** The room kept at the foot of the window for the guide's bar, which a note never covers. */
 const BAR_ROOM = 64;
+/** The page's bars along the window's top: the console's top bar, the shop's masthead, the menu's categories. */
+const TOP_BARS = '.topbar, .masthead, .category-bar';
+/** Every bar a hotspot must keep off: those, the console's tab bar, the cart bar, the guide's bar. */
+const BARS = `${TOP_BARS}, .sidebar, .cart-bar, .publish-bar, .guide-bar`;
+
+/** The window-coordinate bottom of whatever bar shows along the window's top edge, else 0. */
+export function topInset(): number {
+  let inset = 0;
+  for (const bar of document.querySelectorAll(TOP_BARS)) {
+    const rect = bar.getBoundingClientRect();
+    if (rect.height > 0 && rect.top <= 1 && rect.bottom > 0) inset = Math.max(inset, rect.bottom);
+  }
+  return Math.round(inset);
+}
+
+/** The boxes, in window coordinates, of the bars showing now. */
+export function barBoxes() {
+  return [...document.querySelectorAll(BARS)].flatMap((bar) => {
+    const rect = bar.getBoundingClientRect();
+    return rect.width === 0 || rect.height === 0
+      ? []
+      : [{ top: rect.top, left: rect.left, width: rect.width, height: rect.height }];
+  });
+}
+
 /** How long a note stays once its evidence stops changing, unless the pointer or focus is in it. */
 export const LINGER_MS = 8_000;
 

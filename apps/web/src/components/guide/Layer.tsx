@@ -10,7 +10,14 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { PATHS, entriesFor } from '../../guide';
-import { PATH_CLOSED, pathReduce, screenOf, type GuideEntry, type PageId } from '../../lib/guide';
+import {
+  PATH_CLOSED,
+  pathReduce,
+  placeSpot,
+  screenOf,
+  type GuideEntry,
+  type PageId,
+} from '../../lib/guide';
 import { traces } from '../../lib/trace';
 import {
   entryForTraces,
@@ -23,7 +30,7 @@ import {
   watchToOpen,
   type WatchNews,
 } from './match';
-import { Note, resolveAnchor } from './Note';
+import { Note, barBoxes, resolveAnchor } from './Note';
 import Panel from './Panel';
 import {
   EntryBody,
@@ -418,21 +425,26 @@ function Hotspots({
     let frame = 0;
     const measure = () => {
       frame = 0;
-      const width = document.documentElement.clientWidth;
+      const view = { width: document.documentElement.clientWidth, height: window.innerHeight };
+      const bars = barBoxes();
       const next: Spot[] = [];
       for (const entry of targets) {
         const element = targetOf(entry.target);
         if (element === null) continue;
         const rect = element.getBoundingClientRect();
         if (rect.width === 0 && rect.height === 0) continue;
-        // Outside the element's top-right corner when there is room; on a narrow screen, just
-        // above its right end instead, so the mark never sits on the text it explains.
-        const outside = rect.right + 8 + 28 <= width;
+        const at = placeSpot(
+          { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+          view,
+          bars,
+        );
+        // Not drawn while its place is out of the window or on a bar; the next scroll looks again.
+        if (at === null) continue;
         next.push({
           target: entry.target,
           title: entry.title,
-          top: Math.round((outside ? rect.top : Math.max(0, rect.top - 28)) + window.scrollY),
-          left: Math.round((outside ? rect.right + 8 : rect.right - 24) + window.scrollX),
+          top: Math.round(at.top + window.scrollY),
+          left: Math.round(at.left + window.scrollX),
         });
       }
       setShown((before) => (JSON.stringify(before) === JSON.stringify(next) ? before : next));
@@ -441,6 +453,7 @@ function Hotspots({
       if (frame === 0) frame = requestAnimationFrame(measure);
     };
     measure();
+    window.addEventListener('scroll', soon, { passive: true, capture: true });
     window.addEventListener('resize', soon);
     const sizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(soon);
     sizes?.observe(document.body);
@@ -449,6 +462,7 @@ function Hotspots({
     if (main !== null) changes?.observe(main, { childList: true, subtree: true });
     return () => {
       cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', soon, { capture: true });
       window.removeEventListener('resize', soon);
       sizes?.disconnect();
       changes?.disconnect();

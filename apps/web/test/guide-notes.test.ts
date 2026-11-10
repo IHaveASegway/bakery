@@ -32,6 +32,7 @@ import {
   pathReduce,
   pickEntry,
   placeNote,
+  placeSpot,
   routeMatcher,
   switchOn,
   type GuideEntry,
@@ -312,6 +313,47 @@ describe('what a note says', () => {
     expect(html).toContain('When not');
     expect(html).toContain('that needs a projection');
     expect(html).toContain('href="/how-its-built/single-writer/"');
+  });
+});
+
+describe('where a hotspot sits', () => {
+  const view = { width: 1440, height: 900 };
+  const topBar = { top: 0, left: 0, width: 1440, height: 56 };
+
+  test('outside its target’s top-right corner, or above its right end on a narrow window', () => {
+    expect(placeSpot({ top: 200, left: 300, width: 400, height: 80 }, view, [topBar])).toEqual({
+      top: 200,
+      left: 708,
+    });
+    const phone = { width: 390, height: 844 };
+    expect(placeSpot({ top: 200, left: 16, width: 358, height: 80 }, phone, [])).toEqual({
+      top: 172,
+      left: 350,
+    });
+  });
+
+  test('not drawn under the top bar, the masthead or past the window, never pushed onto a bar', () => {
+    // A target scrolled up under the console's sticky top bar.
+    expect(placeSpot({ top: 20, left: 300, width: 400, height: 300 }, view, [topBar])).toBeNull();
+    // A target above the window, or below it.
+    expect(placeSpot({ top: -400, left: 300, width: 400, height: 80 }, view, [])).toBeNull();
+    expect(placeSpot({ top: 890, left: 300, width: 400, height: 80 }, view, [])).toBeNull();
+  });
+
+  test('not drawn on a phone’s tab bar, its cart bar or the guide’s dock', () => {
+    const phone = { width: 390, height: 844 };
+    const tabBar = { top: 784, left: 0, width: 390, height: 60 };
+    const cartBar = { top: 700, left: 16, width: 358, height: 48 };
+    // The bake list's card starts just under the fold's tab bar: its mark would sit on "More".
+    expect(placeSpot({ top: 806, left: 16, width: 358, height: 200 }, phone, [tabBar])).toBeNull();
+    expect(placeSpot({ top: 720, left: 16, width: 358, height: 200 }, phone, [cartBar])).toBeNull();
+    // Scrolled into the open part of the window, it is drawn.
+    expect(
+      placeSpot({ top: 400, left: 16, width: 358, height: 200 }, phone, [tabBar, cartBar]),
+    ).toEqual({
+      top: 372,
+      left: 350,
+    });
   });
 });
 
