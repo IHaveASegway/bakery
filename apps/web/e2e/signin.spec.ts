@@ -22,13 +22,18 @@ test('a demo account is created, signed in to, and makes a sandbox', async ({ pa
   await expect(page.getByRole('heading', { name: 'Signed in with a demo account' })).toBeVisible();
 
   // On the console the top bar's bakery nav is one link, back to the shop, and never "Sign in".
-  // The shop's header says "Console" for a signed-in visitor, on a page (the privacy page) whose
-  // islands never ask for the session themselves (audit C17).
+  // The shop's header says "Your bakery" on every page and, for a signed-in visitor, goes to the
+  // console, on a page (the privacy page) whose islands never ask for the session themselves
+  // (audit C17). On a page with no script (the tools page) the same words go to the sign-in page,
+  // which says the sandbox is there and offers the console (audit F14).
   const nav = page.getByRole('navigation', { name: 'The bakery' });
   await expect(nav.getByRole('link', { name: 'The shop' })).toHaveAttribute('href', '/menu/');
   await expect(nav.getByRole('link', { name: 'Sign in' })).toHaveCount(0);
   await page.goto('/privacy/');
-  await expect(nav.getByRole('link', { name: 'Console' })).toHaveAttribute('href', '/app/');
+  await expect(nav.getByRole('link', { name: 'Your bakery' })).toHaveAttribute('href', '/app/');
+  await page.goto('/how-its-built/tools/');
+  await expect(nav.getByRole('link', { name: 'Your bakery' })).toHaveAttribute('href', '/signin/');
+  await expect(nav.getByRole('link', { name: 'Sign in' })).toHaveCount(0);
   await page.goto('/app/');
   await expect(page.getByRole('heading', { name: 'Signed in with a demo account' })).toBeVisible();
   await page.getByRole('button', { name: 'Sign out' }).click();

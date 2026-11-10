@@ -81,6 +81,15 @@ export function watchSession(listener: (signedIn: boolean) => void): () => void 
   return () => listeners.delete(listener);
 }
 
+/**
+ * The header's way in, the same words on every page (audit F14, 2026-11-10): "Sign in" on the
+ * pages with no script and "Console" elsewhere told a guest on the essays that their sandbox was
+ * gone. The pages with no script cannot ask, so the words never depend on the answer; only where
+ * the link goes does. Without a known session it is the sign-in page, which tells a visitor who has
+ * a sandbox so and offers the way on (components/Guest.tsx, AlreadyIn).
+ */
+export const SESSION_LABEL = 'Your bakery';
+
 /** The header's session link: where it goes and what it says, for a visitor on `pathname`. */
 export function sessionLink(
   signedIn: boolean,
@@ -89,7 +98,7 @@ export function sessionLink(
   const href = signedIn ? '/app/' : '/signin/';
   return {
     href,
-    label: signedIn ? 'Console' : 'Sign in',
+    label: SESSION_LABEL,
     current: pathname === href || pathname.startsWith(href),
   };
 }

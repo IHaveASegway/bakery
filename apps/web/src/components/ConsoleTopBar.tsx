@@ -86,7 +86,8 @@ function Controls({
         {sandbox !== null && (
           <Popover
             id="topbar-sandbox"
-            buttonClass="btn btn-quiet btn-sm topbar-chip"
+            buttonClass="btn btn-secondary btn-sm topbar-chip"
+            caret
             label={
               <>
                 <span className="long-only">Sandbox </span>
@@ -135,7 +136,8 @@ function Controls({
         {live && (
           <Popover
             id="topbar-clock"
-            buttonClass="btn btn-quiet btn-sm topbar-chip"
+            buttonClass="btn btn-secondary btn-sm topbar-chip"
+            caret
             title={whenText(business)}
             label={
               <>
@@ -177,8 +179,13 @@ function Controls({
               <>
                 <p>You cannot come back to this sandbox once you leave.</p>
                 <p>
-                  It is wiped at 10:00 UTC, or at once with Wipe now under the sandbox’s button in
-                  this bar.
+                  It is wiped at 10:00 UTC, or at once with Wipe now, under the{' '}
+                  {sandbox === null ? (
+                    'sandbox’s'
+                  ) : (
+                    <code className="topbar-name">{sandbox.id.slice(-6)}</code>
+                  )}{' '}
+                  button in this bar.
                 </p>
                 <p className="actions">
                   <button
@@ -259,6 +266,7 @@ function Popover({
   title,
   buttonClass,
   panelLabel,
+  caret = false,
   children,
 }: {
   id: string;
@@ -267,6 +275,8 @@ function Popover({
   title?: string;
   buttonClass: string;
   panelLabel: string;
+  /** A small chevron after the label, so a chip that opens a panel reads as a button (audit F22). */
+  caret?: boolean;
   /** The panel's content, or a function of how to close it (for a panel with its own Cancel). */
   children: ReactNode | ((close: () => void) => ReactNode);
 }) {
@@ -304,6 +314,11 @@ function Popover({
       >
         {/* One span, so the button's flex gap does not space the label's words apart. */}
         <span>{label}</span>
+        {caret && (
+          <svg className="chip-caret" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+            <path d="M3 4.5l3 3 3-3" />
+          </svg>
+        )}
       </button>
       {open && (
         <div id={id} className="menu-panel popover-panel" role="group" aria-label={panelLabel}>

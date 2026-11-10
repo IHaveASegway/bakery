@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import type { SandboxResponse, SessionKind } from '../contracts';
 import { ApiError, NetworkError, getSandbox } from './api';
-import { readSession } from './session';
+import { readSession, refreshSession } from './session';
 
 export type Phase =
   | { name: 'loading' }
@@ -36,6 +36,20 @@ export function readSandbox(id: string): Promise<SandboxResponse> {
     firstReads.set(id, read);
   }
   return read;
+}
+
+// Every mounted phase hook on the page, so a screen that has just made a sandbox in place (the
+// checkout's and the menu's Start ordering) can tell them all to look again.
+const lookers = new Set<() => void>();
+
+/**
+ * The visitor now has a session and a sandbox they did not have when the page loaded: ask the API
+ * once more, for every island on the page and for the header's link, without a reload, so the
+ * visitor stays where they were with what they had chosen.
+ */
+export function lookAgain(): void {
+  void refreshSession().catch(() => undefined);
+  for (const look of lookers) look();
 }
 
 export function useSandboxPhase(): Phase {
@@ -79,9 +93,15 @@ export function useSandboxPhase(): Phase {
       }
     }
     void look(null, null);
+    const again = () => {
+      clearTimeout(timer);
+      void look(null, null);
+    };
+    lookers.add(again);
     return () => {
       stopped = true;
       clearTimeout(timer);
+      lookers.delete(again);
     };
   }, []);
 

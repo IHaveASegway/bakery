@@ -1,13 +1,16 @@
 ---
 import Base from '../../layouts/Base.astro';
 import DemoAccount from '../../components/DemoAccount';
-import Guest from '../../components/Guest';
+import Guest, { AlreadyIn } from '../../components/Guest';
 import { signinUrl } from '../../lib/api';
 import SignInError from '../../components/SignInError';
 
 // Three ways in, the quickest first (decision G2, 2026-11-09): a guest, a demo account, or an
 // account the visitor has. The guest and demo-account flows go on to the page named by `next`
-// (src/lib/next.ts); Google and GitHub keep their server-side redirect. Turnstile loads here only.
+// (src/lib/next.ts): with none, a guest goes to the menu and an account to the console. Google and
+// GitHub keep their server-side redirect. Turnstile loads here at once; the menu and the checkout
+// load it only when the visitor presses Start ordering (components/Guest.tsx, StartHere). A visitor
+// who already has a sandbox, sent here by the header from a page with no script, is told so first.
 ---
 
 <Base
@@ -22,6 +25,7 @@ import SignInError from '../../components/SignInError';
   </p>
 
   <SignInError client:load />
+  <AlreadyIn client:load />
 
   <div class="ways-in">
     <Guest client:load />

@@ -29,7 +29,10 @@ declare global {
 
 let loading: Promise<TurnstileApi> | undefined;
 
-/** Loads Turnstile's script once per page. Only the sign-in page ever calls this. */
+/**
+ * Loads Turnstile's script once per page: on the sign-in page at once, on the menu and the checkout
+ * only once the visitor presses Start ordering (Guest.tsx, StartHere).
+ */
 function loadTurnstile(): Promise<TurnstileApi> {
   loading ??= new Promise((resolve, reject) => {
     const script = document.createElement('script');
