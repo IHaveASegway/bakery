@@ -42,15 +42,29 @@ test('a card’s menu closes on Escape with focus back on its button, and one op
   await page.goto('/app/');
   await expect(page.getByText('Live. Changes appear here as they happen.')).toBeVisible();
   // A <summary> is a disclosure, not a button, to the accessibility tree; its name says what it is.
-  const buttons = page.locator('.board details.menu > summary[aria-label^="More for order "]');
-  await expect.poll(() => buttons.count()).toBeGreaterThan(1);
-  const first = buttons.nth(0);
-  const second = buttons.nth(1);
+  // The two menus are the first in each of two different columns. A menu opens under its card at
+  // the card's own width, inside its column, so it can lie over a "…" further down the same column
+  // (a short card with another under it) but never over one in another column; two menus picked
+  // in one column would make the test depend on the seeded board's layout.
+  const columns = page
+    .locator('.board > section.column')
+    .filter({ has: page.locator('details.menu') });
+  await expect.poll(() => columns.count()).toBeGreaterThan(1);
+  const menuIn = (n: number) =>
+    columns.nth(n).locator('details.menu > summary[aria-label^="More for order "]').first();
+  const first = menuIn(0);
+  const second = menuIn(1);
   const open = page.locator('.board details.menu[open]');
+  // The console's top bar is sticky: a button scrolled to the window's top edge sits under it. Each
+  // button is put in the middle of the window before it is pressed, so nothing covers it.
+  const press = async (target: typeof first) => {
+    await target.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await target.click();
+  };
 
-  await first.click();
+  await press(first);
   await expect(open).toHaveCount(1);
-  await second.click();
+  await press(second);
   await expect(open).toHaveCount(1);
   await expect(open.locator('summary')).toHaveAttribute(
     'aria-label',
@@ -62,15 +76,15 @@ test('a card’s menu closes on Escape with focus back on its button, and one op
   await expect(second).toBeFocused();
 
   // Refund's first press asks, in words, with the amount; Keep the order takes it back.
-  await second.click();
+  await press(second);
   const panel = open.locator('.menu-panel');
-  await panel.getByRole('button', { name: /^Refund order / }).click();
+  await press(panel.getByRole('button', { name: /^Refund order / }));
   await expect(panel.getByRole('status')).toHaveText(
     /^Press Refund all to refund everything left of order \w{6}’s \$[\d,]+\.\d{2}\. This cannot be undone/,
   );
   await expect(panel.getByRole('button', { name: /^Refund all that is left of \$/ })).toBeVisible();
   await expectNoAxeViolations(page);
-  await panel.getByRole('button', { name: 'Keep the order' }).click();
+  await press(panel.getByRole('button', { name: 'Keep the order' }));
   await expect(panel.getByRole('status')).toHaveCount(0);
   // The panel sits inside its card's column: its edges are the card's.
   const card = await open.locator('xpath=ancestor::li[contains(@class,"card")]').boundingBox();
