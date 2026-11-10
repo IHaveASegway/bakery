@@ -9,8 +9,10 @@
 //! - `GET /_version` → `{version}`: the cheap read the menu route keys its cache by.
 //! - `GET /_menu` → the published `MenuView`.
 //! - `GET /_drafts` → `MenuDraftsResponse`: the draft copy of every pending item, in slug order.
-//! - `POST /_patch {key, body_hash, item, price_cents?, status?}` → 200 `{version, pending}`;
-//!   404 `{error: "unknown-item"}`; 422 `{error: "menu", rule}`; 422 `{error: "key-reused"}`;
+//! - `POST /_patch {key, body_hash, item, price_cents?, status?, variant?}` → 200 `{version,
+//!   pending}`: the price on `variant` alone, or on every variant without it (roadmap R86);
+//!   404 `{error: "unknown-item"}`; 422 `{error: "menu", rule}` (`unknown-variant` for a variant
+//!   that is not this item's); 422 `{error: "key-reused"}`;
 //!   a replay answers the first result with `Idempotent-Replayed: true`.
 //! - `POST /_publish {key}` → the same answers; `rule: "nothing-to-publish"` with no drafts.
 //! - `POST /_tax-rate {key, body_hash, tax_bp}` → the same answers; `rule: "tax-rate-range"`
@@ -27,7 +29,7 @@ use bakery_contracts::{
 };
 use bakery_domain::catalog::{
     Catalog as CatalogAggregate, CatalogCommand, CatalogError, CatalogEvent, CatalogState,
-    Category, Item, ItemStatus, Variant,
+    Category, Item, ItemStatus, Variant, price_commands,
 };
 use bakery_domain::outbox::{CommandCheck, Stamp, check_command, envelopes};
 use bakery_domain::{Cents, DecideContext, Ulid, WallTime, execute};
@@ -72,6 +74,9 @@ pub struct Patch {
     pub price_cents: Option<i64>,
     #[serde(default)]
     pub status: Option<MenuItemStatus>,
+    /// The one variant the price is for (roadmap R86); every variant when absent.
+    #[serde(default)]
+    pub variant: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -245,10 +250,10 @@ impl Catalog {
         };
         let mut commands = Vec::new();
         if let Some(price) = p.price_cents {
-            commands.extend(variants.iter().map(|v| CatalogCommand::SetPrice {
-                variant: v.slug.clone(),
-                price: Cents(price),
-            }));
+            match price_commands(&variants, p.variant.as_deref(), Cents(price)) {
+                Ok(set) => commands.extend(set),
+                Err(e) => return rejection(&e),
+            }
         }
         match p.status {
             Some(MenuItemStatus::Paused) => commands.push(CatalogCommand::Pause {

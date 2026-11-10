@@ -4,12 +4,16 @@ import { getMenu, getMenuDrafts, patchMenuItem, publishMenu, setTaxRate } from '
 import {
   anotherTabText,
   draftsFrom,
-  priceSetsText,
+  priceFieldName,
+  priceSaid,
   statusSaid,
   taxBpOf,
   taxRateSaid,
   unseenDrafts,
+  waitingPriceText,
   waitingText,
+  type ItemView,
+  type VariantView,
 } from '../lib/menu';
 import { describeError, type Message as Text } from '../lib/messages';
 import { dollars, dollarsField, parseDollars, parseTaxPercent, taxPercent } from '../lib/money';
@@ -30,7 +34,8 @@ const BAD_RATE: Text = {
 const RATE_ID = 'tax-rate';
 
 /**
- * A price is a draft until "Publish menu": it applies to every variant of an item, and one publish
+ * A price is a draft until "Publish menu": each variant has its own field and its own Set price
+ * (roadmap R86, 2026-11-10: a half loaf is priced apart from a whole one), and one publish
  * bumps the version, which is what invalidates the cached menu (docs/domain.md, "MenuItem
  * availability"). A pause or a resume is not a draft: the Catalog publishes it at once as a
  * version of its own and leaves the price drafts waiting. The list shows what is published; a note
@@ -61,7 +66,8 @@ export default function MenuEditor({
   onPublished?: (version: number) => void;
 }) {
   const [menu, setMenu] = useState<MenuResponse | null>(null);
-  // The waiting price of each item with a draft: the server's on load, then this page's edits.
+  // The draft price of each variant of an item with a draft, by variant slug: the server's on load,
+  // then this page's edits.
   const [drafts, setDrafts] = useState<Record<string, number>>({});
   // The slugs the server says wait for a publish (the drafts route, then each edit's answer);
   // null until the drafts are read, and for a guest, who cannot read them.
@@ -154,13 +160,66 @@ export default function MenuEditor({
     }
   }
 
-  const setPrice = (slug: string, name: string, cents: number) =>
+  const setPrice = (item: ItemView, variant: VariantView, cents: number) =>
     act(async () => {
-      const edit = await patchMenuItem(sandboxId, slug, { price_cents: cents });
+      const edit = await patchMenuItem(sandboxId, item.slug, {
+        price_cents: cents,
+        variant: variant.slug,
+      });
       setPending(edit.pending);
-      setDrafts((d) => ({ ...d, [slug]: cents }));
-      setSaid(`${name}: ${dollars(cents)} drafted for every variant. Publish to put it on sale.`);
+      setDrafts((d) => ({ ...d, [variant.slug]: cents }));
+      setSaid(priceSaid(item, variant, cents));
     });
+
+  /** One variant's price field and its Set price, with the note of what waits for Publish. */
+  const priceRow = (item: ItemView, variant: VariantView, labelled: boolean) => {
+    const id = `price-${variant.slug.replaceAll('/', '-')}`;
+    const name = priceFieldName(item, variant);
+    const field = fields[variant.slug] ?? dollarsField(drafts[variant.slug] ?? variant.price_cents);
+    const bad = fieldError === variant.slug;
+    const waits = waitingPriceText(variant.price_cents, drafts[variant.slug]);
+    const set = (
+      <button
+        type="button"
+        className="btn btn-secondary btn-sm"
+        disabled={isGuest}
+        aria-disabled={busy || undefined}
+        aria-label={`Set the price of ${name}`}
+        onClick={() => {
+          if (busy) return;
+          const cents = parseDollars(field);
+          if (cents === null) {
+            setSaid('');
+            setError(BAD_PRICE);
+            setFieldError(variant.slug);
+            return;
+          }
+          void setPrice(item, variant, cents);
+        }}
+      >
+        Set price
+      </button>
+    );
+    const input = (
+      <input
+        id={id}
+        aria-label={labelled ? undefined : `Price of ${name}, in dollars`}
+        type="text"
+        inputMode="decimal"
+        value={field}
+        disabled={isGuest}
+        aria-invalid={bad || undefined}
+        aria-describedby={bad ? `${id}-error` : undefined}
+        onChange={(e) => setFields((f) => ({ ...f, [variant.slug]: e.target.value }))}
+      />
+    );
+    const error = bad && (
+      <span id={`${id}-error`} className="problem">
+        <strong>{BAD_PRICE.title}.</strong> {BAD_PRICE.detail}
+      </span>
+    );
+    return { id, input, set, error, waits };
+  };
 
   const setStatus = (slug: string, name: string, status: MenuItemStatus) =>
     act(async () => {
@@ -250,7 +309,8 @@ export default function MenuEditor({
       </section>
       {menu !== null && (
         <p className="hint editor-note">
-          Prices are in dollars, and one price sets every variant of an item.
+          Prices are in dollars. Each variant, such as Whole and Half, has its own price and its own
+          Set price.
         </p>
       )}
       {menu?.categories.map((category) => (
@@ -258,104 +318,95 @@ export default function MenuEditor({
           <h4 id={`edit-${category.slug}`}>{category.name}</h4>
           <ul className="editor">
             {category.items.map((item) => {
-              const draft = drafts[item.slug];
-              const earlier = draft === undefined && (pending?.includes(item.slug) ?? false);
+              const differs = item.variants.some(
+                (v) => waitingPriceText(v.price_cents, drafts[v.slug]) !== null,
+              );
+              const earlier = !differs && (pending?.includes(item.slug) ?? false);
               const status = item.status;
-              const field =
-                fields[item.slug] ?? dollarsField(draft ?? item.variants[0]?.price_cents ?? 0);
-              const id = `price-${item.slug}`;
-              const sets = priceSetsText(item);
-              const bad = fieldError === item.slug;
-              const described = [sets && `${id}-sets`, bad && `${id}-error`]
-                .filter(Boolean)
-                .join(' ');
-              return (
-                <li key={item.slug}>
-                  <p>
-                    <strong>{item.name}</strong>
-                    {status === 'paused' && (
-                      <>
-                        {' '}
-                        <span className="badge" data-tone="pending">
-                          paused
-                        </span>
-                      </>
-                    )}
-                    <br />
-                    <span className="hint">
-                      {item.variants.map((v) => `${v.label} ${dollars(v.price_cents)}`).join(', ')}
-                    </span>
-                  </p>
-                  <p>
-                    <input
-                      id={id}
-                      aria-label={`Price of ${item.name}, in dollars`}
-                      type="text"
-                      inputMode="decimal"
-                      value={field}
-                      disabled={isGuest}
-                      aria-invalid={bad || undefined}
-                      aria-describedby={described || undefined}
-                      onChange={(e) => setFields((f) => ({ ...f, [item.slug]: e.target.value }))}
-                    />
-                    {sets && (
-                      <span id={`${id}-sets`} className="sr-only">
-                        {sets}
+              const pause = (
+                <button
+                  type="button"
+                  className="btn btn-quiet btn-sm"
+                  disabled={isGuest}
+                  aria-disabled={busy || undefined}
+                  aria-label={`${status === 'paused' ? 'Resume' : 'Pause'} ${item.name}`}
+                  onClick={() => {
+                    if (busy) return;
+                    void setStatus(
+                      item.slug,
+                      item.name,
+                      status === 'paused' ? 'available' : 'paused',
+                    );
+                  }}
+                >
+                  {status === 'paused' ? 'Resume' : 'Pause'}
+                </button>
+              );
+              const title = (
+                <>
+                  <strong>{item.name}</strong>
+                  {status === 'paused' && (
+                    <>
+                      {' '}
+                      <span className="badge" data-tone="pending">
+                        paused
                       </span>
-                    )}
-                    {bad && (
-                      <span id={`${id}-error`} className="problem">
-                        <strong>{BAD_PRICE.title}.</strong> {BAD_PRICE.detail}
-                      </span>
-                    )}
-                  </p>
-                  <p className="actions">
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      disabled={isGuest}
-                      aria-disabled={busy || undefined}
-                      aria-label={`Set the price of ${item.name}`}
-                      onClick={() => {
-                        if (busy) return;
-                        const cents = parseDollars(field);
-                        if (cents === null) {
-                          setSaid('');
-                          setError(BAD_PRICE);
-                          setFieldError(item.slug);
-                          return;
-                        }
-                        void setPrice(item.slug, item.name, cents);
-                      }}
-                    >
-                      Set price
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-quiet btn-sm"
-                      disabled={isGuest}
-                      aria-disabled={busy || undefined}
-                      aria-label={`${status === 'paused' ? 'Resume' : 'Pause'} ${item.name}`}
-                      onClick={() => {
-                        if (busy) return;
-                        void setStatus(
-                          item.slug,
-                          item.name,
-                          status === 'paused' ? 'available' : 'paused',
-                        );
-                      }}
-                    >
-                      {status === 'paused' ? 'Resume' : 'Pause'}
-                    </button>
-                  </p>
-                  {draft !== undefined && (
-                    <p className="hint">Waiting for publish: price {dollars(draft)}.</p>
+                    </>
                   )}
-                  {earlier && (
-                    <p className="hint">
-                      Waiting for publish: a price drafted in another tab. Reload to see it.
+                </>
+              );
+              const another = earlier && (
+                <p className="hint">
+                  Waiting for publish: a price drafted in another tab. Reload to see it.
+                </p>
+              );
+              const only = item.variants.length === 1 ? item.variants[0] : undefined;
+              if (only !== undefined) {
+                // One variant: one field, as the editor has always shown it.
+                const row = priceRow(item, only, false);
+                return (
+                  <li key={item.slug}>
+                    <p>
+                      {title}
+                      <br />
+                      <span className="hint">
+                        {only.label} {dollars(only.price_cents)}
+                      </span>
                     </p>
-                  )}
+                    <p>
+                      {row.input}
+                      {row.error}
+                    </p>
+                    <p className="actions">
+                      {row.set}
+                      {pause}
+                    </p>
+                    {row.waits && <p className="hint">{row.waits}</p>}
+                    {another}
+                  </li>
+                );
+              }
+              return (
+                <li key={item.slug} className="editor-variants">
+                  <div className="editor-head">
+                    <p>{title}</p>
+                    <p className="actions">{pause}</p>
+                  </div>
+                  {item.variants.map((v) => {
+                    const row = priceRow(item, v, true);
+                    return (
+                      <div key={v.slug} className="price-row">
+                        <label htmlFor={row.id}>
+                          {v.label} <span className="hint">now {dollars(v.price_cents)}</span>
+                        </label>
+                        {row.input}
+                        {row.set}
+                        {row.error}
+                        {row.waits && <p className="hint">{row.waits}</p>}
+                      </div>
+                    );
+                  })}
+                  {another}
                 </li>
               );
             })}
