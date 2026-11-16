@@ -14,11 +14,11 @@
     "menu": "node scripts/menu.mjs"
   },
   "dependencies": {
-    "@astrojs/react": "7.1.4",
+    "@astrojs/react": "7.1.8",
     "@stripe/react-stripe-js": "7.0.1",
-    "@stripe/stripe-js": "10.2.1",
+    "@stripe/stripe-js": "10.3.0",
     "@tailwindcss/vite": "4.3.5",
-    "astro": "7.4.7",
+    "astro": "7.4.11",
     "culori": "4.0.2",
     "react": "19.3.1",
     "react-dom": "19.3.1",
